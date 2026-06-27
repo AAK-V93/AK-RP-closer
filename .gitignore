@@ -1,0 +1,10 @@
+venv
+.venv
+node_modules
+.DS_Store
+.env
+.env.local
+livekit.toml
+*.egg-info/
+.next/
+.vercel
