@@ -31,10 +31,19 @@ export default function LoginPage() {
 
     const params = new URLSearchParams(window.location.search);
     const authError = params.get("error");
-    if (authError === "AccessDenied") {
-      setError(
-        "Google te reconoció, pero no pudimos crear la cuenta en la base de datos. Revisa DATABASE_URL en Vercel (Production y Preview) y vuelve a intentar.",
-      );
+    const code = params.get("code");
+    if (authError === "AccessDenied" || authError === "Database") {
+      if (code === "NO_URL") {
+        setError("Esta deploy no tiene DATABASE_URL. En Vercel, márcala para Production y Preview y redeploya.");
+      } else if (code === "P1001") {
+        setError("No se pudo alcanzar Neon (red o compute dormido). Espera 10 s e intenta de nuevo.");
+      } else if (code === "P2021") {
+        setError("Faltan las tablas. Corre prisma db push contra esa DATABASE_URL.");
+      } else {
+        setError(
+          `Google te reconoció, pero Neon rechazó crear la cuenta${code ? ` (${code})` : ""}. Abre /api/health/db para ver el error.`,
+        );
+      }
     } else if (authError === "OAuthCallback" || authError === "Callback") {
       setError(
         "Falló el retorno de Google. NEXTAUTH_URL y las URIs de redirección deben coincidir con esta URL.",

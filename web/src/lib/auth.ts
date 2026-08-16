@@ -4,7 +4,7 @@ import GoogleProvider from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import path from "path";
-import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
+import { getPrisma, isDatabaseConfigured, prismaErrorCode } from "@/lib/prisma";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
@@ -90,14 +90,15 @@ export const authOptions: NextAuthOptions = {
         const dbUser = await upsertGoogleUser(email, user.name);
         if (!dbUser) {
           console.error("Google sign-in: DATABASE_URL missing or Prisma unavailable");
-          return false;
+          return "/login?error=Database&code=NO_URL";
         }
         user.id = dbUser.id;
         user.email = dbUser.email;
         return true;
       } catch (error) {
-        console.error("Google sign-in upsert failed", error);
-        return false;
+        const code = prismaErrorCode(error);
+        console.error("Google sign-in upsert failed", code, error);
+        return `/login?error=Database&code=${encodeURIComponent(code)}`;
       }
     },
     async jwt({ token, user, account }) {
