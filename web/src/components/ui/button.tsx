@@ -87,9 +87,10 @@ function Button({
   asChild = false,
   leftIcon,
   rightIcon,
+  children,
   ...props
 }: ButtonProps) {
-  const Comp = asChild ? Slot : "button"
+  const Comp = asChild ? Slot : "button";
   const leftIconPrepared = leftIcon ? prepareIcon(leftIcon, size) : null;
   const rightIconPrepared = rightIcon ? prepareIcon(rightIcon, size) : null;
 
@@ -99,11 +100,17 @@ function Button({
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     >
-      {leftIconPrepared}
-      {props.children}
-      {rightIconPrepared}
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {leftIconPrepared}
+          {children}
+          {rightIconPrepared}
+        </>
+      )}
     </Comp>
-  )
+  );
 }
 
 export { Button, buttonVariants, BUTTON_VARIANTS, BUTTON_SIZES }
