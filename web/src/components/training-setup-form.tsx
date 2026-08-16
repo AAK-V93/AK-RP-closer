@@ -38,10 +38,16 @@ import {
 } from "@/lib/prospect-prompt";
 import { ProspectBrief } from "@/components/prospect-brief";
 import { useConnection } from "@/hooks/use-connection";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  OFFER_CASES,
+  OFFER_OTHER_ID,
+  getOfferCase,
+} from "@/data/offer-cases";
 
 const schema = z.object({
+  offerId: z.string().min(1, "Elige un tipo de oferta"),
   productName: z.string().min(2, "Mínimo 2 caracteres"),
   productDescription: z.string().min(10, "Describe tu producto (mín. 10 caracteres)"),
   difficulty: z.enum(["easy", "medium", "hard"]),
@@ -55,10 +61,13 @@ export function TrainingSetupForm() {
   const { trainingState, dispatch } = useTraining();
   const { shouldConnect } = useConnection();
   const [serverReady, setServerReady] = useState<boolean | null>(null);
+  const [parsingDoc, setParsingDoc] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
 
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
     defaultValues: {
+      offerId: "",
       productName: trainingState.training.productName,
       productDescription: trainingState.training.productDescription,
       difficulty: trainingState.training.difficulty,
@@ -70,6 +79,9 @@ export function TrainingSetupForm() {
   });
 
   const callSection = form.watch("callSection");
+  const offerId = form.watch("offerId");
+  const selectedOffer = getOfferCase(offerId);
+  const isOther = offerId === OFFER_OTHER_ID;
   const showBrief = shouldShowProspectBrief(callSection);
   const needsPitch = requiresPitchSummary(callSection);
 
@@ -125,40 +137,160 @@ export function TrainingSetupForm() {
         <div className="flex-grow overflow-y-auto py-4 space-y-4">
           <FormField
             control={form.control}
-            name="productName"
+            name="offerId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Producto que vendes</FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    disabled={shouldConnect}
-                    placeholder="Ej: Mentoría Scale Pro"
-                  />
-                </FormControl>
+                <FormLabel>Oferta a practicar</FormLabel>
+                <Select
+                  disabled={shouldConnect}
+                  onValueChange={(id) => {
+                    field.onChange(id);
+                    const preset = getOfferCase(id);
+                    if (preset) {
+                      form.setValue("productName", preset.productName, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
+                      form.setValue(
+                        "productDescription",
+                        preset.productDescription,
+                        { shouldDirty: true, shouldValidate: true },
+                      );
+                      form.setValue("pitchSummary", preset.pitchSummary, {
+                        shouldDirty: true,
+                      });
+                    } else if (id === OFFER_OTHER_ID) {
+                      form.setValue("productName", "", { shouldDirty: true });
+                      form.setValue("productDescription", "", {
+                        shouldDirty: true,
+                      });
+                      form.setValue("pitchSummary", "", { shouldDirty: true });
+                    }
+                  }}
+                  value={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Elige un caso típico" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {OFFER_CASES.map((offer) => (
+                      <SelectItem key={offer.id} value={offer.id}>
+                        {offer.label}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={OFFER_OTHER_ID}>Otra oferta…</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormDescription className="text-xs">
+                  Casos listos para practicar. Si no está, elige Otra oferta.
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
 
-          <FormField
-            control={form.control}
-            name="productDescription"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Descripción del producto</FormLabel>
-                <FormControl>
-                  <Textarea
-                    {...field}
-                    disabled={shouldConnect}
-                    rows={3}
-                    placeholder="Qué incluye, a quién ayuda, resultado principal..."
+          {selectedOffer && (
+            <div className="p-3 rounded-lg bg-bg0 border border-separator1 space-y-1">
+              <p className="text-sm font-medium">{selectedOffer.productName}</p>
+              <p className="text-xs text-fg3">{selectedOffer.tagline}</p>
+              <p className="text-xs text-fg2 pt-1">{selectedOffer.productDescription}</p>
+            </div>
+          )}
+
+          {isOther && (
+            <>
+              <FormField
+                control={form.control}
+                name="productName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nombre de tu oferta</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={shouldConnect || parsingDoc}
+                        placeholder="Ej: Mentoría Scale Pro"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="productDescription"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Qué vendes</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        disabled={shouldConnect || parsingDoc}
+                        rows={4}
+                        placeholder="Qué incluye, a quién ayuda, ticket, resultado..."
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="space-y-1">
+                <FormLabel>O sube un one-pager</FormLabel>
+                <label className="flex items-center gap-2 text-xs text-fg2 cursor-pointer">
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>
+                    {parsingDoc ? "Leyendo documento…" : "PDF, TXT o MD (máx. 4 MB)"}
+                  </span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.txt,.md,application/pdf,text/plain"
+                    disabled={shouldConnect || parsingDoc}
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (!file) return;
+                      setDocError(null);
+                      setParsingDoc(true);
+                      try {
+                        const body = new FormData();
+                        body.append("file", file);
+                        const response = await fetch("/api/offer-from-doc", {
+                          method: "POST",
+                          body,
+                        });
+                        const data = await response.json();
+                        if (!response.ok) {
+                          throw new Error(data.error || "No se pudo leer");
+                        }
+                        form.setValue("productName", data.productName || "");
+                        form.setValue(
+                          "productDescription",
+                          data.productDescription || "",
+                        );
+                        form.setValue("pitchSummary", data.pitchSummary || "");
+                      } catch (error) {
+                        setDocError(
+                          error instanceof Error
+                            ? error.message
+                            : "No se pudo leer el documento",
+                        );
+                      } finally {
+                        setParsingDoc(false);
+                      }
+                    }}
                   />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                </label>
+                {docError && (
+                  <p className="text-xs text-destructive">{docError}</p>
+                )}
+              </div>
+            </>
+          )}
 
           <FormField
             control={form.control}
