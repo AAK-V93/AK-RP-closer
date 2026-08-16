@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import dotenv from "dotenv";
 import path from "path";
+import { googleAuthConfigured } from "@/lib/auth";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
+dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 
 export async function GET() {
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY?.trim());
@@ -14,6 +16,7 @@ export async function GET() {
   return NextResponse.json({
     hasGeminiKey,
     hasLiveKit,
+    hasGoogleAuth: googleAuthConfigured(),
     ready: hasGeminiKey && hasLiveKit,
   });
 }

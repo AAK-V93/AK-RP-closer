@@ -234,16 +234,8 @@ class SessionManager:
             room=ctx.room,
             agent=self.current_agent,
         )
-        
-        # Greet as prospect according to training mode
-        await self.current_session.generate_reply(
-            instructions=(
-                "Actúa como prospecto según tus instrucciones. "
-                "Si estás en modo llamada completa o descubrimiento, saluda primero: "
-                "menciona que agendaste la llamada, que llenaste el formulario y que estás listo/a. "
-                "Sé natural y breve (2-3 oraciones)."
-            ),
-        )
+
+        # The closer always opens. Do not generate a prospect greeting.
 
         # Register RPC method for config updates
         @ctx.room.local_participant.register_rpc_method("pg.updateConfig")
@@ -258,10 +250,8 @@ class SessionManager:
                 logger.info(
                     f"config changed: {new_config.to_dict()}, participant: {participant.identity}"
                 )
-                # Pass old config before updating, so replace_session can detect what changed
-                old_config = self.current_config
                 self.current_config = new_config
-                await self.replace_session(ctx, participant, new_config, old_config)
+                await self.replace_session(ctx, participant, new_config)
                 return json.dumps({"changed": True})
             else:
                 logger.info("config not changed at all")
@@ -292,7 +282,7 @@ class SessionManager:
             logger.error(f"Failed to send image to frontend: {e}")
 
     @utils.log_exceptions(logger=logger)
-    async def replace_session(self, ctx: JobContext, participant: rtc.RemoteParticipant, config: SessionConfig, old_config: SessionConfig):
+    async def replace_session(self, ctx: JobContext, participant: rtc.RemoteParticipant, config: SessionConfig):
         """Replace the current session with a new one using updated config"""
         if self.current_session is None or self.current_agent is None:
             return
@@ -304,13 +294,6 @@ class SessionManager:
                 chat_ctx = self.current_agent.chat_ctx
         except Exception as e:
             logger.warning(f"Could not preserve chat context: {e}")
-        
-        # Track if nano banana is being newly enabled (compare old vs new config)
-        was_nano_banana_enabled = old_config.nano_banana_enabled
-        is_nano_banana_enabled = config.nano_banana_enabled
-        nano_banana_newly_enabled = not was_nano_banana_enabled and is_nano_banana_enabled
-        
-        logger.info(f"Nano Banana status: was={was_nano_banana_enabled}, now={is_nano_banana_enabled}, newly_enabled={nano_banana_newly_enabled}")
         
         # End current session
         await self.current_session.aclose()
@@ -334,21 +317,7 @@ class SessionManager:
             room=ctx.room,
             agent=self.current_agent,
         )
-        
-        # Notify user about the config change
-        try:
-            if nano_banana_newly_enabled:
-                logger.info("Nano Banana tool newly enabled")
-                await self.current_session.generate_reply(
-                    instructions="Briefly and enthusiastically announce: 'Nano Banana now active, feel free to ask me to generate an image and I can show you whatever you like!'",
-                )
-            else:
-                logger.info("Session restarted with new config")
-                await self.current_session.generate_reply(
-                    instructions=  is_nano_banana_enabled and "Briefly acknowledge that your configuration has been updated and you're ready to continue and announce that you can also generate images now!" or "Briefly acknowledge that your configuration has been updated and you're ready to continue"
-                )
-        except Exception as e:
-            logger.error(f"Failed to notify user about config change: {e}")
+        logger.info("Session restarted with new config; prospect stays silent until closer speaks")
 
 
 if __name__ == "__main__":

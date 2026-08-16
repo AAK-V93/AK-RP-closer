@@ -36,10 +36,10 @@ pnpm dev
 
 | Modo | Comportamiento del prospecto |
 |------|------------------------------|
-| **Llamada completa** | Agendó cita, llenó formulario, saluda e inicia descubrimiento → pitch → cierre |
-| **Solo descubrimiento** | Inicio de llamada; no avanza al pitch |
-| **Solo pitch** | Ya descubierto; muestra perfil del prospecto en la UI |
-| **Pitch + cierre** | Post-descubrimiento; evalúa p11–p23 |
+| **Reunión completa** | Agendó la reunión y llenó el formulario. Espera a que el closer abra. Descubrimiento → pitch → cierre |
+| **Solo descubrimiento** | Inicio de reunión; no avanza al pitch. El closer abre |
+| **Solo pitch** | Ya descubierto; no saluda ni pregunta de qué se trata |
+| **Pitch + cierre** | Post-descubrimiento; el closer retoma con el pitch |
 | **Solo cierre** | Ya conoce el pitch; pega resumen del pitch en la UI |
 
 ## Dificultad
@@ -62,6 +62,11 @@ pnpm exec prisma db push
 ```
 
 Variables: `DATABASE_URL` (Postgres, p.ej. Neon), `AUTH_SECRET` / `NEXTAUTH_SECRET`, `NEXTAUTH_URL`.
+
+Login con Google (recomendado): `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`. En Google Cloud → APIs & Services → Credentials → OAuth client (Web). Authorized redirect URIs:
+
+- `http://localhost:3000/api/auth/callback/google`
+- `https://TU-APP.vercel.app/api/auth/callback/google`
 
 ## Despliegue
 

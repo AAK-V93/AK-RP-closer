@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,30 @@ export default function LoginPage() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((data) => {
+        if (typeof data.hasGoogleAuth === "boolean") {
+          setHasGoogleAuth(data.hasGoogleAuth);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const onGoogle = async () => {
+    setError(null);
+    setGoogleBusy(true);
+    try {
+      await signIn("google", { callbackUrl: "/coach" });
+    } catch {
+      setError("No se pudo abrir Google");
+      setGoogleBusy(false);
+    }
+  };
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -41,7 +65,7 @@ export default function LoginPage() {
         throw new Error(
           mode === "register"
             ? "Cuenta creada, pero no se pudo entrar. Revisa la contraseña."
-            : "Email o contraseña incorrectos",
+            : "Email o contraseña incorrectos. Si te registraste con Google, usa ese botón.",
         );
       }
       router.push("/coach");
@@ -64,63 +88,78 @@ export default function LoginPage() {
         </Link>
       </header>
       <main className="flex-1 flex items-center justify-center p-6">
-        <form
-          onSubmit={onSubmit}
-          className="w-full max-w-sm space-y-4 rounded-2xl border border-separator1 bg-bg1 p-6"
-        >
+        <div className="w-full max-w-sm space-y-4 rounded-2xl border border-separator1 bg-bg1 p-6">
           <div>
             <h1 className="text-xl font-light">
               {mode === "login" ? "Entrar" : "Crear cuenta"}
             </h1>
             <p className="text-xs text-fg3 mt-1">
-              Guardamos tus prácticas para mostrarte errores repetidos y cómo
-              corregirlos.
+              Google confirma que el email es tuyo. Guardamos las prácticas para
+              el coaching.
             </p>
           </div>
 
-          {mode === "register" && (
-            <div className="space-y-1">
-              <Label htmlFor="name">Nombre</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Opcional"
-              />
-            </div>
+          {hasGoogleAuth && (
+            <Button
+              type="button"
+              variant="primary"
+              className="w-full"
+              disabled={googleBusy || busy}
+              onClick={onGoogle}
+            >
+              {googleBusy ? "Abriendo Google…" : "Continuar con Google"}
+            </Button>
           )}
 
-          <div className="space-y-1">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="password">Contraseña</Label>
-            <Input
-              id="password"
-              type="password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
+          {hasGoogleAuth && (
+            <p className="text-[11px] text-fg3 text-center">o con email</p>
+          )}
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          <form onSubmit={onSubmit} className="space-y-4">
+            {mode === "register" && (
+              <div className="space-y-1">
+                <Label htmlFor="name">Nombre</Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Opcional"
+                />
+              </div>
+            )}
 
-          <Button type="submit" variant="primary" className="w-full" disabled={busy}>
-            {busy
-              ? "Un momento…"
-              : mode === "login"
-                ? "Entrar"
-                : "Crear cuenta"}
-          </Button>
+            <div className="space-y-1">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="password">Contraseña</Label>
+              <Input
+                id="password"
+                type="password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+
+            {error && <p className="text-xs text-destructive">{error}</p>}
+
+            <Button type="submit" variant="outline" className="w-full" disabled={busy || googleBusy}>
+              {busy
+                ? "Un momento…"
+                : mode === "login"
+                  ? "Entrar con email"
+                  : "Crear cuenta con email"}
+            </Button>
+          </form>
 
           <button
             type="button"
@@ -131,10 +170,10 @@ export default function LoginPage() {
             }}
           >
             {mode === "login"
-              ? "¿No tienes cuenta? Crear una"
+              ? "¿No tienes cuenta? Crear una con email"
               : "¿Ya tienes cuenta? Entrar"}
           </button>
-        </form>
+        </div>
       </main>
     </div>
   );

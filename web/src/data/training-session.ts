@@ -60,7 +60,7 @@ export interface TrainingState {
 }
 
 export const CALL_SECTION_LABELS: Record<CallSection, string> = {
-  full: "Llamada completa",
+  full: "Reunión completa",
   discovery: "Solo descubrimiento",
   pitch: "Solo pitch",
   close: "Solo cierre",

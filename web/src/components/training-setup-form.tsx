@@ -411,10 +411,17 @@ export function TrainingSetupForm() {
                   </SelectContent>
                 </Select>
                 <FormDescription className="text-xs">
+                  Tú abres siempre. El lead agendó la reunión y ya tiene contexto.
+                  {callSection === "full" &&
+                    " Reunión de calendario: espera a que saludes."}
+                  {callSection === "discovery" &&
+                    " Inicio de reunión: no saluda primero."}
                   {callSection === "close" &&
-                    "Recomendado: usa Pitch + cierre. Si solo cierre, pega el pitch abajo."}
+                    " Ya hubo descubrimiento y pitch. Recomendado: Pitch + cierre. Si solo cierre, pega el pitch abajo."}
                   {callSection === "pitch" &&
-                    "Verás el perfil del prospecto ya descubierto."}
+                    " Ya hubo descubrimiento. Verás el perfil; el lead no saluda ni pregunta de qué se trata."}
+                  {callSection === "pitch_close" &&
+                    " Ya hubo descubrimiento. El closer retoma con el pitch."}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

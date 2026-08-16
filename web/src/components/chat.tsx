@@ -166,8 +166,8 @@ export function Chat() {
           <div className="text-center max-w-md px-4 mb-4 space-y-2">
             <h2 className="text-xl font-light">Práctica de cierre</h2>
             <p className="text-sm text-fg3">
-              El prospecto simulará una llamada de ventas según tu producto,
-              dificultad y sección elegida.
+              El lead espera a que tú abras la reunión. Agendó esta cita y ya
+              sabe el contexto. No va a saludar primero.
             </p>
           </div>
         )}

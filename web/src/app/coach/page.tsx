@@ -46,7 +46,7 @@ export default function CoachPage() {
         {status === "unauthenticated" && (
           <div className="rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3">
             <p className="text-sm">
-              Crea una cuenta para guardar cada práctica y ver en qué te trabas
+              Entra con Google para guardar cada práctica y ver en qué te trabas
               (dolor, 3A, usar el descubrimiento…).
             </p>
             <Button asChild variant="primary">

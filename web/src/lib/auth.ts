@@ -1,5 +1,6 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import GoogleProvider from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import path from "path";
@@ -8,10 +9,40 @@ import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 
+export function googleAuthConfigured() {
+  return Boolean(
+    process.env.GOOGLE_CLIENT_ID?.trim() &&
+      process.env.GOOGLE_CLIENT_SECRET?.trim(),
+  );
+}
+
+async function upsertGoogleUser(email: string, name?: string | null) {
+  const prisma = getPrisma();
+  if (!prisma) return null;
+  const normalized = email.toLowerCase().trim();
+  return prisma.user.upsert({
+    where: { email: normalized },
+    create: {
+      email: normalized,
+      name: name?.trim() || null,
+      passwordHash: null,
+    },
+    update: name?.trim() ? { name: name.trim() } : {},
+  });
+}
+
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [
+    ...(googleAuthConfigured()
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID!,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+          }),
+        ]
+      : []),
     CredentialsProvider({
       name: "Email",
       credentials: {
@@ -26,7 +57,7 @@ export const authOptions: NextAuthOptions = {
         const user = await prisma.user.findUnique({
           where: { email: credentials.email.toLowerCase().trim() },
         });
-        if (!user) return null;
+        if (!user?.passwordHash) return null;
         const ok = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!ok) return null;
         return { id: user.id, email: user.email, name: user.name };
@@ -34,11 +65,27 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn({ user, account }) {
+      if (account?.provider === "google") {
+        if (!user.email) return false;
+        const dbUser = await upsertGoogleUser(user.email, user.name);
+        return Boolean(dbUser);
+      }
+      return true;
+    },
+    async jwt({ token, user, account }) {
       if (user) {
-        token.sub = user.id;
         token.email = user.email;
         token.name = user.name;
+        if (account?.provider === "google" && user.email) {
+          const prisma = getPrisma();
+          const dbUser = await prisma?.user.findUnique({
+            where: { email: user.email.toLowerCase().trim() },
+          });
+          token.sub = dbUser?.id ?? token.sub;
+        } else {
+          token.sub = user.id;
+        }
       }
       return token;
     },
