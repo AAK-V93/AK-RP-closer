@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List
 
@@ -27,7 +28,7 @@ from livekit.plugins import google
 
 load_dotenv(dotenv_path=".env.local")
 
-logger = logging.getLogger("gemini-playground")
+logger = logging.getLogger("closer-trainer")
 logger.setLevel(logging.INFO)
 
 # Suppress OpenTelemetry attribute warnings
@@ -76,7 +77,7 @@ def parse_session_config(data: Dict[str, Any]) -> SessionConfig:
     logger.debug(f"Parsing config - nano_banana_enabled: {nano_banana_value} (type: {type(nano_banana_value).__name__}) -> {nano_banana_enabled}")
     
     config = SessionConfig(
-        gemini_api_key=data.get("gemini_api_key", ""),
+        gemini_api_key=data.get("gemini_api_key") or os.getenv("GEMINI_API_KEY", ""),
         instructions=data.get("instructions", ""),
         model=data.get("model", "gemini-2.5-flash-native-audio-preview-12-2025"),
         voice=data.get("voice", "Puck"),

@@ -10,11 +10,17 @@ on:
         options:
           - deploy
         default: "deploy"
+  push:
+    branches:
+      - main
+    paths:
+      - "agent/**"
+      - ".github/workflows/deploy-agent.yml"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production
+    environment: prod
     concurrency:
       group: ${{ github.workflow }}-agent
       cancel-in-progress: true
@@ -26,31 +32,31 @@ jobs:
         run: |
           cat > agent/livekit.toml << 'EOF'
           [project]
-            subdomain = "geminiplayground-cmxxiyax"
+            subdomain = "rp-sulkfgmx"
 
           [agent]
-            id = "CA_K5ABztZkb3G4"
+            id = "CA_QJvJAcPCMvRT"
           EOF
           echo "✅ Created temporary livekit.toml for deployment"
           cat agent/livekit.toml
 
       - name: Deploy LiveKit Cloud Agent
-        if: github.event.inputs.operation == 'deploy'
         uses: livekit/deploy-action@v2.12.1
         env:
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
-          SECRET_LIST: DUMMY_SECRET=not-used
+          SECRET_LIST: ${{ secrets.SECRET_LIST }}
         with:
           OPERATION: deploy
           WORKING_DIRECTORY: agent
 
       - name: Deployment summary
-        if: github.event.inputs.operation == 'deploy'
         run: |
           echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**LiveKit project:** rp-sulkfgmx" >> $GITHUB_STEP_SUMMARY
+          echo "**Agent ID:** CA_QJvJAcPCMvRT" >> $GITHUB_STEP_SUMMARY
           echo "**Working Directory:** agent" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

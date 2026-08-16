@@ -17,14 +17,6 @@ export async function POST(request: Request) {
       return Response.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
-    const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
-    if (!geminiApiKey) {
-      return Response.json(
-        { error: "GEMINI_API_KEY must be set in server environment" },
-        { status: 500 },
-      );
-    }
-
     const { training, sessionConfig } = payload;
     const instructions = buildProspectInstructions(training);
 
@@ -47,7 +39,6 @@ export async function POST(request: Request) {
       temperature: sessionConfig.temperature,
       max_output_tokens: sessionConfig.maxOutputTokens,
       nano_banana_enabled: false,
-      gemini_api_key: geminiApiKey,
       training_mode: training.callSection,
       product_name: training.productName,
       difficulty: training.difficulty,

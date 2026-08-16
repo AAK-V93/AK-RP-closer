@@ -35,6 +35,10 @@ Thumbs.db
 # LiveKit
 livekit.toml
 
+# Secrets
+.env
+.env.*
+
 # Development files
 *.log
 *.pid
