@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import dotenv from "dotenv";
 import path from "path";
-import { getCriteriaForSection } from "@/data/rubric";
+import {
+  AAA_EVALUATOR_BRIEF,
+  getCriteriaForSection,
+} from "@/data/rubric";
 import { CallSection } from "@/data/training-session";
 import { LanguageCode, getLanguage } from "@/data/languages";
 
@@ -67,29 +70,34 @@ export async function POST(request: Request) {
 
     const lang = getLanguage(language ?? "es");
 
-    const prompt = `Eres un coach experto en ventas de alto ticket. Evalúa la siguiente llamada de roleplay.
+    const prompt = `Eres un coach de ventas. Evalúas roleplays. NO uses rúbricas de pitch/cierre/guion. Solo esto:
+
+1) ¿El closer detectó DOLOR, DESEO y URGENCIA a profundidad, siendo curioso, con preguntas?
+2) Ante objeciones o preguntas del lead: ¿usó el método 3A (Acknowledge, Associate, Ask back)?
+
+${AAA_EVALUATOR_BRIEF}
 
 PRODUCTO: ${productName}
 DIFICULTAD DEL PROSPECTO: ${difficulty}
-IDIOMA DE LA LLAMADA: ${lang.nativeName}
-SECCIÓN PRACTICADA: ${callSection}
+IDIOMA: ${lang.nativeName}
+MODO DE PRÁCTICA: ${callSection} (no cambia la rúbrica; siempre evalúa lo mismo)
 
 TRANSCRIPCIÓN:
 ${transcriptText}
 
-RÚBRICA (evalúa SOLO estos criterios):
+CRITERIOS (evalúa TODOS):
 ${criteriaList}
 
-Responde ÚNICAMENTE con JSON válido (sin markdown) con esta estructura:
+Responde ÚNICAMENTE con JSON válido (sin markdown):
 {
   "overallScore": <número 0-100>,
   "criteria": [
     {
-      "id": "p1",
+      "id": "pain",
       "label": "...",
       "score": <0-10>,
       "maxScore": 10,
-      "feedback": "feedback breve en español"
+      "feedback": "feedback breve, cita algo concreto de la transcripción"
     }
   ],
   "strengths": ["..."],
@@ -97,12 +105,13 @@ Responde ÚNICAMENTE con JSON válido (sin markdown) con esta estructura:
   "coachingTips": ["consejo accionable 1", "consejo 2", "consejo 3"]
 }
 
-Reglas:
-- score por criterio de 0 a 10
-- overallScore es promedio ponderado * 10
-- Si un criterio no aplica (ej. compartir pantalla sin evidencia), score 5 con feedback explicando
-- coachingTips: 3-5 consejos concretos para la próxima práctica
-- Todo en ${lang.nativeName}`;
+Reglas de scoring:
+- 0-10 por criterio. 9-10 = profundidad real + el LEAD lo dijo. 6-7 = tocó el tema pero superficial. 0-4 = asumió, pitcheó, o no preguntó.
+- overallScore = promedio de los 6 scores × 10.
+- Dolor/deseo/urgencia: si el closer no preguntó, puntúa bajo aunque "tuviera razón".
+- AAA: si el prospecto hizo al menos una pregunta u objeción, evalúa cómo la manejó (respuesta inmediata a trampa = bajo en ask; discutir = bajo en acknowledge; no hay label positivo = bajo en associate).
+- Si NO hubo ninguna pregunta/objeción del lead: AAA en 5 con feedback "no hubo objeción/pregunta para practicar 3A", EXCEPTO si el closer dijo "¿tienes alguna pregunta?" → aaa_ask máximo 2.
+- coachingTips: 3-5, concretos, con ejemplos de pregunta que debió hacer. Todo en ${lang.nativeName}.`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,

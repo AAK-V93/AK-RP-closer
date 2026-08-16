@@ -1,181 +1,105 @@
-export type RubricPhase = "descubrimiento" | "pitch" | "cierre";
+export type RubricPhase = "descubrimiento" | "objeciones";
 
 export interface RubricCriterion {
   id: string;
   phase: RubricPhase;
   label: string;
   description: string;
-  /** Critical closing technique highlighted in the rubric */
+  /** Weighted more heavily in coaching feedback */
   critical?: boolean;
 }
 
 export const RUBRIC_CRITERIA: RubricCriterion[] = [
   {
-    id: "p1",
+    id: "pain",
     phase: "descubrimiento",
-    label: "Rompe el hielo",
-    description: "Inicia la llamada con calidez y reduce la tensión inicial.",
-  },
-  {
-    id: "p2",
-    phase: "descubrimiento",
-    label: "Crea conexión",
-    description: "Genera rapport y confianza con el prospecto.",
-  },
-  {
-    id: "p3",
-    phase: "descubrimiento",
-    label: "Preguntas anti-objeciones",
+    label: "Dolor a profundidad",
     description:
-      "Indaga sobre socio/pareja, tiempo y dinero para anticipar objeciones.",
-  },
-  {
-    id: "p4",
-    phase: "descubrimiento",
-    label: "Comparte pantalla",
-    description: "Comparte pantalla cuando corresponde en el guion.",
+      "Descubrió el dolor real del lead con preguntas curiosas, no con supuestos ni pitch. Llegó más allá de la queja superficial: impacto, historia, qué ha intentado.",
     critical: true,
   },
   {
-    id: "p5",
+    id: "desire",
     phase: "descubrimiento",
-    label: "Indaga el problema",
+    label: "Deseo a profundidad",
     description:
-      "Pregunta literalmente cuál es el problema y profundiza en los dolores.",
-  },
-  {
-    id: "p6",
-    phase: "descubrimiento",
-    label: "Indaga historial y urgencia",
-    description:
-      "Explora qué ha intentado, cuánto tiempo lleva con el problema y por qué ahora.",
-  },
-  {
-    id: "p7",
-    phase: "descubrimiento",
-    label: "Indaga deseo y motivación",
-    description:
-      "Pregunta qué quiere lograr, usa storytelling y CTA emocional; indaga dolores x3.",
-  },
-  {
-    id: "p8",
-    phase: "descubrimiento",
-    label: "Micro-cierres de alineación",
-    description:
-      'Busca "sí" con frases como "¿Estamos alineados?", "¿Todo claro?" con tono conversacional.',
+      "Descubrió qué quiere lograr y por qué le importa, con preguntas. El lead verbalizó el resultado deseado; el closer no se lo puso en la boca.",
     critical: true,
   },
   {
-    id: "p9",
+    id: "urgency",
     phase: "descubrimiento",
-    label: "Cuadro METAS en Excel",
-    description: "Utiliza y explica la calculadora METAS con el cliente.",
-  },
-  {
-    id: "p10",
-    phase: "descubrimiento",
-    label: "Transición a la oferta",
-    description: "Hace una transición natural y correcta hacia el pitch.",
-  },
-  {
-    id: "p11",
-    phase: "pitch",
-    label: "Storytelling de la mentoría",
+    label: "Urgencia a profundidad",
     description:
-      "Explica los elementos de acción con storytelling para que el cliente se visualice dentro.",
-  },
-  {
-    id: "p12",
-    phase: "pitch",
-    label: "Guía a preguntar precio",
-    description: "Conduce la conversación para que el prospecto pregunte el precio.",
-  },
-  {
-    id: "p13",
-    phase: "pitch",
-    label: "Oferta detallada",
-    description: "Presenta la oferta de forma clara y completa.",
-  },
-  {
-    id: "p14",
-    phase: "pitch",
-    label: "Dos opciones de cierre",
-    description: "Muestra dos opciones con calma y busca el cierre mediante elección.",
+      "Descubrió por qué ahora: costo de no actuar, timing, miedo a seguir igual. Preguntó; no empujó urgencia artificial.",
     critical: true,
   },
   {
-    id: "p15",
-    phase: "pitch",
-    label: "Pregunta forma de pago",
+    id: "aaa_acknowledge",
+    phase: "objeciones",
+    label: "AAA — Acknowledge",
     description:
-      'Pregunta "¿Cómo te gustaría pagar? Visa, Mastercard o American Express".',
+      "Ante una pregunta u objeción, reformuló lo que el lead dijo, validó y compró tiempo. No discutió ni invalidó.",
+  },
+  {
+    id: "aaa_associate",
+    phase: "objeciones",
+    label: "AAA — Associate",
+    description:
+      "Asoció la pregunta/objeción con el tipo de persona que obtiene buenos resultados (label positivo, cliente exitoso, autoridad). El lead da un paso atrás y se siente más cerca de comprar, no más lejos.",
+  },
+  {
+    id: "aaa_ask",
+    phase: "objeciones",
+    label: "AAA — Ask back",
+    description:
+      "Preguntó sobre la pregunta. No respondió trampas de inmediato. Mantuvo el control. No cedió el volante con «¿tienes alguna pregunta?».",
     critical: true,
-  },
-  {
-    id: "p16",
-    phase: "pitch",
-    label: "Silencio después del precio",
-    description: "Se queda en silencio después de decir el precio.",
-    critical: true,
-  },
-  {
-    id: "p17",
-    phase: "pitch",
-    label: "Manejo de objeciones",
-    description: "Maneja objeciones de forma óptima durante el pitch.",
-  },
-  {
-    id: "p18",
-    phase: "pitch",
-    label: "Información clara",
-    description: "Entrega información clara y sin ambigüedades.",
-  },
-  {
-    id: "p19",
-    phase: "pitch",
-    label: "Control de la llamada",
-    description: "Mantiene el control y la dirección de la conversación.",
-  },
-  {
-    id: "p20",
-    phase: "cierre",
-    label: "Manejo del tiempo",
-    description: "Cierra en menos de 35 minutos en la fase de cierre.",
-  },
-  {
-    id: "p21",
-    phase: "cierre",
-    label: "Próxima cita",
-    description: "Agenda fecha de seguimiento si no cierra en el momento.",
-  },
-  {
-    id: "p22",
-    phase: "cierre",
-    label: "Intento de depósito",
-    description: "Intenta o colecta depósito para asegurar la venta.",
-  },
-  {
-    id: "p23",
-    phase: "cierre",
-    label: "Tonalidad y fluidez",
-    description: "Mantiene buena tonalidad y fluidez conversacional.",
   },
 ];
 
-export function getCriteriaForSection(section: string): RubricCriterion[] {
-  switch (section) {
-    case "discovery":
-      return RUBRIC_CRITERIA.filter((c) => c.phase === "descubrimiento");
-    case "pitch":
-      return RUBRIC_CRITERIA.filter((c) => c.phase === "pitch");
-    case "close":
-      return RUBRIC_CRITERIA.filter((c) => c.phase === "cierre");
-    case "pitch_close":
-      return RUBRIC_CRITERIA.filter(
-        (c) => c.phase === "pitch" || c.phase === "cierre",
-      );
-    case "full":
-    default:
-      return RUBRIC_CRITERIA;
-  }
+/** Always the same rubric — discovery + AAA, regardless of practice section. */
+export function getCriteriaForSection(_section?: string): RubricCriterion[] {
+  return RUBRIC_CRITERIA;
 }
+
+/**
+ * Condensed 3A (Acknowledge / Associate / Ask) coaching notes for the evaluator.
+ * Source: Hormozi reframing training (3A framework + 5 rules).
+ */
+export const AAA_EVALUATOR_BRIEF = `
+MARCO 3A (reframe después de cualquier cosa que no sea "sí"):
+
+1) ACKNOWLEDGE — Di de vuelta lo que dijeron. Beneficios: sienten que escuchas; te compra 2–3 segundos para pensar. Nunca discutes ni invalidas. Tono: "totalmente entiendo", "es una pregunta justa", "huh, interesante".
+
+2) ASSOCIATE — Vincula su pregunta/objeción con el comportamiento de quien mejor resultado saca de tu oferta. Si se alejan de comprar, el reframe dice: esa pregunta en realidad te hace MÁS el tipo de cliente que compra. Ejemplos:
+   - "Es una gran pregunta; de hecho la hacen mucho nuestros mejores clientes."
+   - "Eso muestra que estás tomando una decisión seria / racional."
+   - Straw man: "hoy alguien me preguntó lo mismo, ¿te cuento lo que le dije?" / "te pareces a Sarah, que también tenía ese recelo y le fue muy bien" / "Alex me dijo esto hoy, ¿te lo comparto?"
+   El straw man permite verdades duras sin insultar al prospecto.
+
+3) ASK BACK — Pregunta sobre la pregunta. Quien pregunta controla la conversación. No contestes trampas (certificaciones, número de tickets, "tengo que pensarlo") hasta saber qué están juzgando. Ejemplos:
+   - "¿Qué certificaciones buscas específicamente?" / "¿Por qué esas?"
+   - "¿Para qué quieres preguntar eso? ¿Cuál es el miedo de fondo?"
+   - "¿Cuál es tu preocupación principal?" / "¿De qué tienes más miedo que pase?"
+   - "¿Qué haría que esto sea un no?" / "¿Qué necesitarías para decir que sí?"
+   - Timing: "¿Qué lo haría un buen momento?"
+   - Pareja: "¿Qué partes crees que no les gustaría?"
+
+REGLAS:
+- El prospecto casi no cree lo que TÚ dices y sí cree lo que ÉL dice. Haz que ellos concluyan el fit con preguntas, no se lo expliques.
+- NUNCA preguntes "¿tienes alguna pregunta?" — les pides objeciones y les das el volante.
+- Si contestas de inmediato, ellos son juez de si tu respuesta es suficiente. Pregunta primero.
+- Nunca ganas una venta ganando una discusión. Sé como humo: no se te puede agarrar; no se puede estar en desacuerdo con una pregunta.
+- Curiosidad infantil siempre: seek to understand, not win. Si se siente combativo, ya perdiste.
+- No asumas qué preguntan: la mayoría no sabe ni ellos. Pregunta sobre su pregunta.
+- "I need to think about it" / "no tengo tiempo" / "tengo que hablarlo con mi pareja" / "odio esta feature" NO son fin de la venta: acknowledge + associate + pregunta específica.
+- Si no sabes la respuesta, SIEMPRE puedes preguntar más sobre su pregunta.
+
+CÓMO SE DESCUBRE DOLOR / DESEO / URGENCIA:
+- Solo con curiosidad y preguntas. Castiga pitch prematuro, monólogos y supuestos.
+- Dolor profundo = impacto emocional/práctico, intentos previos, costo de seguir igual — dicho POR el lead.
+- Deseo profundo = resultado concreto y por qué le importa — dicho POR el lead.
+- Urgencia profunda = por qué ahora, qué pasa si espera — dicho POR el lead.
+- Si el closer "adivinó" bien pero no preguntó, puntúa bajo: no detectó, declaró.
+`.trim();

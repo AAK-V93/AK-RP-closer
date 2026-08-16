@@ -1,6 +1,6 @@
 # AK-RP — Closer Trainer
 
-Simulador de ventas por voz para entrenar closers. El agente actúa como **prospecto interesado** mientras tú practicas descubrimiento, pitch y cierre. Al terminar, evalúa tu desempeño con una rúbrica de 23 criterios.
+Simulador de ventas por voz para entrenar closers. El agente actúa como **prospecto interesado**. Al terminar, evalúa si detectaste dolor, deseo y urgencia a profundidad y si manejaste objeciones con el 3A (Acknowledge, Associate, Ask back).
 
 ## Estructura
 
@@ -50,7 +50,7 @@ pnpm dev
 
 ## Evaluación
 
-Al terminar la llamada, se envía la transcripción a Gemini para puntuar según la rúbrica (p1–p23 según la sección practicada) y devolver consejos de mejora.
+Al terminar la llamada, Gemini puntúa si detectaste **dolor, deseo y urgencia** a profundidad (con preguntas) y si manejaste objeciones/preguntas con el **3A de Hormozi** (Acknowledge, Associate, Ask back).
 
 ## Despliegue
 

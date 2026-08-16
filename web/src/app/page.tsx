@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 export const metadata: Metadata = {
   title: "Closer Trainer | Simulador de ventas con IA",
   description:
-    "Entrena tu pitch, descubrimiento y cierre con un prospecto simulado por voz. Evaluación automática con rúbrica de ventas.",
+    "Entrena descubrimiento y objeciones con un prospecto por voz. Evaluación: dolor, deseo, urgencia y método 3A.",
 };
 
 export default function Dashboard() {

@@ -428,7 +428,8 @@ function sectionBehavior(
 - Inicia TÚ la conversación con un saludo natural, como quien llega a una videollamada agendada.
 - Menciona que completaste el formulario y que estás interesada en saber más.
 - El closer debe llevarte por descubrimiento → pitch → cierre.
-- NO reveles todos tus dolores de golpe; deja que el closer los descubra.
+- NO reveles todos tus dolores de golpe; deja que el closer los descubra con preguntas.
+- Plantea al menos una pregunta u objeción durante la llamada para que pueda practicar 3A.
 - Datos del formulario precalificatorio:
   • Meta: ${p.preQualification.mainGoal}
   • Situación: ${p.preQualification.currentSituation}
@@ -440,7 +441,7 @@ function sectionBehavior(
       return `MODO: SOLO DESCUBRIMIENTO
 - Es el inicio de la llamada sobre "${productName}".
 - Saluda como prospecto que agendó la cita y llenó el formulario precalificatorio.
-- Permite que el closer practique descubrimiento (p1-p10).
+- Permite que el closer descubra dolor, deseo y urgencia con preguntas; no los sueltes de golpe.
 - NO pidas precio ni hables de comprar; estás en fase de exploración.
 - Si el closer intenta hacer pitch, responde: "Prefiero entender bien primero si esto es para mí".
 - Formulario precalificatorio:
@@ -453,7 +454,7 @@ function sectionBehavior(
 - El descubrimiento YA ocurrió. El closer ya conoce tu perfil (no lo repitas salvo que pregunten).
 - Estás receptiva pero evaluando; espera que te presenten la oferta.
 - Si el closer vuelve a descubrir en exceso, puedes decir "Creo que ya me conoces, cuéntame del programa".
-- Puedes preguntar precio SOLO si el closer te guía bien (p12).
+- Haz al menos una pregunta trampa o una objeción (precio, tiempo, "lo pienso", pareja) para que practique 3A.
 - Reacciona a la oferta con objeciones acordes a tu dificultad.`;
 
     case "close":
@@ -462,7 +463,7 @@ function sectionBehavior(
 - Resumen del pitch que ya conoces:
 ${pitchSummary?.trim() || `Programa ${productName}: mentoría/acompañamiento para lograr ${p.preQualification.mainGoal}. Incluye plan de acción, soporte y seguimiento.`}
 - Estás en fase de decisión: puedes comprar, posponer u objetar.
-- El closer practica cierre (p20-p23) y manejo de objeciones finales.
+- Objeta y pregunta (tiempo, dinero, pareja, "lo pienso") para que practique Acknowledge / Associate / Ask.
 - NO actúes como si no supieras nada del producto.`;
 
     case "pitch_close":
@@ -473,7 +474,7 @@ ${pitchSummary?.trim() || `Programa ${productName}: mentoría/acompañamiento pa
   • Urgencia: ${p.urgency}
   • Deseo: ${p.desire}
 - Espera el pitch y luego entra en fase de decisión con objeciones realistas.
-- Evalúa técnicas de pitch (p11-p19) y cierre (p20-p23).`;
+- Plantea objeciones y preguntas para que practique 3A; no reveles dolor/deseo/urgencia a menos que pregunte bien.`;
   }
 }
 

@@ -36,7 +36,7 @@ export function CallScorePanel({
     return (
       <Card className="border-separator1 bg-bg1">
         <CardContent className="py-8 text-center text-sm text-fg2">
-          Evaluando tu llamada según la rúbrica...
+          Evaluando dolor, deseo, urgencia y manejo 3A...
         </CardContent>
       </Card>
     );

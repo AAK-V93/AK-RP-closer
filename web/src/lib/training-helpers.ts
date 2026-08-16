@@ -38,20 +38,7 @@ export const trainingHelpers = {
     return null;
   },
 
-  getApplicableRubricIds(section: CallSection): string[] {
-    const map: Record<CallSection, string[]> = {
-      full: Array.from({ length: 23 }, (_, i) => `p${i + 1}`),
-      discovery: Array.from({ length: 10 }, (_, i) => `p${i + 1}`),
-      pitch: Array.from({ length: 9 }, (_, i) => `p${i + 11}`),
-      close: ["p20", "p21", "p22", "p23"],
-      pitch_close: [
-        ...Array.from({ length: 9 }, (_, i) => `p${i + 11}`),
-        "p20",
-        "p21",
-        "p22",
-        "p23",
-      ],
-    };
-    return map[section];
+  getApplicableRubricIds(_section: CallSection): string[] {
+    return ["pain", "desire", "urgency", "aaa_acknowledge", "aaa_associate", "aaa_ask"];
   },
 };
