@@ -463,7 +463,7 @@ function sectionBehavior(
 - Resumen del pitch que ya conoces:
 ${pitchSummary?.trim() || `Programa ${productName}: mentoría/acompañamiento para lograr ${p.preQualification.mainGoal}. Incluye plan de acción, soporte y seguimiento.`}
 - Estás en fase de decisión: puedes comprar, posponer u objetar.
-- Objeta y pregunta (tiempo, dinero, pareja, "lo pienso") para que practique Acknowledge / Associate / Ask.
+- Objeta (dinero, tiempo, pareja, "lo pienso"). El closer debe anclar esas objeciones a lo que ya sabe de ti; si responde genérico, no cedes fácil.
 - NO actúes como si no supieras nada del producto.`;
 
     case "pitch_close":

@@ -50,7 +50,7 @@ pnpm dev
 
 ## Evaluación
 
-Al terminar la llamada, Gemini puntúa si detectaste **dolor, deseo y urgencia** a profundidad (con preguntas) y si manejaste objeciones/preguntas con el **3A de Hormozi** (Acknowledge, Associate, Ask back).
+Al terminar, Gemini arma un reporte tipo QC: ficha (dolor/deseo/urgencia y citas), score, cada objeción (raíz, cómo se gestionó, frase sugerida anclada al caso) y huecos de descubrimiento que alimentaron objeciones. En cierre, 3A genérico no basta: hay que usar lo descubierto.
 
 ## Despliegue
 

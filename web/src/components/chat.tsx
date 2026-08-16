@@ -113,6 +113,8 @@ export function Chat() {
         productName: trainingState.training.productName,
         difficulty: trainingState.training.difficulty,
         language: trainingState.training.language,
+        prospectProfile: trainingState.training.prospectProfile,
+        pitchSummary: trainingState.training.pitchSummary,
       });
     }
     wasConnectedRef.current = shouldConnect;

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { CallEvaluation } from "@/components/call-score-panel";
+import { CallEvaluation } from "@/data/evaluation";
+import { ProspectProfile } from "@/data/training-session";
 
 export type TranscriptLine = {
   role: "closer" | "prospect";
@@ -21,6 +22,8 @@ export function useCallEvaluation() {
         productName: string;
         difficulty: string;
         language: string;
+        prospectProfile?: ProspectProfile;
+        pitchSummary?: string;
       },
     ) => {
       if (transcript.length < 2) {
@@ -43,6 +46,8 @@ export function useCallEvaluation() {
             productName: meta.productName,
             difficulty: meta.difficulty,
             language: meta.language,
+            prospectProfile: meta.prospectProfile,
+            pitchSummary: meta.pitchSummary,
           }),
         });
 

@@ -56,10 +56,23 @@ export const RUBRIC_CRITERIA: RubricCriterion[] = [
       "Preguntó sobre la pregunta. No respondió trampas de inmediato. Mantuvo el control. No cedió el volante con «¿tienes alguna pregunta?».",
     critical: true,
   },
+  {
+    id: "use_discovery",
+    phase: "objeciones",
+    label: "Usa el descubrimiento en la objeción",
+    description:
+      "Cada objeción se reencuadra con dolor, deseo, urgencia y citas concretas del lead. 3A genérico no basta. No downsell prematuro. Aísla la objeción y la ancla al costo de inacción que ya salió.",
+    critical: true,
+  },
 ];
 
 const DISCOVERY_IDS = new Set(["pain", "desire", "urgency"]);
-const AAA_IDS = new Set(["aaa_acknowledge", "aaa_associate", "aaa_ask"]);
+const CLOSE_IDS = new Set([
+  "aaa_acknowledge",
+  "aaa_associate",
+  "aaa_ask",
+  "use_discovery",
+]);
 
 /** Practice mode still exists; scoring follows the section. */
 export function getCriteriaForSection(section?: string): RubricCriterion[] {
@@ -67,13 +80,14 @@ export function getCriteriaForSection(section?: string): RubricCriterion[] {
     case "pitch":
     case "close":
     case "pitch_close":
-      return RUBRIC_CRITERIA.filter((c) => AAA_IDS.has(c.id));
+      return RUBRIC_CRITERIA.filter((c) => CLOSE_IDS.has(c.id));
     case "discovery":
+      return RUBRIC_CRITERIA.filter(
+        (c) => DISCOVERY_IDS.has(c.id) || c.id.startsWith("aaa_"),
+      );
     case "full":
     default:
-      return RUBRIC_CRITERIA.filter(
-        (c) => DISCOVERY_IDS.has(c.id) || AAA_IDS.has(c.id),
-      );
+      return RUBRIC_CRITERIA;
   }
 }
 
@@ -82,11 +96,11 @@ export function sectionEvalNotes(section?: string): string {
     case "discovery":
       return `MODO SOLO DESCUBRIMIENTO: evalúa dolor, deseo y urgencia (con preguntas). También 3A si el lead pregunta u objeta. No penalices por no hacer pitch ni cierre.`;
     case "pitch":
-      return `MODO SOLO PITCH: el descubrimiento YA ocurrió. NO evalúes si "descubrió" dolor/deseo/urgencia (no debía reabrir interrogatorio). Evalúa 3A ante preguntas/objeciones. Si reabre descubrimiento pesado, menciónalo en improvements.`;
+      return `MODO SOLO PITCH: el descubrimiento YA ocurrió (ficha del prospecto). NO penalices por no re-interrogar. Evalúa 3A Y si usó dolor/deseo/urgencia conocidos al manejar objeciones. Si reabre descubrimiento pesado, menciónalo en improvements.`;
     case "close":
-      return `MODO SOLO CIERRE: el lead ya oyó el pitch. Evalúa SOLO 3A en objeciones/preguntas. No penalices por no descubrir de nuevo.`;
+      return `MODO SOLO CIERRE: el lead ya oyó el pitch. Evalúa 3A Y si cada objeción se ancla a lo descubierto (ficha + transcripción). Un 3A genérico ("entiendo, es una gran pregunta") sin citar su dolor/urgencia es INSUFICIENTE.`;
     case "pitch_close":
-      return `MODO PITCH + CIERRE: descubrimiento ya ocurrió. Evalúa 3A. No penalices por no re-descubrir.`;
+      return `MODO PITCH + CIERRE: descubrimiento ya ocurrió. Evalúa 3A + uso del descubrimiento en objeciones. No penalices por no re-descubrir.`;
     case "full":
     default:
       return `MODO LLAMADA COMPLETA: evalúa dolor, deseo y urgencia en descubrimiento Y 3A en cada pregunta/objeción.`;
@@ -132,4 +146,12 @@ CÓMO SE DESCUBRE DOLOR / DESEO / URGENCIA:
 - Deseo profundo = resultado concreto y por qué le importa — dicho POR el lead.
 - Urgencia profunda = por qué ahora, qué pasa si espera — dicho POR el lead.
 - Si el closer "adivinó" bien pero no preguntó, puntúa bajo: no detectó, declaró.
+
+USAR EL DESCUBRIMIENTO EN EL CIERRE (calidad tipo QC de llamada real):
+- Ante "está caro" / "lo hablo con mi pareja" / "no es el momento", el closer DEBE traer de vuelta lo que el lead ya dijo: tiempo con el problema, pérdida, DIY que no funcionó, "ahora es necesario", citas textuales.
+- Ejemplo de anclaje correcto: «Me comentaste que llevan 2.5 años, hubo una pérdida, y tu médico dijo que ya deberían haber quedado embarazados. Si el dinero no fuera el tema hoy, ¿hay algo más que te frene?»
+- Ejemplo insuficiente: «Entiendo, es una inversión, ¿qué te preocupa del precio?» (3A vacío, no usa el caso).
+- Extrae la RAÍZ de la objeción (flujo de caja ≠ insolvencia; "hablarlo" ≠ falta de tiempo).
+- Si el closer downsellea o acepta reagendar sin aislar ni anclar al dolor/urgencia, falló.
+- Conecta fallas de descubrimiento con objeciones posteriores: lo que no se profundizó (urgencia, dolor residual, DIY) es lo que alimenta el "no estaba en los planes".
 `.trim();

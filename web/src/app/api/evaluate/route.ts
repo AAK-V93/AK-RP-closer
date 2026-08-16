@@ -6,7 +6,8 @@ import {
   getCriteriaForSection,
   sectionEvalNotes,
 } from "@/data/rubric";
-import { CallSection } from "@/data/training-session";
+import { CallEvaluation } from "@/data/evaluation";
+import { CallSection, ProspectProfile } from "@/data/training-session";
 import { LanguageCode, getLanguage } from "@/data/languages";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
@@ -22,28 +23,37 @@ interface EvaluateRequest {
   productName: string;
   difficulty: string;
   language: LanguageCode;
+  prospectProfile?: ProspectProfile;
+  pitchSummary?: string;
 }
 
-interface CriterionScore {
-  id: string;
-  label: string;
-  score: number;
-  maxScore: number;
-  feedback: string;
-}
-
-interface EvaluateResponse {
-  overallScore: number;
-  criteria: CriterionScore[];
-  strengths: string[];
-  improvements: string[];
-  coachingTips: string[];
+function formatKnownDiscovery(profile?: ProspectProfile, pitchSummary?: string) {
+  if (!profile) return "No hay ficha previa; usa solo la transcripción.";
+  return `Nombre: ${profile.name}, ${profile.age}, ${profile.occupation}, ${profile.location}
+Dolores: ${profile.pains.join(" | ")}
+Deseo: ${profile.desire}
+Urgencia: ${profile.urgency}
+Intentos previos: ${profile.pastAttempts}
+Pareja: ${profile.partnerSituation}
+Dinero: ${profile.moneySituation}
+Tiempo: ${profile.timeSituation}
+Objeciones esperadas: ${profile.objections.join(" | ")}
+Precalificación: meta=${profile.preQualification.mainGoal}; situación=${profile.preQualification.currentSituation}; timeline=${profile.preQualification.timeline}; presupuesto=${profile.preQualification.budgetRange}; decisor=${profile.preQualification.decisionMaker}
+${pitchSummary?.trim() ? `Resumen del pitch ya oído:\n${pitchSummary.trim()}` : ""}`;
 }
 
 export async function POST(request: Request) {
   try {
     const body: EvaluateRequest = await request.json();
-    const { transcript, callSection, productName, difficulty, language } = body;
+    const {
+      transcript,
+      callSection,
+      productName,
+      difficulty,
+      language,
+      prospectProfile,
+      pitchSummary,
+    } = body;
 
     if (!transcript?.length) {
       return NextResponse.json(
@@ -70,50 +80,81 @@ export async function POST(request: Request) {
       .join("\n");
 
     const lang = getLanguage(language ?? "es");
+    const knownDiscovery = formatKnownDiscovery(prospectProfile, pitchSummary);
 
-    const prompt = `Eres un coach de ventas. Evalúas roleplays. NO uses rúbricas de guion (pantalla, Excel, dos opciones de precio, etc.).
+    const prompt = `Eres un coach de QC de llamadas de ventas (estilo reporte de control de calidad). Evalúas roleplays.
 
-Habilidades que entrenamos:
-1) Detectar DOLOR, DESEO y URGENCIA a profundidad, siendo curioso, con preguntas (cuando el modo incluye descubrimiento).
-2) Ante objeciones o preguntas del lead: método 3A (Acknowledge, Associate, Ask back).
+Habilidades:
+1) Detectar DOLOR, DESEO y URGENCIA a profundidad, con preguntas (si el modo incluye descubrimiento).
+2) Ante objeciones/preguntas: 3A (Acknowledge, Associate, Ask back).
+3) En cierre/pitch: USAR lo descubierto. Cada objeción se ancla a citas y hechos del lead. 3A genérico = insuficiente.
 
 ${AAA_EVALUATOR_BRIEF}
 
 PRODUCTO: ${productName}
-DIFICULTAD DEL PROSPECTO: ${difficulty}
+DIFICULTAD: ${difficulty}
 IDIOMA: ${lang.nativeName}
 ${sectionEvalNotes(callSection)}
+
+FICHA / DESCUBRIMIENTO YA CONOCIDO (en modos pitch/cierre esto YA se descubrió; el closer lo tiene en pantalla):
+${knownDiscovery}
 
 TRANSCRIPCIÓN:
 ${transcriptText}
 
-CRITERIOS (evalúa SOLO estos, todos):
+CRITERIOS (evalúa SOLO estos):
 ${criteriaList}
 
-Responde ÚNICAMENTE con JSON válido (sin markdown):
+Responde ÚNICAMENTE JSON válido:
 {
-  "overallScore": <número 0-100>,
+  "overallScore": <0-100>,
+  "outcomeSummary": "1-2 frases: qué pasó (¿avanzó? ¿objeción de dinero/pareja/tiempo? ¿se ancló al caso?)",
   "criteria": [
     {
-      "id": "pain",
+      "id": "use_discovery",
       "label": "...",
       "score": <0-10>,
       "maxScore": 10,
-      "feedback": "feedback breve, cita algo concreto de la transcripción"
+      "feedback": "cita algo concreto"
+    }
+  ],
+  "prospectFile": {
+    "pain": "dolor real hallado o 'no se llegó'",
+    "desire": "...",
+    "urgency": "...",
+    "quotes": ["citas textuales del lead"],
+    "moneySignals": "señales de dinero/capacidad si las hay",
+    "decisionContext": "quién decide, pareja, etc."
+  },
+  "objections": [
+    {
+      "quote": "cita de la objeción",
+      "category": "dinero | tiempo | pareja | feature | otro",
+      "realRoot": "raíz real, no la etiqueta superficial",
+      "howHandled": "qué hizo el closer",
+      "whyFailedOrWorked": "por qué funcionó o falló; ¿usó el descubrimiento?",
+      "suggestedLine": "frase 3A que CITA dolor/deseo/urgencia de ESTE lead (como: 'me comentaste que... si el dinero no fuera el tema, ¿hay algo más que te frene?')"
+    }
+  ],
+  "discoveryGaps": [
+    {
+      "whatWasMissed": "qué no se profundizó",
+      "howItFedObjection": "cómo eso alimentó la objeción posterior",
+      "suggestedQuestion": "pregunta concreta que debió hacer"
     }
   ],
   "strengths": ["..."],
   "improvements": ["..."],
-  "coachingTips": ["consejo accionable 1", "consejo 2", "consejo 3"]
+  "coachingTips": ["3-5 consejos accionables"]
 }
 
-Reglas de scoring:
-- 0-10 por criterio. 9-10 = profundidad real + el LEAD lo dijo. 6-7 = tocó el tema pero superficial. 0-4 = asumió, pitcheó, o no preguntó.
-- overallScore = promedio de los criterios de esta lista × 10 (no asumas 6 si hay menos).
-- Dolor/deseo/urgencia (si están en la lista): si el closer no preguntó, puntúa bajo aunque "tuviera razón".
-- AAA: si el prospecto hizo al menos una pregunta u objeción, evalúa cómo la manejó (respuesta inmediata a trampa = bajo en ask; discutir = bajo en acknowledge; no hay label positivo = bajo en associate).
-- Si NO hubo ninguna pregunta/objeción del lead: AAA en 5 con feedback "no hubo objeción/pregunta para practicar 3A", EXCEPTO si el closer dijo "¿tienes alguna pregunta?" → aaa_ask máximo 2.
-- coachingTips: 3-5, concretos, con ejemplos de pregunta que debió hacer. Todo en ${lang.nativeName}.`;
+Reglas:
+- overallScore = promedio de los criterios listados × 10.
+- use_discovery: 8-10 solo si el closer menciona hechos/citas del caso al objetar. 0-4 si 3A genérico, downsell, o acepta reagendar sin anclar.
+- Si no hubo objeción: objections=[] y use_discovery=5 con feedback de que no hubo objeción, EXCEPTO «¿tienes alguna pregunta?» → aaa_ask máximo 2.
+- discoveryGaps: solo si un hueco de indagar alimentó una objeción. Si el modo es solo cierre, usa la ficha conocida: el closer debía USARLA, no redescubrirla.
+- suggestedLine siempre en primera persona, lista para decirle a ESTE lead.
+- Todo en ${lang.nativeName}.`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
@@ -150,8 +191,18 @@ Reglas de scoring:
       );
     }
 
-    const parsed: EvaluateResponse = JSON.parse(text);
-    return NextResponse.json(parsed);
+    const parsed: CallEvaluation = JSON.parse(text);
+    return NextResponse.json({
+      ...parsed,
+      prospectFile: parsed.prospectFile ?? null,
+      objections: parsed.objections ?? [],
+      discoveryGaps: parsed.discoveryGaps ?? [],
+      strengths: parsed.strengths ?? [],
+      improvements: parsed.improvements ?? [],
+      coachingTips: parsed.coachingTips ?? [],
+      criteria: parsed.criteria ?? [],
+      outcomeSummary: parsed.outcomeSummary ?? "",
+    });
   } catch (error) {
     return NextResponse.json(
       {
