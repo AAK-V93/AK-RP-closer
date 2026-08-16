@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import dotenv from "dotenv";
 import path from "path";
+import { getServerSession } from "next-auth";
 import {
   AAA_EVALUATOR_BRIEF,
   getCriteriaForSection,
@@ -9,6 +10,9 @@ import {
 import { CallEvaluation } from "@/data/evaluation";
 import { CallSection, ProspectProfile } from "@/data/training-session";
 import { LanguageCode, getLanguage } from "@/data/languages";
+import { authOptions } from "@/lib/auth";
+import { getPrisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 
@@ -192,7 +196,7 @@ Reglas:
     }
 
     const parsed: CallEvaluation = JSON.parse(text);
-    return NextResponse.json({
+    const evaluation: CallEvaluation = {
       ...parsed,
       prospectFile: parsed.prospectFile ?? null,
       objections: parsed.objections ?? [],
@@ -202,7 +206,36 @@ Reglas:
       coachingTips: parsed.coachingTips ?? [],
       criteria: parsed.criteria ?? [],
       outcomeSummary: parsed.outcomeSummary ?? "",
-    });
+    };
+
+    let saved = false;
+    try {
+      const session = await getServerSession(authOptions);
+      const prisma = getPrisma();
+      const userId = session?.user?.id;
+      if (prisma && userId) {
+        await prisma.practiceSession.create({
+          data: {
+            userId,
+            callSection,
+            productName,
+            difficulty,
+            language,
+            overallScore: evaluation.overallScore ?? 0,
+            outcomeSummary: evaluation.outcomeSummary ?? "",
+            evaluation: JSON.parse(JSON.stringify(evaluation)) as Prisma.InputJsonValue,
+            criterionScores: JSON.parse(
+              JSON.stringify(evaluation.criteria),
+            ) as Prisma.InputJsonValue,
+          },
+        });
+        saved = true;
+      }
+    } catch (saveError) {
+      console.error("Could not save practice session", saveError);
+    }
+
+    return NextResponse.json({ ...evaluation, saved });
   } catch (error) {
     return NextResponse.json(
       {

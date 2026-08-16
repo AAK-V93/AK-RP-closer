@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { X, TrendingUp, Target, Lightbulb, User, MessageSquareWarning, Link2 } from "lucide-react";
 import { RUBRIC_CRITERIA } from "@/data/rubric";
 import { CallEvaluation } from "@/data/evaluation";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
 
 export type { CallEvaluation };
 
@@ -21,6 +23,8 @@ export function CallScorePanel({
   isLoading,
   onClose,
 }: CallScorePanelProps) {
+  const { status } = useSession();
+
   if (isLoading) {
     return (
       <Card className="border-separator1 bg-bg1">
@@ -53,6 +57,22 @@ export function CallScorePanel({
           {evaluation.outcomeSummary && (
             <p className="text-sm text-fg2 mt-3">{evaluation.outcomeSummary}</p>
           )}
+          {evaluation.saved ? (
+            <p className="text-xs text-fg3 mt-2">
+              Guardado en{" "}
+              <Link href="/coach" className="underline">
+                tu coaching
+              </Link>
+              .
+            </p>
+          ) : status === "unauthenticated" ? (
+            <p className="text-xs text-fg3 mt-2">
+              <Link href="/login" className="underline">
+                Entra
+              </Link>{" "}
+              para guardar este reporte y ver tus errores repetidos.
+            </p>
+          ) : null}
         </div>
         <Button variant="ghost" size="icon" onClick={onClose}>
           <X className="h-4 w-4" />

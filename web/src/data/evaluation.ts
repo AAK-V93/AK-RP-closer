@@ -40,4 +40,5 @@ export interface CallEvaluation {
   strengths: string[];
   improvements: string[];
   coachingTips: string[];
+  saved?: boolean;
 }

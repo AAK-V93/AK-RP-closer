@@ -50,7 +50,18 @@ pnpm dev
 
 ## Evaluación
 
-Al terminar, Gemini arma un reporte tipo QC: ficha (dolor/deseo/urgencia y citas), score, cada objeción (raíz, cómo se gestionó, frase sugerida anclada al caso) y huecos de descubrimiento que alimentaron objeciones. En cierre, 3A genérico no basta: hay que usar lo descubierto.
+Al terminar, Gemini arma un reporte tipo QC. Si estás logueada, se guarda y en **Mi coaching** ves errores repetidos y sugerencias.
+
+## Coaching (historial)
+
+En `web/`:
+
+```bash
+pnpm exec prisma generate
+pnpm exec prisma db push
+```
+
+Variables: `DATABASE_URL` (Postgres, p.ej. Neon), `AUTH_SECRET` / `NEXTAUTH_SECRET`, `NEXTAUTH_URL`.
 
 ## Despliegue
 
