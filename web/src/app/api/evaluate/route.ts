@@ -13,8 +13,13 @@ import { LanguageCode, getLanguage } from "@/data/languages";
 import { authOptions } from "@/lib/auth";
 import { getPrisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { generateGeminiJson } from "@/lib/gemini";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
+dotenv.config({ path: path.join(process.cwd(), ".env.local") });
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 interface TranscriptLine {
   role: "closer" | "prospect";
@@ -160,37 +165,16 @@ Reglas:
 - suggestedLine siempre en primera persona, lista para decirle a ESTE lead.
 - Todo en ${lang.nativeName}.`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.3,
-            responseMimeType: "application/json",
-          },
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      const errText = await response.text();
+    let text: string;
+    try {
+      text = await generateGeminiJson(prompt, 0.3);
+    } catch (geminiError) {
       return NextResponse.json(
-        { error: "Error calling Gemini", details: errText },
-        { status: 502 },
-      );
-    }
-
-    const data = await response.json();
-    const text =
-      data.candidates?.[0]?.content?.parts?.[0]?.text ??
-      data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-
-    if (!text) {
-      return NextResponse.json(
-        { error: "Empty response from Gemini" },
+        {
+          error: "No se pudo evaluar con Gemini",
+          details:
+            geminiError instanceof Error ? geminiError.message : String(geminiError),
+        },
         { status: 502 },
       );
     }

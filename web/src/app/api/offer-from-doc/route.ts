@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import dotenv from "dotenv";
-import path from "path";
+import { generateGeminiParts } from "@/lib/gemini";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
+dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 
 const MAX_BYTES = 4 * 1024 * 1024;
 
@@ -51,37 +52,7 @@ Si no es una oferta, inventa lo mínimo fiel al texto. Idioma: el del documento.
           },
         ];
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: {
-            temperature: 0.2,
-            responseMimeType: "application/json",
-          },
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      const details = await response.text();
-      return NextResponse.json(
-        { error: "No se pudo leer el documento", details },
-        { status: 502 },
-      );
-    }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      return NextResponse.json(
-        { error: "Respuesta vacía al leer el documento" },
-        { status: 502 },
-      );
-    }
+    const text = await generateGeminiParts(parts, 0.2);
 
     const parsed = JSON.parse(text) as {
       productName?: string;
