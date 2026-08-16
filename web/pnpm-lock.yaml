@@ -24,7 +24,7 @@ importers:
         specifier: ^1.42.2
         version: 1.42.2
       '@prisma/adapter-neon':
-        specifier: ^6.16.3
+        specifier: 6.16.3
         version: 6.16.3
       '@prisma/client':
         specifier: 6.16.3
