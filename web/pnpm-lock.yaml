@@ -24,7 +24,7 @@ importers:
         specifier: ^1.42.2
         version: 1.42.2
       '@prisma/client':
-        specifier: ^6.16.3
+        specifier: 6.16.3
         version: 6.16.3(prisma@6.16.3(typescript@5.6.3))(typescript@5.6.3)
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.15
@@ -141,7 +141,7 @@ importers:
         specifier: 15.4.10
         version: 15.4.10(@babel/core@7.26.0)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       next-auth:
-        specifier: '4'
+        specifier: ^4.24.11
         version: 4.24.15(next@15.4.10(@babel/core@7.26.0)(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       next-themes:
         specifier: ^0.4.6
@@ -223,7 +223,7 @@ importers:
         specifier: ^8
         version: 8.4.47
       prisma:
-        specifier: ^6.16.3
+        specifier: 6.16.3
         version: 6.16.3(typescript@5.6.3)
       tailwindcss:
         specifier: ^4
