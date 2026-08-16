@@ -28,6 +28,20 @@ export default function LoginPage() {
         }
       })
       .catch(() => undefined);
+
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get("error");
+    if (authError === "AccessDenied") {
+      setError(
+        "Google te reconoció, pero no pudimos crear la cuenta en la base de datos. Revisa DATABASE_URL en Vercel (Production y Preview) y vuelve a intentar.",
+      );
+    } else if (authError === "OAuthCallback" || authError === "Callback") {
+      setError(
+        "Falló el retorno de Google. NEXTAUTH_URL y las URIs de redirección deben coincidir con esta URL.",
+      );
+    } else if (authError && authError !== "undefined") {
+      setError(`No se pudo entrar (${authError}).`);
+    }
   }, []);
 
   const onGoogle = async () => {

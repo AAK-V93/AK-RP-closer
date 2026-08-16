@@ -33,13 +33,19 @@ async function upsertGoogleUser(email: string, name?: string | null) {
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
-  pages: { signIn: "/login" },
+  pages: { signIn: "/login", error: "/login" },
   providers: [
     ...(googleAuthConfigured()
       ? [
           GoogleProvider({
             clientId: process.env.GOOGLE_CLIENT_ID!,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+            authorization: {
+              params: {
+                prompt: "select_account",
+                scope: "openid email profile",
+              },
+            },
           }),
         ]
       : []),
@@ -65,13 +71,34 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async signIn({ user, account }) {
-      if (account?.provider === "google") {
-        if (!user.email) return false;
-        const dbUser = await upsertGoogleUser(user.email, user.name);
-        return Boolean(dbUser);
+    async signIn({ user, account, profile }) {
+      if (account?.provider !== "google") return true;
+
+      const email = (
+        user.email ||
+        (profile as { email?: string } | undefined)?.email ||
+        ""
+      )
+        .toLowerCase()
+        .trim();
+      if (!email) {
+        console.error("Google sign-in: no email on profile");
+        return false;
       }
-      return true;
+
+      try {
+        const dbUser = await upsertGoogleUser(email, user.name);
+        if (!dbUser) {
+          console.error("Google sign-in: DATABASE_URL missing or Prisma unavailable");
+          return false;
+        }
+        user.id = dbUser.id;
+        user.email = dbUser.email;
+        return true;
+      } catch (error) {
+        console.error("Google sign-in upsert failed", error);
+        return false;
+      }
     },
     async jwt({ token, user, account }) {
       if (user) {
