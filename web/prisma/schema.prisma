@@ -28,8 +28,10 @@ model PracticeSession {
   language        String
   overallScore    Float
   outcomeSummary  String   @default("")
+  transcript      Json     @default("[]")
   evaluation      Json
   criterionScores Json
+  scored          Boolean  @default(false)
 
   @@index([userId, createdAt])
 }

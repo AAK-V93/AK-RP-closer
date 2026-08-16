@@ -27,11 +27,12 @@ interface TranscriptLine {
 }
 
 interface EvaluateRequest {
-  transcript: TranscriptLine[];
-  callSection: CallSection;
-  productName: string;
-  difficulty: string;
-  language: LanguageCode;
+  transcript?: TranscriptLine[];
+  sessionId?: string;
+  callSection?: CallSection;
+  productName?: string;
+  difficulty?: string;
+  language?: LanguageCode;
   prospectProfile?: ProspectProfile;
   pitchSummary?: string;
 }
@@ -51,24 +52,97 @@ Precalificación: meta=${profile.preQualification.mainGoal}; situación=${profil
 ${pitchSummary?.trim() ? `Resumen del pitch ya oído:\n${pitchSummary.trim()}` : ""}`;
 }
 
+async function authedDb() {
+  const session = await getServerSession(authOptions);
+  const prisma = getPrisma();
+  const userId = session?.user?.id;
+  if (!prisma || !userId) return null;
+  return { prisma, userId };
+}
+
 export async function POST(request: Request) {
   try {
     const body: EvaluateRequest = await request.json();
     const {
-      transcript,
-      callSection,
-      productName,
-      difficulty,
-      language,
-      prospectProfile,
-      pitchSummary,
+      sessionId,
+      transcript: bodyTranscript,
+      callSection: bodySection,
+      productName: bodyProduct,
+      difficulty: bodyDifficulty,
+      language: bodyLanguage,
+      prospectProfile: bodyProfile,
+      pitchSummary: bodyPitch,
     } = body;
+
+    const db = await authedDb();
+    let existingId: string | null = sessionId ?? null;
+    let transcript = bodyTranscript ?? [];
+    let callSection = bodySection;
+    let productName = bodyProduct;
+    let difficulty = bodyDifficulty;
+    let language = bodyLanguage;
+    let prospectProfile = bodyProfile;
+    let pitchSummary = bodyPitch;
+
+    if (sessionId && db) {
+      const row = await db.prisma.practiceSession.findFirst({
+        where: { id: sessionId, userId: db.userId },
+      });
+      if (!row) {
+        return NextResponse.json({ error: "Práctica no encontrada" }, { status: 404 });
+      }
+      transcript = (row.transcript as TranscriptLine[]) || [];
+      callSection = row.callSection as CallSection;
+      productName = row.productName;
+      difficulty = row.difficulty;
+      language = row.language as LanguageCode;
+      const stored = (row.evaluation || {}) as {
+        prospectProfile?: ProspectProfile;
+        pitchSummary?: string;
+      };
+      prospectProfile = prospectProfile || stored.prospectProfile;
+      pitchSummary = pitchSummary || stored.pitchSummary;
+    }
 
     if (!transcript?.length) {
       return NextResponse.json(
         { error: "Se necesita una transcripción de la llamada" },
         { status: 400 },
       );
+    }
+
+    if (!callSection || !productName) {
+      return NextResponse.json(
+        { error: "Faltan datos de la práctica" },
+        { status: 400 },
+      );
+    }
+
+    if (db && !existingId) {
+      try {
+        const pending = await db.prisma.practiceSession.create({
+          data: {
+            userId: db.userId,
+            callSection,
+            productName,
+            difficulty,
+            language,
+            overallScore: 0,
+            outcomeSummary: "Evaluación pendiente",
+            transcript: transcript as unknown as Prisma.InputJsonValue,
+            evaluation: {
+              pending: true,
+              prospectProfile: prospectProfile ?? null,
+              pitchSummary: pitchSummary ?? null,
+            } as Prisma.InputJsonValue,
+            criterionScores: [] as Prisma.InputJsonValue,
+            scored: false,
+          },
+        });
+        existingId = pending.id;
+      } catch (saveError) {
+        console.error("Could not save pending practice", saveError);
+      }
     }
 
     const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
@@ -174,6 +248,7 @@ Reglas:
           error: "No se pudo evaluar con Gemini",
           details:
             geminiError instanceof Error ? geminiError.message : String(geminiError),
+          saved: Boolean(existingId),
         },
         { status: 502 },
       );
@@ -192,31 +267,25 @@ Reglas:
       outcomeSummary: parsed.outcomeSummary ?? "",
     };
 
-    let saved = false;
-    try {
-      const session = await getServerSession(authOptions);
-      const prisma = getPrisma();
-      const userId = session?.user?.id;
-      if (prisma && userId) {
-        await prisma.practiceSession.create({
+    let saved = Boolean(existingId);
+    if (db && existingId) {
+      try {
+        await db.prisma.practiceSession.update({
+          where: { id: existingId },
           data: {
-            userId,
-            callSection,
-            productName,
-            difficulty,
-            language,
             overallScore: evaluation.overallScore ?? 0,
             outcomeSummary: evaluation.outcomeSummary ?? "",
             evaluation: JSON.parse(JSON.stringify(evaluation)) as Prisma.InputJsonValue,
             criterionScores: JSON.parse(
               JSON.stringify(evaluation.criteria),
             ) as Prisma.InputJsonValue,
+            scored: true,
           },
         });
         saved = true;
+      } catch (saveError) {
+        console.error("Could not update scored practice", saveError);
       }
-    } catch (saveError) {
-      console.error("Could not save practice session", saveError);
     }
 
     return NextResponse.json({ ...evaluation, saved });

@@ -13,9 +13,9 @@ export default function CoachPage() {
   const { status } = useSession();
   const [insights, setInsights] = useState<CoachingInsights | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (status !== "authenticated") return;
+  const loadInsights = () => {
     fetch("/api/coach")
       .then(async (r) => {
         const data = await r.json();
@@ -23,7 +23,31 @@ export default function CoachPage() {
         setInsights(data);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Error"));
+  };
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    loadInsights();
   }, [status]);
+
+  const retryEvaluation = async (id: string) => {
+    setRetryingId(id);
+    setError(null);
+    try {
+      const response = await fetch("/api/evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo reevaluar");
+      loadInsights();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo reevaluar");
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-bg0 flex flex-col">
@@ -63,7 +87,7 @@ export default function CoachPage() {
           <p className="text-sm text-fg3">Cargando tu historial…</p>
         )}
 
-        {insights && insights.practiceCount === 0 && (
+        {insights && insights.practiceCount === 0 && insights.recent.length === 0 && (
           <div className="rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3">
             <p className="text-sm">
               Aún no hay prácticas guardadas. Entra a una llamada con la sesión
@@ -75,7 +99,7 @@ export default function CoachPage() {
           </div>
         )}
 
-        {insights && insights.practiceCount > 0 && (
+        {insights && (insights.practiceCount > 0 || insights.recent.length > 0) && (
           <>
             <section className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-separator1 bg-bg1 p-4">
@@ -183,9 +207,21 @@ export default function CoachPage() {
                         <p className="text-xs text-fg2 mt-1">{r.outcomeSummary}</p>
                       )}
                     </div>
-                    <span className="text-lg font-light">
-                      {Math.round(r.overallScore)}
-                    </span>
+                    <div className="flex flex-col items-end gap-2">
+                      <span className="text-lg font-light">
+                        {r.scored ? Math.round(r.overallScore) : "—"}
+                      </span>
+                      {!r.scored && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={retryingId === r.id}
+                          onClick={() => retryEvaluation(r.id)}
+                        >
+                          {retryingId === r.id ? "Evaluando…" : "Evaluar ahora"}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

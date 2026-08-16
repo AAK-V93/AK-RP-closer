@@ -21,6 +21,7 @@ export type RecentPractice = {
   callSection: string;
   overallScore: number;
   outcomeSummary: string;
+  scored: boolean;
 };
 
 export type CoachingInsights = {
@@ -58,6 +59,7 @@ export function buildCoachingInsights(
     outcomeSummary: string;
     evaluation: unknown;
     criterionScores: unknown;
+    scored?: boolean;
   }[],
 ): CoachingInsights {
   const skillTotals = new Map<
@@ -68,6 +70,7 @@ export function buildCoachingInsights(
   const tips = new Map<string, { text: string; count: number }>();
 
   for (const row of rows) {
+    if (row.scored === false) continue;
     const scores = (row.criterionScores as CriterionScore[]) || [];
     for (const c of scores) {
       const cur = skillTotals.get(c.id) ?? {
@@ -116,12 +119,13 @@ export function buildCoachingInsights(
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
 
-  const avgScore = rows.length
-    ? rows.reduce((s, r) => s + r.overallScore, 0) / rows.length
+  const scoredRows = rows.filter((r) => r.scored !== false);
+  const avgScore = scoredRows.length
+    ? scoredRows.reduce((s, r) => s + r.overallScore, 0) / scoredRows.length
     : 0;
 
   return {
-    practiceCount: rows.length,
+    practiceCount: scoredRows.length,
     avgScore,
     weakSkills,
     commonErrors: toList(errors),
@@ -133,6 +137,7 @@ export function buildCoachingInsights(
       callSection: r.callSection,
       overallScore: r.overallScore,
       outcomeSummary: r.outcomeSummary,
+      scored: r.scored !== false,
     })),
   };
 }
