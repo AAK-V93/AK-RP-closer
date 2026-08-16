@@ -1,2 +1,2 @@
-# ivy-rp
-Roleplay bot ;)
+# AK-RP
+Roleplay bot
