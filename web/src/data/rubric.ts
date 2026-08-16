@@ -58,9 +58,39 @@ export const RUBRIC_CRITERIA: RubricCriterion[] = [
   },
 ];
 
-/** Always the same rubric — discovery + AAA, regardless of practice section. */
-export function getCriteriaForSection(_section?: string): RubricCriterion[] {
-  return RUBRIC_CRITERIA;
+const DISCOVERY_IDS = new Set(["pain", "desire", "urgency"]);
+const AAA_IDS = new Set(["aaa_acknowledge", "aaa_associate", "aaa_ask"]);
+
+/** Practice mode still exists; scoring follows the section. */
+export function getCriteriaForSection(section?: string): RubricCriterion[] {
+  switch (section) {
+    case "pitch":
+    case "close":
+    case "pitch_close":
+      return RUBRIC_CRITERIA.filter((c) => AAA_IDS.has(c.id));
+    case "discovery":
+    case "full":
+    default:
+      return RUBRIC_CRITERIA.filter(
+        (c) => DISCOVERY_IDS.has(c.id) || AAA_IDS.has(c.id),
+      );
+  }
+}
+
+export function sectionEvalNotes(section?: string): string {
+  switch (section) {
+    case "discovery":
+      return `MODO SOLO DESCUBRIMIENTO: evalúa dolor, deseo y urgencia (con preguntas). También 3A si el lead pregunta u objeta. No penalices por no hacer pitch ni cierre.`;
+    case "pitch":
+      return `MODO SOLO PITCH: el descubrimiento YA ocurrió. NO evalúes si "descubrió" dolor/deseo/urgencia (no debía reabrir interrogatorio). Evalúa 3A ante preguntas/objeciones. Si reabre descubrimiento pesado, menciónalo en improvements.`;
+    case "close":
+      return `MODO SOLO CIERRE: el lead ya oyó el pitch. Evalúa SOLO 3A en objeciones/preguntas. No penalices por no descubrir de nuevo.`;
+    case "pitch_close":
+      return `MODO PITCH + CIERRE: descubrimiento ya ocurrió. Evalúa 3A. No penalices por no re-descubrir.`;
+    case "full":
+    default:
+      return `MODO LLAMADA COMPLETA: evalúa dolor, deseo y urgencia en descubrimiento Y 3A en cada pregunta/objeción.`;
+  }
 }
 
 /**

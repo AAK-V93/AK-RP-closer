@@ -4,6 +4,7 @@ import path from "path";
 import {
   AAA_EVALUATOR_BRIEF,
   getCriteriaForSection,
+  sectionEvalNotes,
 } from "@/data/rubric";
 import { CallSection } from "@/data/training-session";
 import { LanguageCode, getLanguage } from "@/data/languages";
@@ -70,22 +71,23 @@ export async function POST(request: Request) {
 
     const lang = getLanguage(language ?? "es");
 
-    const prompt = `Eres un coach de ventas. Evalúas roleplays. NO uses rúbricas de pitch/cierre/guion. Solo esto:
+    const prompt = `Eres un coach de ventas. Evalúas roleplays. NO uses rúbricas de guion (pantalla, Excel, dos opciones de precio, etc.).
 
-1) ¿El closer detectó DOLOR, DESEO y URGENCIA a profundidad, siendo curioso, con preguntas?
-2) Ante objeciones o preguntas del lead: ¿usó el método 3A (Acknowledge, Associate, Ask back)?
+Habilidades que entrenamos:
+1) Detectar DOLOR, DESEO y URGENCIA a profundidad, siendo curioso, con preguntas (cuando el modo incluye descubrimiento).
+2) Ante objeciones o preguntas del lead: método 3A (Acknowledge, Associate, Ask back).
 
 ${AAA_EVALUATOR_BRIEF}
 
 PRODUCTO: ${productName}
 DIFICULTAD DEL PROSPECTO: ${difficulty}
 IDIOMA: ${lang.nativeName}
-MODO DE PRÁCTICA: ${callSection} (no cambia la rúbrica; siempre evalúa lo mismo)
+${sectionEvalNotes(callSection)}
 
 TRANSCRIPCIÓN:
 ${transcriptText}
 
-CRITERIOS (evalúa TODOS):
+CRITERIOS (evalúa SOLO estos, todos):
 ${criteriaList}
 
 Responde ÚNICAMENTE con JSON válido (sin markdown):
@@ -107,8 +109,8 @@ Responde ÚNICAMENTE con JSON válido (sin markdown):
 
 Reglas de scoring:
 - 0-10 por criterio. 9-10 = profundidad real + el LEAD lo dijo. 6-7 = tocó el tema pero superficial. 0-4 = asumió, pitcheó, o no preguntó.
-- overallScore = promedio de los 6 scores × 10.
-- Dolor/deseo/urgencia: si el closer no preguntó, puntúa bajo aunque "tuviera razón".
+- overallScore = promedio de los criterios de esta lista × 10 (no asumas 6 si hay menos).
+- Dolor/deseo/urgencia (si están en la lista): si el closer no preguntó, puntúa bajo aunque "tuviera razón".
 - AAA: si el prospecto hizo al menos una pregunta u objeción, evalúa cómo la manejó (respuesta inmediata a trampa = bajo en ask; discutir = bajo en acknowledge; no hay label positivo = bajo en associate).
 - Si NO hubo ninguna pregunta/objeción del lead: AAA en 5 con feedback "no hubo objeción/pregunta para practicar 3A", EXCEPTO si el closer dijo "¿tienes alguna pregunta?" → aaa_ask máximo 2.
 - coachingTips: 3-5, concretos, con ejemplos de pregunta que debió hacer. Todo en ${lang.nativeName}.`;

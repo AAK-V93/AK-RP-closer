@@ -3,6 +3,7 @@ import {
   TrainingSessionConfig,
   TrainingState,
 } from "@/data/training-session";
+import { getCriteriaForSection } from "@/data/rubric";
 import { buildProspectInstructions } from "@/lib/prospect-prompt";
 
 export interface TokenRequestPayload {
@@ -38,7 +39,7 @@ export const trainingHelpers = {
     return null;
   },
 
-  getApplicableRubricIds(_section: CallSection): string[] {
-    return ["pain", "desire", "urgency", "aaa_acknowledge", "aaa_associate", "aaa_ask"];
+  getApplicableRubricIds(section: CallSection): string[] {
+    return getCriteriaForSection(section).map((c) => c.id);
   },
 };
