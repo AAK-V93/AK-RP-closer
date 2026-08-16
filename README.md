@@ -1,4 +1,4 @@
-# Closer Trainer
+# AK-RP — Closer Trainer
 
 Simulador de ventas por voz para entrenar closers. El agente actúa como **prospecto interesado** mientras tú practicas descubrimiento, pitch y cierre. Al terminar, evalúa tu desempeño con una rúbrica de 23 criterios.
 
