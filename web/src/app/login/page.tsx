@@ -30,26 +30,14 @@ export default function LoginPage() {
       .catch(() => undefined);
 
     const params = new URLSearchParams(window.location.search);
-    const authError = params.get("error");
-    const code = params.get("code");
-    if (authError === "AccessDenied" || authError === "Database") {
-      if (code === "NO_URL") {
-        setError("Esta deploy no tiene DATABASE_URL. En Vercel, márcala para Production y Preview y redeploya.");
-      } else if (code === "P1001") {
-        setError("No se pudo alcanzar Neon (red o compute dormido). Espera 10 s e intenta de nuevo.");
-      } else if (code === "P2021") {
-        setError("Faltan las tablas. Corre prisma db push contra esa DATABASE_URL.");
-      } else {
-        setError(
-          `Google te reconoció, pero Neon rechazó crear la cuenta${code ? ` (${code})` : ""}. Abre /api/health/db para ver el error.`,
-        );
-      }
-    } else if (authError === "OAuthCallback" || authError === "Callback") {
-      setError(
-        "Falló el retorno de Google. NEXTAUTH_URL y las URIs de redirección deben coincidir con esta URL.",
-      );
-    } else if (authError && authError !== "undefined") {
-      setError(`No se pudo entrar (${authError}).`);
+    const hadQueryError = Boolean(params.get("error") || params.get("e"));
+    const hadCookie = document.cookie.includes("closer_auth_error=1");
+    if (hadCookie || hadQueryError) {
+      setError("No se pudo guardar tu cuenta. Intenta de nuevo.");
+      document.cookie = "closer_auth_error=; Max-Age=0; path=/";
+    }
+    if (window.location.search) {
+      window.history.replaceState({}, "", "/login");
     }
   }, []);
 

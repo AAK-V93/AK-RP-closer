@@ -16,18 +16,41 @@ export function googleAuthConfigured() {
   );
 }
 
+async function markAuthError() {
+  try {
+    const { cookies } = await import("next/headers");
+    const jar = await cookies();
+    jar.set("closer_auth_error", "1", {
+      path: "/",
+      maxAge: 120,
+      sameSite: "lax",
+    });
+  } catch (error) {
+    console.error("Could not set auth error cookie", error);
+  }
+}
+
 async function upsertGoogleUser(email: string, name?: string | null) {
   const prisma = getPrisma();
   if (!prisma) return null;
   const normalized = email.toLowerCase().trim();
-  return prisma.user.upsert({
-    where: { email: normalized },
-    create: {
+  const existing = await prisma.user.findUnique({ where: { email: normalized } });
+  if (existing) {
+    const nextName = name?.trim();
+    if (nextName && nextName !== existing.name) {
+      return prisma.user.update({
+        where: { id: existing.id },
+        data: { name: nextName },
+      });
+    }
+    return existing;
+  }
+  return prisma.user.create({
+    data: {
       email: normalized,
       name: name?.trim() || null,
       passwordHash: null,
     },
-    update: name?.trim() ? { name: name.trim() } : {},
   });
 }
 
@@ -83,22 +106,25 @@ export const authOptions: NextAuthOptions = {
         .trim();
       if (!email) {
         console.error("Google sign-in: no email on profile");
-        return false;
+        await markAuthError();
+        return "/login";
       }
 
       try {
         const dbUser = await upsertGoogleUser(email, user.name);
         if (!dbUser) {
           console.error("Google sign-in: DATABASE_URL missing or Prisma unavailable");
-          return "/login?error=Database&code=NO_URL";
+          await markAuthError();
+          return "/login";
         }
         user.id = dbUser.id;
         user.email = dbUser.email;
         return true;
       } catch (error) {
         const code = prismaErrorCode(error);
-        console.error("Google sign-in upsert failed", code, error);
-        return `/login?error=Database&code=${encodeURIComponent(code)}`;
+        console.error("Google sign-in failed", code, error);
+        await markAuthError();
+        return "/login";
       }
     },
     async jwt({ token, user, account }) {
