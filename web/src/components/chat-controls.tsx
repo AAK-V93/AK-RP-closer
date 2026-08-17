@@ -14,12 +14,12 @@ export function ChatControls() {
     !trainingState.training.productName.trim() && !shouldConnect;
 
   return (
-    <div className="absolute top-2 left-2 right-2 z-20 flex justify-between">
+    <div className="md:hidden">
       <ConfigurationFormDrawer>
         <Button
           variant={needsOffer ? "primary" : "outline"}
           size="lg"
-          className={cn("relative md:hidden gap-2", needsOffer && "pr-3")}
+          className={cn("relative gap-2", needsOffer && "pr-3")}
         >
           {needsOffer && (
             <span

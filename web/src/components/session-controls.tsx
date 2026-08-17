@@ -39,7 +39,7 @@ export function SessionControls() {
   }, [localParticipant.isMicrophoneEnabled]);
 
   return (
-    <div className="flex flex-row gap-2">
+    <div className="flex flex-row gap-2 w-full md:w-auto justify-center overflow-x-auto">
       <div className="flex items-center rounded-md bg-bg2 text-secondary-foreground overflow-hidden">
         <div className="flex items-center gap-2">
           <TrackToggle

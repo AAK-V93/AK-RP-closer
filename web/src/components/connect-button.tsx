@@ -87,7 +87,8 @@ export function ConnectButton() {
       onClick={handleConnect}
       disabled={busy}
       variant="primary"
-      className="text-sm font-semibold p-2 h-9"
+      size="xl"
+      className="w-full md:w-auto text-sm font-semibold"
     >
       {busy ? (
         <>
@@ -107,7 +108,10 @@ export function ConnectButton() {
       ) : (
         <>
           <PhoneCall className="h-4 w-4 mr-2" />
-          Entrar a la reunión — tú hablas primero
+          <span className="md:hidden">Entrar a la reunión</span>
+          <span className="hidden md:inline">
+            Entrar a la reunión — tú hablas primero
+          </span>
         </>
       )}
     </Button>

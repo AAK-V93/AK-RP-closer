@@ -1,11 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   AgentState,
   BarVisualizer,
+  useLocalParticipant,
   useTrackVolume,
   useVoiceAssistant,
 } from "@livekit/components-react";
+import { Track } from "livekit-client";
 import { Phone, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -40,15 +43,56 @@ export function CallSessionView({
 }: CallSessionViewProps) {
   const { audioTrack } = useVoiceAssistant();
   const volume = useTrackVolume(audioTrack);
-  const closerHasSpoken = transcriptions.some(
-    (entry) => entry.role === "closer" && entry.text.trim(),
+  const { localParticipant, microphoneTrack } = useLocalParticipant();
+  const localVolume = useTrackVolume(
+    microphoneTrack
+      ? {
+          participant: localParticipant,
+          publication: microphoneTrack,
+          source: Track.Source.Microphone,
+        }
+      : undefined,
   );
-  const waitingForCloser =
-    (isActive || isConnecting) && !closerHasSpoken && agentState !== "speaking";
+  const [heardCloser, setHeardCloser] = useState(false);
+
+  const closerHasSpoken =
+    heardCloser ||
+    transcriptions.some((entry) => entry.role === "closer" && entry.text.trim());
+
+  useEffect(() => {
+    if (!isActive) {
+      setHeardCloser(false);
+      return;
+    }
+    if (localVolume > 0.08) {
+      setHeardCloser(true);
+    }
+  }, [isActive, localVolume]);
+
+  const showHabla = isActive && !closerHasSpoken && agentState !== "speaking";
   const stateLabel = isConnecting
     ? "Conectando con el prospecto…"
     : (STATE_LABELS[agentState] ?? agentState);
   const isSpeaking = agentState === "speaking" || volume > 0.05;
+
+  if (showHabla) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full w-full max-w-2xl mx-auto gap-5 px-4 py-6">
+        <div className="relative flex h-28 w-28 items-center justify-center rounded-full border-4 border-primary bg-primary/15">
+          <span className="absolute inset-0 rounded-full animate-ping border-2 border-primary/40" />
+          <Mic className="relative h-12 w-12 text-primary" />
+        </div>
+        <div className="text-center space-y-2">
+          <p className="text-5xl sm:text-6xl font-semibold tracking-tight text-fg1 animate-pulse">
+            HABLA
+          </p>
+          <p className="text-sm text-fg2 max-w-xs mx-auto">
+            {prospectName} ya está en la reunión, callado. Saluda y abre tú.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full w-full max-w-2xl mx-auto gap-4 px-2">
@@ -59,9 +103,7 @@ export function CallSessionView({
             isActive
               ? isSpeaking
                 ? "border-primary bg-primary/10 shadow-[0_0_24px_rgba(var(--primary-rgb,99,102,241),0.25)]"
-                : waitingForCloser
-                  ? "border-primary bg-primary/10"
-                  : "border-separator1 bg-bg2"
+                : "border-separator1 bg-bg2"
               : isConnecting
                 ? "border-primary/50 bg-primary/5"
                 : "border-separator1 bg-bg2 opacity-60",
@@ -70,7 +112,7 @@ export function CallSessionView({
           <Phone
             className={cn(
               "h-10 w-10 transition-colors",
-              isSpeaking || waitingForCloser ? "text-primary" : "text-fg3",
+              isSpeaking ? "text-primary" : "text-fg3",
             )}
           />
           {isActive && isSpeaking && (
@@ -87,18 +129,10 @@ export function CallSessionView({
           </p>
         </div>
 
-        {waitingForCloser && (
-          <div className="w-full max-w-md rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 text-center space-y-1">
-            <p className="text-sm font-semibold text-fg1">
-              {isConnecting
-                ? "En unos segundos el lead estará en silencio"
-                : "Habla ahora. El lead no va a saludar."}
-            </p>
-            <p className="text-xs text-fg2">
-              Permite el micrófono si el navegador lo pide. Luego saluda y
-              abre la reunión: quién eres y por qué se juntaron.
-            </p>
-          </div>
+        {isConnecting && (
+          <p className="text-sm text-fg2 text-center max-w-sm">
+            En cuanto entre el lead vas a ver un HABLA grande. Ahí es tu turno.
+          </p>
         )}
 
         {isActive && audioTrack && (
@@ -121,10 +155,10 @@ export function CallSessionView({
         <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[120px] max-h-[280px]">
           {transcriptions.length === 0 ? (
             <p className="text-sm text-fg3 text-center py-8">
-              {waitingForCloser
-                ? "Nadie ha hablado. Di hola — el prospecto está callado a propósito."
-                : isActive
-                  ? "La conversación aparecerá aquí…"
+              {isActive
+                ? "La conversación aparecerá aquí…"
+                : isConnecting
+                  ? "Conectando…"
                   : "Entra a la reunión para ver la transcripción"}
             </p>
           ) : (

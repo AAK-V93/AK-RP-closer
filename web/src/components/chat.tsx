@@ -161,70 +161,76 @@ export function Chat() {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 10 }}
         transition={{ type: "tween", duration: 0.15, ease: "easeInOut" }}
+        className="w-full md:w-auto flex justify-center"
       >
         {isChatRunning ? <SessionControls /> : <ConnectButton />}
       </motion.div>
     </AnimatePresence>
   );
 
+  const showSession = isChatRunning || shouldConnect;
+
   return (
-    <div className="relative flex flex-col h-full overflow-hidden p-2 lg:p-4 min-w-0">
-      <ChatControls />
+    <div className="relative flex flex-col h-full min-h-0 overflow-hidden min-w-0">
+      <div className="shrink-0 px-3 pt-3 pb-1 md:px-4 md:pt-4">
+        <ChatControls />
+      </div>
 
-      <div className="flex flex-col flex-grow items-center lg:justify-between mt-8 lg:mt-0 min-w-0">
-        {!isChatRunning && !evaluation && !shouldConnect && (
-          <div className="text-center max-w-md px-4 mb-4 space-y-3">
-            <h2 className="text-xl font-light">Tú abres la reunión</h2>
-            <p className="text-sm text-fg2">
-              El prospecto ya está en la llamada, en silencio. No te va a
-              saludar primero. Cuando entres, habla tú.
-            </p>
-            <ol className="text-left text-sm text-fg2 space-y-1.5 mx-auto max-w-sm list-decimal list-inside">
-              <li className="md:hidden">
-                Pulsa el botón que palpita arriba:{" "}
-                <span className="font-medium text-fg1">Elegir oferta</span>.
-              </li>
-              <li className="hidden md:list-item">
-                Elige una oferta a la izquierda.
-              </li>
-              <li>
-                Pulsa{" "}
-                <span className="font-medium text-fg1">Entrar a la reunión</span>.
-              </li>
-              <li>
-                Permite el micrófono y saluda: quién eres y por qué se
-                reunieron.
-              </li>
-            </ol>
-            {authStatus === "unauthenticated" && access && !access.used && (
-              <p className="text-xs text-fg3">
-                Sin cuenta puedes hacer 1 práctica completa, con reporte, en
-                las tres ofertas listas.
+      <div className="flex-1 min-h-0 overflow-y-auto px-2 lg:px-4">
+        <div className="flex flex-col items-center min-w-0">
+          {!isChatRunning && !evaluation && !shouldConnect && (
+            <div className="text-center max-w-md px-2 mb-4 space-y-3">
+              <h2 className="text-xl font-light">Tú abres la reunión</h2>
+              <p className="text-sm text-fg2">
+                El prospecto ya está en la llamada, en silencio. No te va a
+                saludar primero. Cuando entres, habla tú.
               </p>
-            )}
-            {authStatus === "unauthenticated" && access?.used && (
-              <p className="text-xs text-fg3">
-                Ya usaste tu práctica gratis. Crea una cuenta para volver a
-                practicar.
+              <ol className="text-left text-sm text-fg2 space-y-1.5 mx-auto max-w-sm list-decimal list-inside">
+                <li className="md:hidden">
+                  Pulsa{" "}
+                  <span className="font-medium text-fg1">Elegir oferta</span>{" "}
+                  arriba, luego el botón de abajo.
+                </li>
+                <li className="hidden md:list-item">
+                  Elige una oferta a la izquierda.
+                </li>
+                <li className="hidden md:list-item">
+                  Pulsa{" "}
+                  <span className="font-medium text-fg1">Entrar a la reunión</span>.
+                </li>
+                <li>
+                  Permite el micrófono y saluda: quién eres y por qué se
+                  reunieron.
+                </li>
+              </ol>
+              {authStatus === "unauthenticated" && access && !access.used && (
+                <p className="text-xs text-fg3">
+                  Sin cuenta puedes hacer 1 práctica completa, con reporte, en
+                  las tres ofertas listas.
+                </p>
+              )}
+              {authStatus === "unauthenticated" && access?.used && (
+                <p className="text-xs text-fg3">
+                  Ya usaste tu práctica gratis. Crea una cuenta para volver a
+                  practicar.
+                </p>
+              )}
+            </div>
+          )}
+
+          {shouldConnect && !isChatRunning && !evaluation && (
+            <div className="text-center max-w-md px-4 mb-4 space-y-2">
+              <h2 className="text-xl font-light">Conectando…</h2>
+              <p className="text-sm text-fg2">
+                En cuanto el prospecto esté listo vas a ver{" "}
+                <span className="font-medium text-fg1">HABLA</span>. Ahí
+                hablas tú. Si el navegador pide el micrófono, acepta.
               </p>
-            )}
-          </div>
-        )}
+            </div>
+          )}
 
-        {shouldConnect && !isChatRunning && !evaluation && (
-          <div className="text-center max-w-md px-4 mb-4 space-y-2">
-            <h2 className="text-xl font-light">Conectando…</h2>
-            <p className="text-sm text-fg2">
-              En cuanto el prospecto esté listo vas a ver{" "}
-              <span className="font-medium text-fg1">te espera</span>. Ahí
-              hablas tú. Si el navegador pide el micrófono, acepta.
-            </p>
-          </div>
-        )}
-
-        {isChatRunning && (
-          <div className="flex flex-col items-center gap-2 mb-2">
-            <div className="flex flex-wrap gap-2 justify-center">
+          {isChatRunning && (
+            <div className="flex flex-wrap gap-2 justify-center mb-2">
               <Badge variant="secondary">{training.productName}</Badge>
               <Badge variant="outline">
                 {CALL_SECTION_LABELS[training.callSection]}
@@ -236,32 +242,26 @@ export function Chat() {
                 {LANGUAGE_LABELS[training.language]}
               </Badge>
             </div>
-            {!liveTranscript.some((line) => line.role === "closer") && (
-              <p className="text-sm font-medium text-primary">
-                Micrófono abierto. Habla ahora — el prospecto espera tu saludo.
-              </p>
-            )}
-          </div>
-        )}
-
-        <div className="w-full h-full flex flex-col min-w-0 gap-4 flex-1">
-          {(evaluation || evalLoading) && (
-            <CallScorePanel
-              evaluation={evaluation}
-              isLoading={evalLoading}
-              onClose={clearEvaluation}
-            />
           )}
 
-          {!evaluation && !evalLoading && (
+          {(evaluation || evalLoading) && (
+            <div className="w-full max-w-2xl">
+              <CallScorePanel
+                evaluation={evaluation}
+                isLoading={evalLoading}
+                onClose={clearEvaluation}
+              />
+            </div>
+          )}
+
+          {!evaluation && !evalLoading && showSession && (
             <>
               {showBrief && (
-                <div className="max-w-lg mx-auto w-full px-2 lg:hidden">
+                <div className="max-w-lg mx-auto w-full px-2 lg:hidden mb-2">
                   <ProspectBrief profile={training.prospectProfile} />
                 </div>
               )}
-
-              <div className="grow h-full flex items-center justify-center min-w-0 w-full">
+              <div className="w-full min-w-0">
                 <CallSessionView
                   agentState={state}
                   transcriptions={liveTranscript}
@@ -273,8 +273,10 @@ export function Chat() {
             </>
           )}
         </div>
+      </div>
 
-        <div className="my-4">{renderConnectionControl()}</div>
+      <div className="shrink-0 border-t border-separator1 bg-bg1 px-3 py-3 md:px-4">
+        {renderConnectionControl()}
       </div>
     </div>
   );

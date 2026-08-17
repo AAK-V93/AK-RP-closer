@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 export default function PracticePage() {
   return (
     <div className="flex flex-col h-screen bg-bg0 overflow-x-hidden">
-      <header className="flex flex-col md:flex-row flex-shrink-0 gap-3 md:h-16 items-center justify-between px-4 md:px-8 py-4 w-full border-b border-separator1 min-w-0">
+      <header className="flex flex-shrink-0 h-14 items-center justify-between gap-2 px-3 md:px-8 w-full border-b border-separator1 min-w-0">
         <div className="flex items-center gap-3 min-w-0 flex-shrink">
           <Link href="/" className="text-lg font-light truncate">
             Closer Trainer
@@ -24,7 +24,7 @@ export default function PracticePage() {
         </div>
         <AuthMenu />
       </header>
-      <main className="flex-col flex-1 min-h-0 min-w-0 overflow-hidden p-4 w-full flex">
+      <main className="flex-col flex-1 min-h-0 min-w-0 overflow-hidden p-2 md:p-4 w-full flex">
         <div className="w-full h-full flex flex-col mx-auto rounded-2xl bg-bg1 border border-separator1 min-w-0 overflow-hidden">
           <Chat />
         </div>
