@@ -7,6 +7,7 @@ import { ConnectionState } from "livekit-client";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   useConnectionState,
+  useRemoteParticipants,
   useVoiceAssistant,
 } from "@livekit/components-react";
 import { ChatControls } from "@/components/chat-controls";
@@ -31,8 +32,10 @@ import { useSession } from "next-auth/react";
 export function Chat() {
   const connectionState = useConnectionState();
   const { state } = useVoiceAssistant();
+  const remotes = useRemoteParticipants();
   const [isChatRunning, setIsChatRunning] = useState(false);
   const { agent, displayTranscriptions } = useAgent();
+  const agentInRoom = Boolean(agent) || remotes.length > 0;
   const { disconnect, shouldConnect } = useConnection();
   const { trainingState } = useTraining();
   const { access, refresh: refreshAccess } = usePracticeAccess();
@@ -62,52 +65,34 @@ export function Chat() {
   }, [displayTranscriptions, shouldConnect]);
 
   useEffect(() => {
-    let disconnectTimer: NodeJS.Timeout | undefined;
-    let appearanceTimer: NodeJS.Timeout | undefined;
-
-    if (connectionState === ConnectionState.Connected && !agent) {
-      appearanceTimer = setTimeout(() => {
-        disconnect();
-        setHasSeenAgent(false);
-        toast({
-          title: "Agente no disponible",
-          description: "No se pudo conectar al simulador. Verifica que el agent esté corriendo.",
-          variant: "destructive",
-        });
-      }, 5000);
+    if (connectionState !== ConnectionState.Connected) {
+      setIsChatRunning(false);
+      return;
     }
 
-    if (agent) {
+    if (agentInRoom) {
       setHasSeenAgent(true);
+      setIsChatRunning(true);
+      return;
     }
 
-    if (
-      connectionState === ConnectionState.Connected &&
-      !agent &&
-      hasSeenAgent
-    ) {
-      disconnectTimer = setTimeout(() => {
-        if (!agent) {
-          disconnect();
-          setHasSeenAgent(false);
-        }
-        toast({
-          title: "Sesión interrumpida",
-          description: "El prospecto simulado se desconectó.",
-          variant: "destructive",
-        });
-      }, 5000);
-    }
+    const waitMs = hasSeenAgent ? 20_000 : 45_000;
+    const timer = window.setTimeout(() => {
+      disconnect();
+      setHasSeenAgent(false);
+      toast({
+        title: hasSeenAgent ? "Sesión interrumpida" : "El prospecto tarda en entrar",
+        description: hasSeenAgent
+          ? "El prospecto simulado se desconectó."
+          : "Intenta de nuevo. En el celular a veces tarda en asignarse el agente.",
+        variant: "destructive",
+      });
+    }, waitMs);
 
-    setIsChatRunning(
-      connectionState === ConnectionState.Connected && hasSeenAgent,
-    );
+    setIsChatRunning(hasSeenAgent);
 
-    return () => {
-      if (disconnectTimer) clearTimeout(disconnectTimer);
-      if (appearanceTimer) clearTimeout(appearanceTimer);
-    };
-  }, [connectionState, agent, disconnect, hasSeenAgent]);
+    return () => window.clearTimeout(timer);
+  }, [connectionState, agentInRoom, hasSeenAgent, disconnect]);
 
   // Evaluate when call ends
   useEffect(() => {

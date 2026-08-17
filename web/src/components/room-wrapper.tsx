@@ -17,18 +17,25 @@ export function RoomWrapper({ children }: { children: ReactNode }) {
       serverUrl={wsUrl}
       token={token}
       connect={shouldConnect}
-      audio={true}
-      className="flex w-full h-screen"
+      audio={{
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }}
+      className="flex w-full h-full min-h-0"
       options={{
         publishDefaults: {
-          stopMicTrackOnMute: true,
+          stopMicTrackOnMute: false,
         },
       }}
     >
       <AgentProvider>
         {children}
         <RoomAudioRenderer />
-        <StartAudio label="Click to allow audio playback" />
+        <StartAudio
+          label="Toca para oír al prospecto"
+          className="fixed inset-x-4 bottom-28 z-50 rounded-xl bg-fgAccent1 px-4 py-3 text-sm font-semibold text-primary-foreground shadow-lg md:bottom-8"
+        />
       </AgentProvider>
     </LiveKitRoom>
   );

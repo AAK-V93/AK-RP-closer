@@ -32,7 +32,10 @@ export function SessionControls() {
   const { isNoiseFilterEnabled, isNoiseFilterPending, setNoiseFilterEnabled } =
     useKrispNoiseFilter();
   useEffect(() => {
-    setNoiseFilterEnabled(true);
+    const mobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    if (!mobile) {
+      setNoiseFilterEnabled(true);
+    }
   }, [setNoiseFilterEnabled]);
   useEffect(() => {
     setIsMuted(localParticipant.isMicrophoneEnabled === false);
