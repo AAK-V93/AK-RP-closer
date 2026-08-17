@@ -14,6 +14,7 @@ import { authOptions } from "@/lib/auth";
 import { getPrisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { generateGeminiJson } from "@/lib/gemini";
+import { markGuestPracticeCompleted } from "@/lib/guest-practice";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
       if (!row) {
         return NextResponse.json({ error: "Práctica no encontrada" }, { status: 404 });
       }
-      transcript = (row.transcript as TranscriptLine[]) || [];
+      transcript = (row.transcript as unknown as TranscriptLine[]) || [];
       callSection = row.callSection as CallSection;
       productName = row.productName;
       difficulty = row.difficulty;
@@ -125,8 +126,8 @@ export async function POST(request: Request) {
             userId: db.userId,
             callSection,
             productName,
-            difficulty,
-            language,
+            difficulty: difficulty ?? "medium",
+            language: language ?? "es",
             overallScore: 0,
             outcomeSummary: "Evaluación pendiente",
             transcript: transcript as unknown as Prisma.InputJsonValue,
@@ -288,7 +289,17 @@ Reglas:
       }
     }
 
-    return NextResponse.json({ ...evaluation, saved });
+    let freePracticeUsed = false;
+    if (!db) {
+      try {
+        await markGuestPracticeCompleted(request);
+        freePracticeUsed = true;
+      } catch (guestError) {
+        console.error("Could not mark free practice", guestError);
+      }
+    }
+
+    return NextResponse.json({ ...evaluation, saved, freePracticeUsed });
   } catch (error) {
     return NextResponse.json(
       {

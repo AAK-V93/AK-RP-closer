@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import dotenv from "dotenv";
+import path from "path";
 import { generateGeminiParts } from "@/lib/gemini";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });

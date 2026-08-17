@@ -35,3 +35,17 @@ model PracticeSession {
 
   @@index([userId, createdAt])
 }
+
+model GuestFreePractice {
+  id            String    @id @default(cuid())
+  cookieId      String    @unique
+  ipHash        String
+  startCount    Int       @default(0)
+  completedAt   DateTime?
+  qcStartCount  Int       @default(0)
+  qcCompletedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([ipHash])
+}

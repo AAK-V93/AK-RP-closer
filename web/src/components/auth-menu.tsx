@@ -14,6 +14,9 @@ export function AuthMenu() {
   if (!data?.user) {
     return (
       <div className="flex items-center gap-2">
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/reporte">Reporte</Link>
+        </Button>
         <Button asChild variant="outline" size="sm">
           <Link href="/coach">Mi coaching</Link>
         </Button>
@@ -26,6 +29,9 @@ export function AuthMenu() {
 
   return (
     <div className="flex items-center gap-2 min-w-0">
+      <Button asChild variant="ghost" size="sm">
+        <Link href="/reporte">Reporte</Link>
+      </Button>
       <Button asChild variant="outline" size="sm">
         <Link href="/coach">Mi coaching</Link>
       </Button>

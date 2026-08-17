@@ -1,3 +1,12 @@
+export interface OfferPlan {
+  id: string;
+  name: string;
+  priceUsd: number;
+  billing: string;
+  summary: string;
+  includes: string[];
+}
+
 export interface OfferCase {
   id: string;
   label: string;
@@ -5,76 +14,199 @@ export interface OfferCase {
   productName: string;
   productDescription: string;
   pitchSummary: string;
+  whoItsFor: string;
+  whatItIs: string;
+  plans: OfferPlan[];
 }
 
 export const OFFER_OTHER_ID = "other";
+export const PENDING_OFFER_STORAGE_KEY = "closer_pending_offer";
+
+export function formatUsd(amount: number): string {
+  return `USD ${amount.toLocaleString("en-US")}`;
+}
+
+export function offerAgentCopy(offer: OfferCase): string {
+  const planLines = offer.plans
+    .map((plan) => {
+      const items = plan.includes.join("; ");
+      return `- ${plan.name}: ${formatUsd(plan.priceUsd)} (${plan.billing}). ${plan.summary} Incluye: ${items}.`;
+    })
+    .join("\n");
+
+  return `${offer.whatItIs}
+
+Para quién: ${offer.whoItsFor}
+
+Planes y precios (alto ticket; el más bajo es ${formatUsd(offer.plans[0].priceUsd)}):
+${planLines}`;
+}
 
 export const OFFER_CASES: OfferCase[] = [
   {
-    id: "mentorship",
-    label: "Mentoría de negocios",
-    tagline: "Acompañamiento 1:1 o grupal para escalar un negocio (alto ticket).",
-    productName: "Mentoría Scale 90",
-    productDescription: `Programa de 90 días para dueños de negocio que facturan pero están estancados. Incluye diagnóstico, plan de oferta y adquisición, llamadas semanales de implementación y revisión de números. Ticket típico: USD 2.000–5.000. Resultado prometido: claridad de oferta, pipeline y un sistema para cerrar más sin vivir en el caos. No es un curso grabado: es acompañamiento con accountability.`,
-    pitchSummary: `Mentoría Scale 90: 12 semanas, llamadas semanales, plan de oferta + adquisición, revisión de métricas. Precio de referencia USD 3.000 (o 2 cuotas). Garantía de acompañamiento extra si no hay avance de implementación.`,
+    id: "fertility-nutrition",
+    label: "Nutrición funcional para quedar en embarazo",
+    tagline: "Acompañamiento de 8 a 12 semanas para concebir, con enfoque en hábitos, inflamación y pareja.",
+    productName: "Programa Concebir con Nutrición Funcional",
+    whoItsFor:
+      "Mujeres (y su pareja, si aplica) que llevan meses o años intentando quedar embarazadas, ya pasaron por médicos que “no ven nada raro”, y quieren un plan concreto de alimentación, sueño, estrés y seguimiento — no otra dieta genérica.",
+    whatItIs:
+      "Acompañamiento de nutrición funcional orientado a fertilidad. No es una consulta médica ni una garantía de embarazo: es un protocolo de hábitos, un plan alimentario personalizado y accountability para que el cuerpo esté en mejor condición para concebir. Quien entra a la reunión ya vio la página o llenó un formulario: tiene contexto del producto. Qué tan calificada o lista esté para comprar depende de cada lead.",
+    plans: [
+      {
+        id: "esencial",
+        name: "Esencial",
+        priceUsd: 1500,
+        billing: "pago único o 2 cuotas",
+        summary: "8 semanas, trabajo individual.",
+        includes: [
+          "Diagnóstico inicial (hábitos, historial, objetivos)",
+          "Plan nutricional personalizado",
+          "4 sesiones de seguimiento",
+          "Ajustes del plan a mitad de proceso",
+        ],
+      },
+      {
+        id: "pareja",
+        name: "Pareja",
+        priceUsd: 2800,
+        billing: "pago único o 3 cuotas",
+        summary: "12 semanas, ambos miembros de la pareja.",
+        includes: [
+          "Todo lo del plan Esencial para los dos",
+          "Lectura orientativa de laboratorios que ya tengan (no sustituye al médico)",
+          "Protocolo de sueño, estrés y timing",
+          "6 sesiones de seguimiento",
+        ],
+      },
+      {
+        id: "completo",
+        name: "Completo 90 días",
+        priceUsd: 4200,
+        billing: "pago único o 3 cuotas",
+        summary: "90 días con seguimiento cercano.",
+        includes: [
+          "Todo lo del plan Pareja",
+          "Check-ins semanales",
+          "Soporte por WhatsApp en horario acordado",
+          "Revisión de hábitos de ambos y plan de mantenimiento al cerrar",
+        ],
+      },
+    ],
+    productDescription: "",
+    pitchSummary: `Programa Concebir: nutrición funcional para fertilidad. Tres planes — Esencial USD 1,500 (8 semanas, individual), Pareja USD 2,800 (12 semanas, ambos), Completo 90 días USD 4,200 (semanal + WhatsApp). No promete embarazo; sí un protocolo, seguimiento y trabajo de pareja si aplica.`,
   },
   {
-    id: "consulting",
-    label: "Consultoría",
-    tagline: "Diagnóstico y plan para una empresa (B2B o profesional independiente).",
-    productName: "Consultoría de operación y crecimiento",
-    productDescription: `Consultoría de 8–12 semanas para negocios que ya venden pero no tienen procesos. Incluye diagnóstico, mapa de cuellos de botella, playbooks y 4 sesiones de implementación con el dueño o el equipo. Ticket típico: USD 2.500–8.000. El entregable no es “ideas”: es un plan ejecutable y seguimiento para que quede instalado.`,
-    pitchSummary: `Consultoría 10 semanas: diagnóstico, playbooks, 4 sesiones de implementación. Precio de referencia USD 4.000. El cliente sale con procesos documentados y un responsable interno.`,
+    id: "motivational-coaching",
+    label: "Coaching motivacional",
+    tagline: "Proceso 1:1 para claridad, hábitos y ejecución. No es terapia ni un curso grabado.",
+    productName: "Coaching Motivacional 1:1",
+    whoItsFor:
+      "Personas que ya saben qué quieren (carrera, negocio, consistencia) pero se traban, posponen y salen de cada racha de motivación a las dos semanas. Buscan alguien que las sostenga con preguntas, acuerdos y seguimiento — no más contenido.",
+    whatItIs:
+      "Coaching motivacional 1:1 de alto ticket: sesiones, acuerdos de hábitos y accountability. El valor es el espacio y el seguimiento, no un PDF. Quien agendó ya entiende más o menos de qué se trata. El interés y la calificación (dinero, tiempo, decisor) varían según el lead.",
+    plans: [
+      {
+        id: "impulso",
+        name: "Impulso",
+        priceUsd: 1500,
+        billing: "pago único o 2 cuotas",
+        summary: "8 semanas, una sesión por semana.",
+        includes: [
+          "8 sesiones 1:1 (50 min)",
+          "Diagnóstico de bloqueos y metas",
+          "Acuerdos de hábitos semanales",
+          "Revisión al cierre",
+        ],
+      },
+      {
+        id: "transformacion",
+        name: "Transformación",
+        priceUsd: 2900,
+        billing: "pago único o 3 cuotas",
+        summary: "12 semanas con plan de ejecución.",
+        includes: [
+          "12 sesiones 1:1",
+          "Plan de hábitos y métricas simples",
+          "Check de mitad de proceso",
+          "Material de trabajo entre sesiones",
+        ],
+      },
+      {
+        id: "inmersion",
+        name: "Inmersión",
+        priceUsd: 4800,
+        billing: "pago único o 3 cuotas",
+        summary: "16 semanas, acompañamiento cercano.",
+        includes: [
+          "16 sesiones 1:1",
+          "Soporte por WhatsApp en horario acordado",
+          "Revisión quincenal de metas",
+          "Sesión de cierre con plan a 90 días",
+        ],
+      },
+    ],
+    productDescription: "",
+    pitchSummary: `Coaching Motivacional 1:1. Tres planes — Impulso USD 1,500 (8 semanas), Transformación USD 2,900 (12 semanas), Inmersión USD 4,800 (16 semanas + WhatsApp). No es terapia clínica ni un curso: es proceso, acuerdos y seguimiento.`,
   },
   {
-    id: "agency",
-    label: "Agencia de marketing",
-    tagline: "Ads, contenido o outbound a fee mensual.",
-    productName: "Retainer de adquisición",
-    productDescription: `Servicio mensual de adquisición (ads + creativos + seguimiento). Setup inicial y retainer de USD 1.500–4.000/mes más pauta. Pensado para negocios con oferta clara que no tienen tiempo ni equipo interno. Promesa: calendario de tests, reporting semanal y reuniones de optimización. No garantiza un número mágico de ventas; sí un sistema medible.`,
-    pitchSummary: `Setup + retainer mensual. Incluye creativos, gestión de pauta y call semanal. Precio de referencia USD 2.000/mes + presupuesto de ads. Mínimo 3 meses.`,
-  },
-  {
-    id: "course",
-    label: "Curso / infoproducto",
-    tagline: "Programa grabado o híbrido con comunidad.",
-    productName: "Programa digital + comunidad",
-    productDescription: `Programa de 8 módulos grabados más comunidad y 4 Q&A en vivo. Ticket típico: USD 297–997. Para personas que quieren un método paso a paso sin mentoría 1:1. Incluye plantillas y un plazo de acceso de 12 meses. Objeciones habituales: “ya compré cursos que no hice”, tiempo, precio vs YouTube gratis.`,
-    pitchSummary: `8 módulos, comunidad, 4 lives. Precio de referencia USD 497 (o 3 cuotas). Acceso 12 meses. Enfoque en implementación, no en más teoría.`,
-  },
-  {
-    id: "trading",
-    label: "Trading",
-    tagline: "Formación o mesa de trading (forex, índices, cripto). Alto escepticismo.",
-    productName: "Mesa de trading 8 semanas",
-    productDescription: `Programa de 8 semanas para aprender un sistema de trading con reglas, gestión de riesgo y acompañamiento en vivo. No es “señales mágicas” ni promesa de ingresos. Ticket típico: USD 1.000–3.000. El lead suele haber quemado dinero en cursos previos. El closer debe descubrir dolor (pérdidas, falta de sistema) y no vender fantasía de hacerse rico.`,
-    pitchSummary: `8 semanas: sistema, riesgo, sesiones en vivo. Precio de referencia USD 1.500. Sin promesa de rentabilidad; sí un proceso y accountability. No incluye manejo de capital del cliente.`,
-  },
-  {
-    id: "crypto",
-    label: "Crypto / inversión",
-    tagline: "Educación o acompañamiento para invertir; no asesoría regulada ficticia.",
-    productName: "Programa de educación en cripto",
-    productDescription: `Acompañamiento educativo de 60 días: fundamentos, seguridad de wallets, tesis de largo plazo y cómo no perseguir hype. Ticket típico: USD 800–2.500. El prospecto suele tener miedo a estafas, haber perdido en un ciclo anterior, o presión de “llegué tarde”. No se prometen retornos. Se vende claridad, criterio y un plan, no tips de pumps.`,
-    pitchSummary: `60 días de educación + sesiones. Precio de referencia USD 1.200. Enfoque en seguridad, plan y criterio. Sin promesa de yield ni de “10x”.`,
-  },
-  {
-    id: "health",
-    label: "Salud / nutrición",
-    tagline: "Programa de acompañamiento (fertilidad, peso, hábitos). Decisión en pareja a menudo.",
-    productName: "Programa de nutrición funcional 90 días",
-    productDescription: `Acompañamiento de 90 días en nutrición funcional (enfoque integral: hábitos, estrés, pareja si aplica). Incluye diagnóstico, plan personalizado, seguimiento y, en fertilidad, trabajo de ambos. Ticket típico: USD 1.500–2.500. El lead suele llevar años intentando solo, con médicos que “no ven nada raro”, y objeta precio o “hablarlo con mi pareja”.`,
-    pitchSummary: `90 días, plan personalizado, seguimiento, enfoque de pareja si aplica. Precio de referencia USD 2.000 (opción 2 cuotas). No es una dieta genérica: es acompañamiento para la causa, no solo el síntoma.`,
-  },
-  {
-    id: "coaching",
-    label: "Coaching personal",
-    tagline: "Proceso de hábitos, carrera o vida. Objeciones de “es intangible”.",
-    productName: "Coaching 12 semanas",
-    productDescription: `Proceso de 12 semanas (sesiones semanales) para claridad de carrera, hábitos o liderazgo personal. Ticket típico: USD 1.200–3.000. El valor es el espacio, las preguntas y el seguimiento, no un PDF. Objeciones: “puedo hacerlo solo”, pareja, tiempo, “no sé si funciona”.`,
-    pitchSummary: `12 sesiones semanales. Precio de referencia USD 1.800. Incluye acuerdos de hábitos y revisión. No es terapia clínica ni un curso grabado.`,
+    id: "training-plan",
+    label: "Plan de ejercicios",
+    tagline: "Programación a medida y coaching de entrenamiento, no una rutina genérica de PDF.",
+    productName: "Coaching de Entrenamiento a Medida",
+    whoItsFor:
+      "Personas que ya entrenan (o lo intentaron) y no progresan: se lesionan, copian rutinas de Instagram o abandonan a las tres semanas. Quieren un plan hecho para su cuerpo, su tiempo y un coach que las corrija.",
+    whatItIs:
+      "Coaching de entrenamiento de alto ticket: evaluación, programación personalizada y seguimiento. No es un PDF de 20 dólares ni un plan genérico de app. Quien agendó sabe que es un programa serio y tiene contexto de planes. Qué tan lista esté para pagar varía según el lead.",
+    plans: [
+      {
+        id: "programa",
+        name: "Programa a medida",
+        priceUsd: 1500,
+        billing: "pago único o 2 cuotas",
+        summary: "8 semanas de programación.",
+        includes: [
+          "Evaluación inicial (objetivos, historial, disponibilidad)",
+          "Plan de ejercicios personalizado",
+          "4 ajustes del programa",
+          "Guía de técnica de los movimientos clave",
+        ],
+      },
+      {
+        id: "coaching",
+        name: "Coaching 12 semanas",
+        priceUsd: 2600,
+        billing: "pago único o 3 cuotas",
+        summary: "12 semanas con check-ins semanales.",
+        includes: [
+          "Todo lo del Programa a medida",
+          "Check-in semanal de progreso y cargas",
+          "Progresión escrita semana a semana",
+          "Ajustes si hay viaje, enfermedad o dolor",
+        ],
+      },
+      {
+        id: "elite",
+        name: "Elite",
+        priceUsd: 3900,
+        billing: "pago único o 3 cuotas",
+        summary: "16 semanas 1:1, seguimiento cercano.",
+        includes: [
+          "Todo lo del Coaching 12 semanas, extendido a 16",
+          "Sesiones 1:1 de técnica",
+          "Orientación básica de nutrición de rendimiento (no es dietista clínico)",
+          "Soporte por WhatsApp en horario acordado",
+        ],
+      },
+    ],
+    productDescription: "",
+    pitchSummary: `Coaching de Entrenamiento a Medida. Tres planes — Programa USD 1,500 (8 semanas), Coaching USD 2,600 (12 semanas con check-ins), Elite USD 3,900 (16 semanas 1:1 + WhatsApp). No es una rutina genérica: es programación y seguimiento.`,
   },
 ];
+
+for (const offer of OFFER_CASES) {
+  offer.productDescription = offerAgentCopy(offer);
+}
 
 export function getOfferCase(id: string): OfferCase | undefined {
   return OFFER_CASES.find((c) => c.id === id);

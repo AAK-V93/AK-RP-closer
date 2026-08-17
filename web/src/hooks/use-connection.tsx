@@ -55,7 +55,11 @@ export const ConnectionProvider = ({
 
       if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.error || "Failed to fetch token");
+        const error = new Error(err.error || "Failed to fetch token") as Error & {
+          code?: string;
+        };
+        error.code = err.code;
+        throw error;
       }
 
       const { accessToken, url } = await response.json();

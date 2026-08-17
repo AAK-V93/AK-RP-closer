@@ -2,19 +2,41 @@ import { AccessToken } from "livekit-server-sdk";
 import { RoomAgentDispatch, RoomConfiguration } from "@livekit/protocol";
 import dotenv from "dotenv";
 import path from "path";
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
 import { TokenRequestPayload } from "@/lib/training-helpers";
 import { buildProspectInstructions } from "@/lib/prospect-prompt";
+import { authOptions } from "@/lib/auth";
+import {
+  FREE_USED_CODE,
+  assertGuestCanStart,
+} from "@/lib/guest-practice";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 
 export async function POST(request: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      const gate = await assertGuestCanStart(request);
+      if (!gate.ok) {
+        return NextResponse.json(
+          {
+            error:
+              "Ya usaste tu práctica gratis. Crea una cuenta para seguir.",
+            code: FREE_USED_CODE,
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     let payload: TokenRequestPayload;
 
     try {
       payload = await request.json();
     } catch {
-      return Response.json({ error: "Invalid JSON in request body" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
     const { training, sessionConfig } = payload;
@@ -25,7 +47,7 @@ export async function POST(request: Request) {
     const apiSecret = process.env.LIVEKIT_API_SECRET;
 
     if (!apiKey || !apiSecret || !process.env.LIVEKIT_URL) {
-      return Response.json(
+      return NextResponse.json(
         { error: "LiveKit credentials must be set in environment" },
         { status: 500 },
       );
@@ -68,12 +90,12 @@ export async function POST(request: Request) {
       ],
     });
 
-    return Response.json({
+    return NextResponse.json({
       accessToken: await at.toJwt(),
       url: process.env.LIVEKIT_URL,
     });
   } catch (error) {
-    return Response.json(
+    return NextResponse.json(
       {
         error: "Error generating token",
         details: error instanceof Error ? error.message : String(error),

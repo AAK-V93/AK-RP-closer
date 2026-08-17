@@ -8,6 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 
+function safeCallbackUrl(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/coach";
+  return raw;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -18,6 +23,10 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
+  const [callbackUrl, setCallbackUrl] = useState("/coach");
+  const [fromCustomOffer, setFromCustomOffer] = useState(false);
+  const [fromFreeUsed, setFromFreeUsed] = useState(false);
+  const [fromQcUsed, setFromQcUsed] = useState(false);
 
   useEffect(() => {
     fetch("/api/config")
@@ -30,6 +39,11 @@ export default function LoginPage() {
       .catch(() => undefined);
 
     const params = new URLSearchParams(window.location.search);
+    setCallbackUrl(safeCallbackUrl(params.get("callbackUrl") || params.get("next")));
+    if (params.get("mode") === "register") setMode("register");
+    if (params.get("reason") === "custom-offer") setFromCustomOffer(true);
+    if (params.get("reason") === "free-used") setFromFreeUsed(true);
+    if (params.get("reason") === "qc-used") setFromQcUsed(true);
     const hadQueryError = Boolean(params.get("error") || params.get("e"));
     const hadCookie = document.cookie.includes("closer_auth_error=1");
     if (hadCookie || hadQueryError) {
@@ -45,7 +59,7 @@ export default function LoginPage() {
     setError(null);
     setGoogleBusy(true);
     try {
-      await signIn("google", { callbackUrl: "/coach" });
+      await signIn("google", { callbackUrl });
     } catch {
       setError("No se pudo abrir Google");
       setGoogleBusy(false);
@@ -79,7 +93,7 @@ export default function LoginPage() {
             : "Email o contraseña incorrectos. Si te registraste con Google, usa ese botón.",
         );
       }
-      router.push("/coach");
+      router.push(callbackUrl);
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
@@ -105,8 +119,13 @@ export default function LoginPage() {
               {mode === "login" ? "Entrar" : "Crear cuenta"}
             </h1>
             <p className="text-xs text-fg3 mt-1">
-              Google confirma que el email es tuyo. Guardamos las prácticas para
-              el coaching.
+              {fromQcUsed
+                ? "Ya usaste tu reporte gratis. Crea una cuenta para auditar más llamadas reales."
+                : fromFreeUsed
+                ? "Ya usaste tu práctica gratis. Crea una cuenta para seguir practicando y guardar tus reportes."
+                : fromCustomOffer
+                ? "Para practicar tu propia oferta, crea una cuenta. Luego volvemos a la práctica."
+                : "Google confirma que el email es tuyo. Guardamos las prácticas para el coaching."}
             </p>
           </div>
 

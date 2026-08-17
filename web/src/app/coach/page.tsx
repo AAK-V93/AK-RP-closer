@@ -91,11 +91,16 @@ export default function CoachPage() {
           <div className="rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3">
             <p className="text-sm">
               Aún no hay prácticas guardadas. Entra a una llamada con la sesión
-              iniciada; al colgar se guarda el reporte.
+              iniciada, o sube una transcripción real.
             </p>
-            <Button asChild variant="primary">
-              <Link href="/">Ir a practicar</Link>
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="primary">
+                <Link href="/">Ir a practicar</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/reporte">Auditar una llamada</Link>
+              </Button>
+            </div>
           </div>
         )}
 
@@ -199,8 +204,10 @@ export default function CoachPage() {
                     <div>
                       <p className="font-medium">{r.productName}</p>
                       <p className="text-xs text-fg3">
-                        {CALL_SECTION_LABELS[r.callSection as CallSection] ??
-                          r.callSection}{" "}
+                        {r.callSection === "qc_transcript"
+                          ? "Reporte de llamada real"
+                          : CALL_SECTION_LABELS[r.callSection as CallSection] ??
+                            r.callSection}{" "}
                         · {new Date(r.createdAt).toLocaleString()}
                       </p>
                       {r.outcomeSummary && (

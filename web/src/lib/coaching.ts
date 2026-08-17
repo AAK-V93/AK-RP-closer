@@ -88,15 +88,22 @@ export function buildCoachingInsights(
       skillTotals.set(c.id, cur);
     }
 
-    const evaluation = row.evaluation as CallEvaluation;
+    const evaluation = row.evaluation as CallEvaluation & {
+      verdictLevers?: string[];
+      discoveryFailures?: { whatWasMissed?: string }[];
+    };
     for (const item of evaluation?.improvements ?? []) bump(errors, item);
     for (const gap of evaluation?.discoveryGaps ?? []) {
       if (gap.whatWasMissed) bump(errors, gap.whatWasMissed);
+    }
+    for (const fail of evaluation?.discoveryFailures ?? []) {
+      if (fail.whatWasMissed) bump(errors, fail.whatWasMissed);
     }
     for (const obj of evaluation?.objections ?? []) {
       if (obj.whyFailedOrWorked) bump(errors, obj.whyFailedOrWorked);
     }
     for (const tip of evaluation?.coachingTips ?? []) bump(tips, tip);
+    for (const lever of evaluation?.verdictLevers ?? []) bump(tips, lever);
     for (const obj of evaluation?.objections ?? []) {
       if (obj.suggestedLine) bump(tips, obj.suggestedLine);
     }

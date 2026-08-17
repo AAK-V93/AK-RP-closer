@@ -5,6 +5,8 @@ import { LanguageCode } from "@/data/languages";
 
 export type DifficultyLevel = "easy" | "medium" | "hard";
 
+export type QualificationLevel = "high" | "mixed" | "low";
+
 export type CallSection =
   | "full"
   | "discovery"
@@ -25,6 +27,9 @@ export interface ProspectProfile {
   age: number;
   occupation: string;
   location: string;
+  qualificationLevel: QualificationLevel;
+  qualificationSummary: string;
+  howTheyKnowTheOffer: string;
   preQualification: PreQualificationAnswers;
   pains: string[];
   urgency: string;
@@ -68,9 +73,9 @@ export const CALL_SECTION_LABELS: Record<CallSection, string> = {
 };
 
 export const DIFFICULTY_LABELS: Record<DifficultyLevel, string> = {
-  easy: "Fácil — colaborativo",
-  medium: "Medio — algo resistente",
-  hard: "Difícil — escéptico y exigente",
+  easy: "Fácil — lead calificado y colaborativo",
+  medium: "Medio — calificación mixta",
+  hard: "Difícil — poco calificado o escéptico",
 };
 
 export const defaultTrainingSession: TrainingSessionConfig = {
@@ -85,6 +90,11 @@ export const defaultTrainingSession: TrainingSessionConfig = {
     age: 34,
     occupation: "Emprendedora digital",
     location: "Ciudad de México",
+    qualificationLevel: "mixed",
+    qualificationSummary:
+      "Mixta: hay interés y un hueco. Conoce el producto; hay que calificar.",
+    howTheyKnowTheOffer:
+      "Llenó un formulario y vio la página; sabe de qué va a grandes rasgos.",
     preQualification: {
       mainGoal: "Escalar mi negocio online",
       currentSituation: "Facturo pero estoy estancada",

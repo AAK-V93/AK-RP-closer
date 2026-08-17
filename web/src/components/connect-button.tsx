@@ -1,18 +1,33 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useConnection } from "@/hooks/use-connection";
 import { Loader2, PhoneCall } from "lucide-react";
 import { useTraining } from "@/hooks/use-training-state";
 import { toast } from "@/hooks/use-toast";
+import {
+  FREE_USED_CODE,
+} from "@/lib/guest-practice-client";
+import {
+  REGISTER_AFTER_FREE_URL,
+  usePracticeAccess,
+} from "@/hooks/use-practice-access";
 
 export function ConnectButton() {
   const { connect, shouldConnect, isConnecting } = useConnection();
   const { helpers, trainingState } = useTraining();
+  const { access } = usePracticeAccess();
+  const router = useRouter();
   const [connecting, setConnecting] = useState(false);
 
   const handleConnect = async () => {
+    if (access && !access.authenticated && !access.allowed) {
+      router.push(REGISTER_AFTER_FREE_URL);
+      return;
+    }
+
     const validationError = helpers.validateTraining(trainingState.training);
     if (validationError) {
       toast({
@@ -27,6 +42,14 @@ export function ConnectButton() {
     try {
       await connect();
     } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: string }).code)
+          : "";
+      if (code === FREE_USED_CODE) {
+        router.push(REGISTER_AFTER_FREE_URL);
+        return;
+      }
       toast({
         title: "Error de conexión",
         description:
@@ -39,6 +62,7 @@ export function ConnectButton() {
   };
 
   const busy = connecting || isConnecting || shouldConnect;
+  const usedFree = Boolean(access && !access.authenticated && !access.allowed);
 
   return (
     <Button
@@ -51,6 +75,11 @@ export function ConnectButton() {
         <>
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           Conectando...
+        </>
+      ) : usedFree ? (
+        <>
+          <PhoneCall className="h-4 w-4 mr-2" />
+          Crear cuenta para practicar
         </>
       ) : (
         <>

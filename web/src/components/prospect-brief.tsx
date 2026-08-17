@@ -13,8 +13,20 @@ export function ProspectBrief({ profile }: ProspectBriefProps) {
           {profile.name}, {profile.age} — {profile.occupation}
         </CardTitle>
         <p className="text-xs text-fg3">{profile.location}</p>
+        <p className="text-xs mt-1">
+          Calificación:{" "}
+          {profile.qualificationLevel === "high"
+            ? "alta"
+            : profile.qualificationLevel === "mixed"
+              ? "mixta"
+              : "baja"}
+          . {profile.qualificationSummary}
+        </p>
       </CardHeader>
       <CardContent className="text-xs space-y-3 text-fg2">
+        <Section title="Contexto del producto">
+          <p>{profile.howTheyKnowTheOffer}</p>
+        </Section>
         <Section title="Formulario precalificatorio">
           <Item label="Meta" value={profile.preQualification.mainGoal} />
           <Item label="Situación" value={profile.preQualification.currentSituation} />

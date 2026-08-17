@@ -41,4 +41,5 @@ export interface CallEvaluation {
   improvements: string[];
   coachingTips: string[];
   saved?: boolean;
+  freePracticeUsed?: boolean;
 }

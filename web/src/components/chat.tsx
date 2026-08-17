@@ -25,6 +25,8 @@ import { LANGUAGE_LABELS } from "@/data/languages";
 import { shouldShowProspectBrief } from "@/lib/prospect-prompt";
 import { ProspectBrief } from "@/components/prospect-brief";
 import { Badge } from "@/components/ui/badge";
+import { usePracticeAccess } from "@/hooks/use-practice-access";
+import { useSession } from "next-auth/react";
 
 export function Chat() {
   const connectionState = useConnectionState();
@@ -33,6 +35,8 @@ export function Chat() {
   const { agent, displayTranscriptions } = useAgent();
   const { disconnect, shouldConnect } = useConnection();
   const { trainingState } = useTraining();
+  const { access, refresh: refreshAccess } = usePracticeAccess();
+  const { status: authStatus } = useSession();
   const {
     evaluation,
     isLoading: evalLoading,
@@ -121,6 +125,12 @@ export function Chat() {
   }, [shouldConnect, evaluateCall, trainingState.training]);
 
   useEffect(() => {
+    if (evaluation?.freePracticeUsed) {
+      void refreshAccess();
+    }
+  }, [evaluation?.freePracticeUsed, refreshAccess]);
+
+  useEffect(() => {
     if (evalError) {
       toast({
         title: "Evaluación",
@@ -169,6 +179,21 @@ export function Chat() {
               El lead espera a que tú abras la reunión. Agendó esta cita y ya
               sabe el contexto. No va a saludar primero.
             </p>
+            {authStatus === "unauthenticated" && access && !access.used && (
+              <p className="text-xs text-fg3">
+                Sin cuenta: 1 práctica con prospecto. También puedes{" "}
+                <a href="/reporte" className="underline">
+                  auditar una llamada real
+                </a>
+                .
+              </p>
+            )}
+            {authStatus === "unauthenticated" && access?.used && (
+              <p className="text-xs text-fg3">
+                Ya usaste tu práctica gratis. Crea una cuenta para volver a
+                practicar.
+              </p>
+            )}
           </div>
         )}
 

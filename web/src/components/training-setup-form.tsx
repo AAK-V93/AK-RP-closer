@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -43,7 +45,10 @@ import { Badge } from "@/components/ui/badge";
 import {
   OFFER_CASES,
   OFFER_OTHER_ID,
+  PENDING_OFFER_STORAGE_KEY,
+  formatUsd,
   getOfferCase,
+  type OfferCase,
 } from "@/data/offer-cases";
 
 const schema = z.object({
@@ -57,9 +62,28 @@ const schema = z.object({
   pitchSummary: z.string().optional(),
 });
 
+function applyPreset(
+  form: ReturnType<typeof useForm<z.infer<typeof schema>>>,
+  preset: OfferCase,
+) {
+  form.setValue("productName", preset.productName, {
+    shouldDirty: true,
+    shouldValidate: true,
+  });
+  form.setValue("productDescription", preset.productDescription, {
+    shouldDirty: true,
+    shouldValidate: true,
+  });
+  form.setValue("pitchSummary", preset.pitchSummary, {
+    shouldDirty: true,
+  });
+}
+
 export function TrainingSetupForm() {
   const { trainingState, dispatch } = useTraining();
   const { shouldConnect } = useConnection();
+  const { status } = useSession();
+  const router = useRouter();
   const [serverReady, setServerReady] = useState<boolean | null>(null);
   const [parsingDoc, setParsingDoc] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
@@ -84,6 +108,17 @@ export function TrainingSetupForm() {
   const isOther = offerId === OFFER_OTHER_ID;
   const showBrief = shouldShowProspectBrief(callSection);
   const needsPitch = requiresPitchSummary(callSection);
+
+  useEffect(() => {
+    if (status !== "authenticated" || typeof window === "undefined") return;
+    const pending = sessionStorage.getItem(PENDING_OFFER_STORAGE_KEY);
+    if (pending !== OFFER_OTHER_ID) return;
+    sessionStorage.removeItem(PENDING_OFFER_STORAGE_KEY);
+    form.setValue("offerId", OFFER_OTHER_ID, { shouldDirty: true });
+    form.setValue("productName", "", { shouldDirty: true });
+    form.setValue("productDescription", "", { shouldDirty: true });
+    form.setValue("pitchSummary", "", { shouldDirty: true });
+  }, [status, form]);
 
   useEffect(() => {
     fetch("/api/config")
@@ -142,23 +177,24 @@ export function TrainingSetupForm() {
               <FormItem>
                 <FormLabel>Oferta a practicar</FormLabel>
                 <Select
-                  disabled={shouldConnect}
+                  disabled={shouldConnect || status === "loading"}
                   onValueChange={(id) => {
+                    if (id === OFFER_OTHER_ID && status !== "authenticated") {
+                      if (typeof window !== "undefined") {
+                        sessionStorage.setItem(
+                          PENDING_OFFER_STORAGE_KEY,
+                          OFFER_OTHER_ID,
+                        );
+                      }
+                      router.push(
+                        "/login?mode=register&reason=custom-offer&callbackUrl=/",
+                      );
+                      return;
+                    }
                     field.onChange(id);
                     const preset = getOfferCase(id);
                     if (preset) {
-                      form.setValue("productName", preset.productName, {
-                        shouldDirty: true,
-                        shouldValidate: true,
-                      });
-                      form.setValue(
-                        "productDescription",
-                        preset.productDescription,
-                        { shouldDirty: true, shouldValidate: true },
-                      );
-                      form.setValue("pitchSummary", preset.pitchSummary, {
-                        shouldDirty: true,
-                      });
+                      applyPreset(form, preset);
                     } else if (id === OFFER_OTHER_ID) {
                       form.setValue("productName", "", { shouldDirty: true });
                       form.setValue("productDescription", "", {
@@ -171,7 +207,7 @@ export function TrainingSetupForm() {
                 >
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Elige un caso típico" />
+                      <SelectValue placeholder="Elige una oferta" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
@@ -180,24 +216,21 @@ export function TrainingSetupForm() {
                         {offer.label}
                       </SelectItem>
                     ))}
-                    <SelectItem value={OFFER_OTHER_ID}>Otra oferta…</SelectItem>
+                    <SelectItem value={OFFER_OTHER_ID}>
+                      Otra oferta (requiere cuenta)
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <FormDescription className="text-xs">
-                  Casos listos para practicar. Si no está, elige Otra oferta.
+                  Tres ofertas de alto ticket listas. Si quieres practicar la
+                  tuya, elige Otra oferta.
                 </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
           />
 
-          {selectedOffer && (
-            <div className="p-3 rounded-lg bg-bg0 border border-separator1 space-y-1">
-              <p className="text-sm font-medium">{selectedOffer.productName}</p>
-              <p className="text-xs text-fg3">{selectedOffer.tagline}</p>
-              <p className="text-xs text-fg2 pt-1">{selectedOffer.productDescription}</p>
-            </div>
-          )}
+          {selectedOffer && <OfferDetailsCard offer={selectedOffer} />}
 
           {isOther && (
             <>
@@ -379,6 +412,11 @@ export function TrainingSetupForm() {
                     )}
                   </SelectContent>
                 </Select>
+                <FormDescription className="text-xs">
+                  Cambia qué tan calificado llega el lead (presupuesto, apuro,
+                  quién decide), no si conoce el producto: todos agendaron y
+                  saben de qué va. Cada práctica arma un perfil distinto.
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -472,5 +510,56 @@ export function TrainingSetupForm() {
         </div>
       </form>
     </Form>
+  );
+}
+
+function OfferDetailsCard({ offer }: { offer: OfferCase }) {
+  return (
+    <div className="p-3 rounded-lg bg-bg0 border border-separator1 space-y-3">
+      <div className="space-y-1">
+        <p className="text-sm font-medium">{offer.productName}</p>
+        <p className="text-xs text-fg3">{offer.tagline}</p>
+      </div>
+      <div className="space-y-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
+          De qué se trata
+        </p>
+        <p className="text-xs text-fg2">{offer.whatItIs}</p>
+      </div>
+      <div className="space-y-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
+          Para quién
+        </p>
+        <p className="text-xs text-fg2">{offer.whoItsFor}</p>
+      </div>
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
+          Planes y precios
+        </p>
+        <ul className="space-y-2">
+          {offer.plans.map((plan) => (
+            <li
+              key={plan.id}
+              className="rounded-md border border-separator1 bg-bg1 p-2 space-y-1"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-xs font-medium">{plan.name}</span>
+                <span className="text-xs font-semibold whitespace-nowrap">
+                  {formatUsd(plan.priceUsd)}
+                </span>
+              </div>
+              <p className="text-[11px] text-fg3">
+                {plan.summary} · {plan.billing}
+              </p>
+              <ul className="text-[11px] text-fg2 list-disc pl-4 space-y-0.5">
+                {plan.includes.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }

@@ -66,12 +66,22 @@ export function CallScorePanel({
               .
             </p>
           ) : status === "unauthenticated" ? (
-            <p className="text-xs text-fg3 mt-2">
-              <Link href="/login" className="underline">
-                Entra
-              </Link>{" "}
-              para guardar este reporte y ver tus errores repetidos.
-            </p>
+            <div className="text-xs text-fg3 mt-2 space-y-1">
+              <p>
+                Esta fue tu práctica gratis. Para la siguiente,{" "}
+                <Link
+                  href="/login?mode=register&reason=free-used&callbackUrl=/"
+                  className="underline"
+                >
+                  crea una cuenta
+                </Link>
+                .
+              </p>
+              <p>
+                Si entras ahora, también puedes guardar este reporte en tu
+                coaching.
+              </p>
+            </div>
           ) : null}
         </div>
         <Button variant="ghost" size="icon" onClick={onClose}>

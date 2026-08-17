@@ -5,7 +5,11 @@ const GEMINI_MODELS = [
   "gemini-flash-lite-latest",
 ];
 
-export async function generateGeminiJson(prompt: string, temperature = 0.3) {
+export async function generateGeminiJson(
+  prompt: string,
+  temperature = 0.3,
+  maxOutputTokens?: number,
+) {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY not configured");
@@ -27,6 +31,7 @@ export async function generateGeminiJson(prompt: string, temperature = 0.3) {
           generationConfig: {
             temperature,
             responseMimeType: "application/json",
+            ...(maxOutputTokens ? { maxOutputTokens } : {}),
           },
         }),
       },
