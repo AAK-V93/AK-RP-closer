@@ -211,3 +211,18 @@ for (const offer of OFFER_CASES) {
 export function getOfferCase(id: string): OfferCase | undefined {
   return OFFER_CASES.find((c) => c.id === id);
 }
+
+/** Guests may only practice the three built-in offers. */
+export function isPresetOffer(
+  productName: string,
+  productDescription = "",
+): boolean {
+  const name = productName.trim();
+  const desc = productDescription.trim();
+  if (!name) return false;
+  return OFFER_CASES.some((offer) => {
+    if (offer.productName !== name) return false;
+    if (!desc) return true;
+    return offer.productDescription.trim() === desc;
+  });
+}

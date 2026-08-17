@@ -6,6 +6,9 @@ import { useSession } from "next-auth/react";
 export const REGISTER_AFTER_FREE_URL =
   "/login?mode=register&reason=free-used&callbackUrl=/practicar";
 
+export const REGISTER_CUSTOM_OFFER_URL =
+  "/login?mode=register&reason=custom-offer&callbackUrl=/practicar";
+
 export type PracticeAccess = {
   allowed: boolean;
   remaining: number | null;

@@ -7,10 +7,12 @@ import { getServerSession } from "next-auth";
 import { TokenRequestPayload } from "@/lib/training-helpers";
 import { buildProspectInstructions } from "@/lib/prospect-prompt";
 import { authOptions } from "@/lib/auth";
+import { isPresetOffer } from "@/data/offer-cases";
 import {
   FREE_USED_CODE,
   assertGuestCanStart,
 } from "@/lib/guest-practice";
+import { CUSTOM_OFFER_CODE } from "@/lib/guest-practice-client";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 
@@ -40,6 +42,24 @@ export async function POST(request: Request) {
     }
 
     const { training, sessionConfig } = payload;
+
+    if (!session?.user?.id) {
+      const hasCustomProduct = Boolean(training.productName?.trim());
+      if (
+        hasCustomProduct &&
+        !isPresetOffer(training.productName, training.productDescription)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Para practicar una oferta propia necesitas una cuenta. Elige una de las tres ofertas listas o crea tu cuenta.",
+            code: CUSTOM_OFFER_CODE,
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     const instructions = buildProspectInstructions(training);
 
     const roomName = `closer-${Math.random().toString(36).slice(2, 10)}`;

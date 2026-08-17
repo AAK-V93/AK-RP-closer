@@ -40,7 +40,7 @@ import {
 } from "@/lib/prospect-prompt";
 import { ProspectBrief } from "@/components/prospect-brief";
 import { useConnection } from "@/hooks/use-connection";
-import { RefreshCw, Upload } from "lucide-react";
+import { RefreshCw, Upload, Lock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   OFFER_CASES,
@@ -115,6 +115,15 @@ export function TrainingSetupForm() {
     if (pending !== OFFER_OTHER_ID) return;
     sessionStorage.removeItem(PENDING_OFFER_STORAGE_KEY);
     form.setValue("offerId", OFFER_OTHER_ID, { shouldDirty: true });
+    form.setValue("productName", "", { shouldDirty: true });
+    form.setValue("productDescription", "", { shouldDirty: true });
+    form.setValue("pitchSummary", "", { shouldDirty: true });
+  }, [status, form]);
+
+  useEffect(() => {
+    if (status !== "unauthenticated") return;
+    if (form.getValues("offerId") !== OFFER_OTHER_ID) return;
+    form.setValue("offerId", "", { shouldDirty: true });
     form.setValue("productName", "", { shouldDirty: true });
     form.setValue("productDescription", "", { shouldDirty: true });
     form.setValue("pitchSummary", "", { shouldDirty: true });
@@ -216,15 +225,45 @@ export function TrainingSetupForm() {
                         {offer.label}
                       </SelectItem>
                     ))}
-                    <SelectItem value={OFFER_OTHER_ID}>
-                      Otra oferta (requiere cuenta)
-                    </SelectItem>
+                    {status === "authenticated" && (
+                      <SelectItem value={OFFER_OTHER_ID}>
+                        Otra oferta
+                      </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
                 <FormDescription className="text-xs">
-                  Tres ofertas de alto ticket listas. Si quieres practicar la
-                  tuya, elige Otra oferta.
+                  Tres ofertas de alto ticket listas para practicar ahora.
                 </FormDescription>
+                {status !== "authenticated" && (
+                  <button
+                    type="button"
+                    disabled={shouldConnect || status === "loading"}
+                    onClick={() => {
+                      if (typeof window !== "undefined") {
+                        sessionStorage.setItem(
+                          PENDING_OFFER_STORAGE_KEY,
+                          OFFER_OTHER_ID,
+                        );
+                      }
+                      router.push(
+                        "/login?mode=register&reason=custom-offer&callbackUrl=/practicar",
+                      );
+                    }}
+                    className="flex w-full items-start gap-2 rounded-md border border-dashed border-separator1 bg-bg0 px-3 py-2 text-left text-xs text-fg2 hover:border-primary/40 hover:text-fg1 disabled:opacity-50"
+                  >
+                    <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      <span className="font-medium text-fg1">
+                        ¿Quieres practicar tu propia oferta?
+                      </span>
+                      <span className="mt-0.5 block text-fg3">
+                        Crea una cuenta. Sin cuenta solo puedes usar las tres
+                        ofertas de arriba — no se inicia la práctica con otra.
+                      </span>
+                    </span>
+                  </button>
+                )}
                 <FormMessage />
               </FormItem>
             )}

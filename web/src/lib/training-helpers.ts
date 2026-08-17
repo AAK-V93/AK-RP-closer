@@ -25,7 +25,7 @@ export const trainingHelpers = {
 
   validateTraining(training: TrainingSessionConfig): string | null {
     if (!training.productName.trim()) {
-      return "Ingresa el nombre del producto que vendes";
+      return "Elige una oferta a la izquierda antes de entrar a la reunión";
     }
     if (!training.productDescription.trim()) {
       return "Describe brevemente tu producto o programa";

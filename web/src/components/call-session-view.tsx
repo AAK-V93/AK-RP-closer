@@ -19,14 +19,15 @@ interface CallSessionViewProps {
   transcriptions: TranscriptEntry[];
   prospectName: string;
   isActive: boolean;
+  isConnecting?: boolean;
 }
 
 const STATE_LABELS: Record<string, string> = {
   disconnected: "Desconectado",
-  connecting: "Conectando...",
-  initializing: "Iniciando...",
-  listening: "Escuchando",
-  thinking: "Prospecto pensando...",
+  connecting: "Conectando…",
+  initializing: "El prospecto está entrando…",
+  listening: "En silencio — te espera",
+  thinking: "Prospecto pensando…",
   speaking: "Prospecto hablando",
 };
 
@@ -35,30 +36,41 @@ export function CallSessionView({
   transcriptions,
   prospectName,
   isActive,
+  isConnecting = false,
 }: CallSessionViewProps) {
   const { audioTrack } = useVoiceAssistant();
   const volume = useTrackVolume(audioTrack);
-  const stateLabel = STATE_LABELS[agentState] ?? agentState;
+  const closerHasSpoken = transcriptions.some(
+    (entry) => entry.role === "closer" && entry.text.trim(),
+  );
+  const waitingForCloser =
+    (isActive || isConnecting) && !closerHasSpoken && agentState !== "speaking";
+  const stateLabel = isConnecting
+    ? "Conectando con el prospecto…"
+    : (STATE_LABELS[agentState] ?? agentState);
   const isSpeaking = agentState === "speaking" || volume > 0.05;
 
   return (
     <div className="flex flex-col h-full w-full max-w-2xl mx-auto gap-4 px-2">
-      {/* Status card */}
-      <div className="flex flex-col items-center gap-4 py-6">
+      <div className="flex flex-col items-center gap-4 py-4">
         <div
           className={cn(
             "relative flex items-center justify-center w-24 h-24 rounded-full border-2 transition-all duration-300",
             isActive
               ? isSpeaking
                 ? "border-primary bg-primary/10 shadow-[0_0_24px_rgba(var(--primary-rgb,99,102,241),0.25)]"
-                : "border-separator1 bg-bg2"
-              : "border-separator1 bg-bg2 opacity-60",
+                : waitingForCloser
+                  ? "border-primary bg-primary/10"
+                  : "border-separator1 bg-bg2"
+              : isConnecting
+                ? "border-primary/50 bg-primary/5"
+                : "border-separator1 bg-bg2 opacity-60",
           )}
         >
           <Phone
             className={cn(
               "h-10 w-10 transition-colors",
-              isSpeaking ? "text-primary" : "text-fg3",
+              isSpeaking || waitingForCloser ? "text-primary" : "text-fg3",
             )}
           />
           {isActive && isSpeaking && (
@@ -68,10 +80,26 @@ export function CallSessionView({
 
         <div className="text-center space-y-1">
           <p className="text-sm font-medium text-fg1">
-            {isActive ? prospectName : "Prospecto simulado"}
+            {isActive || isConnecting ? prospectName : "Prospecto simulado"}
           </p>
-          <p className="text-xs text-fg3">{isActive ? stateLabel : "Listo para practicar"}</p>
+          <p className="text-xs text-fg3">
+            {isActive || isConnecting ? stateLabel : "Listo para practicar"}
+          </p>
         </div>
+
+        {waitingForCloser && (
+          <div className="w-full max-w-md rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 text-center space-y-1">
+            <p className="text-sm font-semibold text-fg1">
+              {isConnecting
+                ? "En unos segundos el lead estará en silencio"
+                : "Habla ahora. El lead no va a saludar."}
+            </p>
+            <p className="text-xs text-fg2">
+              Permite el micrófono si el navegador lo pide. Luego saluda y
+              abre la reunión: quién eres y por qué se juntaron.
+            </p>
+          </div>
+        )}
 
         {isActive && audioTrack && (
           <BarVisualizer
@@ -83,7 +111,6 @@ export function CallSessionView({
         )}
       </div>
 
-      {/* Live transcript */}
       <div className="flex-1 min-h-0 flex flex-col rounded-xl border border-separator1 bg-bg0 overflow-hidden">
         <div className="px-4 py-2 border-b border-separator1 flex items-center gap-2">
           <Mic className="h-3.5 w-3.5 text-fg3" />
@@ -94,9 +121,11 @@ export function CallSessionView({
         <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[120px] max-h-[280px]">
           {transcriptions.length === 0 ? (
             <p className="text-sm text-fg3 text-center py-8">
-              {isActive
-                ? "La conversación aparecerá aquí..."
-                : "Inicia la práctica para ver la transcripción"}
+              {waitingForCloser
+                ? "Nadie ha hablado. Di hola — el prospecto está callado a propósito."
+                : isActive
+                  ? "La conversación aparecerá aquí…"
+                  : "Entra a la reunión para ver la transcripción"}
             </p>
           ) : (
             transcriptions.map((entry, i) => (
