@@ -181,11 +181,7 @@ export function Chat() {
             </p>
             {authStatus === "unauthenticated" && access && !access.used && (
               <p className="text-xs text-fg3">
-                Sin cuenta: 1 práctica con prospecto. También puedes{" "}
-                <a href="/reporte" className="underline">
-                  auditar una llamada real
-                </a>
-                .
+                Sin cuenta puedes hacer 1 práctica completa, con reporte.
               </p>
             )}
             {authStatus === "unauthenticated" && access?.used && (

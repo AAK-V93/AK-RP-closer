@@ -142,7 +142,7 @@ export default function ReportePage() {
                 Auditar otra
               </Button>
               <Button asChild variant="primary">
-                <Link href="/">Practicar con un prospecto</Link>
+                <Link href="/practicar">Practicar con un prospecto</Link>
               </Button>
             </div>
           </>

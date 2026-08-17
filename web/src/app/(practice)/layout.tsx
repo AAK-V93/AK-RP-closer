@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { TrainingProvider } from "@/hooks/use-training-state";
 import { ConnectionProvider } from "@/hooks/use-connection";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -26,11 +27,11 @@ export default function PracticeLayout({
             <SidebarProvider defaultOpen={true}>
               <Sidebar className="bg-bg1">
                 <SidebarHeader className="px-4 py-3">
-                  <div className="text-sm font-semibold tracking-tight">
+                  <Link href="/" className="text-sm font-semibold tracking-tight">
                     Closer Trainer
-                  </div>
+                  </Link>
                   <p className="text-xs text-fg3">
-                    Coaching de cierre con IA
+                    Práctica con un prospecto
                   </p>
                 </SidebarHeader>
                 <SidebarContent className="px-4">

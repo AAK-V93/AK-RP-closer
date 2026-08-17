@@ -70,7 +70,7 @@ export function CallScorePanel({
               <p>
                 Esta fue tu práctica gratis. Para la siguiente,{" "}
                 <Link
-                  href="/login?mode=register&reason=free-used&callbackUrl=/"
+                  href="/login?mode=register&reason=free-used&callbackUrl=/practicar"
                   className="underline"
                 >
                   crea una cuenta

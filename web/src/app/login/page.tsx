@@ -109,7 +109,7 @@ export default function LoginPage() {
           Closer Trainer
         </Link>
         <Link href="/" className="text-xs text-fg3">
-          Volver a practicar
+          Volver
         </Link>
       </header>
       <main className="flex-1 flex items-center justify-center p-6">

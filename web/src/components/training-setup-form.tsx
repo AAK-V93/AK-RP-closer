@@ -187,7 +187,7 @@ export function TrainingSetupForm() {
                         );
                       }
                       router.push(
-                        "/login?mode=register&reason=custom-offer&callbackUrl=/",
+                        "/login?mode=register&reason=custom-offer&callbackUrl=/practicar",
                       );
                       return;
                     }

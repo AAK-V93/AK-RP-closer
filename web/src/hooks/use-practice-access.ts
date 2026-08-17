@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 
 export const REGISTER_AFTER_FREE_URL =
-  "/login?mode=register&reason=free-used&callbackUrl=/";
+  "/login?mode=register&reason=free-used&callbackUrl=/practicar";
 
 export type PracticeAccess = {
   allowed: boolean;

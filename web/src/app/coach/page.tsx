@@ -95,7 +95,7 @@ export default function CoachPage() {
             </p>
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="primary">
-                <Link href="/">Ir a practicar</Link>
+                <Link href="/practicar">Ir a practicar</Link>
               </Button>
               <Button asChild variant="outline">
                 <Link href="/reporte">Auditar una llamada</Link>
@@ -235,7 +235,7 @@ export default function CoachPage() {
             </section>
 
             <Button asChild variant="primary">
-              <Link href="/">Nueva práctica</Link>
+              <Link href="/practicar">Nueva práctica</Link>
             </Button>
           </>
         )}
