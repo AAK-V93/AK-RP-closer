@@ -8,12 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CALL_SECTION_LABELS, CallSection } from "@/data/training-session";
 import type { CoachingInsights } from "@/lib/coaching";
+import { ChevronRight } from "lucide-react";
 
 export default function CoachPage() {
   const { status } = useSession();
   const [insights, setInsights] = useState<CoachingInsights | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const loadInsights = () => {
     fetch("/api/coach")
@@ -29,25 +29,6 @@ export default function CoachPage() {
     if (status !== "authenticated") return;
     loadInsights();
   }, [status]);
-
-  const retryEvaluation = async (id: string) => {
-    setRetryingId(id);
-    setError(null);
-    try {
-      const response = await fetch("/api/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: id }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No se pudo reevaluar");
-      loadInsights();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo reevaluar");
-    } finally {
-      setRetryingId(null);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-bg0 flex flex-col">
@@ -197,9 +178,10 @@ export default function CoachPage() {
               <h2 className="text-lg font-light">Últimas prácticas</h2>
               <div className="space-y-2">
                 {insights.recent.map((r) => (
-                  <div
+                  <Link
                     key={r.id}
-                    className="rounded-xl border border-separator1 bg-bg1 p-4 text-sm flex justify-between gap-3"
+                    href={`/coach/${r.id}`}
+                    className="rounded-xl border border-separator1 bg-bg1 p-4 text-sm flex justify-between gap-3 hover:border-primary/40"
                   >
                     <div>
                       <p className="font-medium">{r.productName}</p>
@@ -214,22 +196,20 @@ export default function CoachPage() {
                         <p className="text-xs text-fg2 mt-1">{r.outcomeSummary}</p>
                       )}
                     </div>
-                    <div className="flex flex-col items-end gap-2">
+                    <div className="flex flex-col items-end gap-2 shrink-0">
                       <span className="text-lg font-light">
                         {r.scored ? Math.round(r.overallScore) : "—"}
                       </span>
-                      {!r.scored && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={retryingId === r.id}
-                          onClick={() => retryEvaluation(r.id)}
-                        >
-                          {retryingId === r.id ? "Evaluando…" : "Evaluar ahora"}
-                        </Button>
+                      {!r.scored ? (
+                        <span className="text-xs text-fg3">Evaluar</span>
+                      ) : (
+                        <span className="text-xs text-fg3 inline-flex items-center">
+                          Ver análisis
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </span>
                       )}
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </section>

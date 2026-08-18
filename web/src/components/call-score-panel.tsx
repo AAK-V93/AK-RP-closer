@@ -9,13 +9,14 @@ import { RUBRIC_CRITERIA } from "@/data/rubric";
 import { CallEvaluation } from "@/data/evaluation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 
 export type { CallEvaluation };
 
 interface CallScorePanelProps {
   evaluation: CallEvaluation | null;
   isLoading: boolean;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 export function CallScorePanel({
@@ -43,7 +44,10 @@ export function CallScorePanel({
   const file = evaluation.prospectFile;
 
   return (
-    <Card className="border-separator1 bg-bg1 max-h-[70vh] overflow-y-auto">
+    <Card className={cn(
+      "border-separator1 bg-bg1",
+      onClose ? "max-h-[70vh] overflow-y-auto" : "",
+    )}>
       <CardHeader className="flex flex-row items-start justify-between pb-2">
         <div>
           <CardTitle className="text-lg">Reporte de la llamada</CardTitle>
@@ -84,9 +88,11 @@ export function CallScorePanel({
             </div>
           ) : null}
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
+        {onClose && (
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-6 text-sm">
