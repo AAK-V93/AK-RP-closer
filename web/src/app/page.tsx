@@ -1,12 +1,12 @@
 import { Metadata } from "next";
 import Link from "next/link";
-import { PhoneCall, FileSearch } from "lucide-react";
+import { PhoneCall, FileSearch, GraduationCap } from "lucide-react";
 import { AuthMenu } from "@/components/auth-menu";
 
 export const metadata: Metadata = {
   title: "Closer Trainer | Coaching de cierre",
   description:
-    "Practica con un prospecto o analiza una llamada real y recibe el reporte de QC.",
+    "Practica con un prospecto, analiza una llamada real o entra al coach high-ticket.",
 };
 
 export default function HomePage() {
@@ -18,7 +18,7 @@ export default function HomePage() {
       </header>
 
       <main className="flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-3xl space-y-8">
+        <div className="w-full max-w-5xl space-y-8">
           <div className="text-center space-y-2">
             <h1 className="text-3xl font-light">¿Qué quieres hacer?</h1>
             <p className="text-sm text-fg3 max-w-lg mx-auto">
@@ -26,7 +26,7 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid md:grid-cols-3 gap-4">
             <Link
               href="/practicar"
               className="group rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3 hover:border-intense hover:bg-bg2 transition-colors"
@@ -54,6 +54,21 @@ export default function HomePage() {
               </p>
               <p className="text-xs text-fg2 group-hover:text-fg1">
                 Subir transcripción →
+              </p>
+            </Link>
+
+            <Link
+              href="/coach"
+              className="group rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3 hover:border-intense hover:bg-bg2 transition-colors"
+            >
+              <GraduationCap className="h-6 w-6 text-fg2" />
+              <h2 className="text-xl font-light">Coach high-ticket</h2>
+              <p className="text-sm text-fg3">
+                Un entrenador que lee tus prácticas y tus QC, te dice en qué
+                estás trabado y qué drill sigue. Requiere cuenta.
+              </p>
+              <p className="text-xs text-fg2 group-hover:text-fg1">
+                Abrir coaching →
               </p>
             </Link>
           </div>

@@ -15,6 +15,30 @@ model User {
   passwordHash String?
   createdAt    DateTime          @default(now())
   sessions     PracticeSession[]
+  coachProfile CoachProfile?
+}
+
+model CoachProfile {
+  id        String         @id @default(cuid())
+  userId    String         @unique
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level     Int            @default(1)
+  niche     String         @default("b2b-agencies-dfy")
+  notes     Json           @default("{}")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  messages  CoachMessage[]
+}
+
+model CoachMessage {
+  id        String       @id @default(cuid())
+  profileId String
+  profile   CoachProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  role      String
+  content   String
+  createdAt DateTime     @default(now())
+
+  @@index([profileId, createdAt])
 }
 
 model PracticeSession {

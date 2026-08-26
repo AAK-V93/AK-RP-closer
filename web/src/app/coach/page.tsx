@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CALL_SECTION_LABELS, CallSection } from "@/data/training-session";
 import type { CoachingInsights } from "@/lib/coaching";
+import { CloserCoachChat } from "@/components/closer-coach-chat";
 import { ChevronRight } from "lucide-react";
 
 export default function CoachPage() {
@@ -43,21 +44,26 @@ export default function CoachPage() {
         <div>
           <h1 className="text-2xl font-light">Tu coaching</h1>
           <p className="text-sm text-fg3 mt-1">
-            Errores que más se te repiten y sugerencias concretas. Esto no es un
-            score suelto: es el patrón de tus llamadas.
+            Un closer high-ticket que lee tus prácticas con el bot y tus QC de
+            llamadas reales. Te dice el nivel, la debilidad y el siguiente
+            drill — no un score suelto.
           </p>
         </div>
 
         {status === "unauthenticated" && (
           <div className="rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3">
             <p className="text-sm">
-              Entra con Google para guardar cada práctica y ver en qué te trabas
-              (dolor, 3A, usar el descubrimiento…).
+              Entra con Google para que el coach recuerde tu avance y cruce
+              cada práctica y cada llamada real.
             </p>
             <Button asChild variant="primary">
-              <Link href="/login">Entrar o crear cuenta</Link>
+              <Link href="/login?callbackUrl=/coach">Entrar o crear cuenta</Link>
             </Button>
           </div>
+        )}
+
+        {status === "authenticated" && (
+          <CloserCoachChat />
         )}
 
         {status === "authenticated" && error && (
@@ -71,8 +77,8 @@ export default function CoachPage() {
         {insights && insights.practiceCount === 0 && insights.recent.length === 0 && (
           <div className="rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3">
             <p className="text-sm">
-              Aún no hay prácticas guardadas. Entra a una llamada con la sesión
-              iniciada, o sube una transcripción real.
+              El coach ya puede hablar contigo. Para que vea evidencia real,
+              haz una práctica con el bot o sube el QC de una llamada.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="primary">
