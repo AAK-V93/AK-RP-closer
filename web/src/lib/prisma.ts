@@ -114,3 +114,62 @@ export function prismaErrorCode(error: unknown): string {
   }
   return "UNKNOWN";
 }
+
+let coachTablesReady: Promise<void> | null = null;
+
+export async function ensureCoachTables(prisma: PrismaClient) {
+  if (!coachTablesReady) {
+    coachTablesReady = (async () => {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "CoachProfile" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "level" INTEGER NOT NULL DEFAULT 1,
+          "niche" TEXT NOT NULL DEFAULT 'b2b-agencies-dfy',
+          "notes" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "CoachProfile_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      await prisma.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "CoachProfile_userId_key" ON "CoachProfile"("userId")`,
+      );
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "CoachMessage" (
+          "id" TEXT NOT NULL,
+          "profileId" TEXT NOT NULL,
+          "role" TEXT NOT NULL,
+          "content" TEXT NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "CoachMessage_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "CoachMessage_profileId_createdAt_idx" ON "CoachMessage"("profileId", "createdAt")`,
+      );
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "CoachProfile"
+          ADD CONSTRAINT "CoachProfile_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        `);
+      } catch {
+        /* already exists */
+      }
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "CoachMessage"
+          ADD CONSTRAINT "CoachMessage_profileId_fkey"
+          FOREIGN KEY ("profileId") REFERENCES "CoachProfile"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        `);
+      } catch {
+        /* already exists */
+      }
+    })().catch((error) => {
+      coachTablesReady = null;
+      throw error;
+    });
+  }
+  return coachTablesReady;
+}

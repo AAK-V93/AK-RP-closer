@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
-import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
+import { getPrisma, isDatabaseConfigured, ensureCoachTables } from "@/lib/prisma";
 import { generateGeminiJson } from "@/lib/gemini";
 import { CLOSER_COACH_SYSTEM_PROMPT } from "@/lib/closer-coach-prompt";
 import {
@@ -24,6 +24,8 @@ function parseModelJson(text: string) {
   return JSON.parse(cleaned);
 }
 
+type ChatMessage = { role: "user" | "coach"; content: string };
+
 async function requireDb(userIdNeeded = true) {
   if (!isDatabaseConfigured()) {
     return { error: NextResponse.json({ error: "La base de datos no está configurada" }, { status: 503 }) };
@@ -43,6 +45,7 @@ export async function GET() {
   const auth = await requireDb();
   if ("error" in auth && auth.error) return auth.error;
   const { prisma, userId } = auth as { prisma: NonNullable<ReturnType<typeof getPrisma>>; userId: string };
+  await ensureCoachTables(prisma);
 
   const profile = await prisma.coachProfile.upsert({
     where: { userId },
@@ -70,6 +73,7 @@ export async function POST(request: Request) {
   const auth = await requireDb();
   if ("error" in auth && auth.error) return auth.error;
   const { prisma, userId } = auth as { prisma: NonNullable<ReturnType<typeof getPrisma>>; userId: string };
+  await ensureCoachTables(prisma);
 
   let body: { message?: string; start?: boolean } = {};
   try {
