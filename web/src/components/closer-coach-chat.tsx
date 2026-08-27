@@ -13,6 +13,28 @@ type ChatLine = {
   createdAt?: string;
 };
 
+async function readApiJson(response: Response) {
+  const text = await response.text();
+  if (!text) {
+    throw new Error(
+      response.ok
+        ? "El servidor no respondió"
+        : "El coach no pudo cargarse. Recarga e inténtalo de nuevo.",
+    );
+  }
+  try {
+    return JSON.parse(text) as {
+      error?: string;
+      messages?: ChatLine[];
+      message?: ChatLine;
+      notes?: CoachNotes;
+      level?: number;
+    };
+  } catch {
+    throw new Error("El servidor devolvió un error. Recarga e inténtalo de nuevo.");
+  }
+}
+
 export function CloserCoachChat({
   onNotes,
 }: {
@@ -38,11 +60,11 @@ export function CloserCoachChat({
     let cancelled = false;
     fetch("/api/coach-chat")
       .then(async (r) => {
-        const data = await r.json();
+        const data = await readApiJson(r);
         if (!r.ok) throw new Error(data.error || "No se pudo cargar el coach");
         if (cancelled) return;
         setMessages(data.messages || []);
-        applyNotes(data.notes, data.level);
+        if (data.notes) applyNotes(data.notes, data.level ?? 1);
         if ((data.messages || []).length === 0 && !startedRef.current) {
           startedRef.current = true;
           setSending(true);
@@ -51,7 +73,7 @@ export function CloserCoachChat({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ start: true }),
           });
-          const startData = await start.json();
+          const startData = await readApiJson(start);
           if (!start.ok) throw new Error(startData.error || "No se pudo iniciar");
           if (cancelled) return;
           if (startData.message) {
@@ -59,7 +81,7 @@ export function CloserCoachChat({
           } else if (startData.messages) {
             setMessages(startData.messages);
           }
-          applyNotes(startData.notes, startData.level);
+          if (startData.notes) applyNotes(startData.notes, startData.level ?? 1);
         }
       })
       .catch((e) => {
@@ -99,12 +121,12 @@ export function CloserCoachChat({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
       });
-      const data = await response.json();
+      const data = await readApiJson(response);
       if (!response.ok) throw new Error(data.error || "No se pudo responder");
       if (data.message) {
         setMessages((prev) => [...prev, data.message]);
       }
-      applyNotes(data.notes, data.level);
+      if (data.notes) applyNotes(data.notes, data.level ?? 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {

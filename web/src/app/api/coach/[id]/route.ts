@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
+import { isCoachThreadSection } from "@/lib/closer-coach";
 
 export async function GET(
   _request: Request,
@@ -29,7 +30,7 @@ export async function GET(
     where: { id, userId: session.user.id },
   });
 
-  if (!row) {
+  if (!row || isCoachThreadSection(row.callSection)) {
     return NextResponse.json({ error: "Análisis no encontrado" }, { status: 404 });
   }
 

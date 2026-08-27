@@ -68,6 +68,54 @@ export function parseStoredNotes(raw: unknown): CoachNotes {
   return mergeCoachNotes(defaultCoachNotes(), (raw || {}) as Partial<CoachNotes>);
 }
 
+export const COACH_THREAD_SECTION = "coach_thread";
+
+export type CoachChatLine = {
+  id: string;
+  role: "user" | "coach";
+  content: string;
+  createdAt: string;
+};
+
+export type CoachThreadPayload = {
+  kind: "coach_thread";
+  notes: CoachNotes;
+  messages: CoachChatLine[];
+};
+
+export function isCoachThreadSection(section: string) {
+  return section === COACH_THREAD_SECTION;
+}
+
+export function parseCoachThread(evaluation: unknown): CoachThreadPayload {
+  const raw = (evaluation || {}) as Partial<CoachThreadPayload> & {
+    notes?: unknown;
+    messages?: unknown;
+  };
+  const messages = Array.isArray(raw.messages)
+    ? raw.messages
+        .map((item) => {
+          const row = (item || {}) as Partial<CoachChatLine>;
+          const role = row.role === "user" ? "user" : "coach";
+          const content = String(row.content || "").trim();
+          if (!content) return null;
+          return {
+            id: String(row.id || `msg-${Date.now()}`),
+            role,
+            content,
+            createdAt: String(row.createdAt || new Date().toISOString()),
+          } satisfies CoachChatLine;
+        })
+        .filter((item): item is CoachChatLine => Boolean(item))
+        .slice(-80)
+    : [];
+  return {
+    kind: "coach_thread",
+    notes: parseStoredNotes(raw.notes),
+    messages,
+  };
+}
+
 type SessionRow = {
   id: string;
   createdAt: Date;
@@ -82,7 +130,10 @@ type SessionRow = {
 };
 
 export function compactTrainingEvidence(rows: SessionRow[]) {
-  return rows.slice(0, 16).map((row) => {
+  return rows
+    .filter((row) => !isCoachThreadSection(row.callSection))
+    .slice(0, 16)
+    .map((row) => {
     if (row.callSection === "qc_transcript") {
       const report = (row.evaluation || {}) as Partial<QcCallReport>;
       return {

@@ -19,7 +19,9 @@ export default function CoachPage() {
   const loadInsights = () => {
     fetch("/api/coach")
       .then(async (r) => {
-        const data = await r.json();
+        const text = await r.text();
+        if (!text) throw new Error("No se pudo cargar");
+        const data = JSON.parse(text);
         if (!r.ok) throw new Error(data.error || "No se pudo cargar");
         setInsights(data);
       })
