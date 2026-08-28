@@ -60,7 +60,24 @@ export default function ReportePage() {
           productName: productName.trim() || undefined,
         }),
       });
-      const data = await response.json();
+      const raw = await response.text();
+      if (!raw) {
+        throw new Error(
+          response.status === 504
+            ? "La auditoría tardó demasiado y el servidor la cortó. Inténtalo de nuevo."
+            : "El servidor no respondió. Inténtalo de nuevo.",
+        );
+      }
+      let data: { error?: string; code?: string } & Partial<QcCallReport>;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new Error(
+          response.status === 504
+            ? "La auditoría tardó demasiado y el servidor la cortó. Inténtalo de nuevo."
+            : "El servidor devolvió un error. Inténtalo de nuevo.",
+        );
+      }
       if (!response.ok) {
         if (data.code === FREE_QC_USED_CODE) {
           router.push(REGISTER_QC_URL);
@@ -93,7 +110,7 @@ export default function ReportePage() {
               <h1 className="text-2xl font-light">Auditando la llamada</h1>
               <p className="text-sm text-fg2">{ANALYZE_STEPS[stepIndex]}</p>
               <p className="text-xs text-fg3 max-w-sm mx-auto">
-                Esto puede tardar hasta un minuto si la transcripción es larga.
+                Esto puede tardar hasta dos minutos si la transcripción es larga.
                 No cierres esta pestaña.
               </p>
             </div>

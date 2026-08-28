@@ -6,6 +6,7 @@ import { getPrisma } from "@/lib/prisma";
 import { generateGeminiJson } from "@/lib/gemini";
 import { buildQcReportPrompt } from "@/lib/qc-prompt";
 import {
+  compactTranscriptText,
   formatParsedTranscript,
   parseCallTranscript,
 } from "@/lib/parse-transcript";
@@ -17,7 +18,7 @@ import {
 import type { QcCallReport } from "@/data/qc-report";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const MAX_CHARS = 80_000;
 
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const transcript = formatParsedTranscript(parsed);
+    const transcript = compactTranscriptText(formatParsedTranscript(parsed));
     const prompt = buildQcReportPrompt({
       transcript,
       closerHint: body.closerName,
@@ -146,11 +147,15 @@ export async function POST(request: Request) {
 
     let text: string;
     try {
-      text = await generateGeminiJson(prompt, 0.25, 8192);
+      text = await generateGeminiJson(prompt, 0.25, 4096, {
+        timeoutMs: 120_000,
+        models: ["gemini-flash-latest", "gemini-flash-lite-latest"],
+      });
     } catch (geminiError) {
       return NextResponse.json(
         {
-          error: "No se pudo generar el reporte",
+          error:
+            "No se pudo generar el reporte a tiempo. Intenta de nuevo; si la llamada es muy larga, recorta un poco la transcripción.",
           details:
             geminiError instanceof Error ? geminiError.message : String(geminiError),
         },
@@ -160,7 +165,13 @@ export async function POST(request: Request) {
 
     let parsedJson: Partial<QcCallReport>;
     try {
-      parsedJson = JSON.parse(text) as Partial<QcCallReport>;
+      const cleaned = text
+        .trim()
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/, "")
+        .replace(/```$/u, "")
+        .trim();
+      parsedJson = JSON.parse(cleaned) as Partial<QcCallReport>;
     } catch {
       return NextResponse.json(
         { error: "El modelo devolvió un reporte inválido. Intenta de nuevo." },

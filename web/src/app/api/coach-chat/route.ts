@@ -16,7 +16,7 @@ import {
 } from "@/lib/closer-coach";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 function parseModelJson(text: string) {
   const cleaned = text
@@ -215,7 +215,10 @@ ${closerTurn}`;
 
     let parsed: { reply?: string; notes?: Partial<typeof notes> };
     try {
-      const text = await generateGeminiJson(prompt, 0.45, 4096);
+      const text = await generateGeminiJson(prompt, 0.45, 4096, {
+        timeoutMs: 90_000,
+        models: ["gemini-flash-latest", "gemini-flash-lite-latest"],
+      });
       parsed = parseModelJson(text) as {
         reply?: string;
         notes?: Partial<typeof notes>;

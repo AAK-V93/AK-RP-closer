@@ -91,3 +91,11 @@ export function formatParsedTranscript(parsed: ParsedTranscript): string {
     })
     .join("\n");
 }
+
+/** Keep the open (discovery) and the close (objections), drop the middle if needed. */
+export function compactTranscriptText(text: string, maxChars = 28_000): string {
+  if (text.length <= maxChars) return text;
+  const head = Math.floor(maxChars * 0.55);
+  const tail = maxChars - head - 90;
+  return `${text.slice(0, head)}\n\n[…transcripción recortada en el medio…]\n\n${text.slice(-tail)}`;
+}
