@@ -1,0 +1,65 @@
+import { NextResponse } from "next/server";
+import { FATHOM_STRATEGY_PROMPT, runCoachTurn } from "@/lib/coach-service";
+import { requireFathomUser } from "@/lib/fathom-auth";
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+export async function POST() {
+  try {
+    const auth = await requireFathomUser();
+    if ("error" in auth && auth.error) return auth.error;
+    const { prisma, userId } = auth;
+
+    const pendingAnalysis = await prisma.fathomRecording.count({
+      where: {
+        userId,
+        transcriptText: { not: "" },
+        practiceSessionId: null,
+      },
+    });
+    if (pendingAnalysis > 0) {
+      return NextResponse.json(
+        {
+          error: `Aún faltan ${pendingAnalysis} llamadas por auditar antes de generar la estrategia.`,
+          remainingAnalyses: pendingAnalysis,
+        },
+        { status: 409 },
+      );
+    }
+
+    const analyzedCount = await prisma.fathomRecording.count({
+      where: { userId, NOT: { practiceSessionId: null } },
+    });
+    if (analyzedCount === 0) {
+      return NextResponse.json(
+        { error: "No hay llamadas auditadas todavía." },
+        { status: 400 },
+      );
+    }
+
+    const result = await runCoachTurn(prisma, userId, {
+      closerTurn: FATHOM_STRATEGY_PROMPT,
+      userMessage:
+        "Acabo de importar y auditar mis llamadas de Fathom. Dame la estrategia completa.",
+      evidenceLimit: 40,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      analyzedCount,
+      level: result.level,
+      notes: result.notes,
+      message: result.message,
+    });
+  } catch (error) {
+    console.error("fathom coach-strategy", error);
+    return NextResponse.json(
+      {
+        error: "El coach no pudo generar la estrategia. Intenta de nuevo.",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 502 },
+    );
+  }
+}

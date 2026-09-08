@@ -12,6 +12,7 @@ type FathomStatus = {
   lastSyncAt?: string | null;
   total?: number;
   withTranscript?: number;
+  analyzed?: number;
 };
 
 type FathomRecordingRow = {
@@ -20,6 +21,8 @@ type FathomRecordingRow = {
   shareUrl: string;
   recordedAt: string | null;
   hasTranscript: boolean;
+  analyzed: boolean;
+  practiceSessionId: string | null;
 };
 
 export function FathomSyncPanel({
@@ -36,6 +39,7 @@ export function FathomSyncPanel({
   const [connecting, setConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [coachReady, setCoachReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -100,6 +104,7 @@ export function FathomSyncPanel({
       if (!response.ok) throw new Error(data.error || "No se pudo desconectar");
       setStatus({ connected: false });
       setRecordings([]);
+      setCoachReady(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
@@ -107,8 +112,9 @@ export function FathomSyncPanel({
     }
   };
 
-  const runSync = async () => {
+  const runFullPipeline = async () => {
     setSyncing(true);
+    setCoachReady(false);
     setSyncMessage("Listando llamadas…");
     setError(null);
     try {
@@ -128,8 +134,8 @@ export function FathomSyncPanel({
         if (!meetingsDone && !cursor) break;
       }
 
-      let done = false;
-      while (!done) {
+      let transcriptsDone = false;
+      while (!transcriptsDone) {
         const response = await fetch("/api/fathom/sync", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -141,13 +147,39 @@ export function FathomSyncPanel({
         setSyncMessage(
           remaining > 0
             ? `Descargando transcripciones… faltan ${remaining}`
-            : "Sincronización completa",
+            : "Transcripciones listas. Auditando llamadas…",
         );
-        done = Boolean(data.done);
+        transcriptsDone = Boolean(data.done);
       }
 
+      let analyzeDone = false;
+      while (!analyzeDone) {
+        const response = await fetch("/api/fathom/analyze", { method: "POST" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "No se pudo auditar");
+        const remaining = data.remaining ?? 0;
+        setSyncMessage(
+          remaining > 0
+            ? `Auditando llamadas… faltan ${remaining}`
+            : "Llamadas auditadas. El coach está diseñando tu estrategia…",
+        );
+        analyzeDone = Boolean(data.done);
+        if (data.imported === 0 && data.done) break;
+      }
+
+      const coachRes = await fetch("/api/fathom/coach-strategy", {
+        method: "POST",
+      });
+      const coachData = await coachRes.json();
+      if (!coachRes.ok) {
+        throw new Error(coachData.error || "No se pudo generar la estrategia");
+      }
+
+      setCoachReady(true);
+      setSyncMessage(
+        `Listo: ${coachData.analyzedCount} llamadas auditadas. Tu coach ya tiene la estrategia en Mi coaching.`,
+      );
       await load();
-      setSyncMessage("Listo. Ya puedes auditar cualquier llamada importada.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
       setSyncMessage(null);
@@ -173,8 +205,8 @@ export function FathomSyncPanel({
       <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-2">
         <h2 className="text-lg font-light">Conectar Fathom</h2>
         <p className="text-sm text-fg3">
-          Para importar automáticamente todas tus llamadas de Fathom necesitas
-          una cuenta.
+          Importa, audita y manda todo al coach automáticamente. Necesitas una
+          cuenta.
         </p>
         <Button asChild variant="primary" size="sm">
           <Link href="/login?callbackUrl=/reporte">Entrar</Link>
@@ -197,7 +229,8 @@ export function FathomSyncPanel({
       <div className="space-y-1">
         <h2 className="text-lg font-light">Conectar Fathom</h2>
         <p className="text-sm text-fg3">
-          Importa todas las transcripciones de tu cuenta. Crea la API key en{" "}
+          Importa todas tus llamadas, las audita automáticamente y el coach
+          high-ticket diseña tu estrategia de mejora. API key en{" "}
           <a
             href="https://fathom.video/settings/api"
             target="_blank"
@@ -242,7 +275,8 @@ export function FathomSyncPanel({
             </span>
             {typeof status.total === "number" && (
               <span>
-                {status.withTranscript || 0}/{status.total} con transcripción
+                {status.analyzed || 0} auditadas · {status.withTranscript || 0}/
+                {status.total} con transcript
               </span>
             )}
             {status.lastSyncAt && (
@@ -256,17 +290,17 @@ export function FathomSyncPanel({
               type="button"
               variant="primary"
               disabled={syncing || connecting}
-              onClick={runSync}
+              onClick={runFullPipeline}
             >
               {syncing ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Sincronizando…
+                  Procesando…
                 </>
               ) : (
                 <>
                   <RefreshCw className="h-4 w-4" />
-                  Importar todas las llamadas
+                  Importar, auditar y generar estrategia
                 </>
               )}
             </Button>
@@ -279,6 +313,11 @@ export function FathomSyncPanel({
               <Unplug className="h-4 w-4" />
               Desconectar
             </Button>
+            {coachReady && (
+              <Button asChild variant="outline">
+                <Link href="/coach">Ver estrategia del coach</Link>
+              </Button>
+            )}
           </div>
           {syncMessage && <p className="text-xs text-fg3">{syncMessage}</p>}
         </div>
@@ -301,18 +340,29 @@ export function FathomSyncPanel({
                     {row.recordedAt
                       ? new Date(row.recordedAt).toLocaleString("es")
                       : "Sin fecha"}
-                    {row.hasTranscript ? " · transcript lista" : " · sin transcript"}
+                    {row.analyzed
+                      ? " · auditada"
+                      : row.hasTranscript
+                        ? " · pendiente de auditar"
+                        : " · sin transcript"}
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={!row.hasTranscript || syncing}
-                  onClick={() => pickRecording(row.id, row.title)}
-                >
-                  Auditar
-                </Button>
+                <div className="flex gap-2 shrink-0">
+                  {row.analyzed && row.practiceSessionId && (
+                    <Button asChild size="sm" variant="ghost">
+                      <Link href={`/coach/${row.practiceSessionId}`}>Ver QC</Link>
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!row.hasTranscript || syncing}
+                    onClick={() => pickRecording(row.id, row.title)}
+                  >
+                    {row.analyzed ? "Re-auditar" : "Auditar"}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>

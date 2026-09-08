@@ -32,6 +32,7 @@ export async function GET() {
         recordedAt: row.recordedAt?.toISOString() || null,
         syncedAt: row.syncedAt.toISOString(),
         hasTranscript: row.transcriptText.trim().length > 0,
+        analyzed: Boolean(row.practiceSessionId),
         practiceSessionId: row.practiceSessionId,
       })),
     });

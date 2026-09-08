@@ -18,12 +18,16 @@ export async function GET() {
     const withTranscript = await prisma.fathomRecording.count({
       where: { userId, NOT: { transcriptText: "" } },
     });
+    const analyzed = await prisma.fathomRecording.count({
+      where: { userId, NOT: { practiceSessionId: null } },
+    });
 
     return NextResponse.json({
       connected: true,
       lastSyncAt: connection.lastSyncAt?.toISOString() || null,
       total,
       withTranscript,
+      analyzed,
     });
   } catch (error) {
     console.error("fathom connection GET", error);

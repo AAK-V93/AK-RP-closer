@@ -129,10 +129,10 @@ type SessionRow = {
   criterionScores: unknown;
 };
 
-export function compactTrainingEvidence(rows: SessionRow[]) {
+export function compactTrainingEvidence(rows: SessionRow[], limit = 16) {
   return rows
     .filter((row) => !isCoachThreadSection(row.callSection))
-    .slice(0, 16)
+    .slice(0, limit)
     .map((row) => {
     if (row.callSection === "qc_transcript") {
       const report = (row.evaluation || {}) as Partial<QcCallReport>;
