@@ -16,6 +16,8 @@ model User {
   createdAt    DateTime          @default(now())
   sessions     PracticeSession[]
   coachProfile CoachProfile?
+  fathomConnection FathomConnection?
+  fathomRecordings FathomRecording[]
 }
 
 model CoachProfile {
@@ -72,4 +74,34 @@ model GuestFreePractice {
   updatedAt     DateTime  @updatedAt
 
   @@index([ipHash])
+}
+
+model FathomConnection {
+  id         String            @id @default(cuid())
+  userId     String            @unique
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKeyEnc  String
+  lastSyncAt DateTime?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  recordings FathomRecording[]
+}
+
+model FathomRecording {
+  id                String           @id @default(cuid())
+  userId            String
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId      String
+  connection        FathomConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  fathomRecordingId Int
+  title             String
+  shareUrl          String           @default("")
+  recordedAt        DateTime?
+  transcriptText    String           @default("")
+  transcriptJson    Json             @default("[]")
+  syncedAt          DateTime         @default(now())
+  practiceSessionId String?
+
+  @@unique([userId, fathomRecordingId])
+  @@index([userId, recordedAt])
 }

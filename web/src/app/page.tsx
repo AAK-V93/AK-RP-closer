@@ -50,7 +50,8 @@ export default function HomePage() {
               <h2 className="text-xl font-light">Analizar una llamada real</h2>
               <p className="text-sm text-fg3">
                 Pega la transcripción (Fathom u otra). Te armamos el QC: ficha,
-                descubrimiento, pitch, objeciones, palancas y seguimiento.
+                descubrimiento, pitch, objeciones, palancas y seguimiento. Con
+                cuenta puedes conectar Fathom e importar todas tus llamadas.
               </p>
               <p className="text-xs text-fg2 group-hover:text-fg1">
                 Subir transcripción →

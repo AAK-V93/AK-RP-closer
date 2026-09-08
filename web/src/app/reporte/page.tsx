@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { QcReportView } from "@/components/qc-report-view";
+import { FathomSyncPanel } from "@/components/fathom-sync-panel";
 import type { QcCallReport } from "@/data/qc-report";
 import { FREE_QC_USED_CODE } from "@/lib/guest-practice-client";
 
@@ -34,6 +35,22 @@ export default function ReportePage() {
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<QcCallReport | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
+
+  const startFromFathom = ({
+    transcript,
+    title,
+  }: {
+    transcript: string;
+    title: string;
+  }) => {
+    setReport(null);
+    setError(null);
+    setTranscript(transcript);
+    if (!productName.trim()) {
+      setProductName(title);
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   useEffect(() => {
     if (!busy) {
@@ -122,9 +139,10 @@ export default function ReportePage() {
             <div>
               <h1 className="text-2xl font-light">Reporte de llamada real</h1>
               <p className="text-sm text-fg3 mt-2">
-                Pega la transcripción (Fathom u otro). Armamos el QC: ficha,
-                descubrimiento, pitch, objeciones, fallas que alimentaron el
-                no, palancas y notas del prospecto.
+              Pega la transcripción (Fathom u otro), o conecta Fathom para
+                importar todas tus llamadas automáticamente. Armamos el QC:
+                ficha, descubrimiento, pitch, objeciones, fallas que alimentaron
+                el no, palancas y notas del prospecto.
               </p>
               {status === "unauthenticated" && (
                 <p className="text-xs text-fg3 mt-2">
@@ -133,6 +151,11 @@ export default function ReportePage() {
                 </p>
               )}
             </div>
+
+            <FathomSyncPanel
+              authenticated={status === "authenticated"}
+              onAnalyze={startFromFathom}
+            />
 
             <form onSubmit={onSubmit} className="space-y-4">
               <div className="grid sm:grid-cols-2 gap-3">

@@ -114,3 +114,79 @@ export function prismaErrorCode(error: unknown): string {
   }
   return "UNKNOWN";
 }
+
+let fathomTablesReady: Promise<void> | null = null;
+
+export async function ensureFathomTables(prisma: PrismaClient) {
+  if (!fathomTablesReady) {
+    fathomTablesReady = (async () => {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "FathomConnection" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "apiKeyEnc" TEXT NOT NULL,
+          "lastSyncAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "FathomConnection_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      await prisma.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "FathomConnection_userId_key" ON "FathomConnection"("userId")`,
+      );
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "FathomRecording" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "connectionId" TEXT NOT NULL,
+          "fathomRecordingId" INTEGER NOT NULL,
+          "title" TEXT NOT NULL,
+          "shareUrl" TEXT NOT NULL DEFAULT '',
+          "recordedAt" TIMESTAMP(3),
+          "transcriptText" TEXT NOT NULL DEFAULT '',
+          "transcriptJson" JSONB NOT NULL DEFAULT '[]'::jsonb,
+          "syncedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "practiceSessionId" TEXT,
+          CONSTRAINT "FathomRecording_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      await prisma.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "FathomRecording_userId_fathomRecordingId_key" ON "FathomRecording"("userId", "fathomRecordingId")`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "FathomRecording_userId_recordedAt_idx" ON "FathomRecording"("userId", "recordedAt")`,
+      );
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "FathomConnection"
+          ADD CONSTRAINT "FathomConnection_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        `);
+      } catch {
+        /* already exists */
+      }
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "FathomRecording"
+          ADD CONSTRAINT "FathomRecording_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        `);
+      } catch {
+        /* already exists */
+      }
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "FathomRecording"
+          ADD CONSTRAINT "FathomRecording_connectionId_fkey"
+          FOREIGN KEY ("connectionId") REFERENCES "FathomConnection"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        `);
+      } catch {
+        /* already exists */
+      }
+    })().catch((error) => {
+      fathomTablesReady = null;
+      throw error;
+    });
+  }
+  return fathomTablesReady;
+}
