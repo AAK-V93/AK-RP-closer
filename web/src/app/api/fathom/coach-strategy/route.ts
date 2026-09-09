@@ -29,13 +29,21 @@ export async function POST() {
     }
 
     const analyzedCount = await prisma.fathomRecording.count({
-      where: { userId, NOT: { practiceSessionId: null } },
+      where: {
+        userId,
+        AND: [
+          { practiceSessionId: { not: null } },
+          { practiceSessionId: { not: "skipped" } },
+        ],
+      },
     });
     if (analyzedCount === 0) {
-      return NextResponse.json(
-        { error: "No hay llamadas auditadas todavía." },
-        { status: 400 },
-      );
+      return NextResponse.json({
+        ok: true,
+        analyzedCount: 0,
+        message:
+          "No hubo llamadas con transcript usable en el rango elegido. Prueba una fecha más amplia o espera a que Fathom genere las transcripciones.",
+      });
     }
 
     const result = await runCoachTurn(prisma, userId, {

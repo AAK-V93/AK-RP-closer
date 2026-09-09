@@ -6,13 +6,16 @@ import { Loader2, RefreshCw, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { defaultImportSinceDate, toDateInputValue } from "@/lib/fathom-import";
 
 type FathomStatus = {
   connected: boolean;
   lastSyncAt?: string | null;
+  importSince?: string | null;
   total?: number;
   withTranscript?: number;
   analyzed?: number;
+  skipped?: number;
 };
 
 type FathomRecordingRow = {
@@ -22,6 +25,7 @@ type FathomRecordingRow = {
   recordedAt: string | null;
   hasTranscript: boolean;
   analyzed: boolean;
+  skipped?: boolean;
   practiceSessionId: string | null;
 };
 
@@ -43,6 +47,7 @@ export function FathomSyncPanel({
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [coachReady, setCoachReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [importSince, setImportSince] = useState(defaultImportSinceDate);
 
   const load = useCallback(async () => {
     if (!authenticated) {
@@ -61,6 +66,9 @@ export function FathomSyncPanel({
         throw new Error(connectionData.error || "No se pudo leer Fathom");
       }
       setStatus(connectionData);
+      if (connectionData.importSince) {
+        setImportSince(toDateInputValue(new Date(connectionData.importSince)));
+      }
       if (recordingsRes.ok) {
         setRecordings(recordingsData.recordings || []);
       }
@@ -114,6 +122,30 @@ export function FathomSyncPanel({
     }
   };
 
+  const postJson = async <T,>(url: string, body?: object) => {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const data = (await response.json()) as T & { error?: string };
+        if (!response.ok) {
+          throw new Error(data.error || "Error de red");
+        }
+        return data;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("Error de red");
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 1200 * (attempt + 1)));
+        }
+      }
+    }
+    throw lastError || new Error("Error de red");
+  };
+
   const runFullPipeline = async () => {
     setSyncing(true);
     setCoachReady(false);
@@ -123,17 +155,14 @@ export function FathomSyncPanel({
       let cursor: string | null = null;
       let meetingsDone = false;
       while (!meetingsDone) {
-        const response: Response = await fetch("/api/fathom/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phase: "meetings", cursor }),
-        });
-        const data = (await response.json()) as {
-          error?: string;
+        const data = await postJson<{
           nextCursor?: string | null;
           meetingsDone?: boolean;
-        };
-        if (!response.ok) throw new Error(data.error || "No se pudo sincronizar");
+        }>("/api/fathom/sync", {
+          phase: "meetings",
+          cursor,
+          createdAfter: importSince,
+        });
         setSyncMessage("Importando llamadas de Fathom…");
         cursor = data.nextCursor || null;
         meetingsDone = Boolean(data.meetingsDone);
@@ -142,17 +171,14 @@ export function FathomSyncPanel({
 
       let transcriptsDone = false;
       while (!transcriptsDone) {
-        const response: Response = await fetch("/api/fathom/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phase: "transcripts" }),
-        });
-        const data = (await response.json()) as {
-          error?: string;
+        const data = await postJson<{
           remainingTranscripts?: number;
           done?: boolean;
-        };
-        if (!response.ok) throw new Error(data.error || "No se pudo sincronizar");
+          skipped?: number;
+        }>("/api/fathom/sync", {
+          phase: "transcripts",
+          createdAfter: importSince,
+        });
         const remaining = data.remainingTranscripts ?? 0;
         setSyncMessage(
           remaining > 0
@@ -164,37 +190,38 @@ export function FathomSyncPanel({
 
       let analyzeDone = false;
       while (!analyzeDone) {
-        const response: Response = await fetch("/api/fathom/analyze", {
-          method: "POST",
-        });
-        const data = (await response.json()) as {
-          error?: string;
+        const data = await postJson<{
           remaining?: number;
           done?: boolean;
           imported?: number;
-        };
-        if (!response.ok) throw new Error(data.error || "No se pudo auditar");
+          skipped?: number;
+          recording?: { title?: string; skipped?: boolean };
+        }>("/api/fathom/analyze");
         const remaining = data.remaining ?? 0;
-        setSyncMessage(
-          remaining > 0
-            ? `Auditando llamadas… faltan ${remaining}`
-            : "Llamadas auditadas. El coach está diseñando tu estrategia…",
-        );
+        if (data.skipped && data.recording?.title) {
+          setSyncMessage(`Omitida (sin transcript usable): ${data.recording.title}`);
+        } else {
+          setSyncMessage(
+            remaining > 0
+              ? `Auditando llamadas… faltan ${remaining}`
+              : "Llamadas auditadas. El coach está diseñando tu estrategia…",
+          );
+        }
         analyzeDone = Boolean(data.done);
-        if (data.imported === 0 && data.done) break;
+        if (data.imported === 0 && data.skipped === 0 && data.done) break;
       }
 
-      const coachRes = await fetch("/api/fathom/coach-strategy", {
-        method: "POST",
-      });
-      const coachData = await coachRes.json();
-      if (!coachRes.ok) {
-        throw new Error(coachData.error || "No se pudo generar la estrategia");
-      }
+      const coachData = await postJson<{
+        analyzedCount?: number;
+        message?: string;
+      }>("/api/fathom/coach-strategy");
 
-      setCoachReady(true);
+      setCoachReady((coachData.analyzedCount || 0) > 0);
       setSyncMessage(
-        `Listo: ${coachData.analyzedCount} llamadas auditadas. Tu coach ya tiene la estrategia en Mi coaching.`,
+        coachData.analyzedCount
+          ? `Listo: ${coachData.analyzedCount} llamadas auditadas. Tu coach ya tiene la estrategia en Mi coaching.`
+          : coachData.message ||
+            "No hubo llamadas auditables en ese rango. Amplía la fecha de inicio.",
       );
       await load();
     } catch (e) {
@@ -295,8 +322,9 @@ export function FathomSyncPanel({
             </span>
             {typeof status.total === "number" && (
               <span>
-                {status.analyzed || 0} auditadas · {status.withTranscript || 0}/
-                {status.total} con transcript
+                {status.analyzed || 0} auditadas · {status.withTranscript || 0} con
+                transcript
+                {status.skipped ? ` · ${status.skipped} omitidas` : ""}
               </span>
             )}
             {status.lastSyncAt && (
@@ -305,11 +333,24 @@ export function FathomSyncPanel({
               </span>
             )}
           </div>
+          <div className="space-y-1 max-w-xs">
+            <Label htmlFor="fathom-import-since">Importar desde</Label>
+            <Input
+              id="fathom-import-since"
+              type="date"
+              value={importSince}
+              onChange={(e) => setImportSince(e.target.value)}
+              disabled={syncing || connecting}
+            />
+            <p className="text-xs text-fg3">
+              No trae todo el historial de Fathom. Por defecto, los últimos 30 días.
+            </p>
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant="primary"
-              disabled={syncing || connecting}
+              disabled={syncing || connecting || !importSince}
               onClick={runFullPipeline}
             >
               {syncing ? (
@@ -362,9 +403,11 @@ export function FathomSyncPanel({
                       : "Sin fecha"}
                     {row.analyzed
                       ? " · auditada"
-                      : row.hasTranscript
-                        ? " · pendiente de auditar"
-                        : " · sin transcript"}
+                      : row.skipped
+                        ? " · omitida"
+                        : row.hasTranscript
+                          ? " · pendiente de auditar"
+                          : " · sin transcript"}
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0">

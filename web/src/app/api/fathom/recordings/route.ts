@@ -31,9 +31,14 @@ export async function GET() {
         shareUrl: row.shareUrl,
         recordedAt: row.recordedAt?.toISOString() || null,
         syncedAt: row.syncedAt.toISOString(),
-        hasTranscript: row.transcriptText.trim().length > 0,
-        analyzed: Boolean(row.practiceSessionId),
-        practiceSessionId: row.practiceSessionId,
+        hasTranscript:
+          row.transcriptText.trim().length > 0 &&
+          row.transcriptText !== "[sin transcripción]",
+        analyzed:
+          Boolean(row.practiceSessionId) && row.practiceSessionId !== "skipped",
+        skipped: row.practiceSessionId === "skipped",
+        practiceSessionId:
+          row.practiceSessionId === "skipped" ? null : row.practiceSessionId,
       })),
     });
   } catch (error) {

@@ -134,6 +134,9 @@ export async function ensureFathomTables(prisma: PrismaClient) {
       await prisma.$executeRawUnsafe(
         `CREATE UNIQUE INDEX IF NOT EXISTS "FathomConnection_userId_key" ON "FathomConnection"("userId")`,
       );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "FathomConnection" ADD COLUMN IF NOT EXISTS "importSince" TIMESTAMP(3)`,
+      );
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "FathomRecording" (
           "id" TEXT NOT NULL,

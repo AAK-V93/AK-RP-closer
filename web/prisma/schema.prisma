@@ -80,10 +80,11 @@ model FathomConnection {
   id         String            @id @default(cuid())
   userId     String            @unique
   user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  apiKeyEnc  String
-  lastSyncAt DateTime?
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
+  apiKeyEnc   String
+  lastSyncAt  DateTime?
+  importSince DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
   recordings FathomRecording[]
 }
 

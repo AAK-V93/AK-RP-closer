@@ -14,20 +14,35 @@ export async function GET() {
       return NextResponse.json({ connected: false });
     }
 
+    const skippedFilter = {
+      AND: [
+        { practiceSessionId: { not: null } },
+        { practiceSessionId: { not: "skipped" } },
+      ],
+    };
     const total = await prisma.fathomRecording.count({ where: { userId } });
     const withTranscript = await prisma.fathomRecording.count({
-      where: { userId, NOT: { transcriptText: "" } },
+      where: {
+        userId,
+        transcriptText: { not: "" },
+        NOT: { transcriptText: "[sin transcripción]" },
+      },
     });
     const analyzed = await prisma.fathomRecording.count({
-      where: { userId, NOT: { practiceSessionId: null } },
+      where: { userId, ...skippedFilter },
+    });
+    const skipped = await prisma.fathomRecording.count({
+      where: { userId, practiceSessionId: "skipped" },
     });
 
     return NextResponse.json({
       connected: true,
       lastSyncAt: connection.lastSyncAt?.toISOString() || null,
+      importSince: connection.importSince?.toISOString() || null,
       total,
       withTranscript,
       analyzed,
+      skipped,
     });
   } catch (error) {
     console.error("fathom connection GET", error);

@@ -51,23 +51,38 @@ async function fathomFetch<T>(
     }
   }
 
-  const response = await fetch(url, {
-    headers: {
-      "X-Api-Key": apiKey,
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  });
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "X-Api-Key": apiKey,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
 
-  const raw = await response.text();
-  if (!response.ok) {
-    throw new FathomApiError(
-      raw.slice(0, 280) || `Fathom API error (${response.status})`,
-      response.status,
-    );
+      const raw = await response.text();
+      if (!response.ok) {
+        throw new FathomApiError(
+          raw.slice(0, 280) || `Fathom API error (${response.status})`,
+          response.status,
+        );
+      }
+
+      return JSON.parse(raw) as T;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (error instanceof FathomApiError && error.status < 500 && error.status !== 429) {
+        throw error;
+      }
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+    }
   }
 
-  return JSON.parse(raw) as T;
+  throw lastError || new Error("Fathom API request failed");
 }
 
 export async function verifyFathomApiKey(apiKey: string) {
@@ -79,12 +94,17 @@ export async function verifyFathomApiKey(apiKey: string) {
 
 export async function listFathomMeetings(
   apiKey: string,
-  args: { cursor?: string | null; includeTranscript?: boolean } = {},
+  args: {
+    cursor?: string | null;
+    includeTranscript?: boolean;
+    createdAfter?: string | null;
+  } = {},
 ) {
   return fathomFetch<MeetingListResponse>(apiKey, "/meetings", {
     cursor: args.cursor || undefined,
     include_transcript: args.includeTranscript ? "true" : undefined,
     calendar_invitees_domains_type: "all",
+    created_after: args.createdAfter || undefined,
   });
 }
 

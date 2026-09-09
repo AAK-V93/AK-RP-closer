@@ -50,8 +50,12 @@ export default function FathomPage() {
           </li>
           <li>Pégala abajo y pulsa <strong>Conectar Fathom</strong>.</li>
           <li>
-            Pulsa <strong>Importar, auditar y generar estrategia</strong>. No
-            cierres la pestaña: puede tardar si tienes muchas llamadas.
+            Elige desde qué fecha importar (por defecto, 30 días). Así no
+            arrastramos años de Fathom.
+          </li>
+          <li>
+            Pulsa <strong>Importar, auditar y generar estrategia</strong>. Las
+            reuniones sin transcript usable se omiten y no frenan el lote.
           </li>
           <li>
             Cuando termine, abre{" "}
