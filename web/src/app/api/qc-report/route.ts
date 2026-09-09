@@ -6,11 +6,7 @@ import {
   generateQcReportFromTranscript,
   saveQcPracticeSession,
 } from "@/lib/qc-report-service";
-import {
-  compactTranscriptText,
-  formatParsedTranscript,
-  parseCallTranscript,
-} from "@/lib/parse-transcript";
+import { parseCallTranscript } from "@/lib/parse-transcript";
 import {
   FREE_QC_USED_CODE,
   assertGuestCanRunQc,

@@ -123,12 +123,16 @@ export function FathomSyncPanel({
       let cursor: string | null = null;
       let meetingsDone = false;
       while (!meetingsDone) {
-        const response = await fetch("/api/fathom/sync", {
+        const response: Response = await fetch("/api/fathom/sync", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phase: "meetings", cursor }),
         });
-        const data = await response.json();
+        const data = (await response.json()) as {
+          error?: string;
+          nextCursor?: string | null;
+          meetingsDone?: boolean;
+        };
         if (!response.ok) throw new Error(data.error || "No se pudo sincronizar");
         setSyncMessage("Importando llamadas de Fathom…");
         cursor = data.nextCursor || null;
@@ -138,12 +142,16 @@ export function FathomSyncPanel({
 
       let transcriptsDone = false;
       while (!transcriptsDone) {
-        const response = await fetch("/api/fathom/sync", {
+        const response: Response = await fetch("/api/fathom/sync", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phase: "transcripts" }),
         });
-        const data = await response.json();
+        const data = (await response.json()) as {
+          error?: string;
+          remainingTranscripts?: number;
+          done?: boolean;
+        };
         if (!response.ok) throw new Error(data.error || "No se pudo sincronizar");
         const remaining = data.remainingTranscripts ?? 0;
         setSyncMessage(
@@ -156,8 +164,15 @@ export function FathomSyncPanel({
 
       let analyzeDone = false;
       while (!analyzeDone) {
-        const response = await fetch("/api/fathom/analyze", { method: "POST" });
-        const data = await response.json();
+        const response: Response = await fetch("/api/fathom/analyze", {
+          method: "POST",
+        });
+        const data = (await response.json()) as {
+          error?: string;
+          remaining?: number;
+          done?: boolean;
+          imported?: number;
+        };
         if (!response.ok) throw new Error(data.error || "No se pudo auditar");
         const remaining = data.remaining ?? 0;
         setSyncMessage(

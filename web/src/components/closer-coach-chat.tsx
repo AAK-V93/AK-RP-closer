@@ -123,8 +123,9 @@ export function CloserCoachChat({
       });
       const data = await readApiJson(response);
       if (!response.ok) throw new Error(data.error || "No se pudo responder");
-      if (data.message) {
-        setMessages((prev) => [...prev, data.message]);
+      const coachMessage = data.message;
+      if (coachMessage) {
+        setMessages((prev) => [...prev, coachMessage]);
       }
       if (data.notes) applyNotes(data.notes, data.level ?? 1);
     } catch (e) {
