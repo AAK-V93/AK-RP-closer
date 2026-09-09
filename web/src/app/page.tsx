@@ -1,12 +1,12 @@
 import { Metadata } from "next";
 import Link from "next/link";
-import { PhoneCall, FileSearch, GraduationCap } from "lucide-react";
+import { PhoneCall, FileSearch, GraduationCap, Link2 } from "lucide-react";
 import { AuthMenu } from "@/components/auth-menu";
 
 export const metadata: Metadata = {
   title: "Closer Trainer | Coaching de cierre",
   description:
-    "Practica con un prospecto, analiza una llamada real o entra al coach high-ticket.",
+    "Practica con un prospecto, conecta Fathom, analiza llamadas reales o entra al coach high-ticket.",
 };
 
 export default function HomePage() {
@@ -25,6 +25,25 @@ export default function HomePage() {
               Elige una. Puedes cambiar después desde Inicio.
             </p>
           </div>
+
+          <Link
+            href="/fathom"
+            className="group block rounded-2xl border border-primary/25 bg-primary/5 p-5 md:p-6 hover:border-primary/40 hover:bg-primary/10 transition-colors"
+          >
+            <div className="flex items-start gap-4">
+              <Link2 className="h-6 w-6 text-primary shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h2 className="text-xl font-light">Conecta tu cuenta de Fathom</h2>
+                <p className="text-sm text-fg3">
+                  Importa todas tus llamadas, audítalas automáticamente y recibe
+                  la estrategia del coach high-ticket.
+                </p>
+                <p className="text-xs text-fg2 group-hover:text-fg1 pt-1">
+                  Conectar Fathom →
+                </p>
+              </div>
+            </div>
+          </Link>
 
           <div className="grid md:grid-cols-3 gap-4">
             <Link
@@ -49,9 +68,8 @@ export default function HomePage() {
               <FileSearch className="h-6 w-6 text-fg2" />
               <h2 className="text-xl font-light">Analizar una llamada real</h2>
               <p className="text-sm text-fg3">
-                Pega la transcripción (Fathom u otra). Te armamos el QC: ficha,
-                descubrimiento, pitch, objeciones, palancas y seguimiento. Con
-                cuenta puedes conectar Fathom e importar todas tus llamadas.
+                Pega la transcripción de una llamada. Te armamos el QC: ficha,
+                descubrimiento, pitch, objeciones, palancas y seguimiento.
               </p>
               <p className="text-xs text-fg2 group-hover:text-fg1">
                 Subir transcripción →

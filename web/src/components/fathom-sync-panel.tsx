@@ -28,9 +28,11 @@ type FathomRecordingRow = {
 export function FathomSyncPanel({
   authenticated,
   onAnalyze,
+  embedded = false,
 }: {
   authenticated: boolean;
-  onAnalyze: (args: { transcript: string; title: string }) => void;
+  onAnalyze?: (args: { transcript: string; title: string }) => void;
+  embedded?: boolean;
 }) {
   const [status, setStatus] = useState<FathomStatus | null>(null);
   const [recordings, setRecordings] = useState<FathomRecordingRow[]>([]);
@@ -189,6 +191,7 @@ export function FathomSyncPanel({
   };
 
   const pickRecording = async (id: string, title: string) => {
+    if (!onAnalyze) return;
     setError(null);
     try {
       const response = await fetch(`/api/fathom/recordings/${id}`);
@@ -209,7 +212,7 @@ export function FathomSyncPanel({
           cuenta.
         </p>
         <Button asChild variant="primary" size="sm">
-          <Link href="/login?callbackUrl=/reporte">Entrar</Link>
+          <Link href="/login?callbackUrl=/fathom">Entrar</Link>
         </Button>
       </div>
     );
@@ -226,22 +229,24 @@ export function FathomSyncPanel({
 
   return (
     <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-lg font-light">Conectar Fathom</h2>
-        <p className="text-sm text-fg3">
-          Importa todas tus llamadas, las audita automáticamente y el coach
-          high-ticket diseña tu estrategia de mejora. API key en{" "}
-          <a
-            href="https://fathom.video/settings/api"
-            target="_blank"
-            rel="noreferrer"
-            className="underline"
-          >
-            Fathom → Settings → API
-          </a>
-          .
-        </p>
-      </div>
+      {!embedded && (
+        <div className="space-y-1">
+          <h2 className="text-lg font-light">Conectar Fathom</h2>
+          <p className="text-sm text-fg3">
+            Importa todas tus llamadas, las audita automáticamente y el coach
+            high-ticket diseña tu estrategia de mejora. API key en{" "}
+            <a
+              href="https://fathom.video/settings/api"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              Fathom → Settings → API
+            </a>
+            .
+          </p>
+        </div>
+      )}
 
       {!status?.connected ? (
         <form onSubmit={onConnect} className="space-y-3">
@@ -353,15 +358,17 @@ export function FathomSyncPanel({
                       <Link href={`/coach/${row.practiceSessionId}`}>Ver QC</Link>
                     </Button>
                   )}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={!row.hasTranscript || syncing}
-                    onClick={() => pickRecording(row.id, row.title)}
-                  >
-                    {row.analyzed ? "Re-auditar" : "Auditar"}
-                  </Button>
+                  {onAnalyze && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!row.hasTranscript || syncing}
+                      onClick={() => pickRecording(row.id, row.title)}
+                    >
+                      {row.analyzed ? "Re-auditar" : "Auditar"}
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}
