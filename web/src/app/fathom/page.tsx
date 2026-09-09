@@ -55,7 +55,8 @@ export default function FathomPage() {
           </li>
           <li>
             Pulsa <strong>Importar, auditar y generar estrategia</strong>. Las
-            reuniones sin transcript usable se omiten y no frenan el lote.
+            Impromptu cuentan: sacamos lead y oferta del transcript. Solo se
+            omiten las que no tienen audio.
           </li>
           <li>
             Cuando termine, abre{" "}

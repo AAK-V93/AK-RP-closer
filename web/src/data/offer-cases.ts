@@ -212,6 +212,25 @@ export function getOfferCase(id: string): OfferCase | undefined {
   return OFFER_CASES.find((c) => c.id === id);
 }
 
+export function matchKnownOffer(text: string): OfferCase | undefined {
+  const hay = text.toLowerCase();
+  if (!hay.trim()) return undefined;
+  const scored = OFFER_CASES.map((offer) => {
+    const needles = [
+      offer.productName,
+      offer.label,
+      ...offer.plans.map((plan) => plan.name),
+    ]
+      .join(" ")
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((word) => word.length > 4);
+    const hits = needles.filter((word) => hay.includes(word)).length;
+    return { offer, hits };
+  }).sort((a, b) => b.hits - a.hits);
+  return scored[0] && scored[0].hits >= 2 ? scored[0].offer : undefined;
+}
+
 /** Guests may only practice the three built-in offers. */
 export function isPresetOffer(
   productName: string,

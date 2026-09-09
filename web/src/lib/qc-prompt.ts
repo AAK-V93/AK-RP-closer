@@ -7,7 +7,9 @@ export function buildQcReportPrompt(args: {
   speakers: string[];
 }): string {
   const closer = args.closerHint?.trim() || "el closer (quien vende / presenta el programa)";
-  const product = args.productHint?.trim() || "infiérelo de la llamada";
+  const product =
+    args.productHint?.trim() ||
+    "infiérela SOLO del transcript (el título de Fathom puede ser genérico: Impromptu / Google Meet / Zoom)";
   const speakers = args.speakers.length
     ? args.speakers.join(" · ")
     : "infiérelo de la transcripción";
@@ -29,6 +31,8 @@ ${args.transcript}
 Devuelve ÚNICAMENTE JSON válido con esta forma exacta:
 {
   "headline": "p.ej. 52 mins. No hubo venta. Compromiso de seguimiento.",
+  "leadName": "nombre del prospecto (no del closer). Si hay pareja, 'Ana y Luis'. Vacío solo si no se menciona.",
+  "offerName": "oferta o programa que se habló (nombre + plan si salió). Infiérelo del transcript, no del título de Fathom.",
   "durationMinutes": 52,
   "sold": false,
   "commitment": "sin compromiso | reserva | seguimiento con fecha | venta",
@@ -121,6 +125,8 @@ Reglas:
 - discoveryPercent + pitchPercent ≈ 100. Estima por volumen de habla, no adivines 50/50.
 - overallScore: 0-100 coherente con blockScore de descubrimiento y pitch y con si aisló objeciones.
 - Si no hubo venta, dilo en headline. No suavices.
+- leadName y offerName son obligatorios si el transcript los da, aunque el título sea "Impromptu Google Meet Meeting".
+- Un Meet improvisado puede ser una llamada de venta real: audítala igual.
 - suggestedLine siempre en primera persona, anclada a ESTE lead.
 - No inventes datos médicos, precios ni deudas que no estén en la transcripción.
 - Si el closer downsellea sin aislar la objeción de dinero, márcalo como falla.

@@ -81,6 +81,8 @@ export interface QcProspectNotes {
 
 export interface QcCallReport {
   headline: string;
+  leadName: string;
+  offerName: string;
   durationMinutes: number | null;
   sold: boolean;
   commitment: string;

@@ -31,5 +31,27 @@ export function isSkippedSession(practiceSessionId?: string | null) {
 
 export function isUsableTranscript(text?: string | null) {
   const value = String(text || "").trim();
-  return value.length >= 200 && value !== EMPTY_TRANSCRIPT_MARK;
+  return value.length >= 80 && value !== EMPTY_TRANSCRIPT_MARK;
+}
+
+export function isGenericMeetingTitle(title?: string | null) {
+  const value = String(title || "").trim();
+  if (!value) return true;
+  return /impromptu|google meet|zoom meeting|^zoom$|untitled|sin t[ií]tulo|llamada \d+|microsoft teams|reunion rapida|reunión rápida/i.test(
+    value,
+  );
+}
+
+export function displayCallTitle(args: {
+  leadName?: string | null;
+  offerName?: string | null;
+  fallback?: string | null;
+}) {
+  const lead = String(args.leadName || "").trim();
+  const offer = String(args.offerName || "").trim();
+  if (lead && offer) return `${lead} · ${offer}`.slice(0, 120);
+  if (lead) return lead.slice(0, 120);
+  if (offer) return offer.slice(0, 120);
+  const fallback = String(args.fallback || "").trim();
+  return fallback || "Llamada sin título";
 }

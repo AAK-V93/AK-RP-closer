@@ -3,6 +3,8 @@ import type { PrismaClient } from "@prisma/client";
 import type { QcCallReport } from "@/data/qc-report";
 import { generateGeminiJson } from "@/lib/gemini";
 import { buildQcReportPrompt } from "@/lib/qc-prompt";
+import { matchKnownOffer } from "@/data/offer-cases";
+import { displayCallTitle } from "@/lib/fathom-import";
 import {
   compactTranscriptText,
   formatParsedTranscript,
@@ -27,6 +29,8 @@ export function normalizeQcReport(parsed: Partial<QcCallReport>): QcCallReport {
   const notes = parsed.prospectNotes;
   return {
     headline: parsed.headline || "Reporte de la llamada",
+    leadName: String(parsed.leadName || "").trim(),
+    offerName: String(parsed.offerName || "").trim(),
     durationMinutes: parsed.durationMinutes ?? null,
     sold: Boolean(parsed.sold),
     commitment: parsed.commitment || "",
@@ -102,12 +106,12 @@ export async function generateQcReportFromTranscript(args: {
   productName?: string;
 }) {
   const raw = args.transcriptRaw.trim();
-  if (raw.length < 200) {
+  if (raw.length < 80) {
     throw new Error("Transcripción demasiado corta para auditar.");
   }
 
   const parsed = parseCallTranscript(raw.slice(0, MAX_CHARS));
-  if (parsed.lines.length < 4) {
+  if (parsed.lines.length < 2) {
     throw new Error("No pude leer la transcripción.");
   }
 
@@ -120,15 +124,56 @@ export async function generateQcReportFromTranscript(args: {
   });
 
   const text = await generateGeminiJson(prompt, 0.25, 4096, {
-    timeoutMs: 120_000,
+    timeoutMs: 75_000,
     models: ["gemini-flash-latest", "gemini-flash-lite-latest"],
   });
 
   const parsedJson = parseModelJson(text) as Partial<QcCallReport>;
+  const report = enrichCallIdentity(normalizeQcReport(parsedJson), transcript);
   return {
-    report: normalizeQcReport(parsedJson),
+    report,
     lines: parsed.lines as ParsedLine[],
   };
+}
+
+export function enrichCallIdentity(report: QcCallReport, transcript: string) {
+  const known = matchKnownOffer(`${report.offerName} ${report.headline} ${transcript.slice(0, 2000)}`);
+  const offerName = known?.productName || report.offerName;
+  const leadName = report.leadName;
+  return { ...report, leadName, offerName };
+}
+
+export async function extractCallIdentity(transcriptRaw: string) {
+  const parsed = parseCallTranscript(transcriptRaw.trim().slice(0, 12_000));
+  const transcript = compactTranscriptText(formatParsedTranscript(parsed));
+  const text = await generateGeminiJson(
+    `Extrae identidad de esta llamada de ventas. JSON: {"leadName":"","offerName":""}.
+leadName = prospecto, no el closer. offerName = programa/oferta/plan si se menciona.
+Si el título era Impromptu/Meet/Zoom, IGNÓRALO y usa solo el diálogo.
+Speakers: ${parsed.speakers.join(" · ") || "desconocidos"}
+
+${transcript}`,
+    0.1,
+    256,
+    { timeoutMs: 20_000, models: ["gemini-flash-lite-latest"] },
+  );
+  const parsedJson = parseModelJson(text) as { leadName?: string; offerName?: string };
+  return enrichCallIdentity(
+    normalizeQcReport({
+      headline: "QC parcial: se guardó la llamada para no perderla",
+      leadName: parsedJson.leadName,
+      offerName: parsedJson.offerName,
+    }),
+    transcript,
+  );
+}
+
+export function callDisplayName(report: QcCallReport, fallback?: string) {
+  return displayCallTitle({
+    leadName: report.leadName,
+    offerName: report.offerName,
+    fallback,
+  });
 }
 
 export async function saveQcPracticeSession(
@@ -144,7 +189,9 @@ export async function saveQcPracticeSession(
     data: {
       userId,
       callSection: "qc_transcript",
-      productName: args.productName?.trim() || args.report.headline.slice(0, 80),
+      productName:
+        callDisplayName(args.report, args.productName) ||
+        args.report.headline.slice(0, 80),
       difficulty: "real",
       language: "es",
       overallScore: args.report.overallScore,

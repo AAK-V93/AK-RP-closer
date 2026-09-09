@@ -195,11 +195,18 @@ export function FathomSyncPanel({
           done?: boolean;
           imported?: number;
           skipped?: number;
-          recording?: { title?: string; skipped?: boolean };
+          recording?: { title?: string; skipped?: boolean; leadName?: string };
+          partial?: boolean;
         }>("/api/fathom/analyze");
         const remaining = data.remaining ?? 0;
         if (data.skipped && data.recording?.title) {
-          setSyncMessage(`Omitida (sin transcript usable): ${data.recording.title}`);
+          setSyncMessage(`Sin audio/transcript: ${data.recording.title}`);
+        } else if (data.recording?.title) {
+          setSyncMessage(
+            data.partial
+              ? `Guardada (QC parcial): ${data.recording.title}`
+              : `Auditada: ${data.recording.title}${remaining > 0 ? ` · faltan ${remaining}` : ""}`,
+          );
         } else {
           setSyncMessage(
             remaining > 0
