@@ -18,6 +18,8 @@ model User {
   coachProfile CoachProfile?
   fathomConnection FathomConnection?
   fathomRecordings FathomRecording[]
+  offer        UserOffer?
+  transcripts  ClientTranscript[]
 }
 
 model CoachProfile {
@@ -105,4 +107,28 @@ model FathomRecording {
 
   @@unique([userId, fathomRecordingId])
   @@index([userId, recordedAt])
+}
+
+model UserOffer {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productName        String
+  productDescription String
+  pitchSummary       String   @default("")
+  playbook           Json     @default("{}")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model ClientTranscript {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source         String   @default("upload")
+  title          String
+  transcriptText String
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

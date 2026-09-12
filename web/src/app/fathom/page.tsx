@@ -21,8 +21,8 @@ export default function FathomPage() {
         <div className="space-y-3">
           <h1 className="text-2xl font-light">Conecta tu cuenta de Fathom</h1>
           <p className="text-sm text-fg3">
-            Traemos todas tus llamadas, las auditamos y el coach high-ticket te
-            arma una estrategia de mejora con base en tus calls reales.
+            Traemos tus llamadas, las auditamos y las usamos para que el
+            prospecto de voz emule a tus leads. También alimentan al coach.
           </p>
         </div>
 

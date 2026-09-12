@@ -13,6 +13,7 @@ import {
 import { ThemeToggle } from "@/components/custom/theme-toggle";
 import { RoomWrapper } from "@/components/room-wrapper";
 import { TrainingSetupForm } from "@/components/training-setup-form";
+import { PracticeReadyGate } from "@/components/practice-ready-gate";
 
 export default function PracticeLayout({
   children,
@@ -24,6 +25,7 @@ export default function PracticeLayout({
       <ConnectionProvider>
         <TooltipProvider>
           <RoomWrapper>
+            <PracticeReadyGate />
             <SidebarProvider defaultOpen={true}>
               <Sidebar className="bg-bg1">
                 <SidebarHeader className="px-4 py-3">

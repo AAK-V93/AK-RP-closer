@@ -122,7 +122,7 @@ export function FathomSyncPanel({
     }
   };
 
-  const postJson = async <T,>(url: string, body?: object) => {
+  const postJson = async <T,>(url: string, body?: object): Promise<T> => {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -155,10 +155,10 @@ export function FathomSyncPanel({
       let cursor: string | null = null;
       let meetingsDone = false;
       while (!meetingsDone) {
-        const data = await postJson<{
+        const data: {
           nextCursor?: string | null;
           meetingsDone?: boolean;
-        }>("/api/fathom/sync", {
+        } = await postJson("/api/fathom/sync", {
           phase: "meetings",
           cursor,
           createdAfter: importSince,

@@ -172,12 +172,10 @@ export function Chat() {
               </p>
               <ol className="text-left text-sm text-fg2 space-y-1.5 mx-auto max-w-sm list-decimal list-inside">
                 <li className="md:hidden">
-                  Pulsa{" "}
-                  <span className="font-medium text-fg1">Elegir oferta</span>{" "}
-                  arriba, luego el botón de abajo.
+                  Confirma tu oferta (la que subiste) y pulsa el botón de abajo.
                 </li>
                 <li className="hidden md:list-item">
-                  Elige una oferta a la izquierda.
+                  A la izquierda está tu oferta. El lead emula a tus llamadas reales.
                 </li>
                 <li className="hidden md:list-item">
                   Pulsa{" "}
@@ -188,16 +186,10 @@ export function Chat() {
                   reunieron.
                 </li>
               </ol>
-              {authStatus === "unauthenticated" && access && !access.used && (
+              {authStatus === "unauthenticated" && (
                 <p className="text-xs text-fg3">
-                  Sin cuenta puedes hacer 1 práctica completa, con reporte, en
-                  las tres ofertas listas.
-                </p>
-              )}
-              {authStatus === "unauthenticated" && access?.used && (
-                <p className="text-xs text-fg3">
-                  Ya usaste tu práctica gratis. Crea una cuenta para volver a
-                  practicar.
+                  Crea una cuenta, sube tu oferta y tus transcripciones. El bot
+                  practica contra <em>tus</em> leads, no contra ofertas genéricas.
                 </p>
               )}
             </div>

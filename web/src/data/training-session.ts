@@ -2,6 +2,7 @@ import { ModalitiesId } from "@/data/modalities";
 import { ModelId } from "@/data/models";
 import { VoiceId } from "@/data/voices";
 import { LanguageCode } from "@/data/languages";
+import type { LeadPlaybook } from "@/lib/lead-playbook";
 
 export type DifficultyLevel = "easy" | "medium" | "hard";
 
@@ -51,6 +52,7 @@ export interface TrainingSessionConfig {
   /** Required when practicing close-only without pitch_close */
   pitchSummary?: string;
   prospectProfile: ProspectProfile;
+  leadPlaybook?: LeadPlaybook | null;
 }
 
 export interface TrainingState {

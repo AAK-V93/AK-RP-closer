@@ -28,7 +28,7 @@ export function ChatControls() {
             />
           )}
           <Settings className="h-4 w-4" />
-          {needsOffer ? "Elegir oferta" : "Oferta"}
+          {needsOffer ? "Tu oferta" : "Oferta"}
         </Button>
       </ConfigurationFormDrawer>
     </div>

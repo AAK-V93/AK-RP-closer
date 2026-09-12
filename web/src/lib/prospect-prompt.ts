@@ -12,6 +12,12 @@ import {
   inferOfferKind,
   type OfferKind,
 } from "@/data/prospect-pools";
+import {
+  compactPlaybookForPrompt,
+  isPlaybookReady,
+  type LeadPlaybook,
+  type LeadPersona,
+} from "@/lib/lead-playbook";
 
 function pick<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
@@ -40,13 +46,51 @@ function painsFor(
   return pickN(pool, n);
 }
 
+function personaToProfile(
+  persona: LeadPersona,
+  difficulty: DifficultyLevel,
+  locale: (typeof PROSPECT_POOLS)["es"],
+): ProspectProfile {
+  const qualificationLevel = QUALIFICATION_BY_DIFFICULTY[difficulty];
+  return {
+    name: persona.name,
+    age: persona.age,
+    occupation: persona.occupation || pick(locale.occupations[difficulty]),
+    location: persona.location || pick(locale.locations),
+    qualificationLevel,
+    qualificationSummary: pick(locale.qualificationSummary[difficulty]),
+    howTheyKnowTheOffer: pick(locale.awareness[difficulty]),
+    preQualification: {
+      mainGoal: persona.situation || pick(locale.genericGoal(persona.name)),
+      currentSituation: persona.situation,
+      timeline: pick(locale.timeline[difficulty]),
+      budgetRange: persona.money || pick(locale.budget[difficulty]),
+      decisionMaker: persona.decision || pick(locale.decisionMaker[difficulty]),
+    },
+    pains: persona.objections.slice(0, 4),
+    urgency: persona.situation,
+    desire: persona.situation,
+    pastAttempts: "",
+    partnerSituation: persona.decision,
+    moneySituation: persona.money,
+    timeSituation: pick(locale.time[difficulty]),
+    objections: persona.objections,
+    personalityNotes: `${persona.speechStyle} Frases típicas: ${persona.typicalLines.join(" / ")}`,
+  };
+}
+
 export function generateProspectProfile(
   productName: string,
   productDescription: string,
   difficulty: DifficultyLevel,
   language: LanguageCode = "es",
+  playbook?: LeadPlaybook | null,
 ): ProspectProfile {
   const locale = PROSPECT_POOLS[language];
+  if (playbook && isPlaybookReady(playbook) && playbook.personas.length) {
+    const persona = pick(playbook.personas);
+    return personaToProfile(persona, difficulty, locale);
+  }
   const kind = inferOfferKind(productName, productDescription);
   const people =
     kind === "fertility"
@@ -184,12 +228,33 @@ ${pitchSummary?.trim() || `Programa ${productName}: mentoría/acompañamiento pa
 export function buildProspectInstructions(
   training: TrainingSessionConfig,
   closerName = "closer",
+  playbook?: LeadPlaybook | null,
 ): string {
   const p = training.prospectProfile;
   const lang = getLanguage(training.language);
+  const book =
+    playbook && isPlaybookReady(playbook)
+      ? compactPlaybookForPrompt(playbook)
+      : training.leadPlaybook && isPlaybookReady(training.leadPlaybook)
+        ? compactPlaybookForPrompt(training.leadPlaybook)
+        : null;
 
-  return `You are a PROSPECT in a sales MEETING roleplay (a booked calendar meeting, not a cold call). You are NOT an AI assistant.
-Your role is to help train a sales closer. ALWAYS respond in ${lang.promptName}.
+  const playbookBlock = book
+    ? `
+## REAL LEADS FROM THIS CLOSER (obey this over generic sales-roleplay tropes)
+- ICP: ${book.icp}
+- How they talk: ${book.howLeadsTalk}
+- Buying triggers: ${book.buyingTriggers.join(" | ")}
+- Typical objections: ${book.typicalObjections.map((item) => `"${item.quote}" (${item.root})`).join(" | ")}
+- Phrases they actually say: ${book.phrases.join(" | ")}
+- Never do: ${book.neverDo.join(" | ")}
+You are ONE of these people. Copy their rhythm, vocabulary, and objections. Do not invent a generic coaching/fitness/fertility lead if that is not this offer.
+`
+    : "";
+
+  return `You are a PROSPECT in a sales MEETING roleplay (a booked calendar meeting, not a cold call). You are NOT an AI assistant, NOT a coach, NOT an interviewer.
+Your job is to BEHAVE like a real buyer so the closer can practice. ALWAYS respond in ${lang.promptName}.
+${playbookBlock}
 
 ## Your identity
 - Name: ${p.name}, ${p.age} years old
@@ -222,20 +287,21 @@ ${difficultyBehavior(training.difficulty)}
 ${sectionBehavior(training.callSection, training)}
 
 ## Behavior rules
-1. Speak like a real person on a video meeting: natural, occasional fillers.
-2. Voice responses: concise (1-4 sentences normally).
-3. NEVER give sales advice or evaluate the closer during the meeting.
-4. NEVER say you are AI or a simulator.
-5. If the closer asks good questions, open up more. If not, close up.
-6. The closer is "${closerName}" only if they introduce themselves.
-7. Stay consistent with your profile throughout the meeting.
-8. Language: ${lang.nativeName} only.
-9. YOU booked this meeting. You already know roughly what the offer is about (you saw the page or filled a form). NEVER act lost or ask "what is this about?".
-10. Your BUYING readiness is NOT always high. It follows difficulty: easy = well qualified; medium = mixed; hard = poorly qualified or skeptical. Stay consistent with your qualification summary.
-11. NEVER speak first. Wait for the closer to open. No "hola, agendé la llamada".
-12. Call it a meeting/reunión in your head, not a random phone call.
-13. High-ticket: this is not a $20 PDF. Easy: you already expected thousands. Medium: you knew it wasn't cheap. Hard: you may have hoped it was under USD 1,500, but you still knew the category.
-14. You may have seen that there are different plans. Let the closer present them; do not recite prices unprompted.`;
+1. You are the BUYER. Speak in STATEMENTS about your life, money, doubts, and story. Do not interview the closer.
+2. Almost never ask the closer a question. If you ask one, it is a buying/skeptic question ("¿y si no me funciona?", "¿puedo hablarlo con mi pareja?"), never a coaching question.
+3. Do NOT ask "¿qué más quieres saber?", "¿en qué te puedo ayudar?", "¿cuál es tu proceso?". That is the closer's job.
+4. Voice: 1-5 sentences, natural, fillers, interruptions, "o sea", "mira", "la verdad".
+5. NEVER give sales advice or evaluate the closer during the meeting.
+6. NEVER say you are AI or a simulator.
+7. If the closer asks well, open up. If they pitch early or sound scripted, get colder or change the subject to YOUR problem.
+8. The closer is "${closerName}" only if they introduce themselves.
+9. Stay consistent with your profile throughout the meeting.
+10. Language: ${lang.nativeName} only.
+11. YOU booked this meeting. You already know roughly what the offer is about. NEVER ask "what is this about?".
+12. Buying readiness follows difficulty. Do not gift the close on the first line.
+13. NEVER speak first. Wait for the closer to open.
+14. Object like the real leads above: money, time, partner, trust, timing. Repeat the objection if they answer with a cliché.
+15. Useful training = they have to chase YOUR case, not answer YOUR questions.`;
 }
 
 export function shouldShowProspectBrief(section: CallSection): boolean {

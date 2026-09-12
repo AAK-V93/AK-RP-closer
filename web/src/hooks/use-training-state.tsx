@@ -30,7 +30,8 @@ function trainingReducer(state: TrainingState, action: Action): TrainingState {
         action.payload.productName !== undefined ||
         action.payload.productDescription !== undefined ||
         action.payload.difficulty !== undefined ||
-        action.payload.language !== undefined;
+        action.payload.language !== undefined ||
+        action.payload.leadPlaybook !== undefined;
 
       if (
         shouldRegenerate &&
@@ -42,6 +43,7 @@ function trainingReducer(state: TrainingState, action: Action): TrainingState {
           nextTraining.productDescription,
           nextTraining.difficulty,
           nextTraining.language,
+          nextTraining.leadPlaybook,
         );
       }
 
@@ -53,7 +55,7 @@ function trainingReducer(state: TrainingState, action: Action): TrainingState {
         sessionConfig: { ...state.sessionConfig, ...action.payload },
       };
     case "REGENERATE_PROSPECT": {
-      const { productName, productDescription, difficulty, language } =
+      const { productName, productDescription, difficulty, language, leadPlaybook } =
         state.training;
       if (!productName.trim() || !productDescription.trim()) {
         return state;
@@ -67,6 +69,7 @@ function trainingReducer(state: TrainingState, action: Action): TrainingState {
             productDescription,
             difficulty,
             language,
+            leadPlaybook,
           ),
         },
       };

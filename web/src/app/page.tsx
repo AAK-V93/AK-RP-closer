@@ -47,17 +47,17 @@ export default function HomePage() {
 
           <div className="grid md:grid-cols-3 gap-4">
             <Link
-              href="/practicar"
+              href="/setup"
               className="group rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3 hover:border-intense hover:bg-bg2 transition-colors"
             >
               <PhoneCall className="h-6 w-6 text-fg2" />
               <h2 className="text-xl font-light">Practicar con un prospecto</h2>
               <p className="text-sm text-fg3">
-                Roleplay en vivo. El lead agendó la reunión, tiene contexto del
-                producto y objeta según la dificultad.
+                Sube tu oferta y tus llamadas. El bot emula a tus leads reales,
+                no a un prospecto genérico.
               </p>
               <p className="text-xs text-fg2 group-hover:text-fg1">
-                Empezar práctica →
+                Configurar y practicar →
               </p>
             </Link>
 

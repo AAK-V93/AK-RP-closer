@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 
 function safeCallbackUrl(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/coach";
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/setup";
   return raw;
 }
 
@@ -23,7 +23,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
-  const [callbackUrl, setCallbackUrl] = useState("/coach");
+  const [callbackUrl, setCallbackUrl] = useState("/setup");
   const [fromCustomOffer, setFromCustomOffer] = useState(false);
   const [fromFreeUsed, setFromFreeUsed] = useState(false);
   const [fromQcUsed, setFromQcUsed] = useState(false);

@@ -193,3 +193,64 @@ export async function ensureFathomTables(prisma: PrismaClient) {
   }
   return fathomTablesReady;
 }
+
+let workspaceTablesReady: Promise<void> | null = null;
+
+export async function ensureWorkspaceTables(prisma: PrismaClient) {
+  if (!workspaceTablesReady) {
+    workspaceTablesReady = (async () => {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "UserOffer" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "productName" TEXT NOT NULL,
+          "productDescription" TEXT NOT NULL,
+          "pitchSummary" TEXT NOT NULL DEFAULT '',
+          "playbook" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "UserOffer_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      await prisma.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "UserOffer_userId_key" ON "UserOffer"("userId")`,
+      );
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ClientTranscript" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "source" TEXT NOT NULL DEFAULT 'upload',
+          "title" TEXT NOT NULL,
+          "transcriptText" TEXT NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "ClientTranscript_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "ClientTranscript_userId_createdAt_idx" ON "ClientTranscript"("userId", "createdAt")`,
+      );
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "UserOffer"
+          ADD CONSTRAINT "UserOffer_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        `);
+      } catch {
+        /* already exists */
+      }
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "ClientTranscript"
+          ADD CONSTRAINT "ClientTranscript_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+        `);
+      } catch {
+        /* already exists */
+      }
+    })().catch((error) => {
+      workspaceTablesReady = null;
+      throw error;
+    });
+  }
+  return workspaceTablesReady;
+}

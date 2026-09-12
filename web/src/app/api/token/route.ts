@@ -7,34 +7,27 @@ import { getServerSession } from "next-auth";
 import { TokenRequestPayload } from "@/lib/training-helpers";
 import { buildProspectInstructions } from "@/lib/prospect-prompt";
 import { authOptions } from "@/lib/auth";
-import { isPresetOffer } from "@/data/offer-cases";
-import {
-  FREE_USED_CODE,
-  assertGuestCanStart,
-} from "@/lib/guest-practice";
-import { CUSTOM_OFFER_CODE } from "@/lib/guest-practice-client";
+import { getWorkspace, getWorkspacePrisma } from "@/lib/workspace";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
+
+const SETUP_REQUIRED_CODE = "SETUP_REQUIRED";
 
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      const gate = await assertGuestCanStart(request);
-      if (!gate.ok) {
-        return NextResponse.json(
-          {
-            error:
-              "Ya usaste tu práctica gratis. Crea una cuenta para seguir.",
-            code: FREE_USED_CODE,
-          },
-          { status: 403 },
-        );
-      }
+      return NextResponse.json(
+        {
+          error:
+            "Crea una cuenta y sube tu oferta y tus llamadas para practicar.",
+          code: SETUP_REQUIRED_CODE,
+        },
+        { status: 403 },
+      );
     }
 
     let payload: TokenRequestPayload;
-
     try {
       payload = await request.json();
     } catch {
@@ -42,25 +35,45 @@ export async function POST(request: Request) {
     }
 
     const { training, sessionConfig } = payload;
-
-    if (!session?.user?.id) {
-      const hasCustomProduct = Boolean(training.productName?.trim());
-      if (
-        hasCustomProduct &&
-        !isPresetOffer(training.productName, training.productDescription)
-      ) {
-        return NextResponse.json(
-          {
-            error:
-              "Para practicar una oferta propia necesitas una cuenta. Elige una de las tres ofertas listas o crea tu cuenta.",
-            code: CUSTOM_OFFER_CODE,
-          },
-          { status: 403 },
-        );
-      }
+    const prisma = await getWorkspacePrisma();
+    if (!prisma) {
+      return NextResponse.json({ error: "DB no disponible" }, { status: 503 });
     }
 
-    const instructions = buildProspectInstructions(training);
+    const workspace = await getWorkspace(prisma, session.user.id);
+    if (!workspace.offer) {
+      return NextResponse.json(
+        {
+          error: "Primero guarda tu oferta en Configuración.",
+          code: SETUP_REQUIRED_CODE,
+        },
+        { status: 403 },
+      );
+    }
+    if (!workspace.ready) {
+      return NextResponse.json(
+        {
+          error:
+            "Sube transcripciones o conecta Fathom para que el prospecto emule a tus leads.",
+          code: SETUP_REQUIRED_CODE,
+        },
+        { status: 403 },
+      );
+    }
+
+    const trainingWithOffer = {
+      ...training,
+      productName: workspace.offer.productName,
+      productDescription: workspace.offer.productDescription,
+      pitchSummary: training.pitchSummary || workspace.offer.pitchSummary,
+      leadPlaybook: workspace.playbook,
+    };
+
+    const instructions = buildProspectInstructions(
+      trainingWithOffer,
+      "closer",
+      workspace.playbook,
+    );
 
     const roomName = `closer-${Math.random().toString(36).slice(2, 10)}`;
     const apiKey = process.env.LIVEKIT_API_KEY;
@@ -78,11 +91,11 @@ export async function POST(request: Request) {
       model: sessionConfig.model,
       modalities: sessionConfig.modalities,
       voice: sessionConfig.voice,
-      temperature: sessionConfig.temperature,
+      temperature: 0.9,
       max_output_tokens: sessionConfig.maxOutputTokens,
       nano_banana_enabled: false,
       training_mode: training.callSection,
-      product_name: training.productName,
+      product_name: workspace.offer.productName,
       difficulty: training.difficulty,
       language: training.language,
     };
