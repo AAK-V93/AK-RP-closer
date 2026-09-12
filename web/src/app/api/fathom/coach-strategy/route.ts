@@ -52,7 +52,7 @@ export async function POST() {
 
     try {
       await ensureWorkspaceTables(prisma);
-      const workspace = await getWorkspace(prisma, userId);
+      const workspace = await getWorkspace(prisma, userId, null);
       if (workspace.offer && workspace.corpus.length > 0) {
         const playbook = await extractLeadPlaybook({
           productName: workspace.offer.productName,

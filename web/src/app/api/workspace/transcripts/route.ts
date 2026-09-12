@@ -25,6 +25,7 @@ export async function POST(request: Request) {
       .getAll("files")
       .filter((item): item is File => item instanceof File);
     const pasted = String(form.get("paste") || "").trim();
+    const offerId = String(form.get("offerId") || "").trim() || null;
 
     if (files.length === 0 && pasted.length < 80) {
       return NextResponse.json(
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
       await auth.prisma.clientTranscript.create({
         data: {
           userId: auth.userId,
+          offerId,
           source: "upload",
           title: fileTitle(file.name),
           transcriptText: text.slice(0, 200_000),
@@ -59,6 +61,7 @@ export async function POST(request: Request) {
       await auth.prisma.clientTranscript.create({
         data: {
           userId: auth.userId,
+          offerId,
           source: "paste",
           title: `Pegado ${new Date().toLocaleDateString("es")}`,
           transcriptText: pasted.slice(0, 200_000),
@@ -74,7 +77,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const workspace = await getWorkspace(auth.prisma, auth.userId);
+    const workspace = await getWorkspace(auth.prisma, auth.userId, offerId);
     if (workspace.offer) {
       try {
         const playbook = await extractLeadPlaybook({
@@ -91,7 +94,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const next = await getWorkspace(auth.prisma, auth.userId);
+    const next = await getWorkspace(auth.prisma, auth.userId, offerId);
     return NextResponse.json({
       saved,
       ready: next.ready,

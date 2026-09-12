@@ -18,7 +18,7 @@ model User {
   coachProfile CoachProfile?
   fathomConnection FathomConnection?
   fathomRecordings FathomRecording[]
-  offer        UserOffer?
+  offers       UserOffer[]
   transcripts  ClientTranscript[]
 }
 
@@ -110,25 +110,32 @@ model FathomRecording {
 }
 
 model UserOffer {
-  id                 String   @id @default(cuid())
-  userId             String   @unique
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String             @id @default(cuid())
+  userId             String
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   productName        String
   productDescription String
-  pitchSummary       String   @default("")
-  playbook           Json     @default("{}")
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  pitchSummary       String             @default("")
+  playbook           Json               @default("{}")
+  includeFathom      Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  transcripts        ClientTranscript[]
+
+  @@index([userId, updatedAt])
 }
 
 model ClientTranscript {
-  id             String   @id @default(cuid())
+  id             String     @id @default(cuid())
   userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  source         String   @default("upload")
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offerId        String?
+  offer          UserOffer? @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  source         String     @default("upload")
   title          String
   transcriptText String
-  createdAt      DateTime @default(now())
+  createdAt      DateTime   @default(now())
 
   @@index([userId, createdAt])
+  @@index([offerId])
 }

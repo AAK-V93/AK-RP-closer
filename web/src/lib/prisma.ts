@@ -213,7 +213,13 @@ export async function ensureWorkspaceTables(prisma: PrismaClient) {
         )
       `);
       await prisma.$executeRawUnsafe(
-        `CREATE UNIQUE INDEX IF NOT EXISTS "UserOffer_userId_key" ON "UserOffer"("userId")`,
+        `DROP INDEX IF EXISTS "UserOffer_userId_key"`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "UserOffer_userId_updatedAt_idx" ON "UserOffer"("userId", "updatedAt")`,
+      );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "UserOffer" ADD COLUMN IF NOT EXISTS "includeFathom" BOOLEAN NOT NULL DEFAULT false`,
       );
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "ClientTranscript" (
@@ -228,6 +234,12 @@ export async function ensureWorkspaceTables(prisma: PrismaClient) {
       `);
       await prisma.$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS "ClientTranscript_userId_createdAt_idx" ON "ClientTranscript"("userId", "createdAt")`,
+      );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "ClientTranscript" ADD COLUMN IF NOT EXISTS "offerId" TEXT`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "ClientTranscript_offerId_idx" ON "ClientTranscript"("offerId")`,
       );
       try {
         await prisma.$executeRawUnsafe(`

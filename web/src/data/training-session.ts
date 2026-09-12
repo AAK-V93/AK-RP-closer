@@ -44,6 +44,7 @@ export interface ProspectProfile {
 }
 
 export interface TrainingSessionConfig {
+  offerId?: string;
   productName: string;
   productDescription: string;
   difficulty: DifficultyLevel;

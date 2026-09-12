@@ -51,6 +51,7 @@ const schema = z.object({
 });
 
 type WorkspaceOffer = {
+  id: string;
   productName: string;
   productDescription: string;
   pitchSummary: string;
@@ -60,6 +61,7 @@ export function TrainingSetupForm() {
   const { trainingState, dispatch } = useTraining();
   const { shouldConnect } = useConnection();
   const [serverReady, setServerReady] = useState<boolean | null>(null);
+  const [offers, setOffers] = useState<WorkspaceOffer[]>([]);
   const [offer, setOffer] = useState<WorkspaceOffer | null>(null);
   const [ready, setReady] = useState(false);
   const [transcriptCount, setTranscriptCount] = useState(0);
@@ -91,14 +93,16 @@ export function TrainingSetupForm() {
     fetch("/api/workspace")
       .then((r) => r.json())
       .then((data) => {
+        setOffers(data.offers || []);
         setOffer(data.offer);
-        setReady(Boolean(data.ready));
+        setReady(Boolean(data.ready || data.canPractice));
         setTranscriptCount(data.transcriptCount || 0);
         setPlaybookReady(Boolean(data.playbookReady));
         if (data.offer) {
           dispatch({
             type: "SET_TRAINING",
             payload: {
+              offerId: data.offer.id,
               productName: data.offer.productName,
               productDescription: data.offer.productDescription,
               pitchSummary:
@@ -159,6 +163,43 @@ export function TrainingSetupForm() {
             <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
               Tu oferta
             </p>
+            {offers.length > 1 && (
+              <select
+                className="w-full rounded-md border border-separator1 bg-bg1 px-2 py-1.5 text-sm"
+                value={offer?.id || ""}
+                disabled={shouldConnect}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  fetch(`/api/workspace?offerId=${encodeURIComponent(id)}`)
+                    .then((r) => r.json())
+                    .then((data) => {
+                      setOffer(data.offer);
+                      setReady(Boolean(data.ready || data.canPractice));
+                      setTranscriptCount(data.transcriptCount || 0);
+                      setPlaybookReady(Boolean(data.playbookReady));
+                      if (data.offer) {
+                        dispatch({
+                          type: "SET_TRAINING",
+                          payload: {
+                            offerId: data.offer.id,
+                            productName: data.offer.productName,
+                            productDescription: data.offer.productDescription,
+                            pitchSummary: data.offer.pitchSummary,
+                            leadPlaybook: (data.playbook as LeadPlaybook) || null,
+                          },
+                        });
+                      }
+                    })
+                    .catch(() => undefined);
+                }}
+              >
+                {offers.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.productName}
+                  </option>
+                ))}
+              </select>
+            )}
             {offer ? (
               <>
                 <p className="text-sm font-medium">{offer.productName}</p>

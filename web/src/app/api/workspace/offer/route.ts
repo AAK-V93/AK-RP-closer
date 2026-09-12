@@ -13,9 +13,11 @@ export async function POST(request: Request) {
     if ("error" in auth && auth.error) return auth.error;
 
     const body = (await request.json()) as {
+      id?: string;
       productName?: string;
       productDescription?: string;
       pitchSummary?: string;
+      includeFathom?: boolean;
     };
     const productName = body.productName?.trim() || "";
     const productDescription = body.productDescription?.trim() || "";
@@ -27,22 +29,45 @@ export async function POST(request: Request) {
       );
     }
 
-    const offer = await auth.prisma.userOffer.upsert({
+    const existingCount = await auth.prisma.userOffer.count({
       where: { userId: auth.userId },
-      create: {
-        userId: auth.userId,
-        productName,
-        productDescription,
-        pitchSummary,
-      },
-      update: {
-        productName,
-        productDescription,
-        pitchSummary,
-      },
     });
 
-    const workspace = await getWorkspace(auth.prisma, auth.userId);
+    const includeFathom =
+      typeof body.includeFathom === "boolean"
+        ? body.includeFathom
+        : existingCount === 0;
+
+    let offer;
+    if (body.id) {
+      const owned = await auth.prisma.userOffer.findFirst({
+        where: { id: body.id, userId: auth.userId },
+      });
+      if (!owned) {
+        return NextResponse.json({ error: "Oferta no encontrada" }, { status: 404 });
+      }
+      offer = await auth.prisma.userOffer.update({
+        where: { id: owned.id },
+        data: {
+          productName,
+          productDescription,
+          pitchSummary,
+          includeFathom,
+        },
+      });
+    } else {
+      offer = await auth.prisma.userOffer.create({
+        data: {
+          userId: auth.userId,
+          productName,
+          productDescription,
+          pitchSummary,
+          includeFathom,
+        },
+      });
+    }
+
+    const workspace = await getWorkspace(auth.prisma, auth.userId, offer.id);
     if (workspace.corpus.length > 0) {
       try {
         const playbook = await extractLeadPlaybook({
@@ -59,9 +84,10 @@ export async function POST(request: Request) {
       }
     }
 
-    const next = await getWorkspace(auth.prisma, auth.userId);
+    const next = await getWorkspace(auth.prisma, auth.userId, offer.id);
     return NextResponse.json({
       offer: next.offer,
+      offers: next.offers,
       ready: next.ready,
       playbookReady: next.playbookReady,
       transcriptCount: next.transcriptCount,
@@ -70,6 +96,33 @@ export async function POST(request: Request) {
     console.error("workspace offer", error);
     return NextResponse.json(
       { error: "No se pudo guardar la oferta" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const auth = await requireWorkspaceUser();
+    if ("error" in auth && auth.error) return auth.error;
+    const body = (await request.json()) as { id?: string };
+    if (!body.id) {
+      return NextResponse.json({ error: "Falta el id" }, { status: 400 });
+    }
+    await auth.prisma.userOffer.deleteMany({
+      where: { id: body.id, userId: auth.userId },
+    });
+    const next = await getWorkspace(auth.prisma, auth.userId);
+    return NextResponse.json({
+      ok: true,
+      offer: next.offer,
+      offers: next.offers,
+      ready: next.ready,
+    });
+  } catch (error) {
+    console.error("workspace offer delete", error);
+    return NextResponse.json(
+      { error: "No se pudo borrar la oferta" },
       { status: 500 },
     );
   }

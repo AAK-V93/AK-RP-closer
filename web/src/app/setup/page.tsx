@@ -9,18 +9,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Plus, Upload } from "lucide-react";
+
+type OfferRow = {
+  id: string;
+  productName: string;
+  productDescription: string;
+  pitchSummary: string;
+  includeFathom: boolean;
+};
 
 type WorkspacePayload = {
-  offer: {
-    productName: string;
-    productDescription: string;
-    pitchSummary: string;
-  } | null;
+  offers: OfferRow[];
+  offer: OfferRow | null;
   transcripts: { id: string; title: string; source: string }[];
   fathomCount: number;
   transcriptCount: number;
   ready: boolean;
+  canPractice?: boolean;
   playbookReady: boolean;
 };
 
@@ -32,22 +38,33 @@ export default function SetupPage() {
   const [savingTranscripts, setSavingTranscripts] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
+  const [offerId, setOfferId] = useState<string | null>(null);
   const [productName, setProductName] = useState("");
   const [productDescription, setProductDescription] = useState("");
   const [pitchSummary, setPitchSummary] = useState("");
+  const [includeFathom, setIncludeFathom] = useState(false);
   const [paste, setPaste] = useState("");
   const [parsingDoc, setParsingDoc] = useState(false);
 
-  const load = async () => {
-    const response = await fetch("/api/workspace");
+  const fillOffer = (offer: OfferRow | null) => {
+    setOfferId(offer?.id || null);
+    setProductName(offer?.productName || "");
+    setProductDescription(offer?.productDescription || "");
+    setPitchSummary(offer?.pitchSummary || "");
+    setIncludeFathom(Boolean(offer?.includeFathom));
+  };
+
+  const load = async (nextOfferId?: string | null) => {
+    const query = nextOfferId ? `?offerId=${encodeURIComponent(nextOfferId)}` : "";
+    const response = await fetch(`/api/workspace${query}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Error");
     setWorkspace(data);
-    if (data.offer) {
-      setProductName(data.offer.productName);
-      setProductDescription(data.offer.productDescription);
-      setPitchSummary(data.offer.pitchSummary || "");
+    if (nextOfferId === null) {
+      fillOffer(null);
+      return;
     }
+    fillOffer(data.offer);
   };
 
   useEffect(() => {
@@ -69,11 +86,17 @@ export default function SetupPage() {
       const response = await fetch("/api/workspace/offer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productName, productDescription, pitchSummary }),
+        body: JSON.stringify({
+          id: offerId,
+          productName,
+          productDescription,
+          pitchSummary,
+          includeFathom,
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se guardó");
-      await load();
+      await load(data.offer?.id || null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
@@ -82,10 +105,15 @@ export default function SetupPage() {
   };
 
   const uploadTranscripts = async (files?: FileList | null) => {
+    if (!offerId) {
+      setError("Guarda la oferta primero para colgarle las llamadas.");
+      return;
+    }
     setSavingTranscripts(true);
     setError(null);
     try {
       const body = new FormData();
+      body.append("offerId", offerId);
       if (files) {
         Array.from(files).forEach((file) => body.append("files", file));
       }
@@ -97,7 +125,7 @@ export default function SetupPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se subieron");
       setPaste("");
-      await load();
+      await load(offerId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
@@ -126,16 +154,41 @@ export default function SetupPage() {
         <div className="space-y-2">
           <h1 className="text-2xl font-light">Arma tu entrenamiento</h1>
           <p className="text-sm text-fg3">
-            El bot no usa ofertas genéricas. Emula a <em>tus</em> leads, con
-            <em> tu</em> oferta. Esto queda guardado en tu cuenta.
+            Puedes tener varias ofertas. Cada una guarda sus llamadas y el bot
+            emula a esos leads.
           </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {(workspace?.offers || []).map((row) => (
+            <Button
+              key={row.id}
+              type="button"
+              size="sm"
+              variant={row.id === offerId ? "primary" : "outline"}
+              onClick={() => void load(row.id)}
+            >
+              {row.productName}
+            </Button>
+          ))}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => fillOffer(null)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Nueva oferta
+          </Button>
         </div>
 
         <form
           onSubmit={onSaveOffer}
           className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4"
         >
-          <h2 className="text-lg font-light">1. Tu oferta</h2>
+          <h2 className="text-lg font-light">
+            {offerId ? "Editar oferta" : "1. Nueva oferta"}
+          </h2>
           <div className="space-y-1">
             <Label htmlFor="offer-name">Nombre</Label>
             <Input
@@ -164,6 +217,15 @@ export default function SetupPage() {
               onChange={(e) => setPitchSummary(e.target.value)}
             />
           </div>
+          <label className="flex items-start gap-2 text-sm text-fg2">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={includeFathom}
+              onChange={(e) => setIncludeFathom(e.target.checked)}
+            />
+            Usar mis llamadas de Fathom en esta oferta
+          </label>
           <label className="flex items-center gap-2 text-xs text-fg2 cursor-pointer">
             <Upload className="h-3.5 w-3.5" />
             {parsingDoc ? "Leyendo one-pager…" : "O extrae la oferta de un PDF/TXT"}
@@ -203,18 +265,19 @@ export default function SetupPage() {
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Guardando…
               </>
+            ) : offerId ? (
+              "Guardar cambios"
             ) : (
-              "Guardar oferta"
+              "Crear oferta"
             )}
           </Button>
         </form>
 
         <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
-          <h2 className="text-lg font-light">2. Tus llamadas reales</h2>
+          <h2 className="text-lg font-light">2. Llamadas de esta oferta</h2>
           <p className="text-sm text-fg3">
-            Con esto el prospecto copia cómo hablan tus leads. Sube archivos o
-            conecta Fathom. No hace falta volver a pegar la API key si ya
-            conectaste.
+            Sube o pega transcripts de esta oferta. El bot emula a esos leads,
+            no a los de otra oferta.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline" size="sm">
@@ -252,7 +315,7 @@ export default function SetupPage() {
           <Button
             type="button"
             variant="primary"
-            disabled={savingTranscripts || !paste.trim()}
+            disabled={savingTranscripts || !paste.trim() || !offerId}
             onClick={() => void uploadTranscripts()}
           >
             {savingTranscripts ? (
@@ -265,11 +328,11 @@ export default function SetupPage() {
             )}
           </Button>
           <p className="text-xs text-fg3">
-            {workspace?.transcriptCount || 0} llamadas en tu corpus
-            {workspace?.fathomCount
-              ? ` (${workspace.fathomCount} de Fathom)`
+            {workspace?.transcriptCount || 0} llamadas en esta oferta
+            {includeFathom && workspace?.fathomCount
+              ? ` (incluye ${workspace.fathomCount} de Fathom)`
               : ""}
-            {workspace?.playbookReady ? " · playbook de leads listo" : ""}
+            {workspace?.playbookReady ? " · playbook listo" : ""}
           </p>
           {workspace && workspace.transcripts.length > 0 && (
             <ul className="text-xs text-fg2 space-y-1 max-h-40 overflow-y-auto">
@@ -280,9 +343,9 @@ export default function SetupPage() {
           )}
         </div>
 
-        {workspace?.ready && (
+        {(workspace?.ready || workspace?.canPractice) && (
           <Button asChild variant="primary" className="w-full">
-            <Link href="/practicar">Ir a practicar con mis leads</Link>
+            <Link href="/practicar">Ir a practicar</Link>
           </Button>
         )}
 

@@ -40,7 +40,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "DB no disponible" }, { status: 503 });
     }
 
-    const workspace = await getWorkspace(prisma, session.user.id);
+    let requestedOfferId = training.offerId || null;
+    if (!requestedOfferId && training.productName.trim()) {
+      const match = await prisma.userOffer.findFirst({
+        where: { userId: session.user.id, productName: training.productName },
+        orderBy: { updatedAt: "desc" },
+      });
+      requestedOfferId = match?.id || null;
+    }
+
+    const workspace = await getWorkspace(prisma, session.user.id, requestedOfferId);
     if (!workspace.offer) {
       return NextResponse.json(
         {
