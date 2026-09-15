@@ -63,7 +63,7 @@ export async function runCoachTurn(
 # NOTAS PERSISTENTES DEL COACH
 ${JSON.stringify(notes)}
 
-# EVIDENCIA OBSERVADA (prácticas con bot + QC de llamadas reales)
+# EVIDENCIA OBSERVADA (prácticas por voz + QC de llamadas reales)
 ${JSON.stringify(evidence)}
 
 # HISTORIAL RECIENTE
@@ -123,7 +123,7 @@ Tu trabajo ahora:
    - top 3 debilidades que más me están costando cierres
    - errores recurrentes (los que se repiten en varias llamadas)
    - plan de entrenamiento de 2 semanas (qué practicar cada semana)
-   - drills concretos (texto aquí o mandarme al bot de voz con sección, dificultad y foco)
+   - drills concretos (texto aquí o mandarme al agente de voz de práctica con sección, dificultad y foco)
    - métrica de éxito: qué debería verse distinto en la próxima llamada real
 
 No me des teoría genérica. Prioriza desempeño observado. Si hay huecos de discovery que alimentan objeciones de dinero, conéctalos explícitamente.

@@ -26,9 +26,16 @@ import { crmDashboard } from "@/lib/crm-metrics";
 import { projectCommission } from "@/lib/crm-projection";
 import {
   applyCommercialAnswer,
-  nextMissingCrmField,
+  looksLikeOfferBlob,
   parseCommercial,
 } from "@/lib/offer-commercial";
+import { extractOfferBatchFromText, isOfferExtractConfirm } from "@/lib/offer-extract";
+import {
+  confirmPendingOfferExtract,
+  persistExtractedOffers,
+  readPendingOfferExtract,
+  stageOfferBlob,
+} from "@/lib/offer-ingest";
 import { getHomeState } from "@/lib/home-state";
 import { Prisma } from "@prisma/client";
 
@@ -254,6 +261,77 @@ export async function POST(request: Request) {
     }
 
     const live = await hubSnapshot(prisma, userId);
+    const prefsRow = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { crmPrefs: true },
+    });
+    const pendingExtract = readPendingOfferExtract(prefsRow?.crmPrefs);
+    const offerFeedback =
+      isOfferExtractConfirm(userText) ||
+      looksLikeOfferBlob(userText) ||
+      /\b(nombre|oferta|programa|una sola|varias|es una|son dos|se llama|el primero|el segundo)\b/i.test(
+        userText,
+      );
+    if (pendingExtract && !body.start && offerFeedback) {
+      const restage =
+        looksLikeOfferBlob(userText) &&
+        userText.length >= 120 &&
+        !isOfferExtractConfirm(userText);
+      if (restage) {
+        try {
+          const staged = await stageOfferBlob(
+            prisma,
+            userId,
+            userText,
+            pendingExtract.targetOfferId || live.missingCrm?.offerId || undefined,
+          );
+          const coachLine = await appendHubLines(
+            prisma,
+            userId,
+            userText,
+            `${staged.recap}\nResponde si los nombres están bien y si es una o varias.`,
+          );
+          const fresh = await hubSnapshot(prisma, userId);
+          return NextResponse.json({
+            message: coachLine,
+            actions: nextHubActions(fresh),
+            snapshot: fresh,
+          });
+        } catch (error) {
+          console.error("offer restage", error);
+        }
+      }
+      try {
+        const confirmed = await confirmPendingOfferExtract(prisma, userId, userText);
+        if (confirmed) {
+          const names = confirmed.names.join(", ");
+          const reply = confirmed.nextQ
+            ? `Guardé ${names}. ${confirmed.nextQ.question}`
+            : `Guardé ${names}. Oferta lista para el CRM.`;
+          const coachLine = await appendHubLines(prisma, userId, userText, reply);
+          const fresh = await hubSnapshot(prisma, userId);
+          return NextResponse.json({
+            message: coachLine,
+            actions: nextHubActions(fresh),
+            snapshot: fresh,
+          });
+        }
+      } catch (error) {
+        console.error("offer confirm", error);
+        const coachLine = await appendHubLines(
+          prisma,
+          userId,
+          userText,
+          "No pude guardar eso. ¿Confirmas los nombres o me dices qué corregir?",
+        );
+        const fresh = await hubSnapshot(prisma, userId);
+        return NextResponse.json({
+          message: coachLine,
+          actions: nextHubActions(fresh),
+          snapshot: fresh,
+        });
+      }
+    }
     if (live.pendingCalls[0] && !body.start) {
       const pending = live.pendingCalls[0];
       const done = await confirmCallFiling(prisma, userId, pending.id, {
@@ -331,33 +409,13 @@ export async function POST(request: Request) {
       });
     }
     if (live.missingCrm && !body.start) {
-      const offers = await prisma.userOffer.findMany({ where: { userId } });
-      const target =
-        offers.find((row) => row.id === live.missingCrm?.offerId) || offers[0];
-      if (target) {
-        const commercial = applyCommercialAnswer(
-          parseCommercial(target.commercial),
-          live.missingCrm.field,
+      if (!looksLikeOfferBlob(userText)) {
+        const coachLine = await appendHubLines(
+          prisma,
+          userId,
           userText,
+          "Pega todo junto: qué vendes, precios, cómo paga el lead y cómo te pagan comisión (puede depender del plazo o la forma de pago). O súbelo en Ofertas. No hace falta ir dato por dato.",
         );
-        await prisma.userOffer.update({
-          where: { id: target.id },
-          data: { commercial: commercial as unknown as Prisma.InputJsonValue },
-        });
-        if (commercial.commission) {
-          await persistCommissionRule(prisma, userId, target.id, commercial.commission);
-        }
-        const nextQ = nextMissingCrmField(
-          (await prisma.userOffer.findMany({ where: { userId } })).map((row) => ({
-            id: row.id,
-            productName: row.productName,
-            commercial: row.commercial,
-          })),
-        );
-        const reply = nextQ
-          ? `Listo. ${nextQ.question}`
-          : "Oferta lista para el CRM. Las próximas llamadas ya registran ventas y comisiones.";
-        const coachLine = await appendHubLines(prisma, userId, userText, reply);
         const fresh = await hubSnapshot(prisma, userId);
         return NextResponse.json({
           message: coachLine,
@@ -365,6 +423,41 @@ export async function POST(request: Request) {
           snapshot: fresh,
         });
       }
+      let staged;
+      try {
+        staged = await stageOfferBlob(
+          prisma,
+          userId,
+          userText,
+          live.missingCrm.offerId || undefined,
+        );
+      } catch (error) {
+        console.error("offer blob", error);
+        const coachLine = await appendHubLines(
+          prisma,
+          userId,
+          userText,
+          "No pude extraer eso. Pega más detalle o súbelo en Ofertas (PDF o un texto con precios, pagos y comisión).",
+        );
+        const fresh = await hubSnapshot(prisma, userId);
+        return NextResponse.json({
+          message: coachLine,
+          actions: nextHubActions(fresh),
+          snapshot: fresh,
+        });
+      }
+      const coachLine = await appendHubLines(
+        prisma,
+        userId,
+        userText,
+        `${staged.recap}\nResponde si los nombres están bien y si es una o varias.`,
+      );
+      const fresh = await hubSnapshot(prisma, userId);
+      return NextResponse.json({
+        message: coachLine,
+        actions: nextHubActions(fresh),
+        snapshot: fresh,
+      });
     }
 
     const existingThread = await loadThread(prisma, userId, THREAD_HUB);
@@ -420,21 +513,37 @@ ${userText}`;
       });
     }
     if (parsed.offerPatch?.field && parsed.offerPatch.value) {
-      const offers = await prisma.userOffer.findMany({ where: { userId } });
-      const target =
-        offers.find((row) => row.id === parsed.offerPatch?.offerId) || offers[0];
-      if (target) {
-        const commercial = applyCommercialAnswer(
-          parseCommercial(target.commercial),
-          parsed.offerPatch.field,
-          parsed.offerPatch.value,
-        );
-        await prisma.userOffer.update({
-          where: { id: target.id },
-          data: { commercial: commercial as unknown as Prisma.InputJsonValue },
-        });
-        if (commercial.commission) {
-          await persistCommissionRule(prisma, userId, target.id, commercial.commission);
+      if (
+        parsed.offerPatch.field === "oferta_doc" ||
+        looksLikeOfferBlob(parsed.offerPatch.value)
+      ) {
+        await extractOfferBatchFromText(parsed.offerPatch.value)
+          .then((batch) =>
+            persistExtractedOffers(
+              prisma,
+              userId,
+              batch.offers,
+              parsed.offerPatch?.offerId || undefined,
+            ),
+          )
+          .catch((error) => console.error("offerPatch blob", error));
+      } else {
+        const offers = await prisma.userOffer.findMany({ where: { userId } });
+        const target =
+          offers.find((row) => row.id === parsed.offerPatch?.offerId) || offers[0];
+        if (target) {
+          const commercial = applyCommercialAnswer(
+            parseCommercial(target.commercial),
+            parsed.offerPatch.field,
+            parsed.offerPatch.value,
+          );
+          await prisma.userOffer.update({
+            where: { id: target.id },
+            data: { commercial: commercial as unknown as Prisma.InputJsonValue },
+          });
+          if (commercial.commission) {
+            await persistCommissionRule(prisma, userId, target.id, commercial.commission);
+          }
         }
       }
     }
@@ -661,6 +770,9 @@ function nextHubActions(snapshot: Awaited<ReturnType<typeof hubSnapshot>>) {
   }
   if (snapshot.pendingCalls.length) {
     return [{ type: "none", href: "/", label: "Responde el hueco de arriba" }];
+  }
+  if (snapshot.missingCrm) {
+    return [{ type: "navigate", href: "/ofertas", label: "Subir oferta" }];
   }
   if (snapshot.alertsDue.length) {
     return [{ type: "navigate", href: "/", label: "Pendientes de hoy" }];

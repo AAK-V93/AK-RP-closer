@@ -5,11 +5,13 @@ import Link from "next/link";
 import { Loader2, Mic, Phone, Sparkles, Upload } from "lucide-react";
 import { CycleIntro } from "@/components/cycle-intro";
 import { HubChat, type HubSnapshot } from "@/components/hub-chat";
+import { OfferExtractReview } from "@/components/offer-extract-review";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { HomeState } from "@/lib/home-state";
+import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 
 export function HomeScreen() {
   const [snapshot, setSnapshot] = useState<HubSnapshot | null>(null);
@@ -64,47 +66,83 @@ function OnboardingA({
   const [skipCalls, setSkipCalls] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [pitch, setPitch] = useState("");
-  const [pct, setPct] = useState("3");
-  const [parsing, setParsing] = useState(false);
   const [paste, setPaste] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [offerBlob, setOfferBlob] = useState("");
+  const [offerFiles, setOfferFiles] = useState<File[]>([]);
+  const [parsing, setParsing] = useState(false);
+  const [review, setReview] = useState<{
+    assumption: "una" | "varias";
+    questions: string[];
+    offers: ExtractedOffer[];
+  } | null>(null);
 
   useEffect(() => {
     if (hasCalls) setStep("offer");
   }, [hasCalls]);
 
-  const saveOffer = async (event: FormEvent) => {
+  const extractOffer = async (event: FormEvent) => {
     event.preventDefault();
+    if (!offerFiles.length && offerBlob.trim().length < 40) {
+      setError("Pega un texto o sube un documento de la oferta.");
+      return;
+    }
+    setSaving(true);
+    setParsing(true);
+    setError(null);
+    try {
+      const extractBody = new FormData();
+      offerFiles.forEach((file) => extractBody.append("files", file));
+      if (offerBlob.trim()) extractBody.set("paste", offerBlob.trim());
+      const extractedRes = await fetch("/api/offer-from-doc", {
+        method: "POST",
+        body: extractBody,
+      });
+      const extracted = await extractedRes.json();
+      if (!extractedRes.ok) throw new Error(extracted.error || "No se pudo leer");
+      const offers = (extracted.offers || []).length
+        ? extracted.offers
+        : extracted.productName
+          ? [
+              {
+                productName: extracted.productName,
+                productDescription: extracted.productDescription,
+                pitchSummary: extracted.pitchSummary || "",
+                commercial: extracted.commercial,
+              },
+            ]
+          : [];
+      if (!offers.length) throw new Error("No encontré una oferta en ese texto");
+      setReview({
+        assumption: extracted.assumption === "varias" || offers.length > 1 ? "varias" : "una",
+        questions: Array.isArray(extracted.questions) ? extracted.questions : [],
+        offers,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSaving(false);
+      setParsing(false);
+    }
+  };
+
+  const confirmOffers = async (offers: ExtractedOffer[]) => {
     setSaving(true);
     setError(null);
     try {
-      const pctN = Number(pct.replace(",", ".")) / 100;
-      const response = await fetch("/api/workspace/offer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productName: name,
-          productDescription: description,
-          pitchSummary: pitch,
-          includeFathom: true,
-          commercial: {
-            commission: Number.isFinite(pctN)
-              ? {
-                  pctBase: pctN,
-                  umbralAcumuladoUsd: 70000,
-                  pctSobreUmbral: Math.max(pctN, 0.05),
-                  base: "cash_collected",
-                  periodoAcumulacion: "mensual",
-                }
-              : null,
-          },
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No se guardó la oferta");
+      for (let index = 0; index < offers.length; index += 1) {
+        const payload = offerToSavePayload(offers[index]);
+        const response = await fetch("/api/workspace/offer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            includeFathom: index === 0,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "No se guardó la oferta");
+      }
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
@@ -142,8 +180,9 @@ function OnboardingA({
       <div className="space-y-2">
         <h1 className="text-3xl font-light">Closer Trainer</h1>
         <p className="text-sm text-fg3">
-          Entrenás cierre high-ticket con un bot que habla como tus leads. El
-          coach te corrige. El CRM te dice con quién quedar.
+          Entrenás cierre high-ticket con un agente de voz de práctica que
+          habla como tus leads. El coach te corrige. El CRM te dice con quién
+          quedar.
         </p>
       </div>
       <CycleIntro />
@@ -213,15 +252,16 @@ function OnboardingA({
         </div>
       )}
 
-      {step === "offer" && (
-        <form onSubmit={saveOffer} className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
+      {step === "offer" && !review && (
+        <form onSubmit={extractOffer} className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
             Un paso
           </p>
           <h2 className="text-xl font-light">Cuéntanos tu oferta</h2>
           <p className="text-sm text-fg3">
-            PDF o documento de cada programa, más tu % de comisión. Lo que
-            falte lo pregunta el hub.
+            Sube el PDF o escribe todo en un texto: qué vendes, precios, cómo
+            paga el lead y cómo te pagan comisión (si cambia según el plazo o
+            la forma de pago, dilo así). Extraemos el resto.
           </p>
           {skipCalls && (
             <p className="text-xs text-fg3">
@@ -230,80 +270,53 @@ function OnboardingA({
             </p>
           )}
           {error && <p className="text-xs text-destructive">{error}</p>}
-          <label className="block">
-            <span className="text-xs text-fg3">PDF / documento</span>
+          <label className="block space-y-1">
+            <span className="text-xs text-fg3">PDF / documento (varios si hay)</span>
             <Input
               type="file"
-              accept=".pdf,.txt,.md,.doc,.docx"
+              multiple
+              accept=".pdf,.txt,.md,.png,.jpg,.jpeg,application/pdf,text/plain,image/*"
               disabled={parsing}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                setParsing(true);
-                setError(null);
-                try {
-                  const body = new FormData();
-                  body.set("file", file);
-                  const response = await fetch("/api/offer-from-doc", {
-                    method: "POST",
-                    body,
-                  });
-                  const data = await response.json();
-                  if (!response.ok) throw new Error(data.error || "No se pudo leer");
-                  setName(data.productName || "");
-                  setDescription(data.productDescription || "");
-                  setPitch(data.pitchSummary || "");
-                  const rawPct = data.commercial?.commission?.pctBase;
-                  if (typeof rawPct === "number") setPct(String(Math.round(rawPct * 1000) / 10));
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : "Error");
-                } finally {
-                  setParsing(false);
-                }
+              onChange={(e) => {
+                setOfferFiles(Array.from(e.target.files || []));
               }}
             />
+            {offerFiles.length > 0 && (
+              <p className="text-xs text-fg3">
+                {offerFiles.map((file) => file.name).join(", ")}
+              </p>
+            )}
           </label>
           <div className="space-y-1">
-            <Label htmlFor="onb-name">Nombre del programa</Label>
-            <Input
-              id="onb-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="onb-desc">Qué es</Label>
+            <Label htmlFor="onb-blob">O un solo texto</Label>
             <Textarea
-              id="onb-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              required
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="onb-pitch">Pitch (opcional)</Label>
-            <Textarea
-              id="onb-pitch"
-              value={pitch}
-              onChange={(e) => setPitch(e.target.value)}
-              rows={3}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="onb-pct">Tu comisión %</Label>
-            <Input
-              id="onb-pct"
-              value={pct}
-              onChange={(e) => setPct(e.target.value)}
-              inputMode="decimal"
+              id="onb-blob"
+              value={offerBlob}
+              onChange={(e) => setOfferBlob(e.target.value)}
+              rows={8}
+              placeholder="Programa, ticket, formas de pago, plazos, y cómo te pagan comisión según cuándo y cómo pague el lead…"
             />
           </div>
           <Button type="submit" variant="primary" disabled={saving || parsing}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continuar"}
+            {saving || parsing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              "Extraer"
+            )}
           </Button>
         </form>
+      )}
+
+      {step === "offer" && review && (
+        <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <OfferExtractReview
+            batch={review}
+            saving={saving}
+            onBack={() => setReview(null)}
+            onConfirm={(offers) => void confirmOffers(offers)}
+          />
+        </div>
       )}
     </div>
   );
@@ -315,8 +328,8 @@ function NoviceB() {
       <div className="space-y-2">
         <h1 className="text-3xl font-light">A practicar</h1>
         <p className="text-sm text-fg3">
-          El bot ya puede armarse con el playbook de tu oferta. El CRM aparece
-          solo cuando entre la primera llamada real.
+          El agente de voz de práctica ya puede armarse con el playbook de tu
+          oferta. El CRM aparece solo cuando entre la primera llamada real.
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -324,7 +337,7 @@ function NoviceB() {
           <Link href="/practicar" className="flex items-start gap-3 text-left">
             <Mic className="h-5 w-5 mt-0.5" />
             <span>
-              <span className="block text-base">Practicar con el bot</span>
+              <span className="block text-base">Práctica por voz</span>
               <span className="block text-xs font-normal opacity-80">
                 Prospecto según tu ICP y objeciones
               </span>
@@ -377,7 +390,7 @@ function ConfiguredC({
           <Link href="/practicar" className="flex items-start gap-3 text-left">
             <Mic className="h-5 w-5 mt-0.5" />
             <span>
-              <span className="block text-base">Practicar con el bot</span>
+              <span className="block text-base">Práctica por voz</span>
               <span className="block text-xs font-normal text-fg3">
                 Compose o replay
               </span>

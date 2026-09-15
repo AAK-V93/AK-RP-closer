@@ -135,12 +135,29 @@ function paymentBlock(offers: OfferForCrm[]) {
       (mode) => `- ${offer.productName}: ${mode.name}${mode.details ? ` — ${mode.details}` : ""}`,
     ),
   );
+  const commissions = offers
+    .map((offer) => {
+      const rule = offer.commercial.commission;
+      if (!rule) return "";
+      const tiers = rule.tiers
+        .map((tier) => {
+          const pct = tier.pct != null ? `${Math.round(tier.pct * 1000) / 10}%` : "";
+          return `${tier.label || tier.when || tier.paymentMode} ${pct}`.trim();
+        })
+        .filter(Boolean)
+        .join("; ");
+      const body = rule.notes || tiers;
+      return body ? `- Comisión ${offer.productName}: ${body}` : "";
+    })
+    .filter(Boolean);
   if (!modes.length) {
-    return `Valores de modo_pago: el texto libre de la estructura final aceptada. Si no hay evidencia: null.`;
+    return `Valores de modo_pago: el texto libre de la estructura final aceptada. Si no hay evidencia: null.${
+      commissions.length ? `\n${commissions.join("\n")}` : ""
+    }`;
   }
   return `Valores de modo_pago: usa el nombre de la estructura de la oferta que coincida.
 ${modes.join("\n")}
-Si el lead aceptó una estructura que no está en la lista, descríbela breve. CONTADO = valor final pagado completo. RESERVA = pago parcial confirmado con saldo.`;
+${commissions.length ? `${commissions.join("\n")}\n` : ""}Si el lead aceptó una estructura que no está en la lista, descríbela breve. CONTADO = valor final pagado completo. RESERVA = pago parcial confirmado con saldo. El modo_pago debe poder emparejarse con un tramo de comisión si existe.`;
 }
 
 export function buildExtractorPrompt(args: {

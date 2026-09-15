@@ -1,8 +1,8 @@
 # AK-RP — Closer Trainer
 
-Entrenador de cierre high-ticket. El bot de voz actúa como **tus leads reales**. Subes o sincronizas llamadas, extraes cómo hablan, practicas, recibes QC y el CRM se llena al confirmar.
+Entrenador de cierre high-ticket. El agente de voz de práctica actúa como **tus leads reales**. Subes o sincronizas llamadas, extraes cómo hablan, practicas, recibes QC y el CRM se llena al confirmar.
 
-El bot **no es el coach**. El bot es el prospecto. El coach es otra capa.
+El agente de voz **no es el coach**. Es el prospecto. El coach es otra capa.
 
 Producción: `https://ak-rp-closer-x3ir.vercel.app` (Vercel Root Directory = `web`).
 

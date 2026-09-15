@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const STEPS = [
   { k: "Llamadas", t: "Entran solas desde Fathom o las subes." },
-  { k: "Bot", t: "El prospecto habla como tus leads reales." },
+  { k: "Voz", t: "Agente de voz de práctica: el prospecto habla como tus leads." },
   { k: "Coach", t: "Te dice el patrón, no un score suelto." },
   { k: "CRM", t: "Sabes a quién escribir y qué decir." },
 ];

@@ -259,8 +259,8 @@ export function Chat() {
               </ol>
               {authStatus === "unauthenticated" && (
                 <p className="text-xs text-fg3">
-                  Entra, guarda tu oferta y sube llamadas. El bot practica
-                  contra <em>tus</em> leads.
+                  Entra, guarda tu oferta y sube llamadas. El agente de voz
+                  practica contra <em>tus</em> leads.
                 </p>
               )}
             </div>

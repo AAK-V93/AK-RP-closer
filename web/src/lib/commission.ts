@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import type { CommissionRuleInput } from "@/lib/offer-commercial";
+import type { CommissionRuleInput, CommissionTier } from "@/lib/offer-commercial";
 import { defaultCommissionRule } from "@/lib/offer-commercial";
 
 export function periodStart(
@@ -11,16 +11,50 @@ export function periodStart(
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
 }
 
-/** Comisión sobre `amount`, respetando el salto de tramo del acumulado previo. */
+function haystack(tier: CommissionTier) {
+  return `${tier.label} ${tier.when} ${tier.paymentMode}`.toLowerCase();
+}
+
+export function resolveCommissionPct(
+  rule: CommissionRuleInput,
+  modoPago?: string | null,
+): number {
+  const needle = String(modoPago || "").trim().toLowerCase();
+  if (rule.tiers.length) {
+    if (needle) {
+      const hit = rule.tiers.find((tier) => {
+        const hay = haystack(tier);
+        if (!hay.trim()) return false;
+        return (
+          hay.includes(needle) ||
+          needle.includes(tier.paymentMode.toLowerCase()) ||
+          needle.includes(tier.label.toLowerCase()) ||
+          (tier.when && needle.includes(tier.when.toLowerCase()))
+        );
+      });
+      if (hit?.pct != null) return hit.pct;
+    }
+    const withPct = rule.tiers.find((tier) => tier.pct != null);
+    if (withPct?.pct != null) return withPct.pct;
+  }
+  return rule.pctBase || 0;
+}
+
+/** Comisión sobre `amount`. Si hay tramos por forma/plazo de pago, usa esos. El umbral de volumen solo si está definido. */
 export function commissionOnAmount(args: {
   rule: CommissionRuleInput;
   accumulatedBefore: number;
   amount: number;
+  modoPago?: string | null;
 }) {
   const { rule, amount } = args;
-  if (amount <= 0) return { pct: rule.pctBase, generada: 0 };
-  const before = Math.max(0, args.accumulatedBefore);
+  const pct = resolveCommissionPct(rule, args.modoPago);
+  if (amount <= 0) return { pct, generada: 0 };
   const umbral = rule.umbralAcumuladoUsd;
+  if (rule.tiers.length || !umbral || umbral <= 0) {
+    return { pct, generada: amount * pct };
+  }
+  const before = Math.max(0, args.accumulatedBefore);
   if (before >= umbral) {
     return { pct: rule.pctSobreUmbral, generada: amount * rule.pctSobreUmbral };
   }
@@ -50,8 +84,8 @@ export async function persistCommissionRule(
   if (!rule) return;
   const existing = await prisma.commissionRule.findFirst({ where: { userId, offerId } });
   const data = {
-    pctBase: rule.pctBase,
-    umbralAcumuladoUsd: rule.umbralAcumuladoUsd,
+    pctBase: resolveCommissionPct(rule, null) || rule.pctBase,
+    umbralAcumuladoUsd: rule.tiers.length ? 0 : rule.umbralAcumuladoUsd,
     pctSobreUmbral: rule.pctSobreUmbral,
     base: rule.base,
     periodoAcumulacion: rule.periodoAcumulacion,

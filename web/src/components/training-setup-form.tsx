@@ -377,7 +377,7 @@ export function TrainingSetupForm() {
             {practiceKind === "replay" && (
               <div className="space-y-2">
                 <p className="text-[11px] text-fg3">
-                  El bot es esa persona y esa llamada que no cerró. Tú intentas
+                  El agente de voz es esa persona y esa llamada que no cerró. Tú intentas
                   cerrarla esta vez.
                 </p>
                 {openCalls.length === 0 ? (

@@ -222,11 +222,14 @@ export async function upsertCommission(
     oferta: string;
     venta: number;
     cash: number;
+    modoPago?: string | null;
     rule: ReturnType<typeof parseCommercial>["commission"];
   },
 ) {
   if (args.cash <= 0) return null;
   const rule = args.rule || {
+    notes: "",
+    tiers: [],
     pctBase: 0.03,
     umbralAcumuladoUsd: 70_000,
     pctSobreUmbral: 0.05,
@@ -245,10 +248,11 @@ export async function upsertCommission(
     rule.base === "venta_total" ? prev._sum.venta || 0 : prev._sum.cash || 0;
   const slice =
     rule.base === "venta_total" ? args.venta : args.cash;
-  const { pct, generada } = commissionOnAmount({
+    const { pct, generada } = commissionOnAmount({
     rule,
     accumulatedBefore: accumulated,
     amount: slice,
+    modoPago: args.modoPago,
   });
   const existing = await prisma.commission.findFirst({
     where: { userId: args.userId, callRecordId: args.callRecordId },
@@ -359,6 +363,7 @@ export async function applyExtractorToCrm(
         oferta: offerName,
         venta: venta || 0,
         cash,
+        modoPago: parsed.modo_pago,
         rule: matched?.commercial.commission || null,
       });
     }

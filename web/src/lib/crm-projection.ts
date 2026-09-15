@@ -2,7 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { crmDashboard } from "@/lib/crm-metrics";
 import { loadOffersForCrm } from "@/lib/crm-apply";
 import { defaultCommissionRule } from "@/lib/offer-commercial";
-import { commissionOnAmount } from "@/lib/commission";
+import { commissionOnAmount, resolveCommissionPct } from "@/lib/commission";
 
 function businessDaysLeft(until: Date, from = new Date()) {
   let count = 0;
@@ -63,7 +63,7 @@ export async function projectCommission(
   const asegurada = pendienteCobro + comisionSobreSaldo;
   const nueva = Math.max(0, args.metaUsd - asegurada);
 
-  const pct = rule.pctBase || 0.03;
+  const pct = resolveCommissionPct(rule, null) || 0.03;
   const cashNuevo = nueva > 0 ? nueva / pct : 0;
   const ventasNuevas = cashPct > 0 ? cashNuevo / cashPct : cashNuevo;
   const cierres = ticket > 0 ? Math.ceil(ventasNuevas / ticket) : 0;

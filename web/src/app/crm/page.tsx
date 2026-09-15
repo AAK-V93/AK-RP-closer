@@ -103,11 +103,16 @@ export default function CrmPage() {
           <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2">
             <p className="text-sm">
               {data?.missingCrm?.question ||
-                "Para registrar ventas y comisiones necesito los detalles de tu oferta. ¿Tienes un PDF o me los cuentas?"}
+                "Para registrar ventas y comisiones pega un texto o sube el documento en Ofertas: precios, cómo paga el lead y cómo te pagan comisión."}
             </p>
-            <Button asChild variant="primary" size="sm">
-              <Link href="/">Contarlo en el chat</Link>
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="primary" size="sm">
+                <Link href="/ofertas">Subir documento o texto</Link>
+              </Button>
+              <Button asChild variant="outline" size="sm">
+                <Link href="/">Contarlo en el chat</Link>
+              </Button>
+            </div>
           </div>
         ) : (
           <>

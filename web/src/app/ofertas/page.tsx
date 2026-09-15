@@ -11,6 +11,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Plus, Upload } from "lucide-react";
 import { parseFollowupScripts } from "@/lib/followup-scripts";
+import {
+  commercialRecap,
+  offerToSavePayload,
+  parseCommercial,
+  type ExtractedOffer,
+} from "@/lib/offer-commercial";
+import { OfferExtractReview } from "@/components/offer-extract-review";
 
 type OfferRow = {
   id: string;
@@ -49,8 +56,14 @@ export default function OfertasPage() {
   const [includeFathom, setIncludeFathom] = useState(false);
   const [commercial, setCommercial] = useState<Record<string, unknown> | null>(null);
   const [paste, setPaste] = useState("");
+  const [offerBlob, setOfferBlob] = useState("");
   const [parsingDoc, setParsingDoc] = useState(false);
   const [publishingPack, setPublishingPack] = useState(false);
+  const [review, setReview] = useState<{
+    assumption: "una" | "varias";
+    questions: string[];
+    offers: ExtractedOffer[];
+  } | null>(null);
 
   const fillOffer = (offer: OfferRow | null) => {
     setOfferId(offer?.id || null);
@@ -85,6 +98,48 @@ export default function OfertasPage() {
       .finally(() => setLoading(false));
   }, [status, router]);
 
+  const extractOffer = async (files?: FileList | null, blob = offerBlob) => {
+    if (!files?.length && blob.trim().length < 40) {
+      setError("Pega un texto o sube un documento.");
+      return;
+    }
+    setParsingDoc(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      if (files) Array.from(files).forEach((file) => body.append("files", file));
+      if (blob.trim()) body.set("paste", blob.trim());
+      const response = await fetch("/api/offer-from-doc", {
+        method: "POST",
+        body,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo leer");
+      const offers = (data.offers || []).length
+        ? data.offers
+        : data.productName
+          ? [
+              {
+                productName: data.productName,
+                productDescription: data.productDescription,
+                pitchSummary: data.pitchSummary || "",
+                commercial: data.commercial,
+              },
+            ]
+          : [];
+      if (!offers.length) throw new Error("No encontré una oferta en ese texto");
+      setReview({
+        assumption: data.assumption === "varias" || offers.length > 1 ? "varias" : "una",
+        questions: Array.isArray(data.questions) ? data.questions : [],
+        offers,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setParsingDoc(false);
+    }
+  };
+
   const onSaveOffer = async (event: FormEvent) => {
     event.preventDefault();
     setSavingOffer(true);
@@ -105,6 +160,36 @@ export default function OfertasPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se guardó");
       await load(data.offer?.id || null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSavingOffer(false);
+    }
+  };
+
+  const confirmExtracted = async (offers: ExtractedOffer[]) => {
+    setSavingOffer(true);
+    setError(null);
+    try {
+      let lastId = offerId;
+      for (let index = 0; index < offers.length; index += 1) {
+        const payload = offerToSavePayload(offers[index]);
+        const response = await fetch("/api/workspace/offer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: index === 0 ? offerId : undefined,
+            ...payload,
+            includeFathom: index === 0 ? includeFathom : false,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "No se guardó");
+        lastId = data.offer?.id || lastId;
+      }
+      setReview(null);
+      setOfferBlob("");
+      await load(lastId || null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     } finally {
@@ -158,8 +243,8 @@ export default function OfertasPage() {
         <div className="space-y-2">
           <h1 className="text-2xl font-light">Ofertas</h1>
           <p className="text-sm text-fg3">
-            Confirma qué vendes. Las llamadas de Fathom o archivos alimentan
-            esta oferta, el bot y el CRM. No las subas dos veces.
+            Sube el documento o pega un solo texto. Extraemos precios, pagos y
+            cómo te pagan comisión (aunque dependa del plazo o la forma de pago).
           </p>
         </div>
 
@@ -187,12 +272,75 @@ export default function OfertasPage() {
           </Button>
         </div>
 
+        <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
+          <h2 className="text-lg font-light">
+            {offerId ? "Actualizar desde documento o texto" : "1. Documento o un texto"}
+          </h2>
+          <p className="text-sm text-fg3">
+            No hace falta ir campo por campo. Si tu comisión cambia según
+            cuándo y cómo pague el lead, escríbelo así.
+          </p>
+          <label className="flex items-center gap-2 text-xs text-fg2 cursor-pointer">
+            <Upload className="h-3.5 w-3.5" />
+            {parsingDoc ? "Extrayendo…" : "Subir PDF, TXT o imagen"}
+            <input
+              type="file"
+              className="hidden"
+              multiple
+              accept=".pdf,.txt,.md,.png,.jpg,.jpeg,application/pdf,text/plain,image/*"
+              onChange={(event) => {
+                void extractOffer(event.target.files);
+                event.target.value = "";
+              }}
+            />
+          </label>
+          <div className="space-y-1">
+            <Label htmlFor="offer-blob">O pega todo aquí</Label>
+            <Textarea
+              id="offer-blob"
+              rows={8}
+              value={offerBlob}
+              onChange={(e) => setOfferBlob(e.target.value)}
+              placeholder="Programa, ticket, formas de pago, plazos, y cómo te pagan comisión según cuándo y cómo pague el lead…"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={parsingDoc || offerBlob.trim().length < 40}
+            onClick={() => void extractOffer(null, offerBlob)}
+          >
+            {parsingDoc ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Extrayendo…
+              </>
+            ) : (
+              "Extraer de este texto"
+            )}
+          </Button>
+          {review && (
+            <OfferExtractReview
+              batch={review}
+              saving={savingOffer}
+              onBack={() => setReview(null)}
+              onConfirm={(offers) => void confirmExtracted(offers)}
+            />
+          )}
+          {!review && commercial && (
+            <p className="text-xs text-fg2 rounded-xl border border-separator1 px-3 py-2">
+              {commercialRecap(parseCommercial(commercial)) ||
+                "Extraído. Revisa nombre y descripción abajo y guarda."}
+            </p>
+          )}
+        </div>
+
         <form
           onSubmit={onSaveOffer}
           className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4"
         >
           <h2 className="text-lg font-light">
-            {offerId ? "Editar oferta" : "1. Nueva oferta"}
+            {offerId ? "Ajustar si hace falta" : "Revisa y guarda"}
           </h2>
           <div className="space-y-1">
             <Label htmlFor="offer-name">Nombre</Label>
@@ -230,40 +378,6 @@ export default function OfertasPage() {
               onChange={(e) => setIncludeFathom(e.target.checked)}
             />
             Usar mis llamadas de Fathom en esta oferta
-          </label>
-          <label className="flex items-center gap-2 text-xs text-fg2 cursor-pointer">
-            <Upload className="h-3.5 w-3.5" />
-            {parsingDoc ? "Leyendo one-pager…" : "O extrae la oferta de un PDF/TXT"}
-            <input
-              type="file"
-              className="hidden"
-              accept=".pdf,.txt,.md,application/pdf,text/plain"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (!file) return;
-                setParsingDoc(true);
-                setError(null);
-                try {
-                  const body = new FormData();
-                  body.append("file", file);
-                  const response = await fetch("/api/offer-from-doc", {
-                    method: "POST",
-                    body,
-                  });
-                  const data = await response.json();
-                  if (!response.ok) throw new Error(data.error || "No se pudo leer");
-                  setProductName(data.productName || "");
-                  setProductDescription(data.productDescription || "");
-                  setPitchSummary(data.pitchSummary || "");
-                  if (data.commercial) setCommercial(data.commercial);
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : "Error");
-                } finally {
-                  setParsingDoc(false);
-                }
-              }}
-            />
           </label>
           <Button type="submit" variant="primary" disabled={savingOffer}>
             {savingOffer ? (
@@ -338,7 +452,7 @@ export default function OfertasPage() {
         <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
           <h2 className="text-lg font-light">2. Llamadas de esta oferta</h2>
           <p className="text-sm text-fg3">
-            Sube o pega transcripts de esta oferta. El bot emula a esos leads,
+            Sube o pega transcripts de esta oferta. El agente de voz emula a esos leads,
             no a los de otra oferta.
           </p>
           <div className="flex flex-wrap gap-2">
@@ -398,7 +512,7 @@ export default function OfertasPage() {
             {workspace?.offers.find((r) => r.id === offerId)?.readyCrm ||
             workspace?.readyCrm
               ? " · CRM listo"
-              : " · falta precio, pagos o comisión para el CRM"}
+              : " · falta precio, pagos o cómo te pagan comisión (pega un texto o sube el doc)"}
           </p>
           {workspace && workspace.transcripts.length > 0 && (
             <ul className="text-xs text-fg2 space-y-1 max-h-40 overflow-y-auto">

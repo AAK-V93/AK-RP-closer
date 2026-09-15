@@ -277,7 +277,7 @@ function compactCorpus(items: { title: string; text: string }[], limit = 18) {
 const PLAYBOOK_JSON_SHAPE = `{
   "icp": "quién compra esto, 1-2 frases",
   "howLeadsTalk": "cómo hablan en general. 4-8 frases.",
-  "neverDo": ["cosas que el bot NO debe hacer porque estos leads no lo hacen"],
+  "neverDo": ["cosas que el agente de voz NO debe hacer porque estos leads no lo hacen"],
   "typicalObjections": [{"quote":"cita o parafraseo fiel","root":"dinero|tiempo|pareja|confianza|timing|otro"}],
   "buyingTriggers": ["qué los mueve a comprar"],
   "phrases": ["frases típicas textuales compartidas por varios leads"],

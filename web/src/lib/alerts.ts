@@ -230,7 +230,7 @@ export async function applyAlertOutcome(
       });
     }
     if (amount > 0) {
-      const rule = defaultCommissionRule();
+      const rule = commercial.commission || defaultCommissionRule();
       const from = periodStart(rule.periodoAcumulacion, now);
       const prev = await prisma.commission.aggregate({
         where: { userId, fecha: { gte: from, lt: now } },

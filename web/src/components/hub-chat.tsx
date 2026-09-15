@@ -159,7 +159,9 @@ export function HubChat({
           {snapshot.missingCrm && !pending.length && (
             <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
               <p className="text-sm">{snapshot.missingCrm.question}</p>
-              <p className="text-[11px] text-fg3 mt-1">Responde abajo. Un dato a la vez.</p>
+              <p className="text-[11px] text-fg3 mt-1">
+                Pega un bloque abajo, o súbelo en Ofertas. No hace falta ir dato por dato.
+              </p>
             </div>
           )}
           {pending.map((call) => (

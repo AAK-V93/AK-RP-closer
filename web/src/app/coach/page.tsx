@@ -41,7 +41,7 @@ export default function CoachPage() {
         <div>
           <h1 className="text-2xl font-light">Tu coaching</h1>
           <p className="text-sm text-fg3 mt-1">
-            Un closer high-ticket que lee tus prácticas con el bot y tus QC de
+            Un closer high-ticket que lee tus prácticas por voz y tus QC de
             llamadas reales. Te dice el nivel, la debilidad y el siguiente
             drill — no un score suelto.
           </p>
@@ -155,7 +155,7 @@ export default function CoachPage() {
           <div className="rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3">
             <p className="text-sm">
               El coach ya puede hablar contigo. Para que vea evidencia real,
-              haz una práctica con el bot o sube el QC de una llamada.
+              haz una práctica por voz o sube el QC de una llamada.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="primary">

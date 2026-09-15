@@ -62,8 +62,8 @@ export default function LlamadasPage() {
         <div>
           <h1 className="text-2xl font-light">Mis llamadas</h1>
           <p className="text-sm text-fg3">
-            Una sola biblioteca. Fathom o archivos. De aquí salen el bot, el
-            coach y el CRM.
+            Una sola biblioteca. Fathom o archivos. De aquí salen la práctica
+            por voz, el coach y el CRM.
           </p>
         </div>
 
@@ -93,7 +93,7 @@ export default function LlamadasPage() {
                       {[row.leadName, row.offerName, row.callType, row.result]
                         .filter(Boolean)
                         .join(" · ") || row.source}
-                      {row.trainsBot ? " · entrena al bot" : ""}
+                      {row.trainsBot ? " · entra a la práctica" : ""}
                     </p>
                   </div>
                   <div className="flex gap-2 shrink-0">
