@@ -36,6 +36,12 @@ export const trainingHelpers = {
     ) {
       return "Para practicar solo cierre, pega o escribe el resumen del pitch";
     }
+    if (
+      training.practiceKind === "replay" &&
+      !training.replayCall?.sourceId
+    ) {
+      return "Elige la llamada que no cerró para recrearla";
+    }
     return null;
   },
 

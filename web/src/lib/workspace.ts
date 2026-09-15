@@ -1,5 +1,11 @@
 import type { PrismaClient } from "@prisma/client";
-import { getPrisma, ensureFathomTables, ensureWorkspaceTables } from "@/lib/prisma";
+import {
+  getPrisma,
+  ensureCrmTables,
+  ensureFathomTables,
+  ensureWorkspaceTables,
+  ensureCoachTables,
+} from "@/lib/prisma";
 import {
   EMPTY_TRANSCRIPT_MARK,
   isUsableTranscript,
@@ -10,6 +16,11 @@ import {
   parsePlaybook,
   type LeadPlaybook,
 } from "@/lib/lead-playbook";
+import {
+  isOfferCrmReady,
+  parseCommercial,
+  userHasReadyCrm,
+} from "@/lib/offer-commercial";
 
 export async function getWorkspacePrisma() {
   const prisma = getPrisma();
@@ -19,6 +30,16 @@ export async function getWorkspacePrisma() {
     await ensureFathomTables(prisma);
   } catch {
     /* fathom tables optional for uploads */
+  }
+  try {
+    await ensureCrmTables(prisma);
+  } catch {
+    /* crm tables created on first use */
+  }
+  try {
+    await ensureCoachTables(prisma);
+  } catch {
+    /* coach tables exist from prisma schema */
   }
   return prisma;
 }
@@ -118,6 +139,8 @@ export async function getWorkspace(
       productDescription: row.productDescription,
       pitchSummary: row.pitchSummary,
       includeFathom: row.includeFathom,
+      commercial: parseCommercial(row.commercial),
+      readyCrm: isOfferCrmReady(row),
       updatedAt: row.updatedAt.toISOString(),
     })),
     offer: active
@@ -127,6 +150,8 @@ export async function getWorkspace(
           productDescription: active.productDescription,
           pitchSummary: active.pitchSummary,
           includeFathom: active.includeFathom,
+          commercial: parseCommercial(active.commercial),
+          readyCrm: isOfferCrmReady(active),
         }
       : null,
     playbook,
@@ -141,6 +166,7 @@ export async function getWorkspace(
     fathomCount,
     transcriptCount,
     ready: offerReady,
+    readyCrm: userHasReadyCrm(offers),
     hasAnyOffer: offers.length > 0,
     canPractice,
     corpus: [

@@ -5,9 +5,10 @@ import path from "path";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { TokenRequestPayload } from "@/lib/training-helpers";
-import { buildProspectInstructions } from "@/lib/prospect-prompt";
+import { buildProspectInstructions, maxTokensForProspect } from "@/lib/prospect-prompt";
 import { authOptions } from "@/lib/auth";
 import { getWorkspace, getWorkspacePrisma } from "@/lib/workspace";
+import { loadReplayCall } from "@/lib/replay-call";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
     if (!workspace.offer) {
       return NextResponse.json(
         {
-          error: "Primero guarda tu oferta en Configuración.",
+          error: "Primero guarda tu oferta en Ofertas.",
           code: SETUP_REQUIRED_CODE,
         },
         { status: 403 },
@@ -78,6 +79,31 @@ export async function POST(request: Request) {
       leadPlaybook: workspace.playbook,
     };
 
+    if (training.practiceKind === "replay") {
+      const source = training.replayCall?.source;
+      const sourceId = training.replayCall?.sourceId;
+      if (!source || !sourceId) {
+        return NextResponse.json(
+          { error: "Elige la llamada que no cerró." },
+          { status: 400 },
+        );
+      }
+      const replay = await loadReplayCall(
+        prisma,
+        session.user.id,
+        source,
+        sourceId,
+      );
+      if (!replay) {
+        return NextResponse.json(
+          { error: "No encontré esa llamada para recrearla." },
+          { status: 404 },
+        );
+      }
+      trainingWithOffer.replayCall = replay;
+      trainingWithOffer.practiceKind = "replay";
+    }
+
     const instructions = buildProspectInstructions(
       trainingWithOffer,
       "closer",
@@ -100,9 +126,11 @@ export async function POST(request: Request) {
       model: sessionConfig.model,
       modalities: sessionConfig.modalities,
       voice: sessionConfig.voice,
-      temperature: 0.9,
-      max_output_tokens: sessionConfig.maxOutputTokens,
-      nano_banana_enabled: false,
+      temperature: 0.7,
+      max_output_tokens: maxTokensForProspect(
+        training.difficulty,
+        training.prospectProfile?.talkStyle,
+      ),
       training_mode: training.callSection,
       product_name: workspace.offer.productName,
       difficulty: training.difficulty,

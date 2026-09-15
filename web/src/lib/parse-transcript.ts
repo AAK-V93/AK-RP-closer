@@ -48,6 +48,26 @@ export function parseCallTranscript(raw: string): ParsedTranscript {
       continue;
     }
 
+    const sameLine = line.match(/^([^:]{2,60}):\s+(.+)$/);
+    const speakerName = sameLine?.[1]?.trim() || "";
+    const speakerText = sameLine?.[2]?.trim() || "";
+    const sameLineSpeaker =
+      Boolean(sameLine) &&
+      speakerText.length > 2 &&
+      speakerName.split(/\s+/).length <= 8 &&
+      !/[.?!]$/.test(speakerName) &&
+      !/^https?:\/\//i.test(speakerName);
+    if (sameLineSpeaker && sameLine) {
+      if (current?.text) lines.push(current);
+      lines.push({
+        timestamp: null,
+        speaker: speakerName,
+        text: speakerText,
+      });
+      current = null;
+      continue;
+    }
+
     const stamped = line.match(
       /^(?:\[)?(\d{1,2}:\d{2}(?::\d{2})?)(?:\])?\s*[-–—]?\s*(.+)$/,
     );

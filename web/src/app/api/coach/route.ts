@@ -3,7 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { buildCoachingInsights } from "@/lib/coaching";
-import { COACH_THREAD_SECTION } from "@/lib/closer-coach";
+import { evidenceSessionFilter } from "@/lib/chat-threads";
+import { isCoachThreadSection } from "@/lib/closer-coach";
 
 export async function GET() {
   if (!isDatabaseConfigured()) {
@@ -25,12 +26,16 @@ export async function GET() {
 
   try {
     const rows = await prisma.practiceSession.findMany({
-      where: { userId: session.user.id, callSection: { not: COACH_THREAD_SECTION } },
+      where: {
+        userId: session.user.id,
+        ...evidenceSessionFilter(),
+      },
       orderBy: { createdAt: "desc" },
       take: 40,
     });
+    const visible = rows.filter((row) => !isCoachThreadSection(row.callSection));
 
-    return NextResponse.json(buildCoachingInsights(rows));
+    return NextResponse.json(buildCoachingInsights(visible));
   } catch (error) {
     console.error("coach insights", error);
     return NextResponse.json(

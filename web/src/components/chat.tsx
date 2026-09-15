@@ -22,12 +22,16 @@ import {
   CALL_SECTION_LABELS,
   DIFFICULTY_LABELS,
 } from "@/data/training-session";
-import { LANGUAGE_LABELS } from "@/data/languages";
 import { shouldShowProspectBrief } from "@/lib/prospect-prompt";
 import { ProspectBrief } from "@/components/prospect-brief";
 import { Badge } from "@/components/ui/badge";
-import { usePracticeAccess } from "@/hooks/use-practice-access";
+import { Button } from "@/components/ui/button";
 import { useSession } from "next-auth/react";
+import { formatClock, hasTimeGoal } from "@/lib/call-timing";
+import {
+  isPrematurePractice,
+  nextPracticeRetry,
+} from "@/lib/practice-retry";
 
 export function Chat() {
   const connectionState = useConnectionState();
@@ -36,9 +40,8 @@ export function Chat() {
   const [isChatRunning, setIsChatRunning] = useState(false);
   const { agent, displayTranscriptions } = useAgent();
   const agentInRoom = Boolean(agent) || remotes.length > 0;
-  const { disconnect, shouldConnect } = useConnection();
-  const { trainingState } = useTraining();
-  const { access, refresh: refreshAccess } = usePracticeAccess();
+  const { disconnect, shouldConnect, connect } = useConnection();
+  const { trainingState, dispatch } = useTraining();
   const { status: authStatus } = useSession();
   const {
     evaluation,
@@ -50,9 +53,16 @@ export function Chat() {
   const [hasSeenAgent, setHasSeenAgent] = useState(false);
   const wasConnectedRef = useRef(false);
   const transcriptRef = useRef<TranscriptLine[]>([]);
+  const startedAtRef = useRef<number | null>(null);
+  const elapsedRef = useRef(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [earlyExit, setEarlyExit] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [dismissedRetry, setDismissedRetry] = useState(false);
 
   useEffect(() => {
     if (shouldConnect) {
+      const origin = startedAtRef.current || Date.now();
       transcriptRef.current = displayTranscriptions
         .filter((t) => t.segment.text?.trim())
         .map((t) => ({
@@ -60,6 +70,10 @@ export function Chat() {
             | "prospect"
             | "closer",
           text: t.segment.text.trim(),
+          t: Math.max(
+            0,
+            ((t.segment.firstReceivedTime ?? origin) - origin) / 1000,
+          ),
         }));
     }
   }, [displayTranscriptions, shouldConnect]);
@@ -94,26 +108,49 @@ export function Chat() {
     return () => window.clearTimeout(timer);
   }, [connectionState, agentInRoom, hasSeenAgent, disconnect]);
 
-  // Evaluate when call ends
+  useEffect(() => {
+    if (!shouldConnect) return;
+    if (!startedAtRef.current) startedAtRef.current = Date.now();
+    const tick = window.setInterval(() => {
+      const next = Math.floor((Date.now() - (startedAtRef.current || Date.now())) / 1000);
+      elapsedRef.current = next;
+      setElapsedSec(next);
+    }, 250);
+    return () => window.clearInterval(tick);
+  }, [shouldConnect]);
+
+  // Evaluate when call ends — skip colgadas prematuras so they don't ensucian el ciclo coach.
   useEffect(() => {
     if (wasConnectedRef.current && !shouldConnect) {
-      evaluateCall(transcriptRef.current, {
-        callSection: trainingState.training.callSection,
-        productName: trainingState.training.productName,
-        difficulty: trainingState.training.difficulty,
-        language: trainingState.training.language,
-        prospectProfile: trainingState.training.prospectProfile,
-        pitchSummary: trainingState.training.pitchSummary,
-      });
+      const transcript = transcriptRef.current;
+      const durationSec = elapsedRef.current;
+      if (isPrematurePractice(transcript, durationSec)) {
+        setEarlyExit(true);
+        clearEvaluation();
+      } else {
+        setEarlyExit(false);
+        setDismissedRetry(false);
+        evaluateCall(transcript, {
+          callSection: trainingState.training.callSection,
+          productName: trainingState.training.productName,
+          difficulty: trainingState.training.difficulty,
+          language: trainingState.training.language,
+          prospectProfile: trainingState.training.prospectProfile,
+          pitchSummary: trainingState.training.pitchSummary,
+          durationSec,
+          timeGoal: trainingState.training.timeGoal,
+        });
+      }
+      startedAtRef.current = null;
+    }
+    if (!wasConnectedRef.current && shouldConnect) {
+      startedAtRef.current = Date.now();
+      elapsedRef.current = 0;
+      setElapsedSec(0);
+      setEarlyExit(false);
     }
     wasConnectedRef.current = shouldConnect;
-  }, [shouldConnect, evaluateCall, trainingState.training]);
-
-  useEffect(() => {
-    if (evaluation?.freePracticeUsed) {
-      void refreshAccess();
-    }
-  }, [evaluation?.freePracticeUsed, refreshAccess]);
+  }, [shouldConnect, evaluateCall, clearEvaluation, trainingState.training]);
 
   useEffect(() => {
     if (evalError) {
@@ -126,6 +163,40 @@ export function Chat() {
   }, [evalError]);
 
   const { training } = trainingState;
+  const retry =
+    evaluation && !evalLoading && !dismissedRetry
+      ? nextPracticeRetry(evaluation, training.callSection)
+      : null;
+
+  const startAgain = async () => {
+    setRetrying(true);
+    try {
+      await connect();
+    } catch (error) {
+      toast({
+        title: "No se pudo entrar otra vez",
+        description:
+          error instanceof Error ? error.message : "Inténtalo de nuevo.",
+        variant: "destructive",
+      });
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const handleRetryFailedMoment = async () => {
+    if (!evaluation || !retry) return;
+    dispatch({
+      type: "SET_TRAINING",
+      payload: {
+        practiceFocus: retry.focus,
+        callSection: retry.callSection,
+        prospectProfile: training.prospectProfile,
+      },
+    });
+    clearEvaluation();
+    await startAgain();
+  };
   const showBrief =
     isChatRunning && shouldShowProspectBrief(training.callSection);
 
@@ -163,7 +234,7 @@ export function Chat() {
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 lg:px-4">
         <div className="flex flex-col items-center min-w-0">
-          {!isChatRunning && !evaluation && !shouldConnect && (
+          {!isChatRunning && !evaluation && !shouldConnect && !earlyExit && (
             <div className="text-center max-w-md px-2 mb-4 space-y-3">
               <h2 className="text-xl font-light">Tú abres la reunión</h2>
               <p className="text-sm text-fg2">
@@ -188,8 +259,8 @@ export function Chat() {
               </ol>
               {authStatus === "unauthenticated" && (
                 <p className="text-xs text-fg3">
-                  Crea una cuenta, sube tu oferta y tus transcripciones. El bot
-                  practica contra <em>tus</em> leads, no contra ofertas genéricas.
+                  Entra, guarda tu oferta y sube llamadas. El bot practica
+                  contra <em>tus</em> leads.
                 </p>
               )}
             </div>
@@ -208,25 +279,90 @@ export function Chat() {
 
           {isChatRunning && (
             <div className="flex flex-wrap gap-2 justify-center mb-2">
-              <Badge variant="secondary">{training.productName}</Badge>
+              <Badge variant="secondary" className="font-mono tabular-nums">
+                {formatClock(elapsedSec)}
+                {hasTimeGoal(training.timeGoal) && training.timeGoal?.totalMin
+                  ? ` / ${training.timeGoal.totalMin}m`
+                  : ""}
+              </Badge>
+              {training.prospectProfile.leadTypeName && (
+                <Badge variant="outline">{training.prospectProfile.leadTypeName}</Badge>
+              )}
+              <Badge variant="secondary">
+                {training.practiceKind === "replay"
+                  ? `Recreando ${training.replayCall?.leadName || training.prospectProfile.name}`
+                  : "Lead nuevo"}
+              </Badge>
+              <Badge variant="outline">{training.productName}</Badge>
               <Badge variant="outline">
                 {CALL_SECTION_LABELS[training.callSection]}
               </Badge>
               <Badge variant="outline">
                 {DIFFICULTY_LABELS[training.difficulty]}
               </Badge>
-              <Badge variant="outline">
-                {LANGUAGE_LABELS[training.language]}
-              </Badge>
+            </div>
+          )}
+
+          {earlyExit && !shouldConnect && !evaluation && (
+            <div className="w-full max-w-lg rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3 mb-4">
+              <h2 className="text-xl font-light">Saliste antes</h2>
+              <p className="text-sm text-fg2">
+                Este round no se evalúa ni se guarda. Así el coach no se llena
+                de prácticas a medias.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="primary"
+                  disabled={retrying}
+                  onClick={() => {
+                    setEarlyExit(false);
+                    void startAgain();
+                  }}
+                >
+                  {retrying ? "Entrando…" : "Seguir desde aquí"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setEarlyExit(false)}
+                >
+                  Descartar
+                </Button>
+              </div>
             </div>
           )}
 
           {(evaluation || evalLoading) && (
-            <div className="w-full max-w-2xl">
+            <div className="w-full max-w-2xl space-y-3">
+              {retry && evaluation && !evalLoading && (
+                <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+                  <p className="text-sm font-medium">{retry.question}</p>
+                  <p className="text-xs text-fg3">
+                    Arranca en{" "}
+                    {CALL_SECTION_LABELS[retry.callSection].toLowerCase()}:{" "}
+                    {retry.focus}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="primary"
+                      disabled={retrying}
+                      onClick={() => void handleRetryFailedMoment()}
+                    >
+                      {retrying ? "Entrando…" : "Sí, practicamos esto"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setDismissedRetry(true)}
+                    >
+                      Ahora no
+                    </Button>
+                  </div>
+                </div>
+              )}
               <CallScorePanel
                 evaluation={evaluation}
                 isLoading={evalLoading}
                 onClose={clearEvaluation}
+                onDeleted={clearEvaluation}
               />
             </div>
           )}
@@ -245,6 +381,8 @@ export function Chat() {
                   prospectName={training.prospectProfile.name}
                   isActive={isChatRunning}
                   isConnecting={shouldConnect && !isChatRunning}
+                  elapsedSec={elapsedSec}
+                  goalMin={training.timeGoal?.totalMin || null}
                 />
               </div>
             </>

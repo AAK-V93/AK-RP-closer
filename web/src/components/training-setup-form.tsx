@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -23,10 +24,13 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useTraining } from "@/hooks/use-training-state";
 import {
   CALL_SECTION_LABELS,
   DIFFICULTY_LABELS,
+  PRACTICE_KIND_LABELS,
   CallSection,
   DifficultyLevel,
 } from "@/data/training-session";
@@ -41,6 +45,7 @@ import { useConnection } from "@/hooks/use-connection";
 import { RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { LeadPlaybook } from "@/lib/lead-playbook";
+import type { ReplayCall } from "@/lib/replay-call";
 
 const schema = z.object({
   difficulty: z.enum(["easy", "medium", "hard"]),
@@ -60,12 +65,28 @@ type WorkspaceOffer = {
 export function TrainingSetupForm() {
   const { trainingState, dispatch } = useTraining();
   const { shouldConnect } = useConnection();
+  const searchParams = useSearchParams();
+  const focus = searchParams.get("focus")?.trim() || "";
+  const modeParam = searchParams.get("mode")?.trim();
+  const callParam = searchParams.get("call")?.trim() || "";
+  const sectionParam = searchParams.get("section")?.trim() || "";
   const [serverReady, setServerReady] = useState<boolean | null>(null);
   const [offers, setOffers] = useState<WorkspaceOffer[]>([]);
   const [offer, setOffer] = useState<WorkspaceOffer | null>(null);
   const [ready, setReady] = useState(false);
   const [transcriptCount, setTranscriptCount] = useState(0);
   const [playbookReady, setPlaybookReady] = useState(false);
+  const [openCalls, setOpenCalls] = useState<
+    {
+      source: "fathom" | "upload";
+      sourceId: string;
+      title: string;
+      leadName: string;
+      result: string;
+      date: string | null;
+    }[]
+  >([]);
+  const [loadingReplay, setLoadingReplay] = useState(false);
 
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
@@ -81,6 +102,46 @@ export function TrainingSetupForm() {
   const callSection = form.watch("callSection");
   const showBrief = shouldShowProspectBrief(callSection);
   const needsPitch = requiresPitchSummary(callSection);
+  const practiceKind = trainingState.training.practiceKind || "compose";
+
+  useEffect(() => {
+    if (!focus) return;
+    dispatch({ type: "SET_TRAINING", payload: { practiceFocus: focus } });
+  }, [dispatch, focus]);
+
+  useEffect(() => {
+    if (
+      sectionParam !== "full" &&
+      sectionParam !== "discovery" &&
+      sectionParam !== "pitch" &&
+      sectionParam !== "close" &&
+      sectionParam !== "pitch_close"
+    ) {
+      return;
+    }
+    form.setValue("callSection", sectionParam);
+    dispatch({ type: "SET_TRAINING", payload: { callSection: sectionParam } });
+  }, [dispatch, form, sectionParam]);
+
+  useEffect(() => {
+    const current = form.getValues("callSection");
+    if (trainingState.training.callSection !== current) {
+      form.setValue("callSection", trainingState.training.callSection);
+    }
+  }, [form, trainingState.training.callSection]);
+
+  useEffect(() => {
+    if (modeParam === "replay" || modeParam === "compose") {
+      dispatch({
+        type: "SET_TRAINING",
+        payload: {
+          practiceKind: modeParam,
+          replayCall: modeParam === "compose" ? null : trainingState.training.replayCall,
+        },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed from URL once
+  }, [dispatch, modeParam]);
 
   useEffect(() => {
     fetch("/api/config")
@@ -139,12 +200,51 @@ export function TrainingSetupForm() {
     return () => subscription.unsubscribe();
   }, [form, dispatch]);
 
+  const selectReplay = async (source: "fathom" | "upload", sourceId: string) => {
+    setLoadingReplay(true);
+    try {
+      const response = await fetch(
+        `/api/practice-calls?source=${encodeURIComponent(source)}&id=${encodeURIComponent(sourceId)}`,
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se cargó");
+      dispatch({
+        type: "SET_TRAINING",
+        payload: {
+          practiceKind: "replay",
+          replayCall: data.replay as ReplayCall,
+        },
+      });
+    } catch {
+      /* keep previous */
+    } finally {
+      setLoadingReplay(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!offer?.id) return;
+    fetch(`/api/practice-calls?offerId=${encodeURIComponent(offer.id)}`)
+      .then((r) => r.json())
+      .then((data) => setOpenCalls(data.calls || []))
+      .catch(() => setOpenCalls([]));
+  }, [offer?.id]);
+
+  useEffect(() => {
+    if (!callParam || !callParam.includes(":")) return;
+    const [source, ...rest] = callParam.split(":");
+    const sourceId = rest.join(":");
+    if (source !== "fathom" && source !== "upload") return;
+    void selectReplay(source, sourceId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callParam]);
+
   return (
     <Form {...form}>
       <form className="h-full flex flex-col">
         <div className="flex-shrink-0 py-4 px-1 border-b border-separator1">
           <div className="text-xs font-bold uppercase tracking-widest text-fg0">
-            Configuración
+            Oferta
           </div>
           {serverReady === false && (
             <p className="text-xs text-destructive mt-2">
@@ -210,6 +310,12 @@ export function TrainingSetupForm() {
                   {transcriptCount} llamadas en corpus
                   {playbookReady ? " · emulando tus leads" : ""}
                 </p>
+                {trainingState.training.prospectProfile.leadTypeName && (
+                  <p className="text-xs text-fg2">
+                    Tipo de este round:{" "}
+                    {trainingState.training.prospectProfile.leadTypeName}
+                  </p>
+                )}
               </>
             ) : (
               <p className="text-xs text-fg3">
@@ -217,10 +323,108 @@ export function TrainingSetupForm() {
               </p>
             )}
             <Button asChild variant="outline" size="sm">
-              <Link href="/setup">
+              <Link href="/ofertas">
                 {ready ? "Editar oferta y llamadas" : "Subir oferta y llamadas"}
               </Link>
             </Button>
+            {trainingState.training.practiceFocus && practiceKind === "compose" && (
+              <p className="text-xs text-primary">
+                Objetivo: {trainingState.training.practiceFocus}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
+              Cómo practicar
+            </p>
+            <div className="grid grid-cols-1 gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={practiceKind === "compose" ? "primary" : "outline"}
+                disabled={shouldConnect}
+                onClick={() =>
+                  dispatch({
+                    type: "SET_TRAINING",
+                    payload: { practiceKind: "compose", replayCall: null },
+                  })
+                }
+              >
+                {PRACTICE_KIND_LABELS.compose}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={practiceKind === "replay" ? "primary" : "outline"}
+                disabled={shouldConnect}
+                onClick={() =>
+                  dispatch({
+                    type: "SET_TRAINING",
+                    payload: { practiceKind: "replay" },
+                  })
+                }
+              >
+                {PRACTICE_KIND_LABELS.replay}
+              </Button>
+            </div>
+            {practiceKind === "compose" && (
+              <p className="text-[11px] text-fg3">
+                Inventa un comprador con el comportamiento de los leads de esta
+                oferta: mismas frases y situaciones, persona nueva.
+              </p>
+            )}
+            {practiceKind === "replay" && (
+              <div className="space-y-2">
+                <p className="text-[11px] text-fg3">
+                  El bot es esa persona y esa llamada que no cerró. Tú intentas
+                  cerrarla esta vez.
+                </p>
+                {openCalls.length === 0 ? (
+                  <p className="text-[11px] text-destructive">
+                    No hay llamadas abiertas de esta oferta. Sube o sincroniza
+                    cierres que no se hayan cerrado.
+                  </p>
+                ) : (
+                  <select
+                    className="w-full rounded-md border border-separator1 bg-bg1 px-2 py-1.5 text-sm"
+                    disabled={shouldConnect || loadingReplay}
+                    value={
+                      trainingState.training.replayCall
+                        ? `${trainingState.training.replayCall.source}:${trainingState.training.replayCall.sourceId}`
+                        : ""
+                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (!value.includes(":")) return;
+                      const [source, ...rest] = value.split(":");
+                      if (source !== "fathom" && source !== "upload") return;
+                      void selectReplay(source, rest.join(":"));
+                    }}
+                  >
+                    <option value="">Elige la llamada…</option>
+                    {openCalls.map((row) => (
+                      <option
+                        key={`${row.source}:${row.sourceId}`}
+                        value={`${row.source}:${row.sourceId}`}
+                      >
+                        {row.leadName || row.title}
+                        {row.result ? ` · ${row.result}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {loadingReplay && (
+                  <p className="text-[11px] text-fg3">Cargando esa llamada…</p>
+                )}
+                {trainingState.training.replayCall && (
+                  <p className="text-[11px] text-fg2">
+                    Recreando: {trainingState.training.replayCall.leadName ||
+                      trainingState.training.replayCall.title}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {!ready && (
@@ -315,8 +519,9 @@ export function TrainingSetupForm() {
                   </SelectContent>
                 </Select>
                 <FormDescription className="text-xs">
-                  Qué tan colaborativo llega el lead. El personaje sale de tus
-                  llamadas reales, no de una oferta inventada.
+                  El tipo de lead define si se va por las ramas o va al grano.
+                  La dificultad es cuánto de lo útil (dinero, decisor, dolor)
+                  se guarda, no si se calla.
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -354,6 +559,89 @@ export function TrainingSetupForm() {
             )}
           />
 
+          <div className="space-y-2 rounded-xl border border-separator1 p-3">
+            <Label>Meta de tiempo (opcional)</Label>
+            <p className="text-[11px] text-fg3">
+              El análisis dice si la cumpliste. Vacío = sin meta.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <MinuteField
+                label="Total (min)"
+                value={trainingState.training.timeGoal?.totalMin}
+                disabled={shouldConnect}
+                onChange={(value) =>
+                  dispatch({
+                    type: "SET_TRAINING",
+                    payload: {
+                      timeGoal: {
+                        ...trainingState.training.timeGoal,
+                        totalMin: value,
+                      },
+                    },
+                  })
+                }
+              />
+              {(callSection === "full" || callSection === "discovery") && (
+                <MinuteField
+                  label="Descubrimiento"
+                  value={trainingState.training.timeGoal?.discoveryMin}
+                  disabled={shouldConnect}
+                  onChange={(value) =>
+                    dispatch({
+                      type: "SET_TRAINING",
+                      payload: {
+                        timeGoal: {
+                          ...trainingState.training.timeGoal,
+                          discoveryMin: value,
+                        },
+                      },
+                    })
+                  }
+                />
+              )}
+              {(callSection === "full" ||
+                callSection === "pitch" ||
+                callSection === "pitch_close") && (
+                <MinuteField
+                  label="Pitch"
+                  value={trainingState.training.timeGoal?.pitchMin}
+                  disabled={shouldConnect}
+                  onChange={(value) =>
+                    dispatch({
+                      type: "SET_TRAINING",
+                      payload: {
+                        timeGoal: {
+                          ...trainingState.training.timeGoal,
+                          pitchMin: value,
+                        },
+                      },
+                    })
+                  }
+                />
+              )}
+              {(callSection === "full" ||
+                callSection === "close" ||
+                callSection === "pitch_close") && (
+                <MinuteField
+                  label="Cierre"
+                  value={trainingState.training.timeGoal?.closeMin}
+                  disabled={shouldConnect}
+                  onChange={(value) =>
+                    dispatch({
+                      type: "SET_TRAINING",
+                      payload: {
+                        timeGoal: {
+                          ...trainingState.training.timeGoal,
+                          closeMin: value,
+                        },
+                      },
+                    })
+                  }
+                />
+              )}
+            </div>
+          </div>
+
           {needsPitch && (
             <FormField
               control={form.control}
@@ -376,16 +664,18 @@ export function TrainingSetupForm() {
                 <span className="text-xs font-semibold uppercase text-fg2">
                   Perfil del prospecto
                 </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={shouldConnect}
-                  onClick={() => dispatch({ type: "REGENERATE_PROSPECT" })}
-                >
-                  <RefreshCw className="h-3 w-3 mr-1" />
-                  Regenerar
-                </Button>
+                {practiceKind === "compose" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={shouldConnect}
+                    onClick={() => dispatch({ type: "REGENERATE_PROSPECT" })}
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Otro lead de esta oferta
+                  </Button>
+                )}
               </div>
               <ProspectBrief profile={trainingState.training.prospectProfile} />
             </div>
@@ -393,5 +683,40 @@ export function TrainingSetupForm() {
         </div>
       </form>
     </Form>
+  );
+}
+
+function MinuteField({
+  label,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value?: number | null;
+  disabled?: boolean;
+  onChange: (value: number | null) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-[11px] text-fg3">{label}</Label>
+      <Input
+        type="number"
+        min={1}
+        max={90}
+        disabled={disabled}
+        value={value || ""}
+        placeholder="—"
+        onChange={(event) => {
+          const raw = event.target.value.trim();
+          if (!raw) {
+            onChange(null);
+            return;
+          }
+          const next = Number(raw);
+          onChange(Number.isFinite(next) && next > 0 ? next : null);
+        }}
+      />
+    </div>
   );
 }

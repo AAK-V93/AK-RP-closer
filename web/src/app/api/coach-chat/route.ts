@@ -1,32 +1,11 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
-import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
-import { generateGeminiJson } from "@/lib/gemini";
-import { CLOSER_COACH_SYSTEM_PROMPT } from "@/lib/closer-coach-prompt";
-import {
-  COACH_THREAD_SECTION,
-  compactTrainingEvidence,
-  defaultCoachNotes,
-  mergeCoachNotes,
-  parseCoachThread,
-  type CoachChatLine,
-  type CoachThreadPayload,
-} from "@/lib/closer-coach";
+import { getPrisma, isDatabaseConfigured, ensureCoachTables } from "@/lib/prisma";
+import { getCoachThread, runCoachTurn } from "@/lib/coach-service";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-
-function parseModelJson(text: string) {
-  const cleaned = text
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/, "")
-    .replace(/```$/u, "")
-    .trim();
-  return JSON.parse(cleaned);
-}
 
 function fail(error: unknown, fallback: string, status = 500) {
   console.error("coach-chat", error);
@@ -37,15 +16,6 @@ function fail(error: unknown, fallback: string, status = 500) {
     },
     { status },
   );
-}
-
-function threadResponse(payload: CoachThreadPayload) {
-  return {
-    level: payload.notes.level,
-    niche: payload.notes.niche,
-    notes: payload.notes,
-    messages: payload.messages,
-  };
 }
 
 async function requireDb() {
@@ -69,70 +39,12 @@ async function requireDb() {
       error: NextResponse.json({ error: "DB no disponible" }, { status: 503 }),
     };
   }
-  return { prisma, userId: session.user.id };
-}
-
-async function getOrCreateThread(
-  prisma: NonNullable<ReturnType<typeof getPrisma>>,
-  userId: string,
-) {
-  const existing = await prisma.practiceSession.findFirst({
-    where: { userId, callSection: COACH_THREAD_SECTION },
-    orderBy: { createdAt: "asc" },
-  });
-  if (existing) {
-    return { row: existing, payload: parseCoachThread(existing.evaluation) };
+  try {
+    await ensureCoachTables(prisma);
+  } catch {
+    /* column may already exist */
   }
-
-  const payload: CoachThreadPayload = {
-    kind: "coach_thread",
-    notes: defaultCoachNotes(),
-    messages: [],
-  };
-  const row = await prisma.practiceSession.create({
-    data: {
-      userId,
-      callSection: COACH_THREAD_SECTION,
-      productName: "Coach high-ticket",
-      difficulty: "coach",
-      language: "es",
-      overallScore: 0,
-      outcomeSummary: "",
-      transcript: [],
-      evaluation: payload as unknown as Prisma.InputJsonValue,
-      criterionScores: [],
-      scored: false,
-    },
-  });
-  return { row, payload };
-}
-
-async function saveThread(
-  prisma: NonNullable<ReturnType<typeof getPrisma>>,
-  rowId: string,
-  payload: CoachThreadPayload,
-) {
-  const notes = payload.notes;
-  await prisma.practiceSession.update({
-    where: { id: rowId },
-    data: {
-      overallScore: notes.level,
-      outcomeSummary: notes.nextSkill.slice(0, 280),
-      evaluation: {
-        ...payload,
-        messages: payload.messages.slice(-80),
-      } as unknown as Prisma.InputJsonValue,
-    },
-  });
-}
-
-function newLine(role: CoachChatLine["role"], content: string): CoachChatLine {
-  return {
-    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    content,
-    createdAt: new Date().toISOString(),
-  };
+  return { prisma, userId: session.user.id };
 }
 
 export async function GET() {
@@ -143,8 +55,7 @@ export async function GET() {
       prisma: NonNullable<ReturnType<typeof getPrisma>>;
       userId: string;
     };
-    const { payload } = await getOrCreateThread(prisma, userId);
-    return NextResponse.json(threadResponse(payload));
+    return NextResponse.json(await getCoachThread(prisma, userId));
   } catch (error) {
     return fail(error, "No se pudo cargar el coach");
   }
@@ -175,85 +86,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Mensaje demasiado largo" }, { status: 400 });
     }
 
-    const [{ row, payload }, sessions] = await Promise.all([
-      getOrCreateThread(prisma, userId),
-      prisma.practiceSession.findMany({
-        where: { userId, callSection: { not: COACH_THREAD_SECTION } },
-        orderBy: { createdAt: "desc" },
-        take: 16,
-      }),
-    ]);
-
-    if (start && payload.messages.length > 0) {
-      return NextResponse.json(threadResponse(payload));
+    const existing = await getCoachThread(prisma, userId);
+    if (start && existing.messages.length > 0) {
+      return NextResponse.json(existing);
     }
-
-    const notes = payload.notes;
-    const evidence = compactTrainingEvidence(sessions);
-    const history = payload.messages.slice(-16).map((m) => ({
-      role: m.role,
-      content: m.content.slice(0, 2500),
-    }));
 
     const closerTurn = start
       ? "El closer acaba de abrir el chat por primera vez. Haz el diagnóstico inicial (PRIMERA INTERACCIÓN). Si ya hay evidencia de prácticas o QC, úsala y no preguntes lo que ya sabes. La primera sesión debe incluir práctica, no solo teoría."
       : userText;
 
-    const prompt = `${CLOSER_COACH_SYSTEM_PROMPT}
-
-# NOTAS PERSISTENTES DEL COACH
-${JSON.stringify(notes)}
-
-# EVIDENCIA OBSERVADA (prácticas con bot + QC de llamadas reales)
-${JSON.stringify(evidence)}
-
-# HISTORIAL RECIENTE
-${JSON.stringify(history)}
-
-# MENSAJE DEL CLOSER
-${closerTurn}`;
-
-    let parsed: { reply?: string; notes?: Partial<typeof notes> };
     try {
-      const text = await generateGeminiJson(prompt, 0.45, 4096, {
-        timeoutMs: 90_000,
-        models: ["gemini-flash-latest", "gemini-flash-lite-latest"],
+      const result = await runCoachTurn(prisma, userId, {
+        closerTurn,
+        userMessage: start ? undefined : userText,
       });
-      parsed = parseModelJson(text) as {
-        reply?: string;
-        notes?: Partial<typeof notes>;
-      };
+      return NextResponse.json(result);
     } catch (error) {
       return fail(error, "El coach no pudo responder ahora. Intenta de nuevo.", 502);
     }
-
-    const reply = String(parsed.reply || "").trim();
-    if (!reply) {
-      return NextResponse.json(
-        { error: "El coach devolvió una respuesta vacía." },
-        { status: 502 },
-      );
-    }
-
-    const nextNotes = mergeCoachNotes(notes, parsed.notes);
-    const coachLine = newLine("coach", reply);
-    const nextMessages = [...payload.messages];
-    if (!start && userText) {
-      nextMessages.push(newLine("user", userText));
-    }
-    nextMessages.push(coachLine);
-
-    const nextPayload: CoachThreadPayload = {
-      kind: "coach_thread",
-      notes: nextNotes,
-      messages: nextMessages,
-    };
-    await saveThread(prisma, row.id, nextPayload);
-
-    return NextResponse.json({
-      ...threadResponse(nextPayload),
-      message: coachLine,
-    });
   } catch (error) {
     return fail(error, "No se pudo responder el coach");
   }

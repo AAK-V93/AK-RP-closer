@@ -116,14 +116,10 @@ export function QcReportView({
           </p>
         ) : !authenticated ? (
           <p className="text-xs text-fg3">
-            Esta fue tu auditoría gratis. Para la siguiente,{" "}
-            <Link
-              href="/login?mode=register&reason=qc-used&callbackUrl=/reporte"
-              className="underline"
-            >
-              crea una cuenta
-            </Link>
-            .
+            <Link href="/login?callbackUrl=/llamadas" className="underline">
+              Entra
+            </Link>{" "}
+            para guardar el QC en tu coaching.
           </p>
         ) : null}
       </header>

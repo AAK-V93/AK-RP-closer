@@ -22,6 +22,9 @@ export function ProspectBrief({ profile }: ProspectBriefProps) {
               : "baja"}
           . {profile.qualificationSummary}
         </p>
+        {profile.leadTypeName && (
+          <p className="text-xs text-fg2 mt-1">Tipo: {profile.leadTypeName}</p>
+        )}
       </CardHeader>
       <CardContent className="text-xs space-y-3 text-fg2">
         <Section title="Contexto del producto">

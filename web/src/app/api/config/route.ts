@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import dotenv from "dotenv";
 import path from "path";
 import { googleAuthConfigured } from "@/lib/auth";
+import { googleCalendarConfigured } from "@/lib/calendar";
+import { twilioWhatsAppConfigured } from "@/lib/whatsapp";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
@@ -17,6 +19,8 @@ export async function GET() {
     hasGeminiKey,
     hasLiveKit,
     hasGoogleAuth: googleAuthConfigured(),
+    hasGoogleCalendar: googleCalendarConfigured(),
+    hasWhatsApp: twilioWhatsAppConfigured(),
     ready: hasGeminiKey && hasLiveKit,
   });
 }

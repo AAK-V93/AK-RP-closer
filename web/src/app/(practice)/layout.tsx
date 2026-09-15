@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { TrainingProvider } from "@/hooks/use-training-state";
 import { ConnectionProvider } from "@/hooks/use-connection";
@@ -28,16 +29,35 @@ export default function PracticeLayout({
             <PracticeReadyGate />
             <SidebarProvider defaultOpen={true}>
               <Sidebar className="bg-bg1">
-                <SidebarHeader className="px-4 py-3">
+                <SidebarHeader className="px-4 py-3 space-y-2">
                   <Link href="/" className="text-sm font-semibold tracking-tight">
                     Closer Trainer
                   </Link>
                   <p className="text-xs text-fg3">
                     Práctica con un prospecto
                   </p>
+                  <div className="flex flex-wrap gap-1 text-[11px]">
+                    <Link href="/" className="text-fg3 hover:text-fg1">
+                      Inicio
+                    </Link>
+                    <span className="text-fg3">·</span>
+                    <Link href="/coach" className="text-fg3 hover:text-fg1">
+                      Coach
+                    </Link>
+                    <span className="text-fg3">·</span>
+                    <Link href="/llamadas" className="text-fg3 hover:text-fg1">
+                      Llamadas
+                    </Link>
+                    <span className="text-fg3">·</span>
+                    <Link href="/crm" className="text-fg3 hover:text-fg1">
+                      CRM
+                    </Link>
+                  </div>
                 </SidebarHeader>
                 <SidebarContent className="px-4">
-                  <TrainingSetupForm />
+                  <Suspense fallback={null}>
+                    <TrainingSetupForm />
+                  </Suspense>
                 </SidebarContent>
                 <SidebarFooter className="p-4">
                   <ThemeToggle />

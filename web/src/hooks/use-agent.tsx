@@ -17,16 +17,9 @@ interface Transcription {
   publication?: TrackPublication;
 }
 
-export type GeneratedImage = {
-  imageUrl: string;
-  prompt: string;
-  timestamp: number;
-};
-
 interface AgentContextType {
   displayTranscriptions: Transcription[];
   agent?: RemoteParticipant;
-  generatedImages: GeneratedImage[];
 }
 
 const AgentContext = createContext<AgentContextType | undefined>(undefined);
@@ -41,7 +34,6 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const [displayTranscriptions, setDisplayTranscriptions] = useState<
     Transcription[]
   >([]);
-  const [generatedImages] = useState<GeneratedImage[]>([]);
 
   useEffect(() => {
     if (!room) {
@@ -116,7 +108,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AgentContext.Provider
-      value={{ displayTranscriptions, agent, generatedImages }}
+      value={{ displayTranscriptions, agent }}
     >
       {children}
     </AgentContext.Provider>

@@ -5,11 +5,13 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { X, TrendingUp, Target, Lightbulb, User, MessageSquareWarning, Link2 } from "lucide-react";
+import { DeleteAnalysisButton } from "@/components/delete-analysis-button";
 import { RUBRIC_CRITERIA } from "@/data/rubric";
 import { CallEvaluation } from "@/data/evaluation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { COVERAGE_LABELS, formatClock, formatMinutes } from "@/lib/call-timing";
 
 export type { CallEvaluation };
 
@@ -17,12 +19,14 @@ interface CallScorePanelProps {
   evaluation: CallEvaluation | null;
   isLoading: boolean;
   onClose?: () => void;
+  onDeleted?: () => void;
 }
 
 export function CallScorePanel({
   evaluation,
   isLoading,
   onClose,
+  onDeleted,
 }: CallScorePanelProps) {
   const { status } = useSession();
 
@@ -62,30 +66,44 @@ export function CallScorePanel({
             <p className="text-sm text-fg2 mt-3">{evaluation.outcomeSummary}</p>
           )}
           {evaluation.saved ? (
-            <p className="text-xs text-fg3 mt-2">
-              Guardado en{" "}
-              <Link href="/coach" className="underline">
-                tu coaching
-              </Link>
-              .
-            </p>
-          ) : status === "unauthenticated" ? (
-            <div className="text-xs text-fg3 mt-2 space-y-1">
-              <p>
-                Esta fue tu práctica gratis. Para la siguiente,{" "}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button asChild size="sm" variant="primary">
                 <Link
-                  href="/login?mode=register&reason=free-used&callbackUrl=/practicar"
-                  className="underline"
+                  href={
+                    evaluation.sessionId
+                      ? `/coach/${evaluation.sessionId}`
+                      : "/coach"
+                  }
                 >
-                  crea una cuenta
+                  Ver en el coach
                 </Link>
-                .
-              </p>
-              <p>
-                Si entras ahora, también puedes guardar este reporte en tu
-                coaching.
-              </p>
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link
+                  href={`/practicar?focus=${encodeURIComponent(
+                    evaluation.improvements?.[0] ||
+                      evaluation.coachingTips?.[0] ||
+                      "el momento que falló",
+                  )}`}
+                >
+                  Practicar esto otra vez
+                </Link>
+              </Button>
+              {evaluation.sessionId && onDeleted && (
+                <DeleteAnalysisButton
+                  sessionId={evaluation.sessionId}
+                  onDeleted={onDeleted}
+                  label="Borrar este análisis"
+                />
+              )}
             </div>
+          ) : status === "unauthenticated" ? (
+            <p className="text-xs text-fg3 mt-2">
+              <Link href="/login?mode=register&callbackUrl=/ofertas" className="underline">
+                Entra
+              </Link>{" "}
+              para guardar el reporte en tu coaching.
+            </p>
           ) : null}
         </div>
         {onClose && (
@@ -96,6 +114,58 @@ export function CallScorePanel({
       </CardHeader>
 
       <CardContent className="space-y-6 text-sm">
+        {evaluation.timing && (
+          <section>
+            <h3 className="font-semibold flex items-center gap-2 mb-2">
+              <Target className="h-4 w-4" />
+              Tiempo y partes
+            </h3>
+            <div className="rounded-lg bg-bg0 border border-separator1 p-3 space-y-2">
+              <p>
+                <span className="text-fg3">Duración: </span>
+                {formatClock(evaluation.timing.totalSec)}
+              </p>
+              <p>{COVERAGE_LABELS[evaluation.timing.coverage]}</p>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <p>
+                  Descubrimiento
+                  <br />
+                  <span className="text-base font-light">
+                    {formatMinutes(evaluation.timing.phases.discovery)}
+                  </span>
+                </p>
+                <p>
+                  Pitch
+                  <br />
+                  <span className="text-base font-light">
+                    {formatMinutes(evaluation.timing.phases.pitch)}
+                  </span>
+                </p>
+                <p>
+                  Cierre
+                  <br />
+                  <span className="text-base font-light">
+                    {formatMinutes(evaluation.timing.phases.close)}
+                  </span>
+                </p>
+              </div>
+              {evaluation.timing.goal.set && (
+                <div className="pt-2 border-t border-separator1 space-y-1">
+                  <p className="font-medium">
+                    Meta: {evaluation.timing.goal.met ? "cumplida" : "no cumplida"}
+                  </p>
+                  {evaluation.timing.goal.checks.map((check) => (
+                    <p key={check.label} className="text-xs text-fg2">
+                      {check.met ? "✓" : "✕"} {check.label}:{" "}
+                      {formatMinutes(check.actualSec)} vs{" "}
+                      {formatMinutes(check.targetSec)}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
         {file && (
           <section>
             <h3 className="font-semibold flex items-center gap-2 mb-2">

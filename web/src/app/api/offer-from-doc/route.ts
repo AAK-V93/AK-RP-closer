@@ -37,9 +37,24 @@ export async function POST(request: Request) {
       file.name.endsWith(".md") ||
       file.name.endsWith(".txt");
 
-    const prompt = `Extrae la oferta comercial de este documento. Responde SOLO JSON:
-{"productName":"nombre corto de la oferta","productDescription":"qué es, a quién ayuda, qué incluye, ticket si aparece, resultado prometido. 80-180 palabras.","pitchSummary":"resumen de 3-6 líneas para un closer que va a practicar el cierre"}
-Si no es una oferta, inventa lo mínimo fiel al texto. Idioma: el del documento.`;
+    const prompt = `Extrae la oferta comercial COMPLETA de este documento. Responde SOLO JSON:
+{
+  "productName": "nombre corto",
+  "aliases": ["CM", "otro alias"],
+  "productDescription": "qué es, a quién, qué incluye, resultado. 80-180 palabras",
+  "pitchSummary": "3-6 líneas para practicar el cierre",
+  "listPrice": 12000,
+  "currency": "USD",
+  "fxRate": null,
+  "altPrices": [{"label":"contado 7 días","amount":10000}],
+  "paymentModes": [{"name":"Contado 7 días","details":"saldo a 7 días"},{"name":"Reserva","details":"mínimo 2000"}],
+  "deadlines": [{"name":"Completar inicial","days":7,"appliesTo":"reserva"}],
+  "bonuses": [{"name":"Visita consultor","condition":"si cierra en la llamada"}],
+  "paymentDetails": "cuentas, voucher, lo que sirva para cobrar",
+  "duration": "6 meses",
+  "commission": {"pctBase":0.03,"umbralAcumuladoUsd":70000,"pctSobreUmbral":0.05,"base":"cash_collected","periodoAcumulacion":"mensual"}
+}
+Números sin símbolos. Si un campo no aparece, null o []. No inventes comisión si no está. Idioma: el del documento.`;
 
     const parts: object[] = isText
       ? [{ text: `${prompt}\n\n---\n${buffer.toString("utf8").slice(0, 20000)}` }]
@@ -55,16 +70,26 @@ Si no es una oferta, inventa lo mínimo fiel al texto. Idioma: el del documento.
 
     const text = await generateGeminiParts(parts, 0.2);
 
-    const parsed = JSON.parse(text) as {
-      productName?: string;
-      productDescription?: string;
-      pitchSummary?: string;
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const commercial = {
+      aliases: Array.isArray(parsed.aliases) ? parsed.aliases.map(String) : [],
+      listPrice: parsed.listPrice == null ? null : Number(parsed.listPrice),
+      currency: String(parsed.currency || "USD"),
+      fxRate: parsed.fxRate == null ? null : Number(parsed.fxRate),
+      altPrices: parsed.altPrices,
+      paymentModes: parsed.paymentModes,
+      deadlines: parsed.deadlines,
+      bonuses: parsed.bonuses,
+      paymentDetails: String(parsed.paymentDetails || ""),
+      duration: String(parsed.duration || ""),
+      commission: parsed.commission || null,
     };
 
     return NextResponse.json({
-      productName: parsed.productName?.trim() || file.name.replace(/\.[^.]+$/, ""),
-      productDescription: parsed.productDescription?.trim() || "",
-      pitchSummary: parsed.pitchSummary?.trim() || "",
+      productName: String(parsed.productName || "").trim() || file.name.replace(/\.[^.]+$/, ""),
+      productDescription: String(parsed.productDescription || "").trim(),
+      pitchSummary: String(parsed.pitchSummary || "").trim(),
+      commercial,
     });
   } catch (error) {
     return NextResponse.json(

@@ -2,9 +2,13 @@ import { ModalitiesId } from "@/data/modalities";
 import { ModelId } from "@/data/models";
 import { VoiceId } from "@/data/voices";
 import { LanguageCode } from "@/data/languages";
-import type { LeadPlaybook } from "@/lib/lead-playbook";
+import type { LeadPlaybook, TalkStyle } from "@/lib/lead-playbook";
+import type { TimeGoal } from "@/lib/call-timing";
+import type { ReplayCall } from "@/lib/replay-call";
 
 export type DifficultyLevel = "easy" | "medium" | "hard";
+
+export type PracticeKind = "compose" | "replay";
 
 export type QualificationLevel = "high" | "mixed" | "low";
 
@@ -41,6 +45,14 @@ export interface ProspectProfile {
   timeSituation: string;
   objections: string[];
   personalityNotes: string;
+  /** The one objection this round will actually hold. */
+  heldObjection?: string;
+  /** True only when practicing a named real lead. */
+  isRealLead?: boolean;
+  talkStyle?: TalkStyle;
+  leadTypeName?: string;
+  noiseTopics?: string[];
+  heldRelevant?: string[];
 }
 
 export interface TrainingSessionConfig {
@@ -52,6 +64,11 @@ export interface TrainingSessionConfig {
   language: LanguageCode;
   /** Required when practicing close-only without pitch_close */
   pitchSummary?: string;
+  /** Coach-directed objective or real lead name */
+  practiceFocus?: string;
+  practiceKind?: PracticeKind;
+  replayCall?: ReplayCall | null;
+  timeGoal?: TimeGoal;
   prospectProfile: ProspectProfile;
   leadPlaybook?: LeadPlaybook | null;
 }
@@ -67,6 +84,11 @@ export interface TrainingState {
   };
 }
 
+export const PRACTICE_KIND_LABELS: Record<PracticeKind, string> = {
+  compose: "Lead nuevo de esta oferta",
+  replay: "Recrear una que no cerró",
+};
+
 export const CALL_SECTION_LABELS: Record<CallSection, string> = {
   full: "Reunión completa",
   discovery: "Solo descubrimiento",
@@ -76,9 +98,9 @@ export const CALL_SECTION_LABELS: Record<CallSection, string> = {
 };
 
 export const DIFFICULTY_LABELS: Record<DifficultyLevel, string> = {
-  easy: "Fácil — lead calificado y colaborativo",
-  medium: "Medio — calificación mixta",
-  hard: "Difícil — poco calificado o escéptico",
+  easy: "Fácil — habla a su estilo y se le escapa lo útil",
+  medium: "Medio — habla, pero lo importante hay que pescarlo",
+  hard: "Difícil — puede hablar mucho, y guarda lo que cierra",
 };
 
 export const defaultTrainingSession: TrainingSessionConfig = {
@@ -88,6 +110,9 @@ export const defaultTrainingSession: TrainingSessionConfig = {
   callSection: "full",
   language: "es",
   pitchSummary: "",
+  practiceFocus: "",
+  practiceKind: "compose",
+  replayCall: null,
   prospectProfile: {
     name: "María González",
     age: 34,
@@ -114,6 +139,12 @@ export const defaultTrainingSession: TrainingSessionConfig = {
     timeSituation: "",
     objections: [],
     personalityNotes: "",
+    heldObjection: "",
+    isRealLead: false,
+    talkStyle: "rambler",
+    leadTypeName: "",
+    noiseTopics: [],
+    heldRelevant: [],
   },
 };
 

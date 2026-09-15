@@ -5,9 +5,10 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { ChevronLeft } from "lucide-react";
-import { AuthMenu } from "@/components/auth-menu";
+import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { CallScorePanel } from "@/components/call-score-panel";
+import { DeleteAnalysisButton } from "@/components/delete-analysis-button";
 import { QcReportView } from "@/components/qc-report-view";
 import type { CallEvaluation } from "@/data/evaluation";
 import type { QcCallReport } from "@/data/qc-report";
@@ -45,6 +46,10 @@ export default function CoachDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+
+  const goBackAfterDelete = () => {
+    router.replace("/coach");
+  };
 
   const load = () => {
     if (!id) return;
@@ -95,15 +100,8 @@ export default function CoachDetailPage() {
   const lines = Array.isArray(detail?.transcript) ? detail.transcript : [];
 
   return (
-    <div className="min-h-screen bg-bg0 flex flex-col">
-      <header className="flex items-center justify-between gap-3 px-4 md:px-8 py-4 border-b border-separator1">
-        <Link href="/" className="text-lg font-light">
-          Closer Trainer
-        </Link>
-        <AuthMenu />
-      </header>
-
-      <main className="flex-1 max-w-3xl w-full mx-auto p-4 md:p-8 space-y-6">
+    <AppShell>
+      <div className="space-y-6">
         <Button asChild variant="ghost" size="sm" className="-ml-2">
           <Link href="/coach">
             <ChevronLeft className="h-4 w-4" />
@@ -118,17 +116,23 @@ export default function CoachDetailPage() {
 
         {detail && (
           <>
-            <div>
-              <p className="text-xs text-fg3 uppercase tracking-wide">
-                {detail.callSection === "qc_transcript"
-                  ? "Reporte de llamada real"
-                  : CALL_SECTION_LABELS[detail.callSection as CallSection] ??
-                    detail.callSection}
-              </p>
-              <h1 className="text-2xl font-light mt-1">{detail.productName}</h1>
-              <p className="text-xs text-fg3 mt-1">
-                {new Date(detail.createdAt).toLocaleString()}
-              </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs text-fg3 uppercase tracking-wide">
+                  {detail.callSection === "qc_transcript"
+                    ? "Reporte de llamada real"
+                    : CALL_SECTION_LABELS[detail.callSection as CallSection] ??
+                      detail.callSection}
+                </p>
+                <h1 className="text-2xl font-light mt-1">{detail.productName}</h1>
+                <p className="text-xs text-fg3 mt-1">
+                  {new Date(detail.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <DeleteAnalysisButton
+                sessionId={detail.id}
+                onDeleted={goBackAfterDelete}
+              />
             </div>
 
             {!detail.scored && (
@@ -151,9 +155,19 @@ export default function CoachDetailPage() {
               <QcReportView report={{ ...qc, saved: false }} authenticated />
             )}
 
+            <Button asChild variant="primary">
+              <Link
+                href={`/practicar?focus=${encodeURIComponent(
+                  detail.productName || "esta llamada",
+                )}`}
+              >
+                Practicar esto
+              </Link>
+            </Button>
+
             {practiceEval && (
               <CallScorePanel
-                evaluation={{ ...practiceEval, saved: false }}
+                evaluation={{ ...practiceEval, saved: false, sessionId: detail.id }}
                 isLoading={false}
               />
             )}
@@ -183,7 +197,7 @@ export default function CoachDetailPage() {
             )}
           </>
         )}
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

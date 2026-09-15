@@ -27,16 +27,21 @@ function trainingReducer(state: TrainingState, action: Action): TrainingState {
     case "SET_TRAINING": {
       const nextTraining = { ...state.training, ...action.payload };
       const shouldRegenerate =
-        action.payload.productName !== undefined ||
-        action.payload.productDescription !== undefined ||
-        action.payload.difficulty !== undefined ||
-        action.payload.language !== undefined ||
-        action.payload.leadPlaybook !== undefined;
+        action.payload.prospectProfile === undefined &&
+        (action.payload.productName !== undefined ||
+          action.payload.productDescription !== undefined ||
+          action.payload.difficulty !== undefined ||
+          action.payload.language !== undefined ||
+          action.payload.leadPlaybook !== undefined ||
+          action.payload.practiceFocus !== undefined ||
+          action.payload.practiceKind !== undefined ||
+          action.payload.replayCall !== undefined);
 
       if (
         shouldRegenerate &&
         nextTraining.productName.trim() &&
-        nextTraining.productDescription.trim()
+        nextTraining.productDescription.trim() &&
+        nextTraining.practiceKind !== "replay"
       ) {
         nextTraining.prospectProfile = generateProspectProfile(
           nextTraining.productName,
@@ -44,6 +49,24 @@ function trainingReducer(state: TrainingState, action: Action): TrainingState {
           nextTraining.difficulty,
           nextTraining.language,
           nextTraining.leadPlaybook,
+          nextTraining.practiceFocus,
+        );
+      }
+      if (
+        nextTraining.practiceKind === "replay" &&
+        nextTraining.replayCall &&
+        (action.payload.replayCall !== undefined ||
+          action.payload.difficulty !== undefined ||
+          action.payload.practiceKind !== undefined)
+      ) {
+        nextTraining.prospectProfile = generateProspectProfile(
+          nextTraining.productName,
+          nextTraining.productDescription,
+          nextTraining.difficulty,
+          nextTraining.language,
+          nextTraining.leadPlaybook,
+          nextTraining.practiceFocus,
+          nextTraining.replayCall,
         );
       }
 
@@ -55,9 +78,20 @@ function trainingReducer(state: TrainingState, action: Action): TrainingState {
         sessionConfig: { ...state.sessionConfig, ...action.payload },
       };
     case "REGENERATE_PROSPECT": {
-      const { productName, productDescription, difficulty, language, leadPlaybook } =
-        state.training;
+      const {
+        productName,
+        productDescription,
+        difficulty,
+        language,
+        leadPlaybook,
+        practiceFocus,
+        practiceKind,
+        replayCall,
+      } = state.training;
       if (!productName.trim() || !productDescription.trim()) {
+        return state;
+      }
+      if (practiceKind === "replay" && !replayCall) {
         return state;
       }
       return {
@@ -70,6 +104,8 @@ function trainingReducer(state: TrainingState, action: Action): TrainingState {
             difficulty,
             language,
             leadPlaybook,
+            practiceFocus,
+            practiceKind === "replay" ? replayCall : null,
           ),
         },
       };

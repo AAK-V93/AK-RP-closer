@@ -230,18 +230,3 @@ export function matchKnownOffer(text: string): OfferCase | undefined {
   }).sort((a, b) => b.hits - a.hits);
   return scored[0] && scored[0].hits >= 2 ? scored[0].offer : undefined;
 }
-
-/** Guests may only practice the three built-in offers. */
-export function isPresetOffer(
-  productName: string,
-  productDescription = "",
-): boolean {
-  const name = productName.trim();
-  const desc = productDescription.trim();
-  if (!name) return false;
-  return OFFER_CASES.some((offer) => {
-    if (offer.productName !== name) return false;
-    if (!desc) return true;
-    return offer.productDescription.trim() === desc;
-  });
-}

@@ -58,6 +58,7 @@ export async function POST() {
           productName: workspace.offer.productName,
           productDescription: workspace.offer.productDescription,
           transcripts: workspace.corpus,
+          existing: workspace.playbook,
         });
         await prisma.userOffer.update({
           where: { id: workspace.offer.id },

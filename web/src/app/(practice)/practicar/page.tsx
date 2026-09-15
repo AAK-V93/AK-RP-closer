@@ -4,6 +4,13 @@ import { Chat } from "@/components/chat";
 import { Badge } from "@/components/ui/badge";
 import { AuthMenu } from "@/components/auth-menu";
 
+const PRACTICE_NAV = [
+  { href: "/", label: "Inicio" },
+  { href: "/llamadas", label: "Llamadas" },
+  { href: "/coach", label: "Coach" },
+  { href: "/crm", label: "CRM" },
+];
+
 export const metadata: Metadata = {
   title: "Practicar | Closer Trainer",
   description:
@@ -21,6 +28,13 @@ export default function PracticePage() {
           <Badge variant="outline" className="hidden sm:inline-flex text-xs">
             Práctica
           </Badge>
+          <nav className="hidden md:flex items-center gap-2 text-xs text-fg3">
+            {PRACTICE_NAV.map((item) => (
+              <Link key={item.href} href={item.href} className="hover:text-fg1">
+                {item.label}
+              </Link>
+            ))}
+          </nav>
         </div>
         <AuthMenu />
       </header>

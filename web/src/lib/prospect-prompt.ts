@@ -13,11 +13,14 @@ import {
   type OfferKind,
 } from "@/data/prospect-pools";
 import {
-  compactPlaybookForPrompt,
   isPlaybookReady,
+  typesFromPlaybook,
   type LeadPlaybook,
   type LeadPersona,
+  type LeadType,
+  type TalkStyle,
 } from "@/lib/lead-playbook";
+import type { ReplayCall } from "@/lib/replay-call";
 
 function pick<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
@@ -34,6 +37,29 @@ function pickN<T>(items: T[], n: number): T[] {
   return out;
 }
 
+function firstIdea(text: string, maxWords = 12) {
+  const clean = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return "";
+  const sentence = clean.split(/(?<=[.!?;])\s/)[0] || clean;
+  const words = sentence.split(" ");
+  return words.length > maxWords ? `${words.slice(0, maxWords).join(" ")}…` : sentence;
+}
+
+function uniqueStrings(items: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const value = String(item || "").trim();
+    const key = value.toLowerCase();
+    if (value.length < 3 || seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
 function painsFor(
   kind: OfferKind,
   productName: string,
@@ -42,41 +68,216 @@ function painsFor(
 ): string[] {
   const pool =
     kind === "generic" ? locale.genericPains(productName) : locale.offerPains[kind];
-  const n = difficulty === "easy" ? 2 : difficulty === "medium" ? 3 : 4;
-  return pickN(pool, n);
+  const n = difficulty === "easy" ? 1 : 2;
+  return pickN(pool, n).map((item) => firstIdea(item, 10));
+}
+
+function resolveType(
+  playbook: LeadPlaybook | null | undefined,
+  typeName?: string,
+): LeadType | null {
+  const types = playbook ? typesFromPlaybook(playbook) : [];
+  if (!types.length) return null;
+  if (typeName) {
+    const match = types.find(
+      (item) => item.name.toLowerCase() === typeName.toLowerCase(),
+    );
+    if (match) return match;
+  }
+  return pick(types);
+}
+
+function applyType(
+  profile: ProspectProfile,
+  leadType: LeadType | null,
+): ProspectProfile {
+  if (!leadType) {
+    return {
+      ...profile,
+      talkStyle: profile.talkStyle || "rambler",
+      leadTypeName: profile.leadTypeName || "",
+      noiseTopics: profile.noiseTopics || [],
+      heldRelevant: profile.heldRelevant || [
+        "dinero real",
+        "quién decide",
+        "dolor de fondo",
+      ],
+    };
+  }
+  return {
+    ...profile,
+    talkStyle: leadType.talkStyle,
+    leadTypeName: leadType.name,
+    noiseTopics: leadType.noiseTopics,
+    heldRelevant: leadType.heldRelevant,
+    personalityNotes: [leadType.howTheyExpress, leadType.talkStyle, profile.personalityNotes]
+      .filter(Boolean)
+      .join(" · "),
+  };
 }
 
 function personaToProfile(
   persona: LeadPersona,
   difficulty: DifficultyLevel,
   locale: (typeof PROSPECT_POOLS)["es"],
+  isRealLead: boolean,
+  playbook?: LeadPlaybook | null,
 ): ProspectProfile {
   const qualificationLevel = QUALIFICATION_BY_DIFFICULTY[difficulty];
-  return {
-    name: persona.name,
-    age: persona.age,
-    occupation: persona.occupation || pick(locale.occupations[difficulty]),
-    location: persona.location || pick(locale.locations),
-    qualificationLevel,
-    qualificationSummary: pick(locale.qualificationSummary[difficulty]),
-    howTheyKnowTheOffer: pick(locale.awareness[difficulty]),
-    preQualification: {
-      mainGoal: persona.situation || pick(locale.genericGoal(persona.name)),
-      currentSituation: persona.situation,
-      timeline: pick(locale.timeline[difficulty]),
-      budgetRange: persona.money || pick(locale.budget[difficulty]),
-      decisionMaker: persona.decision || pick(locale.decisionMaker[difficulty]),
+  const objections = uniqueStrings(persona.objections);
+  const held = objections[0] || "";
+  const extra =
+    difficulty === "easy" ? [] : objections.slice(1, 2);
+  const situation = firstIdea(persona.situation, 16);
+  const leadType = resolveType(playbook, persona.typeName);
+  return applyType(
+    {
+      name: persona.name,
+      age: persona.age,
+      occupation: persona.occupation || pick(locale.occupations[difficulty]),
+      location: persona.location || pick(locale.locations),
+      qualificationLevel,
+      qualificationSummary: pick(locale.qualificationSummary[difficulty]),
+      howTheyKnowTheOffer: pick(locale.awareness[difficulty]),
+      preQualification: {
+        mainGoal: situation || pick(locale.genericGoal(persona.name)),
+        currentSituation: situation,
+        timeline: pick(locale.timeline[difficulty]),
+        budgetRange: persona.money || pick(locale.budget[difficulty]),
+        decisionMaker: persona.decision || pick(locale.decisionMaker[difficulty]),
+      },
+      pains: situation ? [situation] : [],
+      urgency: situation,
+      desire: firstIdea(persona.situation, 12),
+      pastAttempts: "",
+      partnerSituation: persona.decision,
+      moneySituation: persona.money,
+      timeSituation: pick(locale.time[difficulty]),
+      objections: uniqueStrings([held, ...extra]),
+      personalityNotes: persona.speechStyle || "",
+      heldObjection: held,
+      isRealLead,
     },
-    pains: persona.objections.slice(0, 4),
-    urgency: persona.situation,
-    desire: persona.situation,
-    pastAttempts: "",
-    partnerSituation: persona.decision,
-    moneySituation: persona.money,
-    timeSituation: pick(locale.time[difficulty]),
-    objections: persona.objections,
-    personalityNotes: `${persona.speechStyle} Frases típicas: ${persona.typicalLines.join(" / ")}`,
-  };
+    leadType,
+  );
+}
+
+function compositeFromPlaybook(
+  playbook: LeadPlaybook,
+  difficulty: DifficultyLevel,
+  language: LanguageCode,
+): ProspectProfile {
+  const locale = PROSPECT_POOLS[language];
+  const person = pick(locale.people);
+  const bank = uniqueStrings([
+    ...playbook.typicalObjections.map((item) => item.quote),
+    ...playbook.personas.flatMap((persona) => persona.objections),
+  ]);
+  const held = bank[0]
+    ? pick(bank)
+    : pick(locale.objections[difficulty])[0] || "";
+  const rest = bank.filter((item) => item !== held);
+  const extra = difficulty !== "easy" && rest.length ? [pick(rest)] : [];
+  const donor = playbook.personas.length ? pick(playbook.personas) : null;
+  const leadType = resolveType(playbook, donor?.typeName);
+  const situation = firstIdea(
+    leadType?.commonSituation || donor?.situation || playbook.icp,
+    18,
+  );
+  const phrases = uniqueStrings([
+    ...(leadType?.commonPhrases || []),
+    ...playbook.phrases,
+    ...(donor?.typicalLines || []),
+  ]).slice(0, 5);
+
+  return applyType(
+    {
+      name: person.name,
+      age: donor?.age || ageForKind("generic"),
+      occupation:
+        donor?.occupation || pick(locale.occupations[difficulty]),
+      location: donor?.location || pick(locale.locations),
+      qualificationLevel: QUALIFICATION_BY_DIFFICULTY[difficulty],
+      qualificationSummary: pick(locale.qualificationSummary[difficulty]),
+      howTheyKnowTheOffer: pick(locale.awareness[difficulty]),
+      preQualification: {
+        mainGoal: situation || pick(locale.genericGoal(person.name)),
+        currentSituation: situation,
+        timeline: pick(locale.timeline[difficulty]),
+        budgetRange: donor?.money || pick(locale.budget[difficulty]),
+        decisionMaker: donor?.decision || pick(locale.decisionMaker[difficulty]),
+      },
+      pains: situation ? [situation] : painsFor("generic", "la oferta", locale, difficulty),
+      urgency: situation,
+      desire: firstIdea(playbook.buyingTriggers[0] || situation, 12),
+      pastAttempts: "",
+      partnerSituation: donor?.decision || pick(locale.partner[difficulty]),
+      moneySituation: donor?.money || pick(locale.money[difficulty]),
+      timeSituation: pick(locale.time[difficulty]),
+      objections: uniqueStrings([held, ...extra]),
+      personalityNotes: phrases.join(" / "),
+      heldObjection: held,
+      isRealLead: false,
+    },
+    leadType,
+  );
+}
+
+function profileFromReplay(
+  replay: ReplayCall,
+  difficulty: DifficultyLevel,
+  language: LanguageCode,
+  playbook?: LeadPlaybook | null,
+): ProspectProfile {
+  const locale = PROSPECT_POOLS[language];
+  const held =
+    replay.objections.split(/[|;,/]/).map((item) => item.trim()).filter(Boolean)[0] ||
+    replay.leadLines.find((line) =>
+      /caro|precio|plata|dinero|pienso|después|socio|esposa|tiempo|ahora no/i.test(
+        line,
+      ),
+    ) ||
+    replay.leadLines[0] ||
+    "lo voy a pensar";
+  const situation = replay.summary || replay.leadLines[0] || replay.title;
+  const matchedType = playbook
+    ? typesFromPlaybook(playbook).find((item) => {
+        const blob = `${replay.excerpt} ${replay.title}`.toLowerCase();
+        return item.name && blob.includes(item.name.toLowerCase().slice(0, 12));
+      }) || null
+    : null;
+  const leadType = matchedType || resolveType(playbook);
+  return applyType(
+    {
+      name: replay.leadName || pick(locale.people).name,
+      age: 38,
+      occupation: pick(locale.occupations[difficulty]),
+      location: pick(locale.locations),
+      qualificationLevel: QUALIFICATION_BY_DIFFICULTY[difficulty],
+      qualificationSummary:
+        "Esta es la misma persona de una llamada que NO cerró. Mismos hechos, misma resistencia.",
+      howTheyKnowTheOffer: "Ya tuvieron la reunión. Esto es el do-over de esa llamada.",
+      preQualification: {
+        mainGoal: situation,
+        currentSituation: situation,
+        timeline: pick(locale.timeline[difficulty]),
+        budgetRange: pick(locale.budget[difficulty]),
+        decisionMaker: pick(locale.decisionMaker[difficulty]),
+      },
+      pains: [situation],
+      urgency: situation,
+      desire: situation,
+      pastAttempts: "Ya hablaron y no cerró.",
+      partnerSituation: "",
+      moneySituation: "",
+      timeSituation: "",
+      objections: uniqueStrings([held, ...replay.leadLines.slice(0, 3)]),
+      personalityNotes: replay.leadLines.slice(0, 4).join(" / "),
+      heldObjection: held,
+      isRealLead: true,
+    },
+    leadType,
+  );
 }
 
 export function generateProspectProfile(
@@ -85,11 +286,30 @@ export function generateProspectProfile(
   difficulty: DifficultyLevel,
   language: LanguageCode = "es",
   playbook?: LeadPlaybook | null,
+  practiceFocus?: string,
+  replay?: ReplayCall | null,
 ): ProspectProfile {
   const locale = PROSPECT_POOLS[language];
-  if (playbook && isPlaybookReady(playbook) && playbook.personas.length) {
-    const persona = pick(playbook.personas);
-    return personaToProfile(persona, difficulty, locale);
+  if (replay) {
+    return profileFromReplay(replay, difficulty, language, playbook);
+  }
+  if (playbook && isPlaybookReady(playbook)) {
+    const focus = String(practiceFocus || "").trim().toLowerCase();
+    const matched =
+      focus && playbook.personas.length
+        ? playbook.personas.find((persona) => {
+            const name = persona.name.toLowerCase();
+            return (
+              name &&
+              name !== "lead" &&
+              (focus.includes(name) || name.includes(focus))
+            );
+          })
+        : undefined;
+    if (matched) {
+      return personaToProfile(matched, difficulty, locale, true, playbook);
+    }
+    return compositeFromPlaybook(playbook, difficulty, language);
   }
   const kind = inferOfferKind(productName, productDescription);
   const people =
@@ -98,13 +318,14 @@ export function generateProspectProfile(
       : locale.people;
   const person = pick(people.length ? people : locale.people);
   const qualificationLevel = QUALIFICATION_BY_DIFFICULTY[difficulty];
-
   const desirePool =
     kind === "generic"
       ? locale.genericDesire(productName)
       : locale.offerDesire[kind];
   const goalPool =
     kind === "generic" ? locale.genericGoal(productName) : locale.offerGoal[kind];
+  const objections = pick(locale.objections[difficulty]);
+  const pain = painsFor(kind, productName, locale, difficulty);
 
   return {
     name: person.name,
@@ -116,113 +337,144 @@ export function generateProspectProfile(
     howTheyKnowTheOffer: pick(locale.awareness[difficulty]),
     preQualification: {
       mainGoal: pick(goalPool),
-      currentSituation: pick(painsFor(kind, productName, locale, "easy")),
+      currentSituation: pain[0] || "",
       timeline: pick(locale.timeline[difficulty]),
       budgetRange: pick(locale.budget[difficulty]),
       decisionMaker: pick(locale.decisionMaker[difficulty]),
     },
-    pains: painsFor(kind, productName, locale, difficulty),
+    pains: pain,
     urgency: pick(locale.urgency[difficulty]),
     desire: pick(desirePool),
     pastAttempts: pick(locale.pastAttempts[difficulty]),
     partnerSituation: pick(locale.partner[difficulty]),
     moneySituation: pick(locale.money[difficulty]),
     timeSituation: pick(locale.time[difficulty]),
-    objections: pick(locale.objections[difficulty]),
+    objections,
     personalityNotes: pick(locale.personality[difficulty][person.gender]),
+    heldObjection: objections[0] || "",
+    isRealLead: false,
   };
 }
 
-function difficultyBehavior(difficulty: DifficultyLevel): string {
-  switch (difficulty) {
-    case "easy":
-      return `- Eres un lead BIEN CALIFICADO: presupuesto para el plan de entrada, decides (o tu pareja ya está de acuerdo), timeline corto.
-- Colaboras y compartes información con relativa facilidad.
-- Das respuestas de 2-4 oraciones cuando te preguntan bien.
-- Objeciones suaves (qué plan, garantía, cuándo arrancar) que ceden con buenas preguntas.
-- Si el closer conecta la oferta con tu caso, puedes comprar. No regales el cierre en la primera frase, pero tampoco sabotees.`;
-    case "medium":
-      return `- Calificación MIXTA: hay interés real Y un hueco (cuotas, pareja, tiempo o comparas otra opción).
-- Respondes pero a veces de forma vaga hasta que el closer indaga bien.
-- Necesitas 2-3 preguntas profundas antes de abrirte sobre dolores reales.
-- El closer tiene que calificarte: no sueltes presupuesto, decisor y timeline de golpe.
-- Si va muy rápido al pitch, muestras resistencia. Puedes comprar el plan de entrada si anclan tu caso.`;
-    case "hard":
-      return `- Poco calificado o muy escéptico: contexto del producto SÍ; listo para comprar NO.
-- Respuestas cortas al inicio ("sí", "más o menos", "no estoy segura").
-- Solo revelas dolores profundos si el closer hace preguntas excelentes y genera rapport.
-- Objeciones fuertes y recurrentes (precio, pareja que no decide, "ya me quemaron", "no es ahora").
-- Si sientes presión de venta, te cierras o pides posponer.
-- Nunca facilitas el cierre. Puede ser mal fit: el closer debe descubrirlo, no tú anunciarlo.`;
+function talkStyleBehavior(style: TalkStyle | undefined) {
+  switch (style) {
+    case "terse":
+      return `TALK STYLE: terse
+- Short answers, sometimes one clause. Not rude, just economical.
+- You can add a shrug or "no sé" instead of a story.`;
+    case "scattered":
+      return `TALK STYLE: scattered
+- You start answering, then jump to something adjacent that does not help the closer.
+- You do NOT stay silent. You fill space with the wrong topic.
+- Example: they ask how the business is going → you talk about a cousin, a supplier, a week from hell, then maybe one useful crumb.`;
+    case "storyteller":
+      return `TALK STYLE: storyteller
+- You answer with a small story or example from your life/business.
+- The useful fact is buried in the anecdote, not the headline.
+- 2–5 spoken sentences is normal.`;
+    default:
+      return `TALK STYLE: rambler
+- Real buyers ramble. You start on the question, then wander into noise topics.
+- You do NOT dump the sales file (money, decider, real pain) while rambling.
+- You DO say irrelevant or half-relevant stuff: operations, family color, complaints, comparisons that don't matter.
+- 2–4 spoken sentences is normal. Stopping after one perfect sentence is fake.`;
   }
+}
+
+function disclosureBlock(training: TrainingSessionConfig) {
+  const p = training.prospectProfile;
+  const held = p.heldObjection || p.objections[0] || "";
+  const noise = (p.noiseTopics || []).join(" · ") || "anécdotas del día a día";
+  const heldBits =
+    (p.heldRelevant || []).join(" · ") || "dinero real, quién decide, dolor de fondo";
+  return `## Shared type vs what you withhold
+
+This offer's buyers share situation and phrases. You are type: ${p.leadTypeName || "típico de esta oferta"}.
+Shared situation (you may color it, not recite it as a form): ${p.pains[0] || p.preQualification.currentSituation}
+How you say it: ${p.personalityNotes}
+
+NOISE you can volunteer without being asked: ${noise}
+
+RELEVANT — this is what they want. Difficulty decides how locked it is:
+- ${heldBits}
+- Held objection: ${held}
+- Money: ${p.moneySituation || p.preQualification.budgetRange}
+- Who decides: ${p.preQualification.decisionMaker || p.partnerSituation}
+- Real urgency/desire: ${p.urgency} / ${p.desire}
+
+Difficulty ${training.difficulty}:
+${
+  training.difficulty === "easy"
+    ? "- You ramble/talk in your style AND useful crumbs leak if they ask anything decent. Still do not volunteer the full file in turn one."
+    : training.difficulty === "medium"
+      ? "- Plenty of talk. Useful facts only if they ask a specific question and listen. 'Cuéntame de ti' gets noise + one vague line."
+      : "- You can talk a lot. The close-relevant facts stay locked until a precise, human question. Repeating a cliché gets more noise or the same objection, not the truth."
+}`;
+}
+
+function difficultyBehavior(difficulty: DifficultyLevel, style?: TalkStyle): string {
+  const base =
+    difficulty === "easy"
+      ? `- Warm enough to buy the entry offer if they connect it to your case. Never volunteer the yes.`
+      : difficulty === "medium"
+        ? `- Real interest AND one blocker. You do not hand them the blocker.`
+        : `- Skeptical. The close is not a gift. Repeat the held objection if they answer with a cliché.`;
+  return `${base}\n${talkStyleBehavior(style)}`;
 }
 
 function sectionBehavior(
   section: CallSection,
   training: TrainingSessionConfig,
 ): string {
-  const { prospectProfile: p, productName, pitchSummary } = training;
+  const { productName, pitchSummary } = training;
 
   switch (section) {
     case "full":
-      return `MODO: REUNIÓN COMPLETA
-- TÚ agendaste esta reunión sobre "${productName}" (no es una llamada fría).
-- Tienes CONTEXTO del producto: ${p.howTheyKnowTheOffer}
-- No finjas desconocer el tema ni preguntes "¿esto de qué se trata?". Qué tan calificada o lista para comprar estés lo marca tu perfil (dificultad), no la ignorancia del producto.
-- NO hables primero. El closer abre la reunión. Tú solo respondes.
-- No anuncies "agendé la reunión" ni "llené el formulario" a menos que te pregunten.
-- El closer te lleva por descubrimiento → pitch → cierre.
-- NO reveles todos tus dolores de golpe; deja que el closer los descubra con preguntas.
-- Plantea al menos una pregunta u objeción durante la reunión para que pueda practicar 3A.
-- Datos del formulario precalificatorio (solo si indagan):
-  • Meta: ${p.preQualification.mainGoal}
-  • Situación: ${p.preQualification.currentSituation}
-  • Timeline: ${p.preQualification.timeline}
-  • Presupuesto: ${p.preQualification.budgetRange}
-  • Decisor: ${p.preQualification.decisionMaker}`;
+      return `MODE: FULL MEETING
+- You booked this about "${productName}". You are not on a cold call.
+- Do not speak first. Do not announce that you booked it unless asked.
+- Discovery → pitch → close is their job. Yours is to be a real person in the chair.`;
 
     case "discovery":
-      return `MODO: SOLO DESCUBRIMIENTO
-- TÚ agendaste esta reunión sobre "${productName}". Contexto: ${p.howTheyKnowTheOffer}
-- NO hables primero. Espera a que el closer abra.
-- No saludes con "hola, agendé la llamada". Estás en una reunión de calendario, en silencio hasta que hablen.
-- Permite que el closer descubra dolor, deseo y urgencia con preguntas; no los sueltes de golpe.
-- NO pidas precio ni hables de comprar; estás en fase de exploración.
-- Si el closer intenta hacer pitch, responde: "Prefiero entender bien primero si esto es para mí".
-- Formulario precalificatorio (no lo recites):
-  • Meta: ${p.preQualification.mainGoal}
-  • Situación: ${p.preQualification.currentSituation}
-  • Timeline: ${p.preQualification.timeline}`;
+      return `MODE: DISCOVERY ONLY
+- You booked this about "${productName}".
+- Do not speak first. Do not ask for price. Do not ask them to pitch.
+- If they start selling, say you want to see if it even fits.`;
 
     case "pitch":
-      return `MODO: SOLO PITCH
-- Ya están EN la reunión. El descubrimiento YA ocurrió. El closer ya te conoce.
-- NO saludes. NO preguntes de qué se trata. Tú agendaste esto y ya hablaron.
-- El closer retoma para presentarte la oferta. Responde como quien ya está en la conversación.
-- Si el closer vuelve a descubrir en exceso, puedes decir "Creo que ya me conoces, cuéntame del programa".
-- Haz al menos una pregunta trampa o una objeción (precio, tiempo, "lo pienso", pareja) para que practique 3A.
-- Reacciona a la oferta con objeciones acordes a tu dificultad.`;
+      return `MODE: PITCH ONLY
+- Discovery already happened. You are mid-meeting. No greeting.
+- React to the offer. Use the held objection when they get to price or commitment.
+- Do not re-tell your whole story.`;
 
     case "close":
-      return `MODO: SOLO CIERRE
-- Ya están EN la reunión, post-pitch. Ya sabes qué ofrece "${productName}".
-- NO saludes. NO actúes como si acabaras de entrar o no supieras por qué estás aquí.
-- Resumen del pitch que ya conoces:
-${pitchSummary?.trim() || `Programa ${productName}: mentoría/acompañamiento para lograr ${p.preQualification.mainGoal}. Incluye plan de acción, soporte y seguimiento.`}
-- Estás en fase de decisión: puedes comprar, posponer u objetar.
-- Objeta (dinero, tiempo, pareja, "lo pienso"). El closer debe anclar esas objeciones a lo que ya sabe de ti; si responde genérico, no cedes fácil.`;
+      return `MODE: CLOSE ONLY
+- Post-pitch. You already know "${productName}".
+${pitchSummary?.trim() ? `- Pitch you already heard: ${pitchSummary.trim().slice(0, 400)}` : ""}
+- Decision time. Object or stall. If they handle it well, you may move. If they are generic, hold.`;
 
     case "pitch_close":
-      return `MODO: PITCH + CIERRE
-- Ya están EN la reunión. El descubrimiento ya ocurrió; el closer ya te conoce.
-- NO saludes. NO preguntes por qué se reunieron. Tú agendaste la reunión.
-- Perfil ya descubierto (no lo sueltes solo):
-  • Dolores: ${p.pains.join("; ")}
-  • Urgencia: ${p.urgency}
-  • Deseo: ${p.desire}
-- Espera el pitch y luego entra en fase de decisión con objeciones realistas.
-- Plantea objeciones y preguntas para que practique 3A.`;
+      return `MODE: PITCH + CLOSE
+- Mid-meeting. No greeting. Wait for the pitch, then decide.
+- Do not re-open your biography.`;
   }
+}
+
+function antiPatterns(style?: TalkStyle) {
+  const terseOk = style === "terse";
+  return `## Forbidden
+
+BAD: reciting the sales file (money + decider + pain + timeline) in one turn, then asking the closer a coaching question.
+BAD: becoming the interviewer ("¿cuál es tu proceso?", "¿qué más quieres saber?").
+BAD: impersonating a specific uploaded client unless you were told you ARE that person.
+${
+  terseOk
+    ? "For YOU (terse): a short answer is correct. Do not fake a speech."
+    : "BAD: answering with one perfect sentence and going silent. Real people of your type add color, noise, or a side path. The skill is WHAT you mix in, not that you shut up."
+}
+
+GOOD ramble: they ask what you do → you talk about the business AND a side complaint, without naming budget or who decides.
+GOOD hard: lots of words about noise, still hiding the real number.`;
 }
 
 export function buildProspectInstructions(
@@ -234,74 +486,97 @@ export function buildProspectInstructions(
   const lang = getLanguage(training.language);
   const book =
     playbook && isPlaybookReady(playbook)
-      ? compactPlaybookForPrompt(playbook)
+      ? playbook
       : training.leadPlaybook && isPlaybookReady(training.leadPlaybook)
-        ? compactPlaybookForPrompt(training.leadPlaybook)
+        ? training.leadPlaybook
         : null;
+
+  const flavorPhrases = uniqueStrings([
+    ...(book?.phrases || []),
+    ...(p.noiseTopics || []),
+    ...(book?.sampleReplies || []),
+  ]).slice(0, 6);
+  const neverDo = (book?.neverDo || []).slice(0, 6);
+  const talk = book?.howLeadsTalk?.slice(0, 500) || p.personalityNotes;
+  const types = book ? typesFromPlaybook(book) : [];
+
+  const identity =
+    training.practiceKind === "replay" && training.replayCall
+      ? `REPLAY MODE. You ARE ${p.name}, the exact buyer from a real call that DID NOT CLOSE.
+Do not invent a new person. Copy their rhythm and the lines they actually used.
+Held resistance from that call stays. The closer is attempting that call again — not a follow-up weeks later unless they frame it that way.
+Verbatim flavor from that call: ${training.replayCall.leadLines.slice(0, 8).join(" | ") || training.replayCall.excerpt.slice(0, 500)}
+Why it likely died: ${training.replayCall.result || "no cerró"} ${training.replayCall.objections || p.heldObjection || ""}`
+      : p.isRealLead
+        ? `You ARE this specific lead: ${p.name}. Keep their facts. Still withhold relevant info according to difficulty — being them is not dumping their file.`
+        : `COMPOSE MODE. You are a NEW person (${p.name}) built from how buyers of this offer behave. Same types, phrases, and situations. Not a clone of one uploaded name.`;
 
   const playbookBlock = book
     ? `
-## REAL LEADS FROM THIS CLOSER (obey this over generic sales-roleplay tropes)
-- ICP: ${book.icp}
-- How they talk: ${book.howLeadsTalk}
-- Buying triggers: ${book.buyingTriggers.join(" | ")}
-- Typical objections: ${book.typicalObjections.map((item) => `"${item.quote}" (${item.root})`).join(" | ")}
-- Phrases they actually say: ${book.phrases.join(" | ")}
-- Never do: ${book.neverDo.join(" | ")}
-You are ONE of these people. Copy their rhythm, vocabulary, and objections. Do not invent a generic coaching/fitness/fertility lead if that is not this offer.
+## Offer buyer types
+${types.map((item) => `- ${item.name} (${item.talkStyle}): ${item.commonSituation}`).join("\n") || `- ${book.icp}`}
+You are: ${p.leadTypeName || types[0]?.name || "típico"}
+- Rhythm of this offer: ${talk}
+- Shared phrases (use naturally, not as a list): ${flavorPhrases.join(" / ") || "spoken, not a pitch deck"}
+- Do not: ${neverDo.join(" | ") || "sound like a salesperson or an AI coach"}
+${identity}
 `
-    : "";
+    : `
+## Identity
+${identity}
+`;
 
-  return `You are a PROSPECT in a sales MEETING roleplay (a booked calendar meeting, not a cold call). You are NOT an AI assistant, NOT a coach, NOT an interviewer.
-Your job is to BEHAVE like a real buyer so the closer can practice. ALWAYS respond in ${lang.promptName}.
+  return `You are the BUYER in a booked sales meeting roleplay. Not an AI, not a coach, not an interviewer.
+Always speak ${lang.promptName}. Spoken, messy, human.
 ${playbookBlock}
 
-## Your identity
-- Name: ${p.name}, ${p.age} years old
-- Occupation: ${p.occupation}
-- Location: ${p.location}
-- Personality: ${p.personalityNotes}
+## Who you are
+- ${p.name}, ${p.age}, ${p.occupation}, ${p.location}
 
-## Product being sold to you
-- Name: ${training.productName}
-- Description: ${training.productDescription}
+## What they are selling
+- ${training.productName}
+- ${training.productDescription}
 
-## Qualification this round (${p.qualificationLevel})
-- ${p.qualificationSummary}
-- How you know the offer: ${p.howTheyKnowTheOffer}
+${disclosureBlock(training)}
 
-## Your internal context (DO NOT reveal everything at once)
-- Pains: ${p.pains.join(" | ")}
-- Urgency: ${p.urgency}
-- Desire: ${p.desire}
-- Past attempts: ${p.pastAttempts}
-- Partner: ${p.partnerSituation}
-- Money: ${p.moneySituation}
-- Time: ${p.timeSituation}
-- Likely objections: ${p.objections.join(" | ")}
+## Difficulty + type
+${difficultyBehavior(training.difficulty, p.talkStyle)}
 
-## Difficulty: ${training.difficulty}
-${difficultyBehavior(training.difficulty)}
-
-## Practice section
+## Meeting mode
 ${sectionBehavior(training.callSection, training)}
+${
+  training.practiceFocus?.trim()
+    ? `
+## Coach objective
+Steer toward this situation without dumping it on turn one: "${training.practiceFocus.trim()}".
+`
+    : ""
+}
 
-## Behavior rules
-1. You are the BUYER. Speak in STATEMENTS about your life, money, doubts, and story. Do not interview the closer.
-2. Almost never ask the closer a question. If you ask one, it is a buying/skeptic question ("¿y si no me funciona?", "¿puedo hablarlo con mi pareja?"), never a coaching question.
-3. Do NOT ask "¿qué más quieres saber?", "¿en qué te puedo ayudar?", "¿cuál es tu proceso?". That is the closer's job.
-4. Voice: 1-5 sentences, natural, fillers, interruptions, "o sea", "mira", "la verdad".
-5. NEVER give sales advice or evaluate the closer during the meeting.
-6. NEVER say you are AI or a simulator.
-7. If the closer asks well, open up. If they pitch early or sound scripted, get colder or change the subject to YOUR problem.
-8. The closer is "${closerName}" only if they introduce themselves.
-9. Stay consistent with your profile throughout the meeting.
-10. Language: ${lang.nativeName} only.
-11. YOU booked this meeting. You already know roughly what the offer is about. NEVER ask "what is this about?".
-12. Buying readiness follows difficulty. Do not gift the close on the first line.
-13. NEVER speak first. Wait for the closer to open.
-14. Object like the real leads above: money, time, partner, trust, timing. Repeat the objection if they answer with a cliché.
-15. Useful training = they have to chase YOUR case, not answer YOUR questions.`;
+${antiPatterns(p.talkStyle)}
+${
+  training.practiceKind === "replay" && training.replayCall
+    ? `
+## Previous failed call (private memory — do not recap it as a monologue)
+Title: ${training.replayCall.title}
+Excerpt: ${training.replayCall.excerpt.slice(0, 1800)}
+Stay in character as that buyer. If they handle the old objection well, you may soften. If they repeat the same pitch, hold.
+`
+    : ""
+}
+
+## Rules
+1. You are the buyer. You are not running the meeting.
+2. Buyer questions only when they try to close ("¿y si no funciona?", "¿lo hablo con mi socio?"). Never coaching questions.
+3. Length follows YOUR talk style, not a global mute button. Terse stays short. Ramblers/storytellers/scattered talk.
+4. What you withhold is the relevant close-info, not speech itself.
+5. Never coach, never evaluate, never say you are a simulation.
+6. If they pitch early or sound scripted, get colder or wander.
+7. Name "${closerName}" only if they introduced themselves.
+8. You already know what this meeting is about. Never ask "what is this?".
+9. Do not speak first.
+10. Hold your one real objection. Repeat it if they answer with a cliché.
+11. Language: ${lang.nativeName} only.`;
 }
 
 export function shouldShowProspectBrief(section: CallSection): boolean {
@@ -310,4 +585,26 @@ export function shouldShowProspectBrief(section: CallSection): boolean {
 
 export function requiresPitchSummary(section: CallSection): boolean {
   return section === "close";
+}
+
+export function maxTokensForProspect(
+  difficulty: DifficultyLevel,
+  talkStyle?: TalkStyle,
+) {
+  const ramble =
+    talkStyle === "rambler" ||
+    talkStyle === "storyteller" ||
+    talkStyle === "scattered";
+  if (ramble) {
+    if (difficulty === "hard") return 320;
+    if (difficulty === "medium") return 380;
+    return 420;
+  }
+  if (difficulty === "hard") return 160;
+  if (difficulty === "medium") return 220;
+  return 260;
+}
+
+export function maxTokensForDifficulty(difficulty: DifficultyLevel) {
+  return maxTokensForProspect(difficulty);
 }

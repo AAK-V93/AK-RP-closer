@@ -84,7 +84,7 @@ export type CoachThreadPayload = {
 };
 
 export function isCoachThreadSection(section: string) {
-  return section === COACH_THREAD_SECTION;
+  return section === COACH_THREAD_SECTION || section === "hub_thread";
 }
 
 export function parseCoachThread(evaluation: unknown): CoachThreadPayload {

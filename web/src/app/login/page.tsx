@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 
 function safeCallbackUrl(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/setup";
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
   return raw;
 }
 
@@ -23,10 +23,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
-  const [callbackUrl, setCallbackUrl] = useState("/setup");
-  const [fromCustomOffer, setFromCustomOffer] = useState(false);
-  const [fromFreeUsed, setFromFreeUsed] = useState(false);
-  const [fromQcUsed, setFromQcUsed] = useState(false);
+  const [callbackUrl, setCallbackUrl] = useState("/");
 
   useEffect(() => {
     fetch("/api/config")
@@ -41,9 +38,6 @@ export default function LoginPage() {
     const params = new URLSearchParams(window.location.search);
     setCallbackUrl(safeCallbackUrl(params.get("callbackUrl") || params.get("next")));
     if (params.get("mode") === "register") setMode("register");
-    if (params.get("reason") === "custom-offer") setFromCustomOffer(true);
-    if (params.get("reason") === "free-used") setFromFreeUsed(true);
-    if (params.get("reason") === "qc-used") setFromQcUsed(true);
     const hadQueryError = Boolean(params.get("error") || params.get("e"));
     const hadCookie = document.cookie.includes("closer_auth_error=1");
     if (hadCookie || hadQueryError) {
@@ -119,13 +113,7 @@ export default function LoginPage() {
               {mode === "login" ? "Entrar" : "Crear cuenta"}
             </h1>
             <p className="text-xs text-fg3 mt-1">
-              {fromQcUsed
-                ? "Ya usaste tu reporte gratis. Crea una cuenta para auditar más llamadas reales."
-                : fromFreeUsed
-                ? "Ya usaste tu práctica gratis. Crea una cuenta para seguir practicando y guardar tus reportes."
-                : fromCustomOffer
-                ? "Para practicar tu propia oferta, crea una cuenta. Luego volvemos a la práctica."
-                : "Google confirma que el email es tuyo. Guardamos las prácticas para el coaching."}
+              Google confirma que el email es tuyo. Guardamos las prácticas para el coaching.
             </p>
           </div>
 

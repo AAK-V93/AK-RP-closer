@@ -3,6 +3,11 @@ import { Prisma } from "@prisma/client";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { extractLeadPlaybook } from "@/lib/lead-playbook";
 import { getWorkspace } from "@/lib/workspace";
+import { persistCommissionRule } from "@/lib/commission";
+import {
+  parseCommercial,
+  type OfferCommercial,
+} from "@/lib/offer-commercial";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -18,6 +23,7 @@ export async function POST(request: Request) {
       productDescription?: string;
       pitchSummary?: string;
       includeFathom?: boolean;
+      commercial?: Partial<OfferCommercial>;
     };
     const productName = body.productName?.trim() || "";
     const productDescription = body.productDescription?.trim() || "";
@@ -38,6 +44,10 @@ export async function POST(request: Request) {
         ? body.includeFathom
         : existingCount === 0;
 
+    const commercial = body.commercial
+      ? parseCommercial(body.commercial)
+      : undefined;
+
     let offer;
     if (body.id) {
       const owned = await auth.prisma.userOffer.findFirst({
@@ -46,6 +56,19 @@ export async function POST(request: Request) {
       if (!owned) {
         return NextResponse.json({ error: "Oferta no encontrada" }, { status: 404 });
       }
+      if (commercial) {
+        const ownedScripts = parseCommercial(owned.commercial).scripts;
+        const originByKey = new Map(
+          ownedScripts.map((row) => [row.key, row.originId]),
+        );
+        commercial.scripts = commercial.scripts.map((row) => ({
+          ...row,
+          originId: row.originId || originByKey.get(row.key),
+        }));
+        if (!commercial.scripts.length && ownedScripts.length) {
+          commercial.scripts = ownedScripts;
+        }
+      }
       offer = await auth.prisma.userOffer.update({
         where: { id: owned.id },
         data: {
@@ -53,6 +76,9 @@ export async function POST(request: Request) {
           productDescription,
           pitchSummary,
           includeFathom,
+          ...(commercial
+            ? { commercial: commercial as unknown as Prisma.InputJsonValue }
+            : {}),
         },
       });
     } else {
@@ -63,17 +89,24 @@ export async function POST(request: Request) {
           productDescription,
           pitchSummary,
           includeFathom,
+          ...(commercial
+            ? { commercial: commercial as unknown as Prisma.InputJsonValue }
+            : {}),
         },
       });
     }
 
     const workspace = await getWorkspace(auth.prisma, auth.userId, offer.id);
+    if (commercial?.commission) {
+      await persistCommissionRule(auth.prisma, auth.userId, offer.id, commercial.commission);
+    }
     if (workspace.corpus.length > 0) {
       try {
         const playbook = await extractLeadPlaybook({
           productName,
           productDescription,
           transcripts: workspace.corpus,
+          existing: workspace.playbook,
         });
         await auth.prisma.userOffer.update({
           where: { id: offer.id },
@@ -89,6 +122,7 @@ export async function POST(request: Request) {
       offer: next.offer,
       offers: next.offers,
       ready: next.ready,
+      readyCrm: next.readyCrm,
       playbookReady: next.playbookReady,
       transcriptCount: next.transcriptCount,
     });

@@ -11,6 +11,7 @@ import {
 import { Track } from "livekit-client";
 import { Phone, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatClock } from "@/lib/call-timing";
 
 type TranscriptEntry = {
   role: "closer" | "prospect";
@@ -23,6 +24,8 @@ interface CallSessionViewProps {
   prospectName: string;
   isActive: boolean;
   isConnecting?: boolean;
+  elapsedSec?: number;
+  goalMin?: number | null;
 }
 
 const STATE_LABELS: Record<string, string> = {
@@ -40,6 +43,8 @@ export function CallSessionView({
   prospectName,
   isActive,
   isConnecting = false,
+  elapsedSec = 0,
+  goalMin = null,
 }: CallSessionViewProps) {
   const { audioTrack } = useVoiceAssistant();
   const volume = useTrackVolume(audioTrack);
@@ -127,6 +132,17 @@ export function CallSessionView({
           <p className="text-xs text-fg3">
             {isActive || isConnecting ? stateLabel : "Listo para practicar"}
           </p>
+          {isActive && (
+            <p
+              className={cn(
+                "text-lg font-mono tabular-nums mt-1",
+                goalMin && elapsedSec > goalMin * 60 ? "text-destructive" : "text-fg1",
+              )}
+            >
+              {formatClock(elapsedSec)}
+              {goalMin ? ` / ${goalMin}:00` : ""}
+            </p>
+          )}
         </div>
 
         {isConnecting && (

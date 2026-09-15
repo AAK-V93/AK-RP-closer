@@ -3,10 +3,12 @@
 import { useCallback, useState } from "react";
 import { CallEvaluation } from "@/data/evaluation";
 import { ProspectProfile } from "@/data/training-session";
+import type { TimeGoal } from "@/lib/call-timing";
 
 export type TranscriptLine = {
   role: "closer" | "prospect";
   text: string;
+  t?: number;
 };
 
 export function useCallEvaluation() {
@@ -24,6 +26,8 @@ export function useCallEvaluation() {
         language: string;
         prospectProfile?: ProspectProfile;
         pitchSummary?: string;
+        durationSec?: number;
+        timeGoal?: TimeGoal | null;
       },
     ) => {
       if (transcript.length < 2) {
@@ -48,6 +52,8 @@ export function useCallEvaluation() {
             language: meta.language,
             prospectProfile: meta.prospectProfile,
             pitchSummary: meta.pitchSummary,
+            durationSec: meta.durationSec,
+            timeGoal: meta.timeGoal,
           }),
         });
 

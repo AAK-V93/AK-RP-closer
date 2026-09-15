@@ -14,12 +14,21 @@ model User {
   name         String?
   passwordHash String?
   createdAt    DateTime          @default(now())
+  crmPrefs     Json              @default("{}")
+  calendarRefreshEnc String      @default("")
+  calendarSyncedAt   DateTime?
   sessions     PracticeSession[]
   coachProfile CoachProfile?
   fathomConnection FathomConnection?
   fathomRecordings FathomRecording[]
   offers       UserOffer[]
   transcripts  ClientTranscript[]
+  leads        Lead[]
+  leadAlerts   LeadAlert[]
+  commissionRules CommissionRule[]
+  commissions  Commission[]
+  followupPacks FollowupPack[]
+  followupStars FollowupStar[]
 }
 
 model CoachProfile {
@@ -38,11 +47,13 @@ model CoachMessage {
   id        String       @id @default(cuid())
   profileId String
   profile   CoachProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  thread    String       @default("coach")
   role      String
   content   String
   createdAt DateTime     @default(now())
 
   @@index([profileId, createdAt])
+  @@index([profileId, thread, createdAt])
 }
 
 model PracticeSession {
@@ -62,20 +73,6 @@ model PracticeSession {
   scored          Boolean  @default(false)
 
   @@index([userId, createdAt])
-}
-
-model GuestFreePractice {
-  id            String    @id @default(cuid())
-  cookieId      String    @unique
-  ipHash        String
-  startCount    Int       @default(0)
-  completedAt   DateTime?
-  qcStartCount  Int       @default(0)
-  qcCompletedAt DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  @@index([ipHash])
 }
 
 model FathomConnection {
@@ -117,10 +114,12 @@ model UserOffer {
   productDescription String
   pitchSummary       String             @default("")
   playbook           Json               @default("{}")
+  commercial         Json               @default("{}")
   includeFathom      Boolean            @default(false)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   transcripts        ClientTranscript[]
+  commissionRules    CommissionRule[]
 
   @@index([userId, updatedAt])
 }
@@ -138,4 +137,167 @@ model ClientTranscript {
 
   @@index([userId, createdAt])
   @@index([offerId])
+}
+
+model CallRecord {
+  id                String    @id @default(cuid())
+  userId            String
+  source            String
+  sourceId          String    @default("")
+  title             String
+  callType          String    @default("")
+  result            String    @default("")
+  leadName          String    @default("")
+  offerName         String    @default("")
+  trainsBot         Boolean   @default(false)
+  recordedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  summary           String    @default("")
+  filingStatus      String    @default("confirmed")
+  filingJson        Json      @default("{}")
+  confirmedAt       DateTime?
+  practiceSessionId String?
+  estadoAgenda      String    @default("")
+  ventaTotal        Float?
+  cashCollected     Float?
+  saldoPendiente    Float?
+  modoPago          String    @default("")
+
+  @@unique([userId, source, sourceId])
+  @@index([userId, recordedAt])
+  @@index([userId, estadoAgenda])
+}
+
+model Lead {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  company       String      @default("")
+  offerName     String      @default("")
+  status        String      @default("nuevo")
+  lastSummary   String      @default("")
+  nextStep      String      @default("")
+  nextStepAt    DateTime?
+  objections    String      @default("")
+  amountTalked  String      @default("")
+  amountPaid    String      @default("")
+  decider       String      @default("")
+  telefono      String      @default("")
+  email         String      @default("")
+  canalContacto String      @default("")
+  calificado    Boolean?
+  razonNoCierre String      @default("")
+  etapaPerdida  String      @default("")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  alerts        LeadAlert[]
+  commissions   Commission[]
+
+  @@index([userId, updatedAt])
+}
+
+model LeadAlert {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId           String
+  lead             Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type             String
+  question         String
+  dueAt            DateTime
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  enJuego          Float     @default(0)
+  canal            String    @default("WHATSAPP")
+  mensajeSugerido  String    @default("")
+  contexto         String    @default("")
+  resultado        String    @default("")
+  resultadoNota    String    @default("")
+  intentos         Int       @default(0)
+  callRecordId     String?
+  libraryScriptId  String    @default("")
+
+  @@index([userId, dueAt])
+}
+
+model CommissionRule {
+  id                   String     @id @default(cuid())
+  userId               String
+  user                 User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offerId              String?
+  offer                UserOffer? @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  pctBase              Float      @default(0.03)
+  umbralAcumuladoUsd   Float      @default(70000)
+  pctSobreUmbral       Float      @default(0.05)
+  base                 String     @default("cash_collected")
+  periodoAcumulacion   String     @default("mensual")
+
+  @@index([userId])
+}
+
+model Commission {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId       String?
+  lead         Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  callRecordId String    @default("")
+  fecha        DateTime  @default(now())
+  oferta       String    @default("")
+  venta        Float     @default(0)
+  cash         Float     @default(0)
+  pctAplicado  Float     @default(0)
+  generada     Float     @default(0)
+  cobrada      Float     @default(0)
+  fechaCobro   DateTime?
+  estado       String    @default("PENDIENTE")
+
+  @@index([userId, fecha])
+}
+
+model FollowupPack {
+  id          String                  @id @default(cuid())
+  userId      String
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String                  @default("")
+  tags        String                  @default("")
+  visibility  String                  @default("public")
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  scripts     FollowupLibraryScript[]
+  stars       FollowupStar[]
+
+  @@index([visibility, updatedAt])
+}
+
+model FollowupLibraryScript {
+  id            String       @id @default(cuid())
+  packId        String
+  pack          FollowupPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+  key           String       @default("")
+  type          String
+  intentosMin   Int          @default(0)
+  canal         String       @default("WHATSAPP")
+  recomendacion String       @default("")
+  guion         String
+  asset         String       @default("")
+  uses          Int          @default(0)
+  hechos        Int          @default(0)
+  cierres       Int          @default(0)
+  perdidos      Int          @default(0)
+
+  @@index([packId])
+}
+
+model FollowupStar {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packId    String
+  pack      FollowupPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+
+  @@unique([userId, packId])
 }

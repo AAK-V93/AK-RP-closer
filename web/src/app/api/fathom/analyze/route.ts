@@ -15,6 +15,7 @@ import {
   isUsableTranscript,
   parseImportSince,
 } from "@/lib/fathom-import";
+import { fileCallQuietly } from "@/lib/file-call";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -88,6 +89,13 @@ export async function POST() {
         where: { id: pending.id },
         data: { practiceSessionId: sessionId, title },
       });
+      void fileCallQuietly(prisma, userId, {
+        source: "fathom",
+        sourceId: pending.id,
+        title,
+        transcript: pending.transcriptText,
+        recordedAt: pending.recordedAt,
+      });
 
       const remaining = await prisma.fathomRecording.count({
         where: pendingAnalyzeWhere(userId, importSince),
@@ -120,6 +128,13 @@ export async function POST() {
         await prisma.fathomRecording.update({
           where: { id: pending.id },
           data: { practiceSessionId: sessionId, title },
+        });
+        void fileCallQuietly(prisma, userId, {
+          source: "fathom",
+          sourceId: pending.id,
+          title,
+          transcript: pending.transcriptText,
+          recordedAt: pending.recordedAt,
         });
         const remaining = await prisma.fathomRecording.count({
           where: pendingAnalyzeWhere(userId, importSince),
@@ -155,6 +170,13 @@ export async function POST() {
         await prisma.fathomRecording.update({
           where: { id: pending.id },
           data: { practiceSessionId: sessionId, title },
+        });
+        void fileCallQuietly(prisma, userId, {
+          source: "fathom",
+          sourceId: pending.id,
+          title,
+          transcript: pending.transcriptText,
+          recordedAt: pending.recordedAt,
         });
         const remaining = await prisma.fathomRecording.count({
           where: pendingAnalyzeWhere(userId, importSince),

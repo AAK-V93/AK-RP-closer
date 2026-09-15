@@ -7,11 +7,6 @@ import {
   saveQcPracticeSession,
 } from "@/lib/qc-report-service";
 import { parseCallTranscript } from "@/lib/parse-transcript";
-import {
-  FREE_QC_USED_CODE,
-  assertGuestCanRunQc,
-  markGuestQcCompleted,
-} from "@/lib/guest-practice";
 import type { QcCallReport } from "@/data/qc-report";
 
 export const runtime = "nodejs";
@@ -21,25 +16,35 @@ export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
-      const gate = await assertGuestCanRunQc(request);
-      if (!gate.ok) {
-        return NextResponse.json(
-          {
-            error:
-              "Ya usaste tu reporte gratis. Crea una cuenta para auditar más llamadas.",
-            code: FREE_QC_USED_CODE,
-          },
-          { status: 403 },
-        );
-      }
+      return NextResponse.json({ error: "Inicia sesión" }, { status: 401 });
     }
 
     const body = (await request.json()) as {
       transcript?: string;
       closerName?: string;
       productName?: string;
+      uploadId?: string;
     };
-    const raw = body.transcript?.trim() || "";
+
+    let raw = body.transcript?.trim() || "";
+    let uploadId = body.uploadId?.trim() || "";
+    const dbUserId = session?.user?.id;
+    const prisma = getPrisma();
+
+    if (uploadId) {
+      if (!dbUserId || !prisma) {
+        return NextResponse.json({ error: "Inicia sesión" }, { status: 401 });
+      }
+      const upload = await prisma.clientTranscript.findFirst({
+        where: { id: uploadId, userId: dbUserId },
+      });
+      if (!upload) {
+        return NextResponse.json({ error: "Llamada no encontrada" }, { status: 404 });
+      }
+      raw = upload.transcriptText;
+      if (!body.productName) body.productName = upload.title;
+    }
+
     if (raw.length < 200) {
       return NextResponse.json(
         { error: "Pega una transcripción más larga (mínimo unas cuantas intervenciones)." },
@@ -78,34 +83,37 @@ export async function POST(request: Request) {
     }
 
     let saved = false;
-    const dbUserId = session?.user?.id;
-    const prisma = getPrisma();
+    let sessionId: string | null = null;
     if (dbUserId && prisma) {
       try {
-        await saveQcPracticeSession(prisma, dbUserId, {
+        sessionId = await saveQcPracticeSession(prisma, dbUserId, {
           report,
           lines: parsed.lines,
           productName: body.productName,
         });
         saved = true;
+        if (uploadId) {
+          try {
+            await prisma.callRecord.updateMany({
+              where: { userId: dbUserId, source: "upload", sourceId: uploadId },
+              data: { practiceSessionId: sessionId },
+            });
+          } catch {
+            /* CallRecord columns may still be migrating */
+          }
+        }
       } catch (saveError) {
         console.error("Could not save QC report", saveError);
       }
     }
 
-    let freeQcUsed = false;
-    if (!dbUserId) {
-      try {
-        await markGuestQcCompleted(request);
-        freeQcUsed = true;
-      } catch (guestError) {
-        console.error("Could not mark free QC", guestError);
-      }
-    }
-
-    return NextResponse.json({ ...report, saved, freeQcUsed } as QcCallReport & {
+    return NextResponse.json({
+      ...report,
+      saved,
+      sessionId,
+    } as QcCallReport & {
       saved: boolean;
-      freeQcUsed: boolean;
+      sessionId: string | null;
     });
   } catch (error) {
     return NextResponse.json(

@@ -4,6 +4,7 @@ import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { extractLeadPlaybook } from "@/lib/lead-playbook";
 import { getWorkspace } from "@/lib/workspace";
 import { isUsableTranscript } from "@/lib/fathom-import";
+import { fileCallQuietly } from "@/lib/file-call";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
       if (file.size > MAX_BYTES) continue;
       const text = await readTranscriptFile(file);
       if (!isUsableTranscript(text)) continue;
-      await auth.prisma.clientTranscript.create({
+      const created = await auth.prisma.clientTranscript.create({
         data: {
           userId: auth.userId,
           offerId,
@@ -54,11 +55,18 @@ export async function POST(request: Request) {
           transcriptText: text.slice(0, 200_000),
         },
       });
+      void fileCallQuietly(auth.prisma, auth.userId, {
+        source: "upload",
+        sourceId: created.id,
+        title: created.title,
+        transcript: created.transcriptText,
+        recordedAt: created.createdAt,
+      });
       saved += 1;
     }
 
     if (pasted.length >= 80) {
-      await auth.prisma.clientTranscript.create({
+      const pastedRow = await auth.prisma.clientTranscript.create({
         data: {
           userId: auth.userId,
           offerId,
@@ -66,6 +74,13 @@ export async function POST(request: Request) {
           title: `Pegado ${new Date().toLocaleDateString("es")}`,
           transcriptText: pasted.slice(0, 200_000),
         },
+      });
+      void fileCallQuietly(auth.prisma, auth.userId, {
+        source: "upload",
+        sourceId: pastedRow.id,
+        title: pastedRow.title,
+        transcript: pastedRow.transcriptText,
+        recordedAt: pastedRow.createdAt,
       });
       saved += 1;
     }
@@ -84,6 +99,7 @@ export async function POST(request: Request) {
           productName: workspace.offer.productName,
           productDescription: workspace.offer.productDescription,
           transcripts: workspace.corpus,
+          existing: workspace.playbook,
         });
         await auth.prisma.userOffer.update({
           where: { id: workspace.offer.id },

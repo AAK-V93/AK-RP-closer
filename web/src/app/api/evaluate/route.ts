@@ -14,7 +14,11 @@ import { authOptions } from "@/lib/auth";
 import { getPrisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { generateGeminiJson } from "@/lib/gemini";
-import { markGuestPracticeCompleted } from "@/lib/guest-practice";
+import {
+  buildCallTiming,
+  parsePhaseSpans,
+  type TimeGoal,
+} from "@/lib/call-timing";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
@@ -25,6 +29,7 @@ export const maxDuration = 300;
 interface TranscriptLine {
   role: "closer" | "prospect";
   text: string;
+  t?: number;
 }
 
 interface EvaluateRequest {
@@ -36,6 +41,8 @@ interface EvaluateRequest {
   language?: LanguageCode;
   prospectProfile?: ProspectProfile;
   pitchSummary?: string;
+  durationSec?: number;
+  timeGoal?: TimeGoal | null;
 }
 
 function formatKnownDiscovery(profile?: ProspectProfile, pitchSummary?: string) {
@@ -73,6 +80,8 @@ export async function POST(request: Request) {
       language: bodyLanguage,
       prospectProfile: bodyProfile,
       pitchSummary: bodyPitch,
+      durationSec: bodyDuration,
+      timeGoal: bodyGoal,
     } = body;
 
     const db = await authedDb();
@@ -160,7 +169,11 @@ export async function POST(request: Request) {
       .join("\n");
 
     const transcriptText = transcript
-      .map((line) => `${line.role === "closer" ? "CLOSER" : "PROSPECTO"}: ${line.text}`)
+      .map((line) => {
+        const stamp =
+          typeof line.t === "number" ? `[${Math.round(line.t)}s] ` : "";
+        return `${stamp}${line.role === "closer" ? "CLOSER" : "PROSPECTO"}: ${line.text}`;
+      })
       .join("\n");
 
     const lang = getLanguage(language ?? "es");
@@ -229,8 +242,14 @@ Responde ÚNICAMENTE JSON válido:
   ],
   "strengths": ["..."],
   "improvements": ["..."],
-  "coachingTips": ["3-5 consejos accionables"]
+  "coachingTips": ["3-5 consejos accionables"],
+  "phaseSpans": [
+    {"phase":"discovery|pitch|close|other","startSec":0,"endSec":120}
+  ]
 }
+
+Marca phaseSpans con tiempos en segundos según las marcas [Ns] de la transcripción. Si el modo era solo una parte, igual etiqueta lo que realmente ocurrió.
+Si no hay timestamps, estima por el orden del diálogo.
 
 Reglas:
 - overallScore = promedio de los criterios listados × 10.
@@ -255,7 +274,16 @@ Reglas:
       );
     }
 
-    const parsed: CallEvaluation = JSON.parse(text);
+    const parsed: CallEvaluation & { phaseSpans?: unknown } = JSON.parse(text);
+    const lastStamp = transcript.reduce((max, line) => {
+      return typeof line.t === "number" && line.t > max ? line.t : max;
+    }, 0);
+    const timing = buildCallTiming({
+      totalSec: Number(bodyDuration) > 0 ? Number(bodyDuration) : lastStamp,
+      intended: callSection || "full",
+      spans: parsePhaseSpans(parsed.phaseSpans),
+      goal: bodyGoal,
+    });
     const evaluation: CallEvaluation = {
       ...parsed,
       prospectFile: parsed.prospectFile ?? null,
@@ -266,6 +294,7 @@ Reglas:
       coachingTips: parsed.coachingTips ?? [],
       criteria: parsed.criteria ?? [],
       outcomeSummary: parsed.outcomeSummary ?? "",
+      timing,
     };
 
     let saved = Boolean(existingId);
@@ -289,17 +318,11 @@ Reglas:
       }
     }
 
-    let freePracticeUsed = false;
-    if (!db) {
-      try {
-        await markGuestPracticeCompleted(request);
-        freePracticeUsed = true;
-      } catch (guestError) {
-        console.error("Could not mark free practice", guestError);
-      }
-    }
-
-    return NextResponse.json({ ...evaluation, saved, freePracticeUsed });
+    return NextResponse.json({
+      ...evaluation,
+      saved,
+      sessionId: existingId,
+    });
   } catch (error) {
     return NextResponse.json(
       {

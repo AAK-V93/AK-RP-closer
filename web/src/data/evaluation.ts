@@ -1,3 +1,5 @@
+import type { CallTiming } from "@/lib/call-timing";
+
 export interface CriterionScore {
   id: string;
   label: string;
@@ -40,6 +42,7 @@ export interface CallEvaluation {
   strengths: string[];
   improvements: string[];
   coachingTips: string[];
+  timing?: CallTiming;
   saved?: boolean;
-  freePracticeUsed?: boolean;
+  sessionId?: string | null;
 }

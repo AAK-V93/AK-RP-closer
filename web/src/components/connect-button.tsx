@@ -8,7 +8,6 @@ import { Loader2, PhoneCall } from "lucide-react";
 import { useTraining } from "@/hooks/use-training-state";
 import { toast } from "@/hooks/use-toast";
 import { useSession } from "next-auth/react";
-import { FREE_USED_CODE } from "@/lib/guest-practice-client";
 
 export function ConnectButton() {
   const { connect, shouldConnect, isConnecting } = useConnection();
@@ -20,18 +19,18 @@ export function ConnectButton() {
 
   const handleConnect = async () => {
     if (status === "unauthenticated") {
-      router.push("/login?mode=register&callbackUrl=/setup");
+      router.push("/login?mode=register&callbackUrl=/ofertas");
       return;
     }
     if (!training.productName.trim()) {
-      router.push("/setup");
+      router.push("/ofertas");
       return;
     }
 
     const validationError = helpers.validateTraining(training);
     if (validationError) {
       toast({
-        title: "Configuración incompleta",
+        title: "Falta la oferta",
         description: validationError,
         variant: "destructive",
       });
@@ -46,8 +45,8 @@ export function ConnectButton() {
         error && typeof error === "object" && "code" in error
           ? String((error as { code?: string }).code)
           : "";
-      if (code === FREE_USED_CODE || code === "SETUP_REQUIRED") {
-        router.push("/setup");
+      if (code === "SETUP_REQUIRED") {
+        router.push("/ofertas");
         return;
       }
       toast({

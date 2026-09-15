@@ -1,16 +1,18 @@
-import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { generateGeminiJson } from "@/lib/gemini";
 import { CLOSER_COACH_SYSTEM_PROMPT } from "@/lib/closer-coach-prompt";
 import {
-  COACH_THREAD_SECTION,
   compactTrainingEvidence,
-  defaultCoachNotes,
   mergeCoachNotes,
-  parseCoachThread,
-  type CoachChatLine,
-  type CoachThreadPayload,
+  type CoachNotes,
 } from "@/lib/closer-coach";
+import {
+  THREAD_COACH,
+  appendThreadLines,
+  evidenceSessionFilter,
+  loadThread,
+  saveCoachNotes,
+} from "@/lib/chat-threads";
 
 function parseModelJson(text: string) {
   const cleaned = text
@@ -22,67 +24,14 @@ function parseModelJson(text: string) {
   return JSON.parse(cleaned);
 }
 
-function newLine(role: CoachChatLine["role"], content: string): CoachChatLine {
+export async function getCoachThread(prisma: PrismaClient, userId: string) {
+  const loaded = await loadThread(prisma, userId, THREAD_COACH);
   return {
-    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    content,
-    createdAt: new Date().toISOString(),
+    level: loaded.notes.level,
+    niche: loaded.notes.niche,
+    notes: loaded.notes,
+    messages: loaded.messages,
   };
-}
-
-export async function getOrCreateCoachThread(
-  prisma: PrismaClient,
-  userId: string,
-) {
-  const existing = await prisma.practiceSession.findFirst({
-    where: { userId, callSection: COACH_THREAD_SECTION },
-    orderBy: { createdAt: "asc" },
-  });
-  if (existing) {
-    return { row: existing, payload: parseCoachThread(existing.evaluation) };
-  }
-
-  const payload: CoachThreadPayload = {
-    kind: "coach_thread",
-    notes: defaultCoachNotes(),
-    messages: [],
-  };
-  const row = await prisma.practiceSession.create({
-    data: {
-      userId,
-      callSection: COACH_THREAD_SECTION,
-      productName: "Coach high-ticket",
-      difficulty: "coach",
-      language: "es",
-      overallScore: 0,
-      outcomeSummary: "",
-      transcript: [],
-      evaluation: payload as unknown as Prisma.InputJsonValue,
-      criterionScores: [],
-      scored: false,
-    },
-  });
-  return { row, payload };
-}
-
-async function saveCoachThread(
-  prisma: PrismaClient,
-  rowId: string,
-  payload: CoachThreadPayload,
-) {
-  const notes = payload.notes;
-  await prisma.practiceSession.update({
-    where: { id: rowId },
-    data: {
-      overallScore: notes.level,
-      outcomeSummary: notes.nextSkill.slice(0, 280),
-      evaluation: {
-        ...payload,
-        messages: payload.messages.slice(-80),
-      } as unknown as Prisma.InputJsonValue,
-    },
-  });
 }
 
 export async function runCoachTurn(
@@ -94,18 +43,17 @@ export async function runCoachTurn(
     evidenceLimit?: number;
   },
 ) {
-  const [{ row, payload }, sessions] = await Promise.all([
-    getOrCreateCoachThread(prisma, userId),
-    prisma.practiceSession.findMany({
-      where: { userId, callSection: { not: COACH_THREAD_SECTION } },
-      orderBy: { createdAt: "desc" },
-      take: args.evidenceLimit ?? 16,
-    }),
-  ]);
+  const loaded = await loadThread(prisma, userId, THREAD_COACH);
+  const limit = args.evidenceLimit ?? 16;
+  const sessions = await prisma.practiceSession.findMany({
+    where: { userId, ...evidenceSessionFilter() },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
 
-  const notes = payload.notes;
-  const evidence = compactTrainingEvidence(sessions, args.evidenceLimit ?? 16);
-  const history = payload.messages.slice(-16).map((m) => ({
+  const notes = loaded.notes;
+  const evidence = compactTrainingEvidence(sessions, limit);
+  const history = loaded.messages.slice(-16).map((m) => ({
     role: m.role,
     content: m.content.slice(0, 2500),
   }));
@@ -130,7 +78,7 @@ ${args.closerTurn}`;
   });
   const parsed = parseModelJson(text) as {
     reply?: string;
-    notes?: Partial<typeof notes>;
+    notes?: Partial<CoachNotes>;
   };
 
   const reply = String(parsed.reply || "").trim();
@@ -139,26 +87,28 @@ ${args.closerTurn}`;
   }
 
   const nextNotes = mergeCoachNotes(notes, parsed.notes);
-  const coachLine = newLine("coach", reply);
-  const nextMessages = [...payload.messages];
-  if (args.userMessage?.trim()) {
-    nextMessages.push(newLine("user", args.userMessage.trim()));
-  }
-  nextMessages.push(coachLine);
+  await saveCoachNotes(prisma, loaded.profile.id, nextNotes);
 
-  const nextPayload: CoachThreadPayload = {
-    kind: "coach_thread",
-    notes: nextNotes,
-    messages: nextMessages,
-  };
-  await saveCoachThread(prisma, row.id, nextPayload);
+  const incoming: { role: "user" | "coach"; content: string }[] = [];
+  if (args.userMessage?.trim()) {
+    incoming.push({ role: "user", content: args.userMessage.trim() });
+  }
+  incoming.push({ role: "coach", content: reply });
+  const created = await appendThreadLines(
+    prisma,
+    loaded.profile.id,
+    THREAD_COACH,
+    incoming,
+  );
+  const coachLine = created[created.length - 1];
+  const messages = [...loaded.messages, ...created];
 
   return {
     level: nextNotes.level,
     niche: nextNotes.niche,
     notes: nextNotes,
     message: coachLine,
-    messages: nextPayload.messages,
+    messages,
   };
 }
 

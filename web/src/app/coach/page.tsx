@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { AuthMenu } from "@/components/auth-menu";
+import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CALL_SECTION_LABELS, CallSection } from "@/data/training-session";
 import type { CoachingInsights } from "@/lib/coaching";
 import { CloserCoachChat } from "@/components/closer-coach-chat";
 import { ChevronRight } from "lucide-react";
+import { DeleteAnalysisButton } from "@/components/delete-analysis-button";
 
 export default function CoachPage() {
   const { status } = useSession();
@@ -34,15 +35,8 @@ export default function CoachPage() {
   }, [status]);
 
   return (
-    <div className="min-h-screen bg-bg0 flex flex-col">
-      <header className="flex items-center justify-between gap-3 px-4 md:px-8 py-4 border-b border-separator1">
-        <Link href="/" className="text-lg font-light">
-          Closer Trainer
-        </Link>
-        <AuthMenu />
-      </header>
-
-      <main className="flex-1 max-w-3xl w-full mx-auto p-4 md:p-8 space-y-8">
+    <AppShell>
+      <div className="space-y-8">
         <div>
           <h1 className="text-2xl font-light">Tu coaching</h1>
           <p className="text-sm text-fg3 mt-1">
@@ -87,7 +81,7 @@ export default function CoachPage() {
                 <Link href="/practicar">Ir a practicar</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link href="/reporte">Auditar una llamada</Link>
+                <Link href="/llamadas">Auditar una llamada</Link>
               </Button>
             </div>
           </div>
@@ -168,14 +162,21 @@ export default function CoachPage() {
                   {insights.suggestions.map((s, i) => (
                     <li
                       key={i}
-                      className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm"
+                      className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm space-y-2"
                     >
-                      {s.count > 1 && (
-                        <span className="text-xs text-fg3 mr-2">
-                          salió {s.count} veces
-                        </span>
-                      )}
-                      {s.text}
+                      <p>
+                        {s.count > 1 && (
+                          <span className="text-xs text-fg3 mr-2">
+                            salió {s.count} veces
+                          </span>
+                        )}
+                        {s.text}
+                      </p>
+                      <Button asChild size="sm" variant="primary">
+                        <Link href={`/practicar?focus=${encodeURIComponent(s.text)}`}>
+                          Practicar esto
+                        </Link>
+                      </Button>
                     </li>
                   ))}
                 </ul>
@@ -186,12 +187,11 @@ export default function CoachPage() {
               <h2 className="text-lg font-light">Últimas prácticas</h2>
               <div className="space-y-2">
                 {insights.recent.map((r) => (
-                  <Link
+                  <div
                     key={r.id}
-                    href={`/coach/${r.id}`}
                     className="rounded-xl border border-separator1 bg-bg1 p-4 text-sm flex justify-between gap-3 hover:border-primary/40"
                   >
-                    <div>
+                    <Link href={`/coach/${r.id}`} className="min-w-0 flex-1">
                       <p className="font-medium">{r.productName}</p>
                       <p className="text-xs text-fg3">
                         {r.callSection === "qc_transcript"
@@ -203,7 +203,7 @@ export default function CoachPage() {
                       {r.outcomeSummary && (
                         <p className="text-xs text-fg2 mt-1">{r.outcomeSummary}</p>
                       )}
-                    </div>
+                    </Link>
                     <div className="flex flex-col items-end gap-2 shrink-0">
                       <span className="text-lg font-light">
                         {r.scored ? Math.round(r.overallScore) : "—"}
@@ -211,13 +211,22 @@ export default function CoachPage() {
                       {!r.scored ? (
                         <span className="text-xs text-fg3">Evaluar</span>
                       ) : (
-                        <span className="text-xs text-fg3 inline-flex items-center">
+                        <Link
+                          href={`/coach/${r.id}`}
+                          className="text-xs text-fg3 inline-flex items-center"
+                        >
                           Ver análisis
                           <ChevronRight className="h-3.5 w-3.5" />
-                        </span>
+                        </Link>
                       )}
+                      <DeleteAnalysisButton
+                        sessionId={r.id}
+                        iconOnly
+                        variant="ghost"
+                        onDeleted={loadInsights}
+                      />
                     </div>
-                  </Link>
+                  </div>
                 ))}
               </div>
             </section>
@@ -227,7 +236,7 @@ export default function CoachPage() {
             </Button>
           </>
         )}
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -149,6 +150,13 @@ export function CloserCoachChat({
           {notes.recommendedExercise && (
             <p className="text-xs text-fg3">{notes.recommendedExercise}</p>
           )}
+          <Button asChild size="sm" variant="primary" className="mt-2">
+            <Link
+              href={`/practicar?focus=${encodeURIComponent(notes.nextSkill || notes.recommendedExercise)}`}
+            >
+              Practicar esto
+            </Link>
+          </Button>
         </div>
       )}
 

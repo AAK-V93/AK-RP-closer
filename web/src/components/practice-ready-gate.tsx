@@ -10,16 +10,16 @@ export function PracticeReadyGate() {
 
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.replace("/login?mode=register&callbackUrl=/setup");
+      router.replace("/login?mode=register&callbackUrl=/ofertas");
       return;
     }
     if (status !== "authenticated") return;
     fetch("/api/workspace")
       .then((r) => r.json())
       .then((data) => {
-        if (!data.canPractice && !data.ready) router.replace("/setup");
+        if (!data.canPractice && !data.ready) router.replace("/ofertas");
       })
-      .catch(() => router.replace("/setup"));
+      .catch(() => router.replace("/ofertas"));
   }, [status, router]);
 
   return null;
