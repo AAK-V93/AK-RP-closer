@@ -8,3 +8,4 @@ livekit.toml
 *.egg-info/
 .next/
 .vercel
+docs/producto.md

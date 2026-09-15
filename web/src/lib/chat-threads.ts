@@ -64,43 +64,51 @@ async function migratePracticeChats(
   ]);
 
   if (coachRow && coachCount === 0) {
-    const payload = parseCoachThread(coachRow.evaluation);
-    await prisma.coachProfile.update({
-      where: { id: profileId },
-      data: {
-        level: payload.notes.level,
-        niche: payload.notes.niche,
-        notes: payload.notes as unknown as Prisma.InputJsonValue,
-      },
-    });
-    if (payload.messages.length) {
-      await prisma.coachMessage.createMany({
-        data: payload.messages.map((line) => ({
-          profileId,
-          thread: THREAD_COACH,
-          role: line.role,
-          content: line.content,
-          createdAt: new Date(line.createdAt),
-        })),
+    try {
+      const payload = parseCoachThread(coachRow.evaluation);
+      await prisma.coachProfile.update({
+        where: { id: profileId },
+        data: {
+          level: payload.notes.level,
+          niche: payload.notes.niche,
+          notes: payload.notes as unknown as Prisma.InputJsonValue,
+        },
       });
+      for (const line of payload.messages) {
+        await prisma.coachMessage.create({
+          data: {
+            profileId,
+            thread: THREAD_COACH,
+            role: line.role,
+            content: line.content,
+            createdAt: new Date(line.createdAt),
+          },
+        });
+      }
+      await prisma.practiceSession.delete({ where: { id: coachRow.id } }).catch(() => undefined);
+    } catch (error) {
+      console.error("migrate coach thread", error);
     }
-    await prisma.practiceSession.delete({ where: { id: coachRow.id } }).catch(() => undefined);
   }
 
   if (hubRow && hubCount === 0) {
-    const payload = parseCoachThread(hubRow.evaluation);
-    if (payload.messages.length) {
-      await prisma.coachMessage.createMany({
-        data: payload.messages.map((line) => ({
-          profileId,
-          thread: THREAD_HUB,
-          role: line.role,
-          content: line.content,
-          createdAt: new Date(line.createdAt),
-        })),
-      });
+    try {
+      const payload = parseCoachThread(hubRow.evaluation);
+      for (const line of payload.messages) {
+        await prisma.coachMessage.create({
+          data: {
+            profileId,
+            thread: THREAD_HUB,
+            role: line.role,
+            content: line.content,
+            createdAt: new Date(line.createdAt),
+          },
+        });
+      }
+      await prisma.practiceSession.delete({ where: { id: hubRow.id } }).catch(() => undefined);
+    } catch (error) {
+      console.error("migrate hub thread", error);
     }
-    await prisma.practiceSession.delete({ where: { id: hubRow.id } }).catch(() => undefined);
   }
 }
 

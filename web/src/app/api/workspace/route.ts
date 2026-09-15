@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getHomeState } from "@/lib/home-state";
 import { getWorkspace } from "@/lib/workspace";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 
@@ -7,7 +8,10 @@ export async function GET(request: Request) {
     const auth = await requireWorkspaceUser();
     if ("error" in auth && auth.error) return auth.error;
     const offerId = new URL(request.url).searchParams.get("offerId");
-    const workspace = await getWorkspace(auth.prisma, auth.userId, offerId);
+    const [workspace, home] = await Promise.all([
+      getWorkspace(auth.prisma, auth.userId, offerId, { corpus: false }),
+      getHomeState(auth.prisma, auth.userId),
+    ]);
     return NextResponse.json({
       offers: workspace.offers,
       offer: workspace.offer,
@@ -19,7 +23,9 @@ export async function GET(request: Request) {
       transcriptCount: workspace.transcriptCount,
       ready: workspace.ready,
       hasAnyOffer: workspace.hasAnyOffer,
-      canPractice: workspace.canPractice,
+      canPractice: home.canPractice,
+      homePhase: home.phase,
+      showCrm: home.showCrm,
     });
   } catch (error) {
     console.error("workspace GET", error);

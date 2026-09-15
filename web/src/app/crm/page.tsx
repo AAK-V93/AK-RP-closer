@@ -48,7 +48,16 @@ export default function CrmPage() {
 
   useEffect(() => {
     if (status !== "authenticated") return;
-    void load();
+    fetch("/api/workspace")
+      .then((r) => r.json())
+      .then((ws) => {
+        if (ws.showCrm === false) {
+          window.location.replace("/");
+          return;
+        }
+        void load();
+      })
+      .catch(() => void load());
   }, [status]);
 
   const patch = async (alertId: string, resultado: string, agenda?: boolean) => {

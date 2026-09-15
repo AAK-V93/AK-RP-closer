@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ const NAV = [
   { href: "/llamadas", label: "Llamadas" },
   { href: "/practicar", label: "Práctica" },
   { href: "/coach", label: "Coach" },
-  { href: "/crm", label: "CRM" },
+  { href: "/crm", label: "CRM", crm: true },
   { href: "/ofertas", label: "Ofertas" },
   { href: "/biblioteca", label: "Biblioteca" },
 ];
@@ -24,6 +25,19 @@ export function AppShell({
 }) {
   const path = usePathname();
   const { data, status } = useSession();
+  const [showCrm, setShowCrm] = useState(false);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    fetch("/api/workspace")
+      .then((r) => r.json())
+      .then((payload) => {
+        if (typeof payload.showCrm === "boolean") setShowCrm(payload.showCrm);
+      })
+      .catch(() => undefined);
+  }, [status, path]);
+
+  const items = NAV.filter((item) => !item.crm || showCrm);
 
   return (
     <div className="min-h-screen bg-bg0 flex flex-col">
@@ -33,7 +47,7 @@ export function AppShell({
             Closer Trainer
           </Link>
           <nav className="hidden md:flex items-center gap-1 text-sm">
-            {NAV.map((item) => {
+            {items.map((item) => {
               const active =
                 item.href === "/"
                   ? path === "/"
@@ -75,7 +89,7 @@ export function AppShell({
           </div>
         </div>
         <nav className="md:hidden flex gap-1 overflow-x-auto px-3 pb-2 text-xs">
-          {NAV.map((item) => (
+          {items.map((item) => (
             <Link
               key={item.href}
               href={item.href}

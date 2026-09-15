@@ -17,7 +17,12 @@ export async function fileCallQuietly(
 ) {
   try {
     await ensureCrmTables(prisma);
-    return await classifyAndFileCall(prisma, userId, args);
+    const filed = await classifyAndFileCall(prisma, userId, args);
+    const { refreshLiveGuides } = await import("@/lib/live-guide");
+    void refreshLiveGuides(prisma, userId).catch((error) =>
+      console.error("live guide refresh", error),
+    );
+    return filed;
   } catch (error) {
     console.error("fileCallQuietly", error);
     return null;

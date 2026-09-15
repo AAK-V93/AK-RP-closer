@@ -29,6 +29,7 @@ import {
   nextMissingCrmField,
   parseCommercial,
 } from "@/lib/offer-commercial";
+import { getHomeState } from "@/lib/home-state";
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -42,13 +43,48 @@ export async function GET() {
     }
     const prisma = await getWorkspacePrisma();
     if (!prisma) return NextResponse.json({ error: "DB" }, { status: 503 });
-    await ensureCrmTables(prisma);
-    const loaded = await loadThread(prisma, session.user.id, THREAD_HUB);
+    try {
+      await ensureCrmTables(prisma);
+    } catch (error) {
+      console.error("hub GET ensureCrm", error);
+    }
+
+    let messages: Awaited<ReturnType<typeof loadThread>>["messages"] = [];
+    try {
+      const loaded = await loadThread(prisma, session.user.id, THREAD_HUB);
+      messages = loaded.messages;
+    } catch (error) {
+      console.error("hub GET thread", error);
+    }
+
     const snapshot = await hubSnapshot(prisma, session.user.id);
-    return NextResponse.json({ messages: loaded.messages, snapshot });
+    return NextResponse.json({ messages, snapshot });
   } catch (error) {
     console.error("hub GET", error);
-    return NextResponse.json({ error: "No se pudo cargar el inicio" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "No se pudo cargar el inicio",
+        messages: [],
+        snapshot: {
+          home: {
+            phase: "a",
+            hasOffer: false,
+            hasRealCalls: false,
+            fathomConnected: false,
+            autoIngest: false,
+            fathomCount: 0,
+            uploadCount: 0,
+            canPractice: false,
+            showCrm: false,
+            missingCrm: null,
+            lastUnanalyzed: null,
+          },
+          pendingCalls: [],
+          alertsDue: [],
+        },
+      },
+      { status: 200 },
+    );
   }
 }
 
@@ -183,7 +219,7 @@ export async function POST(request: Request) {
 
     const snapshot = await hubSnapshot(prisma, userId);
     const userText = body.start
-      ? "Acabo de entrar. Dime qué sigue, en una frase, y dame el siguiente paso."
+      ? ""
       : String(body.message || "").trim();
 
     if (structuredOnly) {
@@ -196,7 +232,24 @@ export async function POST(request: Request) {
       });
     }
 
-    if (!userText) {
+    if (body.start || !userText) {
+      const fresh = snapshot;
+      const greeting =
+        fresh.home?.phase === "c"
+          ? "¿Qué pasó hoy o qué quieres hacer?"
+          : "Cuando quieras, dime qué pasó. Primero completa el paso de arriba.";
+      if (body.start) {
+        return NextResponse.json({
+          message: {
+            id: "start",
+            role: "coach",
+            content: greeting,
+            createdAt: new Date().toISOString(),
+          },
+          actions: nextHubActions(fresh),
+          snapshot: fresh,
+        });
+      }
       return NextResponse.json({ error: "Escribe algo" }, { status: 400 });
     }
 
@@ -331,24 +384,41 @@ ${recent || "(sin historial)"}
 # MENSAJE
 ${userText}`;
 
-    const raw = await generateGeminiJson(prompt, 0.3, 1024, {
-      timeoutMs: 40_000,
-      models: ["gemini-flash-latest", "gemini-flash-lite-latest"],
-    });
-    const cleaned = raw
-      .trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/, "")
-      .replace(/```$/u, "")
-      .trim();
-    const parsed = JSON.parse(cleaned) as {
+    let parsed: {
       reply?: string;
       actions?: { type?: string; href?: string; label?: string }[];
       crm?: (CrmChatPatch & { agendaAt?: string }) | null;
       offerPatch?: { offerId?: string; field?: string; value?: string } | null;
       projection?: { metaUsd?: number; until?: string; closeRate?: number } | null;
       commissionPaid?: { name?: string; amount?: number } | null;
-    };
+    } = {};
+    try {
+      const raw = await generateGeminiJson(prompt, 0.3, 1024, {
+        timeoutMs: 40_000,
+        models: ["gemini-flash-latest", "gemini-flash-lite-latest"],
+      });
+      const cleaned = raw
+        .trim()
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/, "")
+        .replace(/```$/u, "")
+        .trim();
+      parsed = JSON.parse(cleaned) as typeof parsed;
+    } catch (error) {
+      console.error("hub gemini", error);
+      const coachLine = await appendHubLines(
+        prisma,
+        userId,
+        userText,
+        canned.join(" ") || "No pude armar la respuesta. Prueba otra vez en un momento.",
+      );
+      const fresh = await hubSnapshot(prisma, userId);
+      return NextResponse.json({
+        message: coachLine,
+        actions: nextHubActions(fresh),
+        snapshot: fresh,
+      });
+    }
     if (parsed.offerPatch?.field && parsed.offerPatch.value) {
       const offers = await prisma.userOffer.findMany({ where: { userId } });
       const target =
@@ -477,7 +547,10 @@ ${userText}`;
     return NextResponse.json({ message: coachLine, actions, snapshot: fresh });
   } catch (error) {
     console.error("hub POST", error);
-    return NextResponse.json({ error: "No pude responder" }, { status: 502 });
+    return NextResponse.json(
+      { error: "No pude responder. Recarga e inténtalo otra vez." },
+      { status: 500 },
+    );
   }
 }
 
@@ -485,78 +558,112 @@ async function hubSnapshot(
   prisma: NonNullable<Awaited<ReturnType<typeof getWorkspacePrisma>>>,
   userId: string,
 ) {
-  const workspace = await getWorkspace(prisma, userId);
-  const dash = await crmDashboard(prisma, userId);
-  const [leads, pendingCalls, recentAuto] = await Promise.all([
-    prisma.lead.findMany({
-      where: { userId },
-      orderBy: { updatedAt: "desc" },
-      take: 12,
-    }),
-    listPendingFilings(prisma, userId),
-    prisma.callRecord.findMany({
-      where: {
-        userId,
-        filingStatus: "confirmed",
-        confirmedAt: { gte: new Date(Date.now() - 36 * 3600 * 1000) },
-      },
-      orderBy: { confirmedAt: "desc" },
-      take: 3,
-    }),
-  ]);
-  const missingCrm = nextMissingCrmField(
-    workspace.offers.map((row) => ({
-      id: row.id,
-      productName: row.productName,
-      commercial: row.commercial,
-    })),
-  );
-  return {
-    offers: workspace.offers.map((row) => row.productName),
-    canPractice: workspace.canPractice,
-    readyCrm: workspace.readyCrm,
-    missingCrm,
-    fathomCount: workspace.fathomCount,
-    uploadCount: workspace.uploadCount,
-    now: dash.now,
-    comisionResumen: dash.comisionResumen,
-    leads: leads.map((row) => ({
-      name: row.name,
-      status: row.status,
-      offer: row.offerName,
-      next: row.nextStep,
-    })),
-    alertsDue: dash.followups
-      .filter((row) => row.estado === "VENCIDO" || row.estado === "HOY")
-      .slice(0, 8)
-      .map((row) => ({
-        id: row.id,
-        question: row.question,
-        leadName: row.cliente,
-        dueAt: row.dueAt,
-        mensajeSugerido: row.mensajeSugerido,
-        tipo: row.tipo,
-        enJuego: row.enJuego,
-        contexto: row.contexto,
-        opciones: row.opciones || [],
-        selectedId: row.selectedId || "",
-        telefono: row.telefono || "",
-      })),
-    pendingCalls,
-    appliedCalls: recentAuto.map((row) => row.summary).filter(Boolean),
-    recentCalls: dash.followups.slice(0, 0),
+  const home = await getHomeState(prisma, userId);
+  const empty = {
+    home,
+    offers: [] as string[],
+    canPractice: home.canPractice,
+    readyCrm: false,
+    missingCrm: home.missingCrm,
+    fathomCount: home.fathomCount,
+    uploadCount: home.uploadCount,
+    now: null as Awaited<ReturnType<typeof crmDashboard>>["now"] | null,
+    comisionResumen: null as Awaited<ReturnType<typeof crmDashboard>>["comisionResumen"] | null,
+    leads: [] as { name: string; status: string; offer: string; next: string }[],
+    alertsDue: [] as {
+      id: string;
+      question: string;
+      leadName: string;
+      dueAt: string;
+      mensajeSugerido: string;
+      tipo: string;
+      enJuego: number;
+      contexto: string;
+      opciones: unknown[];
+      selectedId: string;
+      telefono: string;
+    }[],
+    pendingCalls: [] as Awaited<ReturnType<typeof listPendingFilings>>,
+    appliedCalls: [] as string[],
+    recentCalls: [] as unknown[],
   };
+  if (home.phase !== "c") {
+    return empty;
+  }
+  try {
+    const workspace = await getWorkspace(prisma, userId, null, { corpus: false });
+    const dash = await crmDashboard(prisma, userId);
+    const [leads, pendingCalls, recentAuto] = await Promise.all([
+      prisma.lead.findMany({
+        where: { userId },
+        orderBy: { updatedAt: "desc" },
+        take: 12,
+      }),
+      listPendingFilings(prisma, userId),
+      prisma.callRecord.findMany({
+        where: {
+          userId,
+          filingStatus: "confirmed",
+          confirmedAt: { gte: new Date(Date.now() - 36 * 3600 * 1000) },
+        },
+        orderBy: { confirmedAt: "desc" },
+        take: 3,
+      }),
+    ]);
+    return {
+      home,
+      offers: workspace.offers.map((row) => row.productName),
+      canPractice: workspace.canPractice,
+      readyCrm: workspace.readyCrm,
+      missingCrm: home.missingCrm,
+      fathomCount: workspace.fathomCount,
+      uploadCount: workspace.uploadCount,
+      now: dash.now,
+      comisionResumen: dash.comisionResumen,
+      leads: leads.map((row) => ({
+        name: row.name,
+        status: row.status,
+        offer: row.offerName,
+        next: row.nextStep,
+      })),
+      alertsDue: dash.followups
+        .filter((row) => row.estado === "VENCIDO" || row.estado === "HOY")
+        .slice(0, 8)
+        .map((row) => ({
+          id: row.id,
+          question: row.question,
+          leadName: row.cliente,
+          dueAt: row.dueAt,
+          mensajeSugerido: row.mensajeSugerido,
+          tipo: row.tipo,
+          enJuego: row.enJuego,
+          contexto: row.contexto,
+          opciones: row.opciones || [],
+          selectedId: row.selectedId || "",
+          telefono: row.telefono || "",
+        })),
+      pendingCalls,
+      appliedCalls: recentAuto.map((row) => row.summary).filter(Boolean),
+      recentCalls: [],
+    };
+  } catch (error) {
+    console.error("hub snapshot crm", error);
+    return empty;
+  }
 }
 
 function nextHubActions(snapshot: Awaited<ReturnType<typeof hubSnapshot>>) {
-  if (!snapshot.readyCrm) {
-    return [{ type: "navigate", href: "/ofertas", label: "Completar oferta" }];
+  if (snapshot.home?.phase === "a") {
+    return [{ type: "navigate", href: "/llamadas", label: "Conectar Fathom" }];
+  }
+  if (snapshot.home?.phase === "b") {
+    return [{ type: "practice", href: "/practicar", label: "Practicar" }];
   }
   if (snapshot.pendingCalls.length) {
     return [{ type: "none", href: "/", label: "Responde el hueco de arriba" }];
   }
   if (snapshot.alertsDue.length) {
-    return [{ type: "navigate", href: "/crm", label: "Ver alertas" }];
+    return [{ type: "navigate", href: "/", label: "Pendientes de hoy" }];
   }
   if (snapshot.canPractice) {
     return [{ type: "practice", href: "/practicar", label: "Practicar" }];
@@ -570,15 +677,25 @@ async function appendHubLines(
   userText: string | null,
   reply: string,
 ) {
-  const loaded = await loadThread(prisma, userId, THREAD_HUB);
-  const incoming: { role: "user" | "coach"; content: string }[] = [];
-  if (userText) incoming.push({ role: "user", content: userText });
-  incoming.push({ role: "coach", content: reply });
-  const created = await appendThreadLines(
-    prisma,
-    loaded.profile.id,
-    THREAD_HUB,
-    incoming,
-  );
-  return created[created.length - 1];
+  try {
+    const loaded = await loadThread(prisma, userId, THREAD_HUB);
+    const incoming: { role: "user" | "coach"; content: string }[] = [];
+    if (userText) incoming.push({ role: "user", content: userText });
+    incoming.push({ role: "coach", content: reply });
+    const created = await appendThreadLines(
+      prisma,
+      loaded.profile.id,
+      THREAD_HUB,
+      incoming,
+    );
+    return created[created.length - 1];
+  } catch (error) {
+    console.error("hub append", error);
+    return {
+      id: `tmp-${Date.now()}`,
+      role: "coach" as const,
+      content: reply,
+      createdAt: new Date().toISOString(),
+    };
+  }
 }

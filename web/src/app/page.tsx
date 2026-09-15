@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/app-shell";
-import { HubChat } from "@/components/hub-chat";
+import { HomeScreen } from "@/components/home-screen";
 import { Button } from "@/components/ui/button";
 
 export default function HomePage() {
@@ -11,7 +11,9 @@ export default function HomePage() {
 
   return (
     <AppShell>
-      {status === "unauthenticated" ? (
+      {status === "authenticated" ? (
+        <HomeScreen />
+      ) : status === "unauthenticated" ? (
         <div className="space-y-6">
           <div className="space-y-2">
             <h1 className="text-3xl font-light">Entrena con tus llamadas reales</h1>
@@ -25,7 +27,7 @@ export default function HomePage() {
           </Button>
         </div>
       ) : (
-        <HubChat />
+        <p className="text-sm text-fg3">Cargando…</p>
       )}
     </AppShell>
   );

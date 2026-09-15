@@ -4,8 +4,6 @@ Entrenador de cierre high-ticket. El bot de voz actúa como **tus leads reales**
 
 El bot **no es el coach**. El bot es el prospecto. El coach es otra capa.
 
-Mapa de producto (pantallas, datos, qué está cerrado): [`docs/producto.md`](docs/producto.md).
-
 Producción: `https://ak-rp-closer-x3ir.vercel.app` (Vercel Root Directory = `web`).
 
 ## Qué hay en la app
@@ -14,7 +12,7 @@ Navegación: **Inicio · Llamadas · Práctica · Coach · CRM · Ofertas · Bib
 
 | Pantalla | Para qué |
 |----------|----------|
-| **Inicio** `/` | Hub: huecos del extractor, alertas, oferta CRM, proyección, WhatsApp |
+| **Inicio** `/` | Onboarding, práctica, o atajos + pendientes del día |
 | **Llamadas** `/llamadas` | Fathom + Google Calendar, uploads, biblioteca |
 | **Práctica** `/practicar` | Roleplay por voz (LiveKit). **Compose** o **Replay** |
 | **Coach** `/coach` | Chat persistente + insights + historial |

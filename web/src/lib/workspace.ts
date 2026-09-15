@@ -16,6 +16,7 @@ import {
   parsePlaybook,
   type LeadPlaybook,
 } from "@/lib/lead-playbook";
+import { emptyLiveGuide, parseLiveGuide } from "@/lib/live-guide";
 import {
   isOfferCrmReady,
   parseCommercial,
@@ -48,7 +49,9 @@ export async function getWorkspace(
   prisma: PrismaClient,
   userId: string,
   offerId?: string | null,
+  opts: { corpus?: boolean } = {},
 ) {
+  const includeCorpus = opts.corpus !== false;
   const offers = await prisma.userOffer.findMany({
     where: { userId },
     orderBy: { updatedAt: "desc" },
@@ -93,7 +96,7 @@ export async function getWorkspace(
         ],
       },
     });
-    if (active?.includeFathom && fathomCount > 0) {
+    if (includeCorpus && active?.includeFathom && fathomCount > 0) {
       fathomSamples = await prisma.fathomRecording.findMany({
         where: {
           userId,
@@ -123,14 +126,7 @@ export async function getWorkspace(
     where: { userId },
     _count: { _all: true },
   });
-  const canPractice = offers.some((row) => {
-    const own = uploadCounts.find((item) => item.offerId === row.id)?._count._all || 0;
-    const legacy =
-      oldest && oldest.id === row.id
-        ? uploadCounts.find((item) => item.offerId === null)?._count._all || 0
-        : 0;
-    return own + legacy > 0 || (row.includeFathom && fathomCount > 0);
-  });
+  const canPractice = offers.some((row) => Boolean(row.productName.trim()));
 
   return {
     offers: offers.map((row) => ({
@@ -155,6 +151,7 @@ export async function getWorkspace(
         }
       : null,
     playbook,
+    liveGuide: active ? parseLiveGuide(active.playbook, active.productName) : emptyLiveGuide(""),
     playbookReady: isPlaybookReady(playbook),
     transcripts: uploads.map((row) => ({
       id: row.id,

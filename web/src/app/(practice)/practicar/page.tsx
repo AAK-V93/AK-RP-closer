@@ -8,7 +8,6 @@ const PRACTICE_NAV = [
   { href: "/", label: "Inicio" },
   { href: "/llamadas", label: "Llamadas" },
   { href: "/coach", label: "Coach" },
-  { href: "/crm", label: "CRM" },
 ];
 
 export const metadata: Metadata = {

@@ -60,16 +60,9 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
-    if (!workspace.ready) {
-      return NextResponse.json(
-        {
-          error:
-            "Sube transcripciones o conecta Fathom para que el prospecto emule a tus leads.",
-          code: SETUP_REQUIRED_CODE,
-        },
-        { status: 403 },
-      );
-    }
+
+    const { liveGuideForPrompt } = await import("@/lib/live-guide");
+    const liveGuide = workspace.liveGuide;
 
     const trainingWithOffer = {
       ...training,
@@ -104,11 +97,16 @@ export async function POST(request: Request) {
       trainingWithOffer.practiceKind = "replay";
     }
 
-    const instructions = buildProspectInstructions(
-      trainingWithOffer,
-      "closer",
-      workspace.playbook,
-    );
+    const instructions = [
+      buildProspectInstructions(
+        trainingWithOffer,
+        "closer",
+        workspace.playbook,
+      ),
+      liveGuideForPrompt(liveGuide),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
     const roomName = `closer-${Math.random().toString(36).slice(2, 10)}`;
     const apiKey = process.env.LIVEKIT_API_KEY;

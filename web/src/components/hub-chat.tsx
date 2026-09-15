@@ -29,7 +29,8 @@ type DueAlert = {
   telefono?: string;
 };
 
-type Snapshot = {
+export type HubSnapshot = {
+  home?: import("@/lib/home-state").HomeState;
   pendingCalls?: PendingCall[];
   alertsDue?: DueAlert[];
   appliedCalls?: string[];
@@ -37,21 +38,28 @@ type Snapshot = {
   readyCrm?: boolean;
 };
 
-export function HubChat() {
+export function HubChat({
+  variant = "page",
+  initialSnapshot,
+  onSnapshot,
+}: {
+  variant?: "page" | "dock";
+  initialSnapshot?: HubSnapshot | null;
+  onSnapshot?: () => void;
+}) {
   const [messages, setMessages] = useState<Line[]>([]);
   const [actions, setActions] = useState<Action[]>([]);
-  const [snapshot, setSnapshot] = useState<Snapshot>({});
+  const [snapshot, setSnapshot] = useState<HubSnapshot>(initialSnapshot || {});
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const started = useRef(false);
 
   const applyPayload = (data: {
     message?: Line;
     actions?: Action[];
-    snapshot?: Snapshot;
+    snapshot?: HubSnapshot;
     messages?: Line[];
   }) => {
     if (data.messages?.length) setMessages(data.messages);
@@ -59,33 +67,23 @@ export function HubChat() {
       setMessages((prev) => [...prev, data.message as Line]);
     }
     if (data.actions) setActions(data.actions);
-    if (data.snapshot) setSnapshot(data.snapshot);
+    if (data.snapshot) {
+      setSnapshot(data.snapshot);
+      onSnapshot?.();
+    }
   };
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/hub")
-      .then((r) => r.json())
-      .then(async (data) => {
+      .then(async (r) => {
+        const data = await r.json();
         if (cancelled) return;
         if (data.snapshot) setSnapshot(data.snapshot);
-        if (data.messages?.length) {
-          setMessages(data.messages);
-          setLoading(false);
-          return;
+        if (Array.isArray(data.messages)) setMessages(data.messages);
+        if (!r.ok && !data.snapshot) {
+          throw new Error(data.error || "No se pudo cargar el inicio");
         }
-        if (started.current) return;
-        started.current = true;
-        const start = await fetch("/api/hub", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ start: true }),
-        });
-        const startData = await start.json();
-        if (!start.ok) throw new Error(startData.error || "No se pudo iniciar");
-        if (startData.message) setMessages([startData.message]);
-        setActions(startData.actions || []);
-        if (startData.snapshot) setSnapshot(startData.snapshot);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Error"))
       .finally(() => setLoading(false));
@@ -131,14 +129,25 @@ export function HubChat() {
 
   const pending = snapshot.pendingCalls || [];
   const alerts = snapshot.alertsDue || [];
+  const dock = variant === "dock";
 
   return (
-    <div className="rounded-2xl border border-separator1 bg-bg1 flex flex-col min-h-[520px] max-h-[78vh]">
+    <div
+      className={
+        dock
+          ? "rounded-2xl border border-separator1 bg-bg1 flex flex-col"
+          : "rounded-2xl border border-separator1 bg-bg1 flex flex-col min-h-[520px] max-h-[78vh]"
+      }
+    >
       <div className="px-4 py-3 border-b border-separator1">
         <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-          Inicio
+          {dock ? "Pendientes de hoy" : "Inicio"}
         </p>
-        <p className="text-sm">Dime qué pasó o qué quieres hacer.</p>
+        <p className="text-sm">
+          {dock
+            ? "Alertas, huecos del extractor y el chat abajo."
+            : "Dime qué pasó o qué quieres hacer."}
+        </p>
       </div>
       {(pending.length > 0 || alerts.length > 0 || snapshot.missingCrm || (snapshot.appliedCalls || []).length > 0) && (
         <div className="px-4 pt-3 space-y-2 border-b border-separator1 pb-3">
@@ -253,7 +262,7 @@ export function HubChat() {
           ))}
         </div>
       )}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className={dock ? "max-h-48 overflow-y-auto p-4 space-y-3" : "flex-1 overflow-y-auto p-4 space-y-3"}>
         {loading && (
           <p className="text-sm text-fg3 flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -296,7 +305,7 @@ export function HubChat() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={2}
-            placeholder="12000 · 3% hasta 70k · agendé a Juan el jueves · ¿cómo voy este mes?"
+            placeholder="Escribe aquí: agendé a Juan, me pagaron, falta el precio…"
             className="min-h-[44px] text-sm"
             disabled={sending || loading}
           />

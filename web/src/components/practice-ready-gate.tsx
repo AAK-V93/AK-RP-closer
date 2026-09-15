@@ -17,9 +17,9 @@ export function PracticeReadyGate() {
     fetch("/api/workspace")
       .then((r) => r.json())
       .then((data) => {
-        if (!data.canPractice && !data.ready) router.replace("/ofertas");
+        if (!data.canPractice && !data.hasAnyOffer && !data.ready) router.replace("/");
       })
-      .catch(() => router.replace("/ofertas"));
+      .catch(() => router.replace("/"));
   }, [status, router]);
 
   return null;

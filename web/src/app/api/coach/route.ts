@@ -5,6 +5,7 @@ import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { buildCoachingInsights } from "@/lib/coaching";
 import { evidenceSessionFilter } from "@/lib/chat-threads";
 import { isCoachThreadSection } from "@/lib/closer-coach";
+import { loadLiveGuides } from "@/lib/live-guide";
 
 export async function GET() {
   if (!isDatabaseConfigured()) {
@@ -34,8 +35,9 @@ export async function GET() {
       take: 40,
     });
     const visible = rows.filter((row) => !isCoachThreadSection(row.callSection));
+    const liveGuides = await loadLiveGuides(prisma, session.user.id);
 
-    return NextResponse.json(buildCoachingInsights(visible));
+    return NextResponse.json({ ...buildCoachingInsights(visible), liveGuides });
   } catch (error) {
     console.error("coach insights", error);
     return NextResponse.json(

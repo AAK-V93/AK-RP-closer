@@ -8,13 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CALL_SECTION_LABELS, CallSection } from "@/data/training-session";
 import type { CoachingInsights } from "@/lib/coaching";
+import type { LiveGuide } from "@/lib/live-guide";
 import { CloserCoachChat } from "@/components/closer-coach-chat";
 import { ChevronRight } from "lucide-react";
 import { DeleteAnalysisButton } from "@/components/delete-analysis-button";
 
 export default function CoachPage() {
   const { status } = useSession();
-  const [insights, setInsights] = useState<CoachingInsights | null>(null);
+  const [insights, setInsights] = useState<(CoachingInsights & { liveGuides?: LiveGuide[] }) | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadInsights = () => {
@@ -60,6 +61,86 @@ export default function CoachPage() {
 
         {status === "authenticated" && (
           <CloserCoachChat />
+        )}
+
+        {insights?.liveGuides && insights.liveGuides.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-lg font-light">Guía viva por oferta</h2>
+            {insights.liveGuides.map((guide) => (
+              <div
+                key={guide.offerName}
+                className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-sm font-medium">{guide.offerName || "Oferta"}</p>
+                  <p className="text-xs text-fg3">
+                    {guide.callCount} llamada{guide.callCount === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <p className="text-sm text-fg2">{guide.note}</p>
+                {guide.ready && (
+                  <>
+                    {guide.closingTypes.length > 0 && (
+                      <div>
+                        <p className="text-[11px] uppercase tracking-widest text-fg3">
+                          Quién cierra
+                        </p>
+                        <ul className="mt-1 space-y-1 text-sm">
+                          {guide.closingTypes.map((row) => (
+                            <li key={row.type}>
+                              {row.type}
+                              {row.approach ? ` · ${row.approach}` : ""}{" "}
+                              <span className="text-fg3">
+                                {row.closed}/{row.total}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {guide.scriptVariations.length > 0 && (
+                      <div>
+                        <p className="text-[11px] uppercase tracking-widest text-fg3">
+                          Variación del script
+                        </p>
+                        <ul className="mt-1 space-y-1 text-sm">
+                          {guide.scriptVariations.map((row) => (
+                            <li key={`${row.leadType}-${row.variation}`}>
+                              {row.leadType}: {row.variation}{" "}
+                              <span className="text-fg3">
+                                {row.closed}/{row.total}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {guide.winMoments.length > 0 && (
+                      <p className="text-sm">
+                        En las que cerraron: {guide.winMoments.join(" · ")}
+                      </p>
+                    )}
+                    {guide.missingInLosses.length > 0 && (
+                      <p className="text-sm">
+                        No aparece en las perdidas: {guide.missingInLosses.join(" · ")}
+                      </p>
+                    )}
+                    {guide.drills.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {guide.drills.map((drill) => (
+                          <Button key={drill} asChild size="sm" variant="primary">
+                            <Link href={`/practicar?focus=${encodeURIComponent(drill)}`}>
+                              {drill}
+                            </Link>
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+          </section>
         )}
 
         {status === "authenticated" && error && (
