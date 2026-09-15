@@ -137,6 +137,18 @@ export async function ensureFathomTables(prisma: PrismaClient) {
       await prisma.$executeRawUnsafe(
         `ALTER TABLE "FathomConnection" ADD COLUMN IF NOT EXISTS "importSince" TIMESTAMP(3)`,
       );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "FathomConnection" ADD COLUMN IF NOT EXISTS "webhookId" TEXT NOT NULL DEFAULT ''`,
+      );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "FathomConnection" ADD COLUMN IF NOT EXISTS "webhookSecretEnc" TEXT NOT NULL DEFAULT ''`,
+      );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "FathomConnection" ADD COLUMN IF NOT EXISTS "webhookToken" TEXT NOT NULL DEFAULT ''`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "FathomConnection_webhookToken_idx" ON "FathomConnection"("webhookToken")`,
+      );
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "FathomRecording" (
           "id" TEXT NOT NULL,

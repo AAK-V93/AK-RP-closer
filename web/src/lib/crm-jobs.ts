@@ -1,16 +1,11 @@
 import type { PrismaClient } from "@prisma/client";
 import { parseCrmPrefs } from "@/lib/crm-prefs";
 import { enqueueStaleAgendaChecks, expireAcuerdoSinPago } from "@/lib/agenda";
+import { appUrl } from "@/lib/app-url";
 import { syncAllCalendars } from "@/lib/calendar";
 import { emailConfigured, sendEmail } from "@/lib/email";
+import { pollRecentFathomCalls } from "@/lib/fathom-ingest";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
-
-function appUrl() {
-  return (
-    process.env.NEXTAUTH_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
-  ).replace(/\/$/, "");
-}
 
 function escapeHtml(value: string) {
   return value
@@ -57,6 +52,10 @@ export async function enqueueUnpaidCommissionAlerts(prisma: PrismaClient) {
 }
 
 export async function runCrmHourlyJobs(prisma: PrismaClient) {
+  const fathom = await pollRecentFathomCalls(prisma).catch((error) => {
+    console.error("fathom poll", error);
+    return { users: 0, ingested: 0, filed: 0, webhooks: 0 };
+  });
   const calendar = await syncAllCalendars(prisma).catch((error) => {
     console.error("calendar sync", error);
     return { users: 0, events: 0 };
@@ -145,6 +144,7 @@ ${hub}
   }
 
   return {
+    fathom,
     calendar,
     agendas,
     acuerdos,

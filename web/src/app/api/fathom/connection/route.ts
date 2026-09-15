@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
+import { isPublicHttpsUrl } from "@/lib/app-url";
 import { encryptSecret } from "@/lib/secret-crypto";
 import { verifyFathomApiKey, FathomApiError } from "@/lib/fathom";
 import { getFathomConnection, requireFathomUser } from "@/lib/fathom-auth";
+import {
+  ensureFathomWebhook,
+  fathomWebhookUrl,
+  newFathomWebhookToken,
+  unregisterFathomWebhook,
+} from "@/lib/fathom-ingest";
 
 export async function GET() {
   try {
@@ -13,6 +20,13 @@ export async function GET() {
     if (!connection) {
       return NextResponse.json({ connected: false });
     }
+
+    try {
+      await ensureFathomWebhook(prisma, userId);
+    } catch (error) {
+      console.error("fathom webhook ensure", error);
+    }
+    const live = (await getFathomConnection(prisma, userId)) || connection;
 
     const skippedFilter = {
       AND: [
@@ -37,8 +51,9 @@ export async function GET() {
 
     return NextResponse.json({
       connected: true,
-      lastSyncAt: connection.lastSyncAt?.toISOString() || null,
-      importSince: connection.importSince?.toISOString() || null,
+      lastSyncAt: live.lastSyncAt?.toISOString() || null,
+      importSince: live.importSince?.toISOString() || null,
+      autoIngest: Boolean(live.webhookId),
       total,
       withTranscript,
       analyzed,
@@ -78,20 +93,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
+    const existing = await prisma.fathomConnection.findUnique({ where: { userId } });
+    const webhookToken = existing?.webhookToken || newFathomWebhookToken();
+    const canRegister = isPublicHttpsUrl(fathomWebhookUrl(webhookToken));
+
+    if (canRegister && existing?.webhookId) {
+      try {
+        await unregisterFathomWebhook(prisma, userId);
+      } catch (error) {
+        console.error("fathom reconnect unregister", error);
+      }
+    }
+
     const connection = await prisma.fathomConnection.upsert({
       where: { userId },
       create: {
         userId,
         apiKeyEnc: encryptSecret(apiKey),
+        webhookToken,
       },
       update: {
         apiKeyEnc: encryptSecret(apiKey),
+        webhookToken: existing?.webhookToken || webhookToken,
+        ...(canRegister ? { webhookId: "", webhookSecretEnc: "" } : {}),
       },
     });
+
+    let autoIngest = false;
+    try {
+      const hook = await ensureFathomWebhook(prisma, userId);
+      autoIngest = hook.ok;
+    } catch (error) {
+      console.error("fathom webhook register", error);
+    }
 
     return NextResponse.json({
       connected: true,
       lastSyncAt: connection.lastSyncAt?.toISOString() || null,
+      autoIngest,
     });
   } catch (error) {
     console.error("fathom connection POST", error);
@@ -108,6 +147,7 @@ export async function DELETE() {
     if ("error" in auth && auth.error) return auth.error;
     const { prisma, userId } = auth;
 
+    await unregisterFathomWebhook(prisma, userId);
     await prisma.fathomConnection.deleteMany({ where: { userId } });
     return NextResponse.json({ connected: false });
   } catch (error) {

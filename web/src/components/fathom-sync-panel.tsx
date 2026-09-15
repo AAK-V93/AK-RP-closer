@@ -12,6 +12,7 @@ type FathomStatus = {
   connected: boolean;
   lastSyncAt?: string | null;
   importSince?: string | null;
+  autoIngest?: boolean;
   total?: number;
   withTranscript?: number;
   analyzed?: number;
@@ -257,8 +258,8 @@ export function FathomSyncPanel({
       <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-2">
         <h2 className="text-lg font-light">Conectar Fathom</h2>
         <p className="text-sm text-fg3">
-          Importa, audita y manda todo al coach automáticamente. Necesitas una
-          cuenta.
+          Conecta Fathom para que las llamadas nuevas entren solas al CRM.
+          Necesitas una cuenta.
         </p>
         <Button asChild variant="primary" size="sm">
           <Link href="/login?callbackUrl=/fathom">Entrar</Link>
@@ -282,8 +283,9 @@ export function FathomSyncPanel({
         <div className="space-y-1">
           <h2 className="text-lg font-light">Conectar Fathom</h2>
           <p className="text-sm text-fg3">
-            Importa todas tus llamadas, las audita automáticamente y el coach
-            high-ticket diseña tu estrategia de mejora. API key en{" "}
+            Conecta Fathom y las llamadas nuevas entran solas cuando termina de
+            transcribir: extractor, CRM y alerta de qué hacer. El botón de abajo
+            es para el historial. API key en{" "}
             <a
               href="https://fathom.video/settings/api"
               target="_blank"
@@ -325,7 +327,7 @@ export function FathomSyncPanel({
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 text-sm text-fg2">
             <span className="inline-flex items-center rounded-full border border-separator1 px-2 py-0.5 text-xs">
-              Conectado
+              {status.autoIngest ? "Entrada automática" : "Conectado"}
             </span>
             {typeof status.total === "number" && (
               <span>
@@ -350,7 +352,9 @@ export function FathomSyncPanel({
               disabled={syncing || connecting}
             />
             <p className="text-xs text-fg3">
-              No trae todo el historial de Fathom. Por defecto, los últimos 30 días.
+              {status.autoIngest
+                ? "Las nuevas llamadas llegan solas. Este rango es solo si quieres importar historial."
+                : "En local no puede entrar sola (Fathom necesita HTTPS). En producción se activa al abrir esta pantalla. El botón importa el historial."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

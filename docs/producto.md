@@ -23,7 +23,7 @@ Navegación: **Inicio · Llamadas · Práctica · Coach · CRM · Ofertas · Bib
 | Pantalla | Qué hace el usuario | De dónde sale la data |
 |----------|---------------------|------------------------|
 | **Inicio** `/` | Chat: huecos del extractor, alertas (Hecho / no contestó / cerró…), completar oferta, proyección, “me pagaron la comisión”, “mi WhatsApp es +51…”. Sin sesión: landing. | Workspace + CRM + extractor + `CoachMessage` (`thread: hub`) |
-| **Llamadas** `/llamadas` | Fathom, Google Calendar, sync, auditar (QC), corpus. Desde cada fila: **Recrear** o **Lead nuevo**. | `FathomRecording` + `ClientTranscript` + `CallRecord` |
+| **Llamadas** `/llamadas` | Fathom (entrada automática + historial), Google Calendar, auditar (QC), corpus. Desde cada fila: **Recrear** o **Lead nuevo**. | `FathomRecording` + `ClientTranscript` + `CallRecord` |
 | **Práctica** `/practicar` | Roleplay por voz. **Compose** o **Replay**. | Oferta + playbook + transcript de replay |
 | **Coach** `/coach` | Chat + insights + borrar análisis. | `PracticeSession` + `CoachMessage` (`thread: coach`) |
 | **CRM** `/crm` | Lectura: cola con opciones de mensaje, métricas, comisiones. Se escribe por chat o botones. Gate `ready_crm`. | `Lead` + `LeadAlert` + `Commission` |
@@ -37,7 +37,7 @@ Rutas que solo redirigen: `/setup` → `/ofertas`. `/fathom` y `/reporte` → `/
 ## Cómo se interconecta
 
 ```
-Oferta completa (commercial) + transcripts / Fathom / Calendar
+Oferta completa (commercial) + transcripts / Fathom (webhook) / Calendar
         │
         ├──────────────────────────────► Playbook ──► Bot (prospecto)
         │
@@ -50,7 +50,8 @@ Oferta completa (commercial) + transcripts / Fathom / Calendar
                               ▼
                      Cola (guion con originId si viene de biblioteca)
                               │
-              Cron diario ──► email al closer (lista + wa.me al lead + link al CRM)
+              Fathom webhook ──► extractor en cuanto la llamada está lista
+              Cron diario ──► poll Fathom (si se perdió un webhook) + email al closer
                               │
                               ▼
                      Coach (insights + chat) ◄── QC
@@ -63,13 +64,13 @@ Biblioteca (packs públicos)
 
 Flujo feliz:
 
-1. Guardas **oferta completa** (o el hub pregunta lo que falte) y **llamadas** (Fathom, archivo o Calendar).
+1. Guardas **oferta completa** (o el hub pregunta lo que falte) y **llamadas**. Fathom entra **solo** cuando termina de transcribir (webhook). El botón en `/llamadas` es para el historial. También archivo o Calendar.
 2. Gemini **agrega** al **playbook** (tipos, frases, objeciones). No reescribe uno que ya funciona.
 3. El extractor aplica al CRM **solo** si hay confianza ≥ 85 y no pide revisión. Si falta un dato, el hub pregunta **ese hueco**.
 4. QC de Fathom o **Auditar** en un upload → reporte en Coach. Se puede **borrar** y re-auditar.
 5. **Practicas**: compose o replay. Colgada corta: no se evalúa. Llamada de verdad: reporte + “¿practicamos esto otra vez?”.
 6. El **coach** manda drills con `?focus=` / `?section=`. Razón de no cierre y etapa perdida alimentan el coach.
-7. El **hub** resuelve alertas, agendas y comisiones. Fuera de la app: email diario con `wa.me` al lead + link para marcar el CRM.
+7. El **hub** resuelve alertas, agendas y comisiones. Una llamada de Fathom nueva dispara extractor → alerta en Inicio (y email corto si hay Resend). El digest diario cubre lo que no viste.
 8. En **Biblioteca** publicas o instalas packs de seguimiento. El CRM usa esos guiones; el outcome alimenta el puntaje.
 
 ---
@@ -159,9 +160,12 @@ El closer **no recibe un WhatsApp empujado**. `wa.me` solo abre WhatsApp cuando 
 
 Cómo se entera y cómo actualiza el CRM:
 
-- **En la app (Inicio):** cada alerta pregunta, eliges guion, **Abrir WhatsApp** (al lead) y marcas hecho / no contestó / cerró / perdido. Eso escribe el CRM.
-- **Si no entraste:** cron diario 13:00 UTC manda **email** con la lista. Cada ítem trae `wa.me` al lead y un link a Inicio para marcar. `CRON_SECRET` + Resend. En Hobby no hay cron cada hora.
+- **En la app (Inicio):** cada alerta pregunta, eliges guion, **Abrir WhatsApp** (al lead) y marcas hecho / no contestó / cerró / perdido. Eso escribe el CRM. Si acaba de entrar una llamada de Fathom, la alerta aparece aquí en cuanto el extractor termina.
+- **Justo después de una llamada de Fathom:** si Resend está configurado, un email corto (“Nueva llamada…”) con el pendiente y `wa.me`. Si no hay Resend, se ve al abrir Inicio.
+- **Si no entraste en el día:** cron 13:00 UTC manda **email** con la lista completa. Cada ítem trae `wa.me` al lead y un link a Inicio para marcar. `CRON_SECRET` + Resend. En Hobby no hay cron cada hora.
 - Twilio queda en el repo apagado. No hace falta para notificar ni para mandar al lead.
+
+Fathom no avisa *durante* la llamada. El evento es `new-meeting-content-ready`: minutos después de colgar, cuando ya hay transcripción. Destino: `POST /api/webhooks/fathom/[token]` (token por usuario, firma HMAC). En localhost no registra webhook (Fathom exige HTTPS). En Vercel se registra al conectar Fathom, al abrir `/llamadas`, o en el cron. El cron también **poll** de las últimas 48 h por si un webhook se perdió. QC (coach) sigue siendo el botón de auditar; el webhook corre el extractor/CRM, no el QC completo.
 
 ### 8. Biblioteca de seguimientos
 
@@ -184,7 +188,7 @@ erDiagram
   User ||--o{ UserOffer : tiene
   User ||--o| CoachProfile : tiene
   User ||--o| FathomConnection : tiene
-  User ||--o{ FathomRecording : sync
+  User ||--o{ FathomRecording : sync auto
   User ||--o{ ClientTranscript : sube
   User ||--o{ Lead : crm
   User ||--o{ LeadAlert : cola
@@ -215,6 +219,15 @@ erDiagram
 | `crmPrefs` JSON | `followupGraceDays` (3), `commissionUnpaidDays` (15), `acuerdoSinPagoDays` (3), `timezone`, `digestHour` (8), `whatsappE164` |
 | `calendarRefreshEnc` | Refresh token de Google Calendar (cifrado) |
 | `calendarSyncedAt` | Último sync |
+
+**FathomConnection**
+
+| Campo | Qué es |
+|-------|--------|
+| `apiKeyEnc` | API key cifrada |
+| `webhookToken` | Token en la URL pública del webhook |
+| `webhookId` / `webhookSecretEnc` | Webhook en Fathom + secreto HMAC |
+| `lastSyncAt` / `importSince` | Poll / ventana de historial |
 
 **UserOffer**
 
@@ -386,14 +399,15 @@ Alertas al aplicar el JSON:
 | `/api/evaluate` | Score de práctica |
 | `/api/practice-calls` | Replay |
 | `/api/llamadas` | Biblioteca + clasificar siguiente |
-| `/api/fathom/*` | Fathom |
+| `/api/fathom/*` | Fathom: conectar registra webhook; sync manual = historial |
+| `/api/webhooks/fathom/[token]` | Fathom → extractor/CRM cuando la transcripción está lista |
 | `/api/qc-report` | QC upload |
 | `/api/coach` `/api/coach-chat` `/api/coach/[id]` | Coach |
 | `/api/hub` | Hub + huecos + alertas (pick-script) + proyección + agendas |
 | `/api/crm` | Tablero + PATCH outcome / agenda / pick-script |
 | `/api/biblioteca` | Packs públicos: listar, publicar, estrellar, instalar en oferta |
 | `/api/calendar` `/api/calendar/connect` | Google Calendar → AGENDADO |
-| `/api/cron/alert-digest` | Cron diario: jobs + email al closer |
+| `/api/cron/alert-digest` | Cron diario: poll Fathom (respaldo) + Calendar + jobs + email al closer |
 | `/api/auth/*` `/api/config` `/api/health/db` | Auth y flags |
 
 Gemini en servidor para playbook, QC, eval, extractor y chats. El agente de voz usa Gemini Live.
@@ -404,9 +418,10 @@ Gemini en servidor para playbook, QC, eval, extractor y chats. El agente de voz 
 
 - CRM sigue **sin ficha editable**. A propósito.
 - La biblioteca arranca vacía: no hay packs semilla. El puntaje solo se mueve cuando alguien instala un pack y marca outcomes reales.
-- Avisos al closer: **Inicio** (en vivo) + **email diario**. El CRM se actualiza en la app (botones / chat), no respondiendo un WhatsApp.
+- Avisos al closer: **Inicio** (en vivo) + email al entrar una llamada Fathom + **email diario**. El CRM se actualiza en la app (botones / chat), no respondiendo un WhatsApp.
 - Al lead: botón **Abrir WhatsApp** (`wa.me`). Twilio no hace falta.
 - `wa.me` no puede notificarte solo: no hay push sin API (Twilio).
+- Fathom automático pide `NEXTAUTH_URL` pública https en Vercel. En local el webhook no se registra; el botón de importar sigue sirviendo.
 - Calendar pide Calendar API encendida y redirect `/api/calendar/callback` en el mismo OAuth client de Google.
 
 Productos, % y plazos no están hardcodeados: salen de `UserOffer.commercial`. El protocolo PAE es la plantilla; el prompt se rellena con las ofertas del usuario.

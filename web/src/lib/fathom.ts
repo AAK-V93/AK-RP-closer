@@ -1,4 +1,7 @@
+import { createHmac, timingSafeEqual } from "crypto";
+
 const FATHOM_BASE = "https://api.fathom.ai/external/v1";
+const WEBHOOK_MAX_SKEW_SEC = 300;
 
 export type FathomMeeting = {
   title: string;
@@ -38,14 +41,18 @@ export class FathomApiError extends Error {
   }
 }
 
-async function fathomFetch<T>(
+async function fathomRequest<T>(
   apiKey: string,
   path: string,
-  query?: Record<string, string | boolean | undefined>,
+  args?: {
+    query?: Record<string, string | boolean | undefined>;
+    method?: string;
+    body?: unknown;
+  },
 ) {
   const url = new URL(`${FATHOM_BASE}${path}`);
-  if (query) {
-    for (const [key, value] of Object.entries(query)) {
+  if (args?.query) {
+    for (const [key, value] of Object.entries(args.query)) {
       if (value === undefined || value === "") continue;
       url.searchParams.set(key, String(value));
     }
@@ -55,10 +62,13 @@ async function fathomFetch<T>(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const response = await fetch(url, {
+        method: args?.method || "GET",
         headers: {
           "X-Api-Key": apiKey,
           Accept: "application/json",
+          ...(args?.body ? { "Content-Type": "application/json" } : {}),
         },
+        body: args?.body ? JSON.stringify(args.body) : undefined,
         cache: "no-store",
       });
 
@@ -70,6 +80,7 @@ async function fathomFetch<T>(
         );
       }
 
+      if (!raw.trim()) return {} as T;
       return JSON.parse(raw) as T;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -83,6 +94,14 @@ async function fathomFetch<T>(
   }
 
   throw lastError || new Error("Fathom API request failed");
+}
+
+async function fathomFetch<T>(
+  apiKey: string,
+  path: string,
+  query?: Record<string, string | boolean | undefined>,
+) {
+  return fathomRequest<T>(apiKey, path, { query });
 }
 
 export async function verifyFathomApiKey(apiKey: string) {
@@ -132,4 +151,112 @@ export function meetingRecordedAt(meeting: FathomMeeting) {
   if (!raw) return null;
   const date = new Date(raw);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export type FathomWebhook = {
+  id: string;
+  url: string;
+  secret: string;
+  created_at?: string;
+  include_transcript?: boolean;
+  triggered_for?: string[];
+};
+
+export async function createFathomWebhook(
+  apiKey: string,
+  args: { destinationUrl: string },
+) {
+  return fathomRequest<FathomWebhook>(apiKey, "/webhooks", {
+    method: "POST",
+    body: {
+      destination_url: args.destinationUrl,
+      include_transcript: true,
+      triggered_for: ["my_recordings", "shared_external_recordings"],
+    },
+  });
+}
+
+export async function deleteFathomWebhook(apiKey: string, webhookId: string) {
+  if (!webhookId) return;
+  await fathomRequest<Record<string, never>>(apiKey, `/webhooks/${webhookId}`, {
+    method: "DELETE",
+  });
+}
+
+export function verifyFathomWebhookSignature(
+  secret: string,
+  headers: Headers,
+  rawBody: string,
+) {
+  const webhookId = headers.get("webhook-id");
+  const webhookTimestamp = headers.get("webhook-timestamp");
+  const webhookSignature = headers.get("webhook-signature");
+  if (!secret || !webhookId || !webhookTimestamp || !webhookSignature) {
+    return false;
+  }
+
+  const timestamp = Number.parseInt(webhookTimestamp, 10);
+  if (!Number.isFinite(timestamp)) return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - timestamp) > WEBHOOK_MAX_SKEW_SEC) return false;
+
+  const encoded = secret.includes("_") ? secret.split("_").slice(1).join("_") : secret;
+  const secretBytes = Buffer.from(encoded, "base64");
+  const expected = createHmac("sha256", secretBytes)
+    .update(`${webhookId}.${webhookTimestamp}.${rawBody}`)
+    .digest("base64");
+
+  return webhookSignature.split(" ").some((part) => {
+    const value = part.includes(",") ? part.split(",").slice(1).join(",") : part;
+    return safeEqual(expected, value);
+  });
+}
+
+export function recordingIdFromWebhookPayload(body: unknown): number | null {
+  if (!body || typeof body !== "object") return null;
+  const root = body as Record<string, unknown>;
+  const nested =
+    root.meeting && typeof root.meeting === "object"
+      ? (root.meeting as Record<string, unknown>)
+      : root.data && typeof root.data === "object"
+        ? (root.data as Record<string, unknown>)
+        : null;
+  const raw = root.recording_id ?? root.recordingId ?? nested?.recording_id ?? nested?.recordingId;
+  const value = typeof raw === "string" ? Number(raw) : typeof raw === "number" ? raw : NaN;
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+export function meetingFromWebhookPayload(body: unknown): FathomMeeting | null {
+  const recordingId = recordingIdFromWebhookPayload(body);
+  if (!recordingId) return null;
+  const root = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const nested =
+    root.meeting && typeof root.meeting === "object"
+      ? (root.meeting as Record<string, unknown>)
+      : root;
+  const transcript = Array.isArray(nested.transcript)
+    ? (nested.transcript as FathomTranscriptPayload[])
+    : Array.isArray(root.transcript)
+      ? (root.transcript as FathomTranscriptPayload[])
+      : null;
+  return {
+    recording_id: recordingId,
+    title: String(nested.title || root.title || ""),
+    meeting_title: String(nested.meeting_title || root.meeting_title || "") || null,
+    share_url: String(nested.share_url || root.share_url || ""),
+    url: String(nested.url || root.url || ""),
+    created_at: String(nested.created_at || root.created_at || "") || undefined,
+    recording_start_time:
+      String(nested.recording_start_time || root.recording_start_time || "") || undefined,
+    recording_end_time:
+      String(nested.recording_end_time || root.recording_end_time || "") || undefined,
+    transcript,
+  };
+}
+
+function safeEqual(left: string, right: string) {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }

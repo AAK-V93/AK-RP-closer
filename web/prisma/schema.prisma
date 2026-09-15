@@ -79,12 +79,17 @@ model FathomConnection {
   id         String            @id @default(cuid())
   userId     String            @unique
   user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  apiKeyEnc   String
-  lastSyncAt  DateTime?
-  importSince DateTime?
+  apiKeyEnc         String
+  lastSyncAt        DateTime?
+  importSince       DateTime?
+  webhookId         String            @default("")
+  webhookSecretEnc  String            @default("")
+  webhookToken      String            @default("")
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   recordings FathomRecording[]
+
+  @@index([webhookToken])
 }
 
 model FathomRecording {
