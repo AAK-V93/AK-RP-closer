@@ -53,7 +53,9 @@ function filingNum(value: unknown) {
   return Number.isFinite(n) ? n : null;
 }
 
-export function filingFromCall(call: CallFilingSource): ReplayFiling | null {
+export function filingFromCall(
+  call?: CallFilingSource,
+): ReplayFiling | null {
   if (!call) return null;
   const row = (call.filingJson || {}) as Record<string, unknown>;
   const filing: ReplayFiling = {

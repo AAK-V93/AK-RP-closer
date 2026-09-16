@@ -118,7 +118,10 @@ function objectionFromLine(line: string) {
   );
 }
 
-function playbookObjectionsInCall(blob: string, playbook: LeadPlaybook | null) {
+function playbookObjectionsInCall(
+  blob: string,
+  playbook?: LeadPlaybook | null,
+) {
   if (!playbook) return [];
   const lower = blob.toLowerCase();
   return unique(
