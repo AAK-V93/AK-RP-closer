@@ -21,6 +21,10 @@ import {
   type TalkStyle,
 } from "@/lib/lead-playbook";
 import type { ReplayCall } from "@/lib/replay-call";
+import {
+  buildReplayLeadProfile,
+  replayCharacterInstructions,
+} from "@/lib/replay-lead-profile";
 
 function pick<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
@@ -226,58 +230,10 @@ function compositeFromPlaybook(
 function profileFromReplay(
   replay: ReplayCall,
   difficulty: DifficultyLevel,
-  language: LanguageCode,
+  _language: LanguageCode,
   playbook?: LeadPlaybook | null,
 ): ProspectProfile {
-  const locale = PROSPECT_POOLS[language];
-  const held =
-    replay.objections.split(/[|;,/]/).map((item) => item.trim()).filter(Boolean)[0] ||
-    replay.leadLines.find((line) =>
-      /caro|precio|plata|dinero|pienso|después|socio|esposa|tiempo|ahora no/i.test(
-        line,
-      ),
-    ) ||
-    replay.leadLines[0] ||
-    "lo voy a pensar";
-  const situation = replay.summary || replay.leadLines[0] || replay.title;
-  const matchedType = playbook
-    ? typesFromPlaybook(playbook).find((item) => {
-        const blob = `${replay.excerpt} ${replay.title}`.toLowerCase();
-        return item.name && blob.includes(item.name.toLowerCase().slice(0, 12));
-      }) || null
-    : null;
-  const leadType = matchedType || resolveType(playbook);
-  return applyType(
-    {
-      name: replay.leadName || pick(locale.people).name,
-      age: 38,
-      occupation: pick(locale.occupations[difficulty]),
-      location: pick(locale.locations),
-      qualificationLevel: QUALIFICATION_BY_DIFFICULTY[difficulty],
-      qualificationSummary:
-        "Esta es la misma persona de una llamada que NO cerró. Mismos hechos, misma resistencia.",
-      howTheyKnowTheOffer: "Ya tuvieron la reunión. Esto es el do-over de esa llamada.",
-      preQualification: {
-        mainGoal: situation,
-        currentSituation: situation,
-        timeline: pick(locale.timeline[difficulty]),
-        budgetRange: pick(locale.budget[difficulty]),
-        decisionMaker: pick(locale.decisionMaker[difficulty]),
-      },
-      pains: [situation],
-      urgency: situation,
-      desire: situation,
-      pastAttempts: "Ya hablaron y no cerró.",
-      partnerSituation: "",
-      moneySituation: "",
-      timeSituation: "",
-      objections: uniqueStrings([held, ...replay.leadLines.slice(0, 3)]),
-      personalityNotes: replay.leadLines.slice(0, 4).join(" / "),
-      heldObjection: held,
-      isRealLead: true,
-    },
-    leadType,
-  );
+  return buildReplayLeadProfile({ replay, playbook, difficulty });
 }
 
 export function generateProspectProfile(
@@ -502,11 +458,7 @@ export function buildProspectInstructions(
 
   const identity =
     training.practiceKind === "replay" && training.replayCall
-      ? `REPLAY MODE. You ARE ${p.name}, the exact buyer from a real call that DID NOT CLOSE.
-Do not invent a new person. Copy their rhythm and the lines they actually used.
-Held resistance from that call stays. The closer is attempting that call again — not a follow-up weeks later unless they frame it that way.
-Verbatim flavor from that call: ${training.replayCall.leadLines.slice(0, 8).join(" | ") || training.replayCall.excerpt.slice(0, 500)}
-Why it likely died: ${training.replayCall.result || "no cerró"} ${training.replayCall.objections || p.heldObjection || ""}`
+      ? replayCharacterInstructions(p, training.replayCall, book)
       : p.isRealLead
         ? `You ARE this specific lead: ${p.name}. Keep their facts. Still withhold relevant info according to difficulty — being them is not dumping their file.`
         : `COMPOSE MODE. You are a NEW person (${p.name}) built from how buyers of this offer behave. Same types, phrases, and situations. Not a clone of one uploaded name.`;
@@ -555,12 +507,10 @@ Steer toward this situation without dumping it on turn one: "${training.practice
 
 ${antiPatterns(p.talkStyle)}
 ${
-  training.practiceKind === "replay" && training.replayCall
+  training.practiceKind === "replay"
     ? `
-## Previous failed call (private memory — do not recap it as a monologue)
-Title: ${training.replayCall.title}
-Excerpt: ${training.replayCall.excerpt.slice(0, 1800)}
-Stay in character as that buyer. If they handle the old objection well, you may soften. If they repeat the same pitch, hold.
+## Replay extras
+If they handle the old objection well, you may soften. If they repeat the same pitch, hold — with new wording, never the same sentence.
 `
     : ""
 }
@@ -575,7 +525,7 @@ Stay in character as that buyer. If they handle the old objection well, you may 
 7. Name "${closerName}" only if they introduced themselves.
 8. You already know what this meeting is about. Never ask "what is this?".
 9. Do not speak first.
-10. Hold your one real objection. Repeat it if they answer with a cliché.
+10. Hold your one real objection. If they answer with a cliché, push back — rephrase, do not recycle a sentence you already said.
 11. Language: ${lang.nativeName} only.`;
 }
 

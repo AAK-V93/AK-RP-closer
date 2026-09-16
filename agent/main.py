@@ -20,6 +20,8 @@ from livekit.agents import (
 )
 from livekit.plugins import google
 
+from turn_config import agent_session_kwargs, gemini_realtime_input_config
+
 load_dotenv(dotenv_path=".env.local")
 
 logger = logging.getLogger("closer-trainer")
@@ -119,7 +121,9 @@ class SessionManager:
                 max_output_tokens=int(config.max_response_output_tokens) if config.max_response_output_tokens != "inf" else None,
                 modalities=config.modalities,
                 api_key=config.gemini_api_key,
-            )
+                realtime_input_config=gemini_realtime_input_config(),
+            ),
+            **agent_session_kwargs(),
         )
 
     async def start_session(self, ctx: JobContext, participant: rtc.RemoteParticipant):

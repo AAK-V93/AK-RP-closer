@@ -62,7 +62,14 @@ export async function PATCH(request: Request) {
     await ensureCrmTables(auth.prisma);
     const body = (await request.json()) as {
       alertId?: string;
-      action?: "resolve" | "snooze" | "outcome" | "agenda" | "pick-script";
+      commissionId?: string;
+      action?:
+        | "resolve"
+        | "snooze"
+        | "outcome"
+        | "agenda"
+        | "pick-script"
+        | "commission-paid";
       days?: number;
       resultado?: AlertOutcome;
       amount?: number;
@@ -71,6 +78,24 @@ export async function PATCH(request: Request) {
       agendaEstado?: "SHOW" | "NO SHOW" | "REPROGRAMA";
       optionId?: string;
     };
+    if (body.action === "commission-paid" && body.commissionId) {
+      const row = await auth.prisma.commission.findFirst({
+        where: { id: body.commissionId, userId: auth.userId },
+      });
+      if (!row) {
+        return NextResponse.json({ error: "Comisión no encontrada" }, { status: 404 });
+      }
+      const cobrada = body.amount && body.amount > 0 ? body.amount : row.generada;
+      await auth.prisma.commission.update({
+        where: { id: row.id },
+        data: {
+          cobrada,
+          fechaCobro: new Date(),
+          estado: cobrada >= row.generada - 0.5 ? "COBRADA" : "PARCIAL",
+        },
+      });
+      return NextResponse.json({ ok: true });
+    }
     if (!body.alertId) {
       return NextResponse.json({ error: "Acción inválida" }, { status: 400 });
     }

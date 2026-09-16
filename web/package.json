@@ -11,7 +11,8 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,md,json}\"",
     "format:write": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "postinstall": "DATABASE_URL=${DATABASE_URL:-postgresql://localhost:5432/dummy} prisma generate",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "test": "npx --yes tsx --test src/lib/replay-lead-profile.test.ts src/lib/crm-operacion.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",

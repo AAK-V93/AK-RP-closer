@@ -3,6 +3,7 @@ import { alertBucket, startOfDay } from "@/lib/crm-prefs";
 import { userHasReadyCrm } from "@/lib/offer-commercial";
 import { loadOffersForCrm } from "@/lib/crm-apply";
 import { attachFollowupOptions } from "@/lib/followup-library";
+import { operacionFromCall } from "@/lib/crm-operacion";
 
 function monthRange(at: Date) {
   const from = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
@@ -30,9 +31,14 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const month = monthRange(now);
   const prev = prevMonthRange(now);
 
-  const [calls, alerts, leads, commissions] = await Promise.all([
+  const [calls, allCalls, alerts, leads, commissions] = await Promise.all([
     prisma.callRecord.findMany({
       where: { userId, filingStatus: "confirmed" },
+    }),
+    prisma.callRecord.findMany({
+      where: { userId, filingStatus: { not: "skipped" } },
+      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+      take: 200,
     }),
     prisma.leadAlert.findMany({
       where: { userId, resolvedAt: null },
@@ -40,7 +46,11 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       orderBy: { dueAt: "asc" },
     }),
     prisma.lead.findMany({ where: { userId } }),
-    prisma.commission.findMany({ where: { userId } }),
+    prisma.commission.findMany({
+      where: { userId },
+      include: { lead: true },
+      orderBy: { fecha: "desc" },
+    }),
   ]);
 
   const bucket = (from: Date, to: Date) => {
@@ -196,6 +206,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       id: row.id,
       fecha: row.fecha.toISOString(),
       oferta: row.oferta,
+      cliente: row.lead?.name || "",
       venta: row.venta,
       cash: row.cash,
       pct: row.pctAplicado,
@@ -211,5 +222,19 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       pctCobrado: comisionGenerada ? comisionCobrada / comisionGenerada : 0,
     },
     leads: leads.slice(0, 80),
+    offers: offers.map((row) => ({
+      id: row.id,
+      productName: row.productName,
+      currency: row.commercial.currency || "USD",
+    })),
+    operacion: (() => {
+      const byName = new Map(leads.map((lead) => [lead.name.trim().toLowerCase(), lead]));
+      return allCalls.map((row) =>
+        operacionFromCall(
+          row,
+          byName.get((row.leadName || "").trim().toLowerCase()) || null,
+        ),
+      );
+    })(),
   };
 }

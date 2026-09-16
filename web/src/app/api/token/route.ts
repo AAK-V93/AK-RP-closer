@@ -5,7 +5,11 @@ import path from "path";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { TokenRequestPayload } from "@/lib/training-helpers";
-import { buildProspectInstructions, maxTokensForProspect } from "@/lib/prospect-prompt";
+import {
+  buildProspectInstructions,
+  generateProspectProfile,
+  maxTokensForProspect,
+} from "@/lib/prospect-prompt";
 import { authOptions } from "@/lib/auth";
 import { getWorkspace, getWorkspacePrisma } from "@/lib/workspace";
 import { loadReplayCall } from "@/lib/replay-call";
@@ -95,6 +99,15 @@ export async function POST(request: Request) {
       }
       trainingWithOffer.replayCall = replay;
       trainingWithOffer.practiceKind = "replay";
+      trainingWithOffer.prospectProfile = generateProspectProfile(
+        trainingWithOffer.productName,
+        trainingWithOffer.productDescription,
+        trainingWithOffer.difficulty,
+        trainingWithOffer.language,
+        workspace.playbook,
+        trainingWithOffer.practiceFocus,
+        replay,
+      );
     }
 
     const instructions = [

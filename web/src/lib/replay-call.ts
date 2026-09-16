@@ -7,6 +7,17 @@ import {
 } from "@/lib/fathom-transcript";
 import { parseCallTranscript, type ParsedLine } from "@/lib/parse-transcript";
 
+export type ReplayFiling = {
+  notasCrm: string;
+  razonNoCierre: string;
+  etapaPerdida: string;
+  ventaTotal: number | null;
+  cashCollected: number | null;
+  saldoPendiente: number | null;
+  modoPago: string;
+  producto: string;
+};
+
 export type ReplayCall = {
   source: "fathom" | "upload";
   sourceId: string;
@@ -19,7 +30,51 @@ export type ReplayCall = {
   summary: string;
   leadLines: string[];
   excerpt: string;
+  filing?: ReplayFiling | null;
 };
+
+type CallFilingSource = {
+  filingJson?: unknown;
+  summary?: string | null;
+  ventaTotal?: number | null;
+  cashCollected?: number | null;
+  saldoPendiente?: number | null;
+  modoPago?: string | null;
+  offerName?: string | null;
+} | null;
+
+function filingStr(value: unknown) {
+  return String(value || "").trim();
+}
+
+function filingNum(value: unknown) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function filingFromCall(call: CallFilingSource): ReplayFiling | null {
+  if (!call) return null;
+  const row = (call.filingJson || {}) as Record<string, unknown>;
+  const filing: ReplayFiling = {
+    notasCrm: filingStr(row.notas_crm) || call.summary || "",
+    razonNoCierre: filingStr(row.razon_no_cierre),
+    etapaPerdida: filingStr(row.etapa_perdida),
+    ventaTotal: filingNum(row.venta_total) ?? call.ventaTotal ?? null,
+    cashCollected: filingNum(row.cash_collected) ?? call.cashCollected ?? null,
+    saldoPendiente: filingNum(row.saldo_pendiente) ?? call.saldoPendiente ?? null,
+    modoPago: filingStr(row.modo_pago) || call.modoPago || "",
+    producto: filingStr(row.producto) || call.offerName || "",
+  };
+  const has =
+    filing.notasCrm ||
+    filing.razonNoCierre ||
+    filing.etapaPerdida ||
+    filing.ventaTotal != null ||
+    filing.cashCollected != null ||
+    filing.modoPago;
+  return has ? filing : null;
+}
 
 const OPEN_RESULTS = new Set(["", "no_cerro", "pendiente", "sin_resultado"]);
 const SKIP_TYPES = new Set(["interna", "no_comercial"]);
@@ -143,6 +198,7 @@ function packFromLines(args: {
   objections?: string;
   summary?: string;
   speakerRoles?: SpeakerRole[];
+  call?: CallFilingSource;
 }): ReplayCall | null {
   if (!isUsableTranscript(args.transcript)) return null;
   const leadLines = args.lines.length
@@ -151,6 +207,7 @@ function packFromLines(args: {
         speakerRoles: args.speakerRoles,
       })
     : extractLeadLines(args.transcript);
+  const filing = filingFromCall(args.call);
   return {
     source: args.source,
     sourceId: args.sourceId,
@@ -159,10 +216,11 @@ function packFromLines(args: {
     offerName: args.offerName || "",
     result: args.result || "no_cerro",
     callType: args.callType || "",
-    objections: args.objections || "",
-    summary: args.summary || "",
+    objections: args.objections || filing?.razonNoCierre || "",
+    summary: args.summary || filing?.notasCrm || "",
     leadLines,
     excerpt: args.transcript.replace(/\s+/g, " ").trim().slice(0, 3500),
+    filing,
   };
 }
 
@@ -341,7 +399,9 @@ export async function loadReplayCall(
       offerName: tag?.offerName,
       result: tag?.result,
       callType: tag?.callType,
+      summary: tag?.summary,
       speakerRoles,
+      call: tag,
     });
   }
   const row = await prisma.clientTranscript.findFirst({
@@ -358,6 +418,8 @@ export async function loadReplayCall(
     offerName: tag?.offerName,
     result: tag?.result,
     callType: tag?.callType,
+    summary: tag?.summary,
     speakerRoles,
+    call: tag,
   });
 }
