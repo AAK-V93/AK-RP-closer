@@ -23,7 +23,7 @@ La comisión A MENUDO NO es un % fijo. Puede depender de:
 - si paga de contado, reserva, cuotas, transferencia, etc.
 - umbrales de volumen, si aparecen
 
-Copia la regla en "notes" con las palabras del closer/documento. Si hay tramos, llénalos en "tiers". NO inventes 3% ni umbral 70,000. Si no hay comisión, commission = null.
+Copia la regla en "notes" con las palabras del closer/documento. Si hay tramos, llénalos en "tiers". NO inventes 3% ni umbral 70,000. Si no hay comisión, commission = null. Nunca asumas comisión.
 
 Después de extraer, llena "questions" (2-4) para que el closer confirme: nombres exactos, si es una o varias, y si juntaste o separaste mal.
 
@@ -35,6 +35,7 @@ Responde SOLO JSON:
     {
       "productName": "nombre corto del programa",
       "aliases": ["alias"],
+      "icp": "quién compra esto, 1-2 frases. Dedúcelo del documento; si no alcanza, null. No inventes un avatar.",
       "productDescription": "qué es, a quién, qué incluye, resultado. 80-180 palabras",
       "pitchSummary": "3-6 líneas para practicar el cierre",
       "listPrice": 12000,
@@ -93,11 +94,13 @@ export function extractedFromParsed(
   });
   const description = String(parsed.productDescription || "").trim();
   const name = String(parsed.productName || "").trim() || fallbackName;
+  const icp = String(parsed.icp || "").trim();
   return {
     productName: name,
     productDescription:
       description.length >= 20 ? description : sourceText.slice(0, 1200) || description,
     pitchSummary: String(parsed.pitchSummary || "").trim(),
+    icp,
     commercial,
   };
 }
@@ -179,6 +182,7 @@ export function heuristicExtract(text: string): ExtractedOffer {
     productName: firstLine.length <= 70 ? firstLine : "Oferta",
     productDescription: description.length >= 20 ? description : `${description} — oferta`.slice(0, 80),
     pitchSummary: "",
+    icp: "",
     commercial,
   };
 }
@@ -199,7 +203,7 @@ export function offerBatchRecap(batch: ExtractedOfferBatch): string {
       ? `Encontré ${batch.offers.length} ofertas: ${names.join(", ")}.`
       : `Encontré una oferta: ${names[0] || "sin nombre"}.`;
   const qs = batch.questions.map((row) => `· ${row}`).join("\n");
-  return `${head}\nConfirma si los nombres están bien y si es una o varias.\n${qs}`;
+  return `${head}\nConfirma cada bloque (nombre, ICP, precios, pagos, bonos, comisión, datos de pago): Sí o Corregir. La comisión no la asumo.\n${qs}`;
 }
 
 export type OfferExtractFile = {
@@ -266,12 +270,6 @@ function padBatchDescriptions(batch: ExtractedOfferBatch, text: string): Extract
     ...batch,
     offers: batch.offers.map((offer) => {
       const next = { ...offer };
-      if (!next.commercial.commission && text) {
-        next.commercial = {
-          ...next.commercial,
-          commission: parseCommissionFromText(text),
-        };
-      }
       if (next.productDescription.length < 20 && text.length >= 20) {
         next.productDescription = text.slice(0, 1200);
       }
@@ -321,6 +319,7 @@ ${JSON.stringify({
       productName: row.productName,
       productDescription: row.productDescription,
       pitchSummary: row.pitchSummary,
+      icp: row.icp,
       commercial: row.commercial,
     })),
   })}

@@ -9,3 +9,6 @@ livekit.toml
 .next/
 .vercel
 docs/producto.md
+.cursor/
+__pycache__/
+*.pyc

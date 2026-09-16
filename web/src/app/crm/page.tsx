@@ -14,8 +14,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { FollowupPicker, type FollowupOptionView } from "@/components/followup-picker";
+import { ProjectionCard } from "@/components/projection-card";
 import type { OperacionRow } from "@/lib/crm-operacion";
 import { moneyLabel, pctLabel } from "@/lib/crm-operacion";
+import type { CommissionProjection } from "@/lib/crm-projection";
 
 type ModuleId = "operacion" | "dashboard" | "seguimientos" | "comisiones";
 
@@ -89,6 +91,9 @@ type Dash = {
   evolucion?: { mes: string; agendas: number; shows: number; cierres: number; ventas: number; cash: number }[];
   offers?: { id: string; productName: string; currency: string }[];
   operacion?: OperacionRow[];
+  monthlyGoalUsd?: number | null;
+  needsMonthlyGoal?: boolean;
+  projection?: CommissionProjection | null;
 };
 
 const MODULES: { id: ModuleId; label: string }[] = [
@@ -111,6 +116,7 @@ export default function CrmPage() {
   const [offer, setOffer] = useState("todas");
   const [module, setModule] = useState<ModuleId>("operacion");
   const [openAlert, setOpenAlert] = useState<string | null>(null);
+  const [savingGoal, setSavingGoal] = useState(false);
 
   const load = () =>
     fetch("/api/crm")
@@ -161,6 +167,20 @@ export default function CrmPage() {
       body: JSON.stringify({ action: "commission-paid", commissionId }),
     });
     await load();
+  };
+
+  const saveGoal = async (usd: number) => {
+    setSavingGoal(true);
+    try {
+      await fetch("/api/crm", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "monthly-goal", amount: usd }),
+      });
+      await load();
+    } finally {
+      setSavingGoal(false);
+    }
   };
 
   const offers = data?.offers || [];
@@ -222,6 +242,13 @@ export default function CrmPage() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
                 Ahora mismo
               </p>
+              <ProjectionCard
+                projection={data.projection || null}
+                needsGoal={data.needsMonthlyGoal}
+                saving={savingGoal}
+                onSaveGoal={saveGoal}
+                currency={currency}
+              />
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <Metric label="Seguimientos vencidos" value={String(now.seguimientosVencidos || 0)} />
                 <Metric label="Seguimientos de hoy" value={String(now.seguimientosHoy || 0)} />

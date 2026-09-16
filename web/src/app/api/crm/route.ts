@@ -7,6 +7,8 @@ import { chooseFollowupOption } from "@/lib/followup-library";
 import { crmDashboard } from "@/lib/crm-metrics";
 import { nextMissingCrmField } from "@/lib/offer-commercial";
 import { getWorkspace } from "@/lib/workspace";
+import { loadCommissionProjection } from "@/lib/crm-projection";
+import { saveMonthlyGoal } from "@/lib/crm-prefs";
 
 export async function GET() {
   try {
@@ -22,9 +24,13 @@ export async function GET() {
         commercial: row.commercial,
       })),
     );
+    const goal = await loadCommissionProjection(auth.prisma, auth.userId, dash);
     return NextResponse.json({
       ...dash,
       missingCrm: missing,
+      monthlyGoalUsd: goal.monthlyGoalUsd,
+      needsMonthlyGoal: goal.needsMonthlyGoal,
+      projection: goal.projection,
       metrics: {
         total: dash.leads.length,
         closed: dash.rendimiento.mes.cierres,
@@ -69,7 +75,8 @@ export async function PATCH(request: Request) {
         | "outcome"
         | "agenda"
         | "pick-script"
-        | "commission-paid";
+        | "commission-paid"
+        | "monthly-goal";
       days?: number;
       resultado?: AlertOutcome;
       amount?: number;
@@ -95,6 +102,13 @@ export async function PATCH(request: Request) {
         },
       });
       return NextResponse.json({ ok: true });
+    }
+    if (body.action === "monthly-goal") {
+      const saved = await saveMonthlyGoal(auth.prisma, auth.userId, Number(body.amount || 0));
+      if (!saved) {
+        return NextResponse.json({ error: "Meta inválida" }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true, monthlyGoalUsd: saved });
     }
     if (!body.alertId) {
       return NextResponse.json({ error: "Acción inválida" }, { status: 400 });

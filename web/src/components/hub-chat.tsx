@@ -5,7 +5,10 @@ import Link from "next/link";
 import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FollowupPicker, type FollowupOptionView } from "@/components/followup-picker";
+import { OfferExtractReview } from "@/components/offer-extract-review";
 import { Textarea } from "@/components/ui/textarea";
+import type { ExtractedOffer } from "@/lib/offer-commercial";
+import type { CommissionProjection } from "@/lib/crm-projection";
 
 type Line = { id: string; role: "user" | "coach"; content: string };
 type Action = { type?: string; href: string; label: string };
@@ -36,6 +39,14 @@ export type HubSnapshot = {
   appliedCalls?: string[];
   missingCrm?: { question: string } | null;
   readyCrm?: boolean;
+  monthlyGoalUsd?: number | null;
+  needsMonthlyGoal?: boolean;
+  projection?: CommissionProjection | null;
+  pendingOfferExtract?: {
+    assumption: "una" | "varias";
+    questions: string[];
+    offers: ExtractedOffer[];
+  } | null;
 };
 
 export function HubChat({
@@ -149,14 +160,25 @@ export function HubChat({
             : "Dime qué pasó o qué quieres hacer."}
         </p>
       </div>
-      {(pending.length > 0 || alerts.length > 0 || snapshot.missingCrm || (snapshot.appliedCalls || []).length > 0) && (
+      {(pending.length > 0 ||
+        alerts.length > 0 ||
+        snapshot.missingCrm ||
+        snapshot.pendingOfferExtract ||
+        (snapshot.appliedCalls || []).length > 0) && (
         <div className="px-4 pt-3 space-y-2 border-b border-separator1 pb-3">
           {(snapshot.appliedCalls || []).map((line) => (
             <p key={line} className="text-xs text-fg3">
               {line}
             </p>
           ))}
-          {snapshot.missingCrm && !pending.length && (
+          {snapshot.pendingOfferExtract && (
+            <OfferExtractReview
+              batch={snapshot.pendingOfferExtract}
+              saving={sending}
+              onConfirm={(offers) => void postHub({ confirmOffers: offers })}
+            />
+          )}
+          {snapshot.missingCrm && !pending.length && !snapshot.pendingOfferExtract && (
             <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
               <p className="text-sm">{snapshot.missingCrm.question}</p>
               <p className="text-[11px] text-fg3 mt-1">

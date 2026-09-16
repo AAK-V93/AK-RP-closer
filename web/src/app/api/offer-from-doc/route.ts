@@ -54,6 +54,7 @@ export async function POST(request: Request) {
       productName: first?.productName || "",
       productDescription: first?.productDescription || "",
       pitchSummary: first?.pitchSummary || "",
+      icp: first?.icp || "",
       commercial: first?.commercial || null,
       commercialRecap: first ? commercialRecap(first.commercial) : "",
     });

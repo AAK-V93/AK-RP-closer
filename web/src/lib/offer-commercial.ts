@@ -50,6 +50,7 @@ export type ExtractedOffer = {
   productName: string;
   productDescription: string;
   pitchSummary: string;
+  icp: string;
   commercial: OfferCommercial;
 };
 
@@ -500,6 +501,7 @@ export function mergeExtractedOffer(
     productName: string;
     productDescription: string;
     pitchSummary: string;
+    icp?: string;
     commercial: OfferCommercial;
   },
   extracted: ExtractedOffer,
@@ -512,6 +514,7 @@ export function mergeExtractedOffer(
         ? extracted.productDescription
         : current.productDescription || extracted.productDescription,
     pitchSummary: extracted.pitchSummary || current.pitchSummary,
+    icp: extracted.icp || current.icp || "",
     commercial: mergeCommercial(current.commercial, extracted.commercial),
   };
 }
@@ -522,6 +525,7 @@ export function collapseOffersToOne(offers: ExtractedOffer[]): ExtractedOffer {
       productName: "Oferta",
       productDescription: "Oferta extraída",
       pitchSummary: "",
+      icp: "",
       commercial: emptyCommercial(),
     };
   }
@@ -542,6 +546,7 @@ export function collapseOffersToOne(offers: ExtractedOffer[]): ExtractedOffer {
       .filter(Boolean)
       .join("\n\n"),
     pitchSummary: offers.find((row) => row.pitchSummary)?.pitchSummary || "",
+    icp: offers.find((row) => row.icp?.trim())?.icp || "",
     commercial: {
       ...commercial,
       aliases: [...commercial.aliases, ...extraNames].filter(
@@ -563,6 +568,7 @@ export function offerToSavePayload(offer: ExtractedOffer) {
     productName: offer.productName.trim() || "Oferta",
     productDescription: description.slice(0, 8000),
     pitchSummary: offer.pitchSummary,
+    icp: (offer.icp || "").trim(),
     commercial: offer.commercial,
   };
 }

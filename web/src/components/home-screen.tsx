@@ -6,6 +6,7 @@ import { Loader2, Mic, Phone, Sparkles, Upload } from "lucide-react";
 import { CycleIntro } from "@/components/cycle-intro";
 import { HubChat, type HubSnapshot } from "@/components/hub-chat";
 import { OfferExtractReview } from "@/components/offer-extract-review";
+import { ProjectionCard } from "@/components/projection-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,8 +49,12 @@ export function HomeScreen() {
     <div className="space-y-6">
       {error && <p className="text-xs text-destructive">{error}</p>}
       {phase === "a" && <OnboardingA home={home} onDone={() => void load()} />}
-      {phase === "b" && <NoviceB />}
-      {phase === "c" && <ConfiguredC snapshot={snapshot} />}
+      {phase === "b" && (
+        <NoviceB snapshot={snapshot} onRefresh={() => void load()} />
+      )}
+      {phase === "c" && (
+        <ConfiguredC snapshot={snapshot} onRefresh={() => void load()} />
+      )}
     </div>
   );
 }
@@ -108,6 +113,7 @@ function OnboardingA({
                 productName: extracted.productName,
                 productDescription: extracted.productDescription,
                 pitchSummary: extracted.pitchSummary || "",
+                icp: extracted.icp || "",
                 commercial: extracted.commercial,
               },
             ]
@@ -322,7 +328,27 @@ function OnboardingA({
   );
 }
 
-function NoviceB() {
+function NoviceB({
+  snapshot,
+  onRefresh,
+}: {
+  snapshot: HubSnapshot | null;
+  onRefresh: () => void;
+}) {
+  const [savingGoal, setSavingGoal] = useState(false);
+  const saveGoal = async (usd: number) => {
+    setSavingGoal(true);
+    try {
+      await fetch("/api/hub", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ monthlyGoalUsd: usd }),
+      });
+      onRefresh();
+    } finally {
+      setSavingGoal(false);
+    }
+  };
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -332,6 +358,14 @@ function NoviceB() {
           oferta. El CRM aparece solo cuando entre la primera llamada real.
         </p>
       </div>
+      {snapshot?.needsMonthlyGoal && (
+        <ProjectionCard
+          projection={null}
+          needsGoal
+          saving={savingGoal}
+          onSaveGoal={saveGoal}
+        />
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Button asChild variant="primary" className="h-auto py-4 justify-start">
           <Link href="/practicar" className="flex items-start gap-3 text-left">
@@ -366,12 +400,34 @@ function NoviceB() {
 
 function ConfiguredC({
   snapshot,
+  onRefresh,
 }: {
   snapshot: HubSnapshot | null;
+  onRefresh: () => void;
 }) {
   const last = snapshot?.home?.lastUnanalyzed;
+  const [savingGoal, setSavingGoal] = useState(false);
+  const saveGoal = async (usd: number) => {
+    setSavingGoal(true);
+    try {
+      await fetch("/api/hub", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ monthlyGoalUsd: usd }),
+      });
+      onRefresh();
+    } finally {
+      setSavingGoal(false);
+    }
+  };
   return (
     <div className="space-y-6">
+      <ProjectionCard
+        projection={snapshot?.projection || null}
+        needsGoal={snapshot?.needsMonthlyGoal}
+        saving={savingGoal}
+        onSaveGoal={saveGoal}
+      />
       <div className="grid gap-3">
         <Button asChild variant="primary" className="h-auto py-4 justify-start">
           <Link href="/llamadas" className="flex items-start gap-3 text-left">

@@ -123,6 +123,7 @@ export default function OfertasPage() {
                 productName: data.productName,
                 productDescription: data.productDescription,
                 pitchSummary: data.pitchSummary || "",
+                icp: data.icp || "",
                 commercial: data.commercial,
               },
             ]

@@ -23,20 +23,23 @@ import {
   loadThread,
 } from "@/lib/chat-threads";
 import { crmDashboard } from "@/lib/crm-metrics";
-import { projectCommission } from "@/lib/crm-projection";
+import { loadCommissionProjection, projectCommission } from "@/lib/crm-projection";
 import {
   applyCommercialAnswer,
   looksLikeOfferBlob,
   parseCommercial,
+  type ExtractedOffer,
 } from "@/lib/offer-commercial";
-import { extractOfferBatchFromText, isOfferExtractConfirm } from "@/lib/offer-extract";
+import { isOfferExtractConfirm, offerBatchRecap } from "@/lib/offer-extract";
 import {
-  confirmPendingOfferExtract,
+  clearPendingOfferExtract,
   persistExtractedOffers,
   readPendingOfferExtract,
+  revisePendingOfferExtract,
   stageOfferBlob,
 } from "@/lib/offer-ingest";
 import { getHomeState } from "@/lib/home-state";
+import { parseCrmPrefs, parseMonthlyGoalUsd, saveMonthlyGoal } from "@/lib/crm-prefs";
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -88,6 +91,10 @@ export async function GET() {
           },
           pendingCalls: [],
           alertsDue: [],
+          monthlyGoalUsd: null,
+          needsMonthlyGoal: false,
+          projection: null,
+          pendingOfferExtract: null,
         },
       },
       { status: 200 },
@@ -123,6 +130,8 @@ export async function POST(request: Request) {
       };
       pickScript?: { id: string; optionId: string };
       agendaOutcome?: { id: string; estado: "SHOW" | "NO SHOW" | "REPROGRAMA" };
+      monthlyGoalUsd?: number;
+      confirmOffers?: ExtractedOffer[];
     };
 
     const userId = session.user.id;
@@ -211,6 +220,35 @@ export async function POST(request: Request) {
       canned.push("error" in out ? "No encontré esa agenda." : `Anoté ${body.agendaOutcome.estado}.`);
     }
 
+    if (typeof body.monthlyGoalUsd === "number" && body.monthlyGoalUsd > 0) {
+      const saved = await saveMonthlyGoal(prisma, userId, body.monthlyGoalUsd);
+      canned.push(
+        saved
+          ? `Guardé tu meta: USD ${saved.toLocaleString("es")} este mes.`
+          : "No pude guardar esa meta.",
+      );
+    }
+
+    if (Array.isArray(body.confirmOffers) && body.confirmOffers.length) {
+      try {
+        const saved = await persistExtractedOffers(
+          prisma,
+          userId,
+          body.confirmOffers,
+        );
+        await clearPendingOfferExtract(prisma, userId);
+        const names = saved.names.join(", ");
+        canned.push(
+          saved.nextQ
+            ? `Guardé ${names}. ${saved.nextQ.question}`
+            : `Guardé ${names}.`,
+        );
+      } catch (error) {
+        console.error("hub confirmOffers", error);
+        canned.push("No pude guardar esas ofertas.");
+      }
+    }
+
     const structuredOnly =
       Boolean(
         body.confirmCallId ||
@@ -221,7 +259,9 @@ export async function POST(request: Request) {
           body.snoozeAlertId ||
           body.alertOutcome?.id ||
           body.agendaOutcome?.id ||
-          body.pickScript?.id,
+          body.pickScript?.id ||
+          typeof body.monthlyGoalUsd === "number" ||
+          (Array.isArray(body.confirmOffers) && body.confirmOffers.length > 0),
       ) && !body.message && !body.start;
 
     const snapshot = await hubSnapshot(prisma, userId);
@@ -230,12 +270,17 @@ export async function POST(request: Request) {
       : String(body.message || "").trim();
 
     if (structuredOnly) {
-      const reply = canned.join(" ") || "Listo.";
+      const snapshotAfter = await hubSnapshot(prisma, userId);
+      const extra =
+        snapshotAfter.needsMonthlyGoal && body.confirmOffers?.length
+          ? " ¿Cuánto quieres ganar de comisión este mes?"
+          : "";
+      const reply = (canned.join(" ") || "Listo.") + extra;
       const coachLine = await appendHubLines(prisma, userId, null, reply);
       return NextResponse.json({
         message: coachLine,
-        actions: nextHubActions(snapshot),
-        snapshot,
+        actions: nextHubActions(snapshotAfter),
+        snapshot: snapshotAfter,
       });
     }
 
@@ -289,7 +334,7 @@ export async function POST(request: Request) {
             prisma,
             userId,
             userText,
-            `${staged.recap}\nResponde si los nombres están bien y si es una o varias.`,
+            `${staged.recap}\nConfirma cada bloque arriba: Sí o Corregir. La comisión no la asumo.`,
           );
           const fresh = await hubSnapshot(prisma, userId);
           return NextResponse.json({
@@ -302,13 +347,28 @@ export async function POST(request: Request) {
         }
       }
       try {
-        const confirmed = await confirmPendingOfferExtract(prisma, userId, userText);
-        if (confirmed) {
-          const names = confirmed.names.join(", ");
-          const reply = confirmed.nextQ
-            ? `Guardé ${names}. ${confirmed.nextQ.question}`
-            : `Guardé ${names}. Oferta lista para el CRM.`;
-          const coachLine = await appendHubLines(prisma, userId, userText, reply);
+        if (isOfferExtractConfirm(userText)) {
+          const coachLine = await appendHubLines(
+            prisma,
+            userId,
+            userText,
+            "Confirma cada bloque arriba (Sí o Corregir). La comisión no la asumo.",
+          );
+          const fresh = await hubSnapshot(prisma, userId);
+          return NextResponse.json({
+            message: coachLine,
+            actions: nextHubActions(fresh),
+            snapshot: fresh,
+          });
+        }
+        const revised = await revisePendingOfferExtract(prisma, userId, userText);
+        if (revised) {
+          const coachLine = await appendHubLines(
+            prisma,
+            userId,
+            userText,
+            `${offerBatchRecap(revised)}\nConfirma cada bloque arriba: Sí o Corregir.`,
+          );
           const fresh = await hubSnapshot(prisma, userId);
           return NextResponse.json({
             message: coachLine,
@@ -322,7 +382,7 @@ export async function POST(request: Request) {
           prisma,
           userId,
           userText,
-          "No pude guardar eso. ¿Confirmas los nombres o me dices qué corregir?",
+          "No pude ajustar eso. Usa Sí o Corregir en cada bloque de arriba.",
         );
         const fresh = await hubSnapshot(prisma, userId);
         return NextResponse.json({
@@ -408,6 +468,34 @@ export async function POST(request: Request) {
         snapshot: fresh,
       });
     }
+    const goalFromChat = parseMonthlyGoalUsd(userText);
+    const wantsGoalChange =
+      /meta|ganar.{0,24}comisi|comisi[oó]n este mes|quiero ganar/i.test(userText);
+    if (
+      goalFromChat &&
+      (live.needsMonthlyGoal || wantsGoalChange) &&
+      !live.pendingCalls[0] &&
+      !pendingExtract
+    ) {
+      const saved = await saveMonthlyGoal(prisma, userId, goalFromChat);
+      const until = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
+      const proj = await projectCommission(prisma, userId, {
+        metaUsd: saved || goalFromChat,
+        until,
+      });
+      const coachLine = await appendHubLines(
+        prisma,
+        userId,
+        userText,
+        `Guardé tu meta: USD ${(saved || goalFromChat).toLocaleString("es")} este mes.\n${proj.reply}`,
+      );
+      const fresh = await hubSnapshot(prisma, userId);
+      return NextResponse.json({
+        message: coachLine,
+        actions: nextHubActions(fresh),
+        snapshot: fresh,
+      });
+    }
     if (live.missingCrm && !body.start) {
       if (!looksLikeOfferBlob(userText)) {
         const coachLine = await appendHubLines(
@@ -450,7 +538,7 @@ export async function POST(request: Request) {
         prisma,
         userId,
         userText,
-        `${staged.recap}\nResponde si los nombres están bien y si es una o varias.`,
+        `${staged.recap}\nConfirma cada bloque arriba: Sí o Corregir. La comisión no la asumo.`,
       );
       const fresh = await hubSnapshot(prisma, userId);
       return NextResponse.json({
@@ -517,16 +605,17 @@ ${userText}`;
         parsed.offerPatch.field === "oferta_doc" ||
         looksLikeOfferBlob(parsed.offerPatch.value)
       ) {
-        await extractOfferBatchFromText(parsed.offerPatch.value)
-          .then((batch) =>
-            persistExtractedOffers(
-              prisma,
-              userId,
-              batch.offers,
-              parsed.offerPatch?.offerId || undefined,
-            ),
-          )
-          .catch((error) => console.error("offerPatch blob", error));
+        try {
+          const staged = await stageOfferBlob(
+            prisma,
+            userId,
+            parsed.offerPatch.value,
+            parsed.offerPatch.offerId || undefined,
+          );
+          parsed.reply = `${staged.recap}\nConfirma cada bloque arriba: Sí o Corregir. La comisión no la asumo.`;
+        } catch (error) {
+          console.error("offerPatch blob", error);
+        }
       } else {
         const offers = await prisma.userOffer.findMany({ where: { userId } });
         const target =
@@ -606,6 +695,7 @@ ${userText}`;
       const until = parsed.projection.until
         ? new Date(parsed.projection.until)
         : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
+      await saveMonthlyGoal(prisma, userId, parsed.projection.metaUsd);
       const proj = await projectCommission(prisma, userId, {
         metaUsd: parsed.projection.metaUsd,
         until,
@@ -668,6 +758,17 @@ async function hubSnapshot(
   userId: string,
 ) {
   const home = await getHomeState(prisma, userId);
+  const prefsRow = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { crmPrefs: true },
+  });
+  const prefs = parseCrmPrefs(prefsRow?.crmPrefs);
+  const pendingOfferExtract = readPendingOfferExtract(prefsRow?.crmPrefs);
+  const goalSeed = {
+    monthlyGoalUsd: prefs.monthlyGoalUsd,
+    needsMonthlyGoal: home.hasOffer && prefs.monthlyGoalUsd == null,
+    projection: null as Awaited<ReturnType<typeof loadCommissionProjection>>["projection"],
+  };
   const empty = {
     home,
     offers: [] as string[],
@@ -695,6 +796,10 @@ async function hubSnapshot(
     pendingCalls: [] as Awaited<ReturnType<typeof listPendingFilings>>,
     appliedCalls: [] as string[],
     recentCalls: [] as unknown[],
+    monthlyGoalUsd: goalSeed.monthlyGoalUsd,
+    needsMonthlyGoal: goalSeed.needsMonthlyGoal,
+    projection: goalSeed.projection,
+    pendingOfferExtract,
   };
   if (home.phase !== "c") {
     return empty;
@@ -702,6 +807,12 @@ async function hubSnapshot(
   try {
     const workspace = await getWorkspace(prisma, userId, null, { corpus: false });
     const dash = await crmDashboard(prisma, userId);
+    let goalBundle = goalSeed;
+    try {
+      goalBundle = await loadCommissionProjection(prisma, userId, dash);
+    } catch (error) {
+      console.error("hub projection", error);
+    }
     const [leads, pendingCalls, recentAuto] = await Promise.all([
       prisma.lead.findMany({
         where: { userId },
@@ -754,6 +865,10 @@ async function hubSnapshot(
       pendingCalls,
       appliedCalls: recentAuto.map((row) => row.summary).filter(Boolean),
       recentCalls: [],
+      monthlyGoalUsd: goalBundle.monthlyGoalUsd,
+      needsMonthlyGoal: goalBundle.needsMonthlyGoal,
+      projection: goalBundle.projection,
+      pendingOfferExtract,
     };
   } catch (error) {
     console.error("hub snapshot crm", error);

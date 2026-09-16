@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { persistCommissionRule } from "@/lib/commission";
+import { emptyPlaybook, parsePlaybook } from "@/lib/lead-playbook";
 import {
   applyOfferExtractFeedback,
   extractOfferBatchFromText,
@@ -42,6 +43,7 @@ export function readPendingOfferExtract(raw: unknown): PendingOfferExtract | nul
         productName: String(offer.productName || "").trim(),
         productDescription: String(offer.productDescription || "").trim(),
         pitchSummary: String(offer.pitchSummary || "").trim(),
+        icp: String(offer.icp || "").trim(),
         commercial: parseCommercial(offer.commercial),
       };
     })
@@ -73,6 +75,10 @@ async function writePending(
   });
 }
 
+export async function clearPendingOfferExtract(prisma: PrismaClient, userId: string) {
+  await writePending(prisma, userId, null);
+}
+
 export async function persistExtractedOffers(
   prisma: PrismaClient,
   userId: string,
@@ -94,10 +100,15 @@ export async function persistExtractedOffers(
           productName: mergeInto.productName,
           productDescription: mergeInto.productDescription,
           pitchSummary: mergeInto.pitchSummary,
+          icp: parsePlaybook(mergeInto.playbook).icp,
           commercial: parseCommercial(mergeInto.commercial),
         },
         payload,
       );
+      const playbook = {
+        ...parsePlaybook(mergeInto.playbook),
+        ...(merged.icp ? { icp: merged.icp } : {}),
+      };
       const offer = await prisma.userOffer.update({
         where: { id: mergeInto.id },
         data: {
@@ -108,6 +119,7 @@ export async function persistExtractedOffers(
               : mergeInto.productDescription,
           pitchSummary: merged.pitchSummary,
           commercial: merged.commercial as unknown as Prisma.InputJsonValue,
+          playbook: playbook as unknown as Prisma.InputJsonValue,
         },
       });
       if (merged.commercial.commission) {
@@ -125,6 +137,14 @@ export async function persistExtractedOffers(
         pitchSummary: payload.pitchSummary,
         includeFathom: existing.length === 0 && index === 0,
         commercial: payload.commercial as unknown as Prisma.InputJsonValue,
+        ...(payload.icp
+          ? {
+              playbook: {
+                ...emptyPlaybook(),
+                icp: payload.icp,
+              } as unknown as Prisma.InputJsonValue,
+            }
+          : {}),
       },
     });
     if (payload.commercial.commission) {
@@ -161,6 +181,23 @@ export async function stageOfferBlob(
     pending,
     recap: offerBatchRecap(pending),
   };
+}
+
+export async function revisePendingOfferExtract(
+  prisma: PrismaClient,
+  userId: string,
+  feedback: string,
+) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { crmPrefs: true },
+  });
+  const pending = readPendingOfferExtract(user?.crmPrefs);
+  if (!pending) return null;
+  const batch = await applyOfferExtractFeedback(pending, feedback);
+  const next = { ...pending, ...batch };
+  await writePending(prisma, userId, next);
+  return next;
 }
 
 export async function confirmPendingOfferExtract(

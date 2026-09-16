@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
-import { extractLeadPlaybook } from "@/lib/lead-playbook";
+import { extractLeadPlaybook, parsePlaybook } from "@/lib/lead-playbook";
 import { getWorkspace } from "@/lib/workspace";
 import { persistCommissionRule } from "@/lib/commission";
 import {
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
       productName?: string;
       productDescription?: string;
       pitchSummary?: string;
+      icp?: string;
       includeFathom?: boolean;
       commercial?: Partial<OfferCommercial>;
     };
@@ -100,22 +101,25 @@ export async function POST(request: Request) {
     if (commercial?.commission) {
       await persistCommissionRule(auth.prisma, auth.userId, offer.id, commercial.commission);
     }
+    let playbook = parsePlaybook(offer.playbook);
     if (workspace.corpus.length > 0) {
       try {
-        const playbook = await extractLeadPlaybook({
+        playbook = await extractLeadPlaybook({
           productName,
           productDescription,
           transcripts: workspace.corpus,
-          existing: workspace.playbook,
-        });
-        await auth.prisma.userOffer.update({
-          where: { id: offer.id },
-          data: { playbook: playbook as unknown as Prisma.InputJsonValue },
+          existing: playbook,
         });
       } catch (error) {
         console.error("playbook after offer", error);
       }
     }
+    const confirmedIcp = body.icp?.trim();
+    if (confirmedIcp) playbook = { ...playbook, icp: confirmedIcp };
+    await auth.prisma.userOffer.update({
+      where: { id: offer.id },
+      data: { playbook: playbook as unknown as Prisma.InputJsonValue },
+    });
 
     const next = await getWorkspace(auth.prisma, auth.userId, offer.id);
     return NextResponse.json({

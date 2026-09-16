@@ -3,8 +3,17 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { commercialRecap, collapseOffersToOne, type ExtractedOffer } from "@/lib/offer-commercial";
+import { Textarea } from "@/components/ui/textarea";
+import { collapseOffersToOne, type ExtractedOffer } from "@/lib/offer-commercial";
+import {
+  allOfferBlocksConfirmed,
+  applyOfferBlockPatch,
+  blockDraft,
+  confirmKey,
+  offerConfirmBlocks,
+  OFFER_CONFIRM_BLOCKS,
+  type OfferConfirmBlockId,
+} from "@/lib/offer-confirm";
 
 export type OfferExtractReviewBatch = {
   assumption: "una" | "varias";
@@ -23,24 +32,52 @@ export function OfferExtractReview({
   onBack?: () => void;
   onConfirm: (offers: ExtractedOffer[]) => void;
 }) {
+  const originals = batch.offers;
   const [mode, setMode] = useState<"una" | "varias">(
     batch.offers.length > 1 ? "varias" : batch.assumption,
   );
-  const [drafts, setDrafts] = useState<ExtractedOffer[]>(batch.offers);
+  const [drafts, setDrafts] = useState<ExtractedOffer[]>(
+    batch.offers.length > 1 && batch.assumption === "una"
+      ? [collapseOffersToOne(batch.offers)]
+      : batch.offers,
+  );
+  const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
+  const [editing, setEditing] = useState<{
+    index: number;
+    id: OfferConfirmBlockId;
+    draft: string;
+  } | null>(null);
 
   const visible = useMemo(
     () => (mode === "una" ? [collapseOffersToOne(drafts)] : drafts),
     [mode, drafts],
   );
 
-  const setName = (index: number, name: string) => {
-    setDrafts((rows) =>
-      rows.map((row, i) => (i === index ? { ...row, productName: name } : row)),
-    );
+  const ready = allOfferBlocksConfirmed(visible.length, confirmed);
+
+  const switchMode = (next: "una" | "varias") => {
+    setConfirmed({});
+    setEditing(null);
+    if (next === "una") setDrafts([collapseOffersToOne(originals)]);
+    else setDrafts(originals.length > 1 ? originals : drafts);
+    setMode(next);
+  };
+
+  const patchOffer = (
+    index: number,
+    fn: (offer: ExtractedOffer) => ExtractedOffer,
+  ) => {
+    if (mode === "una") {
+      setDrafts([fn(visible[0])]);
+      return;
+    }
+    setDrafts((rows) => rows.map((row, i) => (i === index ? fn(row) : row)));
   };
 
   const removeAt = (index: number) => {
     setDrafts((rows) => rows.filter((_, i) => i !== index));
+    setConfirmed({});
+    setEditing(null);
     if (drafts.length <= 2) setMode("una");
   };
 
@@ -56,7 +93,7 @@ export function OfferExtractReview({
             : "Encontré una oferta"}
         </h2>
         <p className="text-sm text-fg3 mt-1">
-          Revisa los nombres. Si son planes del mismo programa, elige una sola.
+          Cada bloque: Sí o Corregir. La comisión no la asumo.
         </p>
       </div>
 
@@ -65,7 +102,7 @@ export function OfferExtractReview({
           type="button"
           size="sm"
           variant={mode === "una" ? "primary" : "outline"}
-          onClick={() => setMode("una")}
+          onClick={() => switchMode("una")}
         >
           Una sola
         </Button>
@@ -73,8 +110,8 @@ export function OfferExtractReview({
           type="button"
           size="sm"
           variant={mode === "varias" ? "primary" : "outline"}
-          onClick={() => setMode("varias")}
-          disabled={drafts.length < 2}
+          onClick={() => switchMode("varias")}
+          disabled={originals.length < 2}
         >
           Varias
         </Button>
@@ -88,28 +125,12 @@ export function OfferExtractReview({
         </ul>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-4">
         {visible.map((offer, index) => (
           <div
             key={`${offer.productName}-${index}`}
-            className="rounded-xl border border-separator1 p-3 space-y-2"
+            className="rounded-xl border border-separator1 p-3 space-y-3"
           >
-            <div className="space-y-1">
-              <Label htmlFor={`extract-name-${index}`}>Nombre</Label>
-              <Input
-                id={`extract-name-${index}`}
-                value={
-                  mode === "una" ? visible[0].productName : drafts[index]?.productName || ""
-                }
-                onChange={(event) => {
-                  if (mode === "una") setName(0, event.target.value);
-                  else setName(index, event.target.value);
-                }}
-              />
-            </div>
-            <p className="text-xs text-fg3">
-              {commercialRecap(offer.commercial) || offer.productDescription.slice(0, 180)}
-            </p>
             {mode === "varias" && drafts.length > 1 && (
               <button
                 type="button"
@@ -119,6 +140,104 @@ export function OfferExtractReview({
                 Quitar esta
               </button>
             )}
+            {offerConfirmBlocks(offer).map((block) => {
+              const key = confirmKey(index, block.id);
+              const isEditing =
+                editing?.index === index && editing.id === block.id;
+              const ok = Boolean(confirmed[key]);
+              return (
+                <div
+                  key={block.id}
+                  className={`rounded-lg border p-3 space-y-2 ${
+                    ok ? "border-primary/40 bg-primary/5" : "border-separator1 bg-bg0"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
+                      {block.title}
+                      {ok ? " · listo" : ""}
+                    </p>
+                  </div>
+                  {!isEditing && (
+                    <p className="text-sm whitespace-pre-wrap">{block.summary}</p>
+                  )}
+                  {block.hint && !isEditing && !ok && (
+                    <p className="text-[11px] text-fg3">{block.hint}</p>
+                  )}
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      {block.id === "name" ? (
+                        <Input
+                          value={editing.draft}
+                          onChange={(event) =>
+                            setEditing({ ...editing, draft: event.target.value })
+                          }
+                        />
+                      ) : (
+                        <Textarea
+                          rows={4}
+                          value={editing.draft}
+                          onChange={(event) =>
+                            setEditing({ ...editing, draft: event.target.value })
+                          }
+                        />
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="primary"
+                          onClick={() => {
+                            patchOffer(index, (row) =>
+                              applyOfferBlockPatch(row, block.id, editing.draft),
+                            );
+                            setConfirmed((prev) => ({ ...prev, [key]: true }));
+                            setEditing(null);
+                          }}
+                        >
+                          Listo
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setEditing(null)}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={ok ? "primary" : "outline"}
+                        onClick={() =>
+                          setConfirmed((prev) => ({ ...prev, [key]: true }))
+                        }
+                      >
+                        Sí
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setEditing({
+                            index,
+                            id: block.id,
+                            draft: blockDraft(offer, block.id),
+                          })
+                        }
+                      >
+                        Corregir
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -127,16 +246,21 @@ export function OfferExtractReview({
         <Button
           type="button"
           variant="primary"
-          disabled={saving || !visible.some((row) => row.productName.trim())}
+          disabled={saving || !ready || !visible.some((row) => row.productName.trim())}
           onClick={() => {
             const next =
               mode === "una"
-                ? [{ ...collapseOffersToOne(drafts), productName: visible[0].productName.trim() || drafts[0].productName }]
+                ? [
+                    {
+                      ...visible[0],
+                      productName: visible[0].productName.trim() || drafts[0].productName,
+                    },
+                  ]
                 : drafts.filter((row) => row.productName.trim());
             onConfirm(next);
           }}
         >
-          {saving ? "Guardando…" : "Así está, guardar"}
+          {saving ? "Guardando…" : ready ? "Así está, guardar" : "Marca Sí o Corregir en cada bloque"}
         </Button>
         {onBack && (
           <Button type="button" variant="outline" disabled={saving} onClick={onBack}>
@@ -147,3 +271,5 @@ export function OfferExtractReview({
     </div>
   );
 }
+
+export { OFFER_CONFIRM_BLOCKS };
