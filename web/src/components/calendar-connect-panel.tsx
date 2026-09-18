@@ -9,6 +9,7 @@ export function CalendarConnectPanel({ authenticated }: { authenticated: boolean
     configured?: boolean;
     connected?: boolean;
     syncedAt?: string | null;
+    redirectUri?: string;
   } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -71,6 +72,14 @@ export function CalendarConnectPanel({ authenticated }: { authenticated: boolean
           <a href="/api/calendar/connect">Conectar Calendar</a>
         </Button>
       )}
+      {!state.connected && state.redirectUri ? (
+        <p className="text-[11px] text-fg3 break-all">
+          Si Google dice <span className="text-fg2">redirect_uri_mismatch</span>,
+          pega esta URI en Google Cloud → APIs y servicios → Credenciales → tu
+          cliente OAuth → Authorized redirect URIs:{" "}
+          <span className="text-fg2">{state.redirectUri}</span>
+        </p>
+      ) : null}
     </div>
   );
 }

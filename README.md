@@ -34,11 +34,11 @@ cp .env.example .env.local
 
 La API key de Gemini va **solo en el servidor**.
 
-Auth: `DATABASE_URL` (Postgres, p.ej. Neon), `AUTH_SECRET` / `NEXTAUTH_SECRET`, `NEXTAUTH_URL`. Login con Google: `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`. Redirect URIs:
+Auth: `DATABASE_URL` (Postgres, p.ej. Neon), `AUTH_SECRET` / `NEXTAUTH_SECRET`, `NEXTAUTH_URL`. Login con Google: `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`. En Google Cloud → Credenciales → Authorized redirect URIs hay que pegar **las dos**:
 
-- `http://localhost:3000/api/auth/callback/google`
-- `https://TU-APP.vercel.app/api/auth/callback/google`
-- Calendar (mismo OAuth client): `/api/calendar/callback`
+- `https://TU-APP.vercel.app/api/auth/callback/google` (login)
+- `https://TU-APP.vercel.app/api/calendar/callback` (Calendar; si falta, Google muestra `redirect_uri_mismatch`)
+- Local: `http://localhost:3000/api/auth/callback/google` y `http://localhost:3000/api/calendar/callback`
 
 Email diario de alertas (opcional): `RESEND_API_KEY`, `ALERT_FROM_EMAIL`, `CRON_SECRET`. Cron: `GET /api/cron/alert-digest` a las 13:00 UTC (8am Lima). `CRON_SECRET` lo generas tú (`openssl rand -hex 32`) y lo pegas en Vercel → Environment Variables; Vercel lo envía solo al cron.
 

@@ -2,6 +2,7 @@ import { createHmac } from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import { encryptSecret, decryptSecret } from "@/lib/secret-crypto";
 import { upsertLeadForAgenda } from "@/lib/agenda";
+import { appUrl, isPublicHttpsUrl } from "@/lib/app-url";
 
 const CAL_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
 
@@ -11,27 +12,34 @@ export function googleCalendarConfigured() {
   );
 }
 
-function appUrl() {
-  return (
-    process.env.NEXTAUTH_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
-  ).replace(/\/$/, "");
+export function calendarRedirectUri(origin?: string) {
+  const raw = String(origin || "").replace(/\/$/, "");
+  const base =
+    raw && (isPublicHttpsUrl(raw) || /localhost|127\.0\.0\.1/i.test(raw))
+      ? raw
+      : appUrl();
+  return `${base}/api/calendar/callback`;
 }
 
-function secret() {
-  return process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "calendar";
+function signState(userId: string, origin: string) {
+  return createHmac("sha256", secret())
+    .update(`${userId}:${origin}`)
+    .digest("hex")
+    .slice(0, 24);
 }
 
-export function calendarOAuthUrl(userId: string) {
+export function calendarOAuthUrl(userId: string, origin?: string) {
+  const redirectUri = calendarRedirectUri(origin);
   const state = Buffer.from(
     JSON.stringify({
       userId,
-      h: createHmac("sha256", secret()).update(userId).digest("hex").slice(0, 24),
+      origin: new URL(redirectUri).origin,
+      h: signState(userId, new URL(redirectUri).origin),
     }),
   ).toString("base64url");
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID || "",
-    redirect_uri: `${appUrl()}/api/calendar/callback`,
+    redirect_uri: redirectUri,
     response_type: "code",
     scope: CAL_SCOPE,
     access_type: "offline",
@@ -46,23 +54,28 @@ export function parseCalendarState(state: string) {
   try {
     const raw = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as {
       userId?: string;
+      origin?: string;
       h?: string;
     };
     if (!raw.userId || !raw.h) return null;
-    const expect = createHmac("sha256", secret()).update(raw.userId).digest("hex").slice(0, 24);
-    if (expect !== raw.h) return null;
-    return raw.userId;
+    const origin = String(raw.origin || "").replace(/\/$/, "");
+    if (signState(raw.userId, origin) !== raw.h) return null;
+    return { userId: raw.userId, origin };
   } catch {
     return null;
   }
 }
 
-async function exchangeCode(code: string) {
+function secret() {
+  return process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "calendar";
+}
+
+async function exchangeCode(code: string, origin?: string) {
   const body = new URLSearchParams({
     code,
     client_id: process.env.GOOGLE_CLIENT_ID || "",
     client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
-    redirect_uri: `${appUrl()}/api/calendar/callback`,
+    redirect_uri: calendarRedirectUri(origin),
     grant_type: "authorization_code",
   });
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -121,8 +134,13 @@ function leadNameFromEvent(summary: string) {
   return cleaned.slice(0, 80) || summary.slice(0, 80);
 }
 
-export async function saveCalendarRefresh(prisma: PrismaClient, userId: string, code: string) {
-  const token = await exchangeCode(code);
+export async function saveCalendarRefresh(
+  prisma: PrismaClient,
+  userId: string,
+  code: string,
+  origin?: string,
+) {
+  const token = await exchangeCode(code, origin);
   await prisma.user.update({
     where: { id: userId },
     data: {

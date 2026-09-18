@@ -5,9 +5,11 @@ import {
   disconnectCalendar,
   googleCalendarConfigured,
   syncUserCalendar,
+  calendarRedirectUri,
 } from "@/lib/calendar";
+import { requestOrigin } from "@/lib/app-url";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const auth = await requireWorkspaceUser();
     if ("error" in auth && auth.error) return auth.error;
@@ -20,6 +22,7 @@ export async function GET() {
       configured: googleCalendarConfigured(),
       connected: Boolean(user?.calendarRefreshEnc),
       syncedAt: user?.calendarSyncedAt?.toISOString() || null,
+      redirectUri: calendarRedirectUri(requestOrigin(request)),
     });
   } catch (error) {
     console.error("calendar GET", error);
