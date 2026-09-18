@@ -23,7 +23,7 @@ import {
 import {
   saveFathomRecording,
   skipFathomRecordingsBefore,
-  unskipRecentEmptyTranscripts,
+  unskipEmptyTranscriptsForImport,
 } from "@/lib/fathom-ingest";
 import { prismaErrorCode } from "@/lib/prisma";
 
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     if (importSince) {
       await skipFathomRecordingsBefore(prisma, userId, importSince);
     }
-    await unskipRecentEmptyTranscripts(prisma, userId);
+    await unskipEmptyTranscriptsForImport(prisma, userId, importSince);
 
     const phase = body.phase === "transcripts" ? "transcripts" : "meetings";
     const afterIso = importSince?.toISOString() || null;

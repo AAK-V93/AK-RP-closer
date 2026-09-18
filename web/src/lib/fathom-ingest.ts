@@ -195,6 +195,27 @@ export async function unskipRecentEmptyTranscripts(
   prisma: PrismaClient,
   userId: string,
 ) {
+  await unskipEmptyTranscriptsForImport(prisma, userId, new Date(Date.now() - 2 * 24 * 60 * 60 * 1000));
+}
+
+/** Re-fetch omitted transcripts in the import date range (or all, if no range). */
+export async function unskipEmptyTranscriptsForImport(
+  prisma: PrismaClient,
+  userId: string,
+  importSince: Date | null,
+) {
+  if (importSince) {
+    await prisma.$executeRaw`
+      UPDATE "FathomRecording"
+      SET "practiceSessionId" = NULL,
+          "transcriptText" = ''
+      WHERE "userId" = ${userId}
+        AND "practiceSessionId" = ${FATHOM_SKIPPED}
+        AND "transcriptText" = ${EMPTY_TRANSCRIPT_MARK}
+        AND ("recordedAt" IS NULL OR "recordedAt" >= ${importSince})
+    `;
+    return;
+  }
   await prisma.$executeRaw`
     UPDATE "FathomRecording"
     SET "practiceSessionId" = NULL,
@@ -202,7 +223,6 @@ export async function unskipRecentEmptyTranscripts(
     WHERE "userId" = ${userId}
       AND "practiceSessionId" = ${FATHOM_SKIPPED}
       AND "transcriptText" = ${EMPTY_TRANSCRIPT_MARK}
-      AND ("recordedAt" IS NULL OR "recordedAt" > NOW() - INTERVAL '2 days')
   `;
 }
 

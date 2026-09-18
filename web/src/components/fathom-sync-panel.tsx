@@ -225,7 +225,7 @@ export function FathomSyncPanel({
         const remaining = data.remainingTranscripts ?? 0;
         setSyncMessage(
           remaining > 0
-            ? `Descargando transcripciones… faltan ${remaining}`
+            ? `Descargando transcripciones (incluye omitidas)… faltan ${remaining}`
             : "Transcripciones listas. Auditando llamadas…",
         );
         transcriptsDone = Boolean(data.done);
@@ -403,8 +403,8 @@ export function FathomSyncPanel({
             />
             <p className="text-xs text-fg3">
               {status.autoIngest
-                ? "Las nuevas llamadas llegan solas. Este rango es solo si quieres importar historial."
-                : "En local no puede entrar sola (Fathom necesita HTTPS). En producción se activa al abrir esta pantalla. El botón importa el historial."}
+                ? "Las nuevas llegan solas. El botón reintenta las omitidas de este rango y re-audita las que quedaron a medias."
+                : "En local no puede entrar sola (Fathom necesita HTTPS). En producción se activa al abrir esta pantalla. El botón importa el historial y reintenta omitidas."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
