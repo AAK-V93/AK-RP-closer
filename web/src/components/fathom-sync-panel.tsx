@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw, Unplug } from "lucide-react";
+import { ExternalLink, Loader2, RefreshCw, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +19,51 @@ type FathomStatus = {
   skipped?: number;
 };
 
+const FATHOM_API_SETTINGS = "https://fathom.video/settings/api";
+
+function FathomApiKeyHelp() {
+  return (
+    <div className="rounded-xl border border-separator1 bg-bg0 p-3 space-y-2">
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
+        Dónde está la API key
+      </p>
+      <ol className="text-sm text-fg2 space-y-1.5 list-decimal pl-4">
+        <li>
+          Entra a{" "}
+          <a
+            href="https://fathom.video"
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+          >
+            fathom.video
+          </a>{" "}
+          con la cuenta con la que grabas.
+        </li>
+        <li>
+          Arriba a la derecha: <span className="text-fg1">Settings</span>. Baja
+          hasta <span className="text-fg1">API Access</span> (en My Settings).
+        </li>
+        <li>
+          Toca <span className="text-fg1">Add</span> →{" "}
+          <span className="text-fg1">Generate API Key</span>. Ponle un nombre
+          (ej. Closer Trainer) y <span className="text-fg1">Create API Client</span>.
+        </li>
+        <li>Cópiala ya: Fathom la muestra una sola vez. Pégala abajo.</li>
+      </ol>
+      <a
+        href={FATHOM_API_SETTINGS}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1.5 text-sm underline"
+      >
+        Abrir Fathom → Settings → API
+        <ExternalLink className="h-3.5 w-3.5" />
+      </a>
+    </div>
+  );
+}
+
 type FathomRecordingRow = {
   id: string;
   title: string;
@@ -33,11 +78,9 @@ type FathomRecordingRow = {
 export function FathomSyncPanel({
   authenticated,
   onAnalyze,
-  embedded = false,
 }: {
   authenticated: boolean;
   onAnalyze?: (args: { transcript: string; title: string }) => void;
-  embedded?: boolean;
 }) {
   const [status, setStatus] = useState<FathomStatus | null>(null);
   const [recordings, setRecordings] = useState<FathomRecordingRow[]>([]);
@@ -278,29 +321,22 @@ export function FathomSyncPanel({
   }
 
   return (
-    <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
-      {!embedded && (
-        <div className="space-y-1">
-          <h2 className="text-lg font-light">Conectar Fathom</h2>
-          <p className="text-sm text-fg3">
-            Conecta Fathom y las llamadas nuevas entran solas cuando termina de
-            transcribir: extractor, CRM y alerta de qué hacer. El botón de abajo
-            es para el historial. API key en{" "}
-            <a
-              href="https://fathom.video/settings/api"
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
-              Fathom → Settings → API
-            </a>
-            .
-          </p>
-        </div>
-      )}
+    <div
+      id="conectar-fathom"
+      className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4"
+    >
+      <div className="space-y-1">
+        <h2 className="text-lg font-light">Conectar Fathom</h2>
+        <p className="text-sm text-fg3">
+          {status?.connected
+            ? "Las llamadas nuevas entran solas cuando Fathom termina de transcribir. El botón de abajo importa el historial."
+            : "Pega tu API key. Las llamadas nuevas entran solas cuando Fathom termina de transcribir."}
+        </p>
+      </div>
 
       {!status?.connected ? (
         <form onSubmit={onConnect} className="space-y-3">
+          <FathomApiKeyHelp />
           <div className="space-y-1">
             <Label htmlFor="fathom-api-key">API key de Fathom</Label>
             <Input

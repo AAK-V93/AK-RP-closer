@@ -895,7 +895,7 @@ async function hubSnapshot(
 
 function nextHubActions(snapshot: Awaited<ReturnType<typeof hubSnapshot>>) {
   if (snapshot.home?.phase === "a") {
-    return [{ type: "navigate", href: "/llamadas", label: "Conectar Fathom" }];
+    return [{ type: "navigate", href: "/llamadas#conectar-fathom", label: "Conectar Fathom" }];
   }
   if (snapshot.home?.phase === "b") {
     return [{ type: "practice", href: "/practicar", label: "Practicar" }];

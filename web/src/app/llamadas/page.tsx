@@ -73,7 +73,7 @@ export default function LlamadasPage() {
           </Button>
         ) : (
           <>
-            <FathomSyncPanel authenticated embedded />
+            <FathomSyncPanel authenticated />
             <CalendarConnectPanel authenticated />
             <Button asChild variant="outline" size="sm">
               <Link href="/ofertas">Subir archivos o pegar transcript</Link>

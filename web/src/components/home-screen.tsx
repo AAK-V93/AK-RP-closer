@@ -208,7 +208,7 @@ function OnboardingA({
           {error && <p className="text-xs text-destructive">{error}</p>}
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="primary">
-              <Link href="/llamadas">Conectar Fathom</Link>
+              <Link href="/llamadas#conectar-fathom">Conectar Fathom</Link>
             </Button>
             <label className="inline-flex">
               <Button type="button" variant="outline" asChild disabled={uploading}>

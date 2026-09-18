@@ -458,7 +458,7 @@ export default function OfertasPage() {
           </p>
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline" size="sm">
-              <Link href="/llamadas">Conectar / sync Fathom</Link>
+              <Link href="/llamadas#conectar-fathom">Conectar / sync Fathom</Link>
             </Button>
             <label className="inline-flex">
               <Button type="button" variant="outline" size="sm" asChild>
