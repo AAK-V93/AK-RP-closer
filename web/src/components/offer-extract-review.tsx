@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -82,7 +83,29 @@ export function OfferExtractReview({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4" aria-busy={saving}>
+      {saving && (
+        <div
+          className="sticky top-2 z-10 rounded-xl border border-primary/40 bg-bg1 px-3 py-3 flex items-center gap-3"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-5 w-5 animate-spin shrink-0" />
+          <div>
+            <p className="text-sm">Guardando tu oferta…</p>
+            <p className="text-xs text-fg3">
+              No cierres esta pantalla. Ya confirmaste los bloques; ahora los
+              estamos guardando.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div
+        className={
+          saving ? "pointer-events-none opacity-60 space-y-4" : "space-y-4"
+        }
+      >
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
           Confirma
@@ -103,6 +126,7 @@ export function OfferExtractReview({
           size="sm"
           variant={mode === "una" ? "primary" : "outline"}
           onClick={() => switchMode("una")}
+          disabled={saving}
         >
           Una sola
         </Button>
@@ -111,7 +135,7 @@ export function OfferExtractReview({
           size="sm"
           variant={mode === "varias" ? "primary" : "outline"}
           onClick={() => switchMode("varias")}
-          disabled={originals.length < 2}
+          disabled={saving || originals.length < 2}
         >
           Varias
         </Button>
@@ -241,6 +265,7 @@ export function OfferExtractReview({
           </div>
         ))}
       </div>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         <Button
@@ -260,7 +285,16 @@ export function OfferExtractReview({
             onConfirm(next);
           }}
         >
-          {saving ? "Guardando…" : ready ? "Así está, guardar" : "Marca Sí o Corregir en cada bloque"}
+          {saving ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Guardando tu oferta…
+            </>
+          ) : ready ? (
+            "Así está, guardar"
+          ) : (
+            "Marca Sí o Corregir en cada bloque"
+          )}
         </Button>
         {onBack && (
           <Button type="button" variant="outline" disabled={saving} onClick={onBack}>
