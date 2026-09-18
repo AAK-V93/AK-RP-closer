@@ -9,9 +9,10 @@ import {
   loadOffersForCrm,
   parseExtractorJson,
 } from "@/lib/crm-apply";
-import { runExtractor } from "@/lib/extractor";
+import { emptyExtractor, enrichExtractorFollowup, runExtractor } from "@/lib/extractor";
 import { userHasReadyCrm } from "@/lib/offer-commercial";
 import { isNonSalesCall } from "@/lib/call-kind";
+import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
 
 export type SpeakerRole = { name: string; role: "closer" | "lead" };
 
@@ -65,21 +66,89 @@ export async function classifyAndFileCall(
     title: string;
     transcript: string;
     recordedAt?: Date | null;
+    durationMs?: number | null;
   },
 ) {
+  const intake = classifyCallIntake({
+    title: args.title,
+    transcript: args.transcript,
+    durationMs: args.durationMs,
+  });
+  if (intake.action === "skip") {
+    const parsed = emptyExtractor();
+    parsed.estado_agenda = intake.estado;
+    parsed.requiere_seguimiento = false;
+    parsed.confianza.estado_agenda = 100;
+    parsed.notas_crm =
+      intake.reason === "no_transcript"
+        ? "Sin transcripción real. No va al extractor."
+        : intake.reason === "short"
+          ? "Reunión de menos de 5 minutos. No entra al CRM."
+          : "Reunión interna. No entra al CRM.";
+    const summary = parsed.notas_crm;
+    const row = await prisma.callRecord.upsert({
+      where: {
+        userId_source_sourceId: {
+          userId,
+          source: args.source,
+          sourceId: args.sourceId,
+        },
+      },
+      create: {
+        userId,
+        source: args.source,
+        sourceId: args.sourceId,
+        title: args.title,
+        callType: parsed.estado_agenda || "",
+        leadName: "",
+        trainsBot: false,
+        recordedAt: args.recordedAt || new Date(),
+        summary,
+        filingStatus: "skipped",
+        filingJson: parsed as unknown as Prisma.InputJsonValue,
+        confirmedAt: new Date(),
+        estadoAgenda: parsed.estado_agenda || "",
+      },
+      update: {
+        title: args.title,
+        callType: parsed.estado_agenda || "",
+        trainsBot: false,
+        recordedAt: args.recordedAt || undefined,
+        summary,
+        filingStatus: "skipped",
+        filingJson: parsed as unknown as Prisma.InputJsonValue,
+        confirmedAt: new Date(),
+        estadoAgenda: parsed.estado_agenda || "",
+      },
+    });
+    return {
+      ...parsed,
+      callRecordId: row.id,
+      filingStatus: "skipped" as const,
+      autoApplied: true,
+      gap: null,
+      summary,
+    };
+  }
+
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
   const fecha = args.recordedAt ? args.recordedAt.toISOString().slice(0, 10) : null;
-  const parsed = await runExtractor({
-    offers,
-    title: args.title,
-    fechaLlamada: fecha,
-    transcript: args.transcript,
-    readyCrm,
-  });
-  const gap = extractorGap(parsed, readyCrm);
+  const parsed = enrichExtractorFollowup(
+    await runExtractor({
+      offers,
+      title: args.title,
+      fechaLlamada: fecha,
+      transcript: args.transcript,
+      readyCrm,
+    }),
+    { transcript: args.transcript, callAt: args.recordedAt },
+  );
+  const nonSales = isNonSalesCall(parsed.estado_agenda);
+  const gap = nonSales ? null : extractorGap(parsed, readyCrm);
   const auto = !gap;
-  const summary = auto ? extractorOneLiner(parsed) : gap.question;
+  const summary = auto ? extractorOneLiner(parsed) : gap?.question || extractorOneLiner(parsed);
+  const filingStatus = nonSales ? "skipped" : auto ? "confirmed" : "pending";
 
   const row = await prisma.callRecord.upsert({
     where: {
@@ -101,9 +170,9 @@ export async function classifyAndFileCall(
       trainsBot: trainsBotFromType(parsed.estado_agenda || ""),
       recordedAt: args.recordedAt || new Date(),
       summary,
-      filingStatus: auto ? "confirmed" : "pending",
+      filingStatus,
       filingJson: parsed as unknown as Prisma.InputJsonValue,
-      confirmedAt: auto ? new Date() : null,
+      confirmedAt: auto || nonSales ? new Date() : null,
       estadoAgenda: parsed.estado_agenda || "",
       ventaTotal: parsed.venta_total,
       cashCollected: parsed.cash_collected,
@@ -118,9 +187,9 @@ export async function classifyAndFileCall(
       trainsBot: trainsBotFromType(parsed.estado_agenda || ""),
       recordedAt: args.recordedAt || undefined,
       summary,
-      filingStatus: auto ? "confirmed" : "pending",
+      filingStatus,
       filingJson: parsed as unknown as Prisma.InputJsonValue,
-      confirmedAt: auto ? new Date() : null,
+      confirmedAt: auto || nonSales ? new Date() : null,
       estadoAgenda: parsed.estado_agenda || "",
       ventaTotal: parsed.venta_total,
       cashCollected: parsed.cash_collected,
@@ -129,7 +198,7 @@ export async function classifyAndFileCall(
     },
   });
 
-  if (auto && !isNonSalesCall(parsed.estado_agenda)) {
+  if (auto && !nonSales) {
     await applyExtractorToCrm(prisma, userId, row.id, parsed, offers);
     const { fulfillAgendado } = await import("@/lib/agenda");
     await fulfillAgendado(prisma, userId, {
@@ -142,8 +211,8 @@ export async function classifyAndFileCall(
   return {
     ...parsed,
     callRecordId: row.id,
-    filingStatus: auto ? "confirmed" : "pending",
-    autoApplied: auto,
+    filingStatus,
+    autoApplied: auto && !nonSales,
     gap,
     summary,
   };
@@ -229,17 +298,64 @@ export async function skipCallFiling(
   });
 }
 
+export async function archiveSilentNonSalesPendings(
+  prisma: PrismaClient,
+  userId: string,
+) {
+  const rows = await prisma.callRecord.findMany({
+    where: { userId, filingStatus: "pending" },
+    take: 40,
+  });
+  let archived = 0;
+  for (const row of rows) {
+    const parsed = isExtractorJson(row.filingJson)
+      ? parseExtractorJson(row.filingJson)
+      : null;
+    const nonSales =
+      isNonSalesCall(row.estadoAgenda) ||
+      isNonSalesCall(parsed?.estado_agenda) ||
+      isInternalMeetingTitle(row.title);
+    if (!nonSales) continue;
+    await prisma.callRecord.update({
+      where: { id: row.id },
+      data: {
+        filingStatus: "skipped",
+        confirmedAt: new Date(),
+        estadoAgenda:
+          parsed?.estado_agenda || row.estadoAgenda || "NO_COMERCIAL",
+      },
+    });
+    archived += 1;
+  }
+  return archived;
+}
+
 export async function listPendingFilings(prisma: PrismaClient, userId: string) {
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
+  await archiveSilentNonSalesPendings(prisma, userId);
   const rows = await prisma.callRecord.findMany({
     where: { userId, filingStatus: "pending" },
     orderBy: { createdAt: "desc" },
-    take: 8,
+    take: 16,
   });
-  return rows.map((row) => {
+  return rows
+    .filter((row) => {
+      if (isNonSalesCall(row.estadoAgenda) || isInternalMeetingTitle(row.title)) {
+        return false;
+      }
+      if (isExtractorJson(row.filingJson)) {
+        const parsed = parseExtractorJson(row.filingJson);
+        if (isNonSalesCall(parsed.estado_agenda)) return false;
+      }
+      return true;
+    })
+    .slice(0, 8)
+    .map((row) => {
     if (isExtractorJson(row.filingJson)) {
-      const parsed = parseExtractorJson(row.filingJson);
+      const parsed = enrichExtractorFollowup(parseExtractorJson(row.filingJson), {
+        callAt: row.recordedAt,
+      });
       const gap = extractorGap(parsed, readyCrm);
       return {
         id: row.id,

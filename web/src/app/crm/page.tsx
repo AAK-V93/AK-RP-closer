@@ -1,25 +1,24 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { FollowupPicker, type FollowupOptionView } from "@/components/followup-picker";
 import { ProjectionCard } from "@/components/projection-card";
+import { SheetTable, sheetCell, type SheetColumn } from "@/components/crm-sheet";
 import type { OperacionRow } from "@/lib/crm-operacion";
 import { moneyLabel, pctLabel } from "@/lib/crm-operacion";
 import type { CommissionProjection } from "@/lib/crm-projection";
 
-type ModuleId = "operacion" | "dashboard" | "seguimientos" | "comisiones";
+type ModuleId =
+  | "ahora"
+  | "periodo"
+  | "operacion"
+  | "dashboard"
+  | "seguimientos"
+  | "comisiones";
 
 type Period = {
   agendas: number;
@@ -88,7 +87,14 @@ type Dash = {
     razonNoCierre: { razon: string; count: number }[];
     etapaPerdida: { etapa: string; count: number }[];
   };
-  evolucion?: { mes: string; agendas: number; shows: number; cierres: number; ventas: number; cash: number }[];
+  evolucion?: {
+    mes: string;
+    agendas: number;
+    shows: number;
+    cierres: number;
+    ventas: number;
+    cash: number;
+  }[];
   offers?: { id: string; productName: string; currency: string }[];
   operacion?: OperacionRow[];
   monthlyGoalUsd?: number | null;
@@ -97,6 +103,8 @@ type Dash = {
 };
 
 const MODULES: { id: ModuleId; label: string }[] = [
+  { id: "ahora", label: "Ahora mismo" },
+  { id: "periodo", label: "Período" },
   { id: "operacion", label: "Operación" },
   { id: "dashboard", label: "Dashboard" },
   { id: "seguimientos", label: "Seguimientos" },
@@ -116,6 +124,7 @@ export default function CrmPage() {
   const [offer, setOffer] = useState("todas");
   const [module, setModule] = useState<ModuleId>("operacion");
   const [openAlert, setOpenAlert] = useState<string | null>(null);
+  const [openCall, setOpenCall] = useState<string | null>(null);
   const [savingGoal, setSavingGoal] = useState(false);
 
   const load = () =>
@@ -205,18 +214,15 @@ export default function CrmPage() {
 
   const now = data?.now || {};
   const rendimiento = data?.rendimiento;
+  const selectedCall = operacion.find((row) => row.id === openCall) || null;
+  const selectedFollowup = followups.find((row) => row.id === openAlert) || null;
 
   return (
-    <AppShell>
-      <div className="space-y-6">
+    <AppShell wide>
+      <div className="space-y-4">
         <div>
           <p className="text-[11px] uppercase tracking-wide text-fg3">Centro de control comercial</p>
           <h1 className="text-2xl font-light">CRM</h1>
-          <p className="text-sm text-fg3">
-            Misma lógica que la hoja de operación: una fila por llamada, cola de
-            seguimiento y comisiones que nacen cuando hay cash cobrado. Las ofertas
-            son las tuyas, no un producto fijo.
-          </p>
         </div>
         {status !== "authenticated" ? (
           <Button asChild variant="primary">
@@ -236,76 +242,6 @@ export default function CrmPage() {
                   <Link href="/ofertas">Completar en Ofertas</Link>
                 </Button>
               </div>
-            )}
-
-            <section className="space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
-                Ahora mismo
-              </p>
-              <ProjectionCard
-                projection={data.projection || null}
-                needsGoal={data.needsMonthlyGoal}
-                saving={savingGoal}
-                onSaveGoal={saveGoal}
-                currency={currency}
-              />
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                <Metric label="Seguimientos vencidos" value={String(now.seguimientosVencidos || 0)} />
-                <Metric label="Seguimientos de hoy" value={String(now.seguimientosHoy || 0)} />
-                <Metric label="Agendas de hoy" value={String(now.agendasHoy || 0)} />
-                <Metric label="Dinero en juego" value={money(now.dineroEnJuego)} />
-                <Metric label="Cash pendiente" value={money(now.cashPendiente)} />
-                <Metric label="Comisión pendiente" value={money(now.comisionPendiente)} />
-                <Metric label="Oportunidades activas" value={String(now.oportunidadesActivas || 0)} />
-                <Metric label="Agendas futuras" value={String(now.agendasFuturas || 0)} />
-              </div>
-            </section>
-
-            {rendimiento && (
-              <section className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
-                  Período
-                </p>
-                {offer !== "todas" && (
-                  <p className="text-[11px] text-fg3">
-                    Estas tasas son de todas las ofertas. Operación, seguimientos y
-                    comisiones sí están filtradas a {offer}.
-                  </p>
-                )}
-                <div className="overflow-x-auto rounded-xl border border-separator1 bg-bg1">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead></TableHead>
-                        <TableHead>Mes en curso</TableHead>
-                        <TableHead>Mes anterior</TableHead>
-                        <TableHead>Acumulado</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(
-                        [
-                          ["Agendas", (p) => String(p.agendas)],
-                          ["Shows", (p) => String(p.shows)],
-                          ["No shows", (p) => String(p.noShows)],
-                          ["Cierres", (p) => String(p.cierres)],
-                          ["Show rate", (p) => pctLabel(p.showRate)],
-                          ["Close rate", (p) => pctLabel(p.closeRate)],
-                          ["Ventas", (p) => money(p.ventas)],
-                          ["Cash", (p) => money(p.cash)],
-                        ] as [string, (p: Period) => string][]
-                      ).map(([label, read]) => (
-                        <TableRow key={label}>
-                          <TableCell className="text-xs text-fg3">{label}</TableCell>
-                          <TableCell>{read(rendimiento.mes)}</TableCell>
-                          <TableCell>{read(rendimiento.anterior)}</TableCell>
-                          <TableCell>{read(rendimiento.acumulado)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </section>
             )}
 
             {offers.length > 1 && (
@@ -330,7 +266,7 @@ export default function CrmPage() {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1 border-b border-separator1 pb-2">
               {MODULES.map((item) => (
                 <Button
                   key={item.id}
@@ -343,24 +279,50 @@ export default function CrmPage() {
               ))}
             </div>
 
+            {module === "ahora" && (
+              <AhoraSheet
+                now={now}
+                money={money}
+                projection={data.projection || null}
+                needsGoal={data.needsMonthlyGoal}
+                saving={savingGoal}
+                onSaveGoal={saveGoal}
+                currency={currency}
+              />
+            )}
+            {module === "periodo" && rendimiento && (
+              <PeriodoSheet
+                rendimiento={rendimiento}
+                money={money}
+                offerNote={
+                  offer !== "todas"
+                    ? `Las tasas son de todas las ofertas. Operación, seguimientos y comisiones sí están filtradas a ${offer}.`
+                    : null
+                }
+              />
+            )}
             {module === "operacion" && (
-              <OperacionTable rows={operacion} money={money} />
+              <OperacionSheet
+                rows={operacion}
+                money={money}
+                selectedId={openCall}
+                onSelect={(id) => setOpenCall(openCall === id ? null : id)}
+                selected={selectedCall}
+              />
             )}
-            {module === "dashboard" && (
-              <DashboardBlock data={data} money={money} />
-            )}
+            {module === "dashboard" && <DashboardSheet data={data} money={money} />}
             {module === "seguimientos" && (
-              <SeguimientosTable
+              <SeguimientosSheet
                 rows={followups}
                 money={money}
-                openId={openAlert}
-                onOpen={setOpenAlert}
+                selected={selectedFollowup}
+                onSelect={(id) => setOpenAlert(openAlert === id ? null : id)}
                 onPick={pickScript}
                 onPatch={patch}
               />
             )}
             {module === "comisiones" && (
-              <ComisionesTable
+              <ComisionesSheet
                 rows={commissions}
                 resumen={data.comisionResumen}
                 money={money}
@@ -374,97 +336,171 @@ export default function CrmPage() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function AhoraSheet({
+  now,
+  money,
+  projection,
+  needsGoal,
+  saving,
+  onSaveGoal,
+  currency,
+}: {
+  now: Record<string, number>;
+  money: (value: number | null | undefined) => string;
+  projection: CommissionProjection | null;
+  needsGoal?: boolean;
+  saving: boolean;
+  onSaveGoal: (usd: number) => Promise<void>;
+  currency: string;
+}) {
+  const rows = [
+    { id: "vencidos", metrica: "Seguimientos vencidos", valor: String(now.seguimientosVencidos || 0) },
+    { id: "hoy", metrica: "Seguimientos de hoy", valor: String(now.seguimientosHoy || 0) },
+    { id: "agendas-hoy", metrica: "Agendas de hoy", valor: String(now.agendasHoy || 0) },
+    { id: "juego", metrica: "Dinero en juego", valor: money(now.dineroEnJuego) },
+    { id: "cash", metrica: "Cash pendiente", valor: money(now.cashPendiente) },
+    { id: "comision", metrica: "Comisión pendiente", valor: money(now.comisionPendiente) },
+    { id: "oportunidades", metrica: "Oportunidades activas", valor: String(now.oportunidadesActivas || 0) },
+    { id: "futuras", metrica: "Agendas futuras", valor: String(now.agendasFuturas || 0) },
+  ];
   return (
-    <div className="rounded-xl border border-separator1 bg-bg1 p-3">
-      <p className="text-[11px] uppercase tracking-wide text-fg3">{label}</p>
-      <p className="text-lg font-light">{value}</p>
+    <div className="space-y-3">
+      <ProjectionCard
+        projection={projection}
+        needsGoal={needsGoal}
+        saving={saving}
+        onSaveGoal={onSaveGoal}
+        currency={currency}
+      />
+      <SheetTable
+        columns={[
+          { key: "metrica", label: "Métrica", width: 220, value: (row) => row.metrica },
+          { key: "valor", label: "Valor", width: 160, align: "right", value: (row) => row.valor },
+        ]}
+        rows={rows}
+        getId={(row) => row.id}
+        empty="Sin métricas."
+      />
     </div>
   );
 }
 
-function OperacionTable({
-  rows,
+function PeriodoSheet({
+  rendimiento,
   money,
+  offerNote,
 }: {
-  rows: OperacionRow[];
+  rendimiento: { mes: Period; anterior: Period; acumulado: Period };
   money: (value: number | null | undefined) => string;
+  offerNote: string | null;
 }) {
+  const rows = [
+    { id: "agendas", metrica: "Agendas", mes: String(rendimiento.mes.agendas), ant: String(rendimiento.anterior.agendas), acc: String(rendimiento.acumulado.agendas) },
+    { id: "shows", metrica: "Shows", mes: String(rendimiento.mes.shows), ant: String(rendimiento.anterior.shows), acc: String(rendimiento.acumulado.shows) },
+    { id: "noshow", metrica: "No shows", mes: String(rendimiento.mes.noShows), ant: String(rendimiento.anterior.noShows), acc: String(rendimiento.acumulado.noShows) },
+    { id: "cierres", metrica: "Cierres", mes: String(rendimiento.mes.cierres), ant: String(rendimiento.anterior.cierres), acc: String(rendimiento.acumulado.cierres) },
+    { id: "showrate", metrica: "Show rate", mes: pctLabel(rendimiento.mes.showRate), ant: pctLabel(rendimiento.anterior.showRate), acc: pctLabel(rendimiento.acumulado.showRate) },
+    { id: "close", metrica: "Close rate", mes: pctLabel(rendimiento.mes.closeRate), ant: pctLabel(rendimiento.anterior.closeRate), acc: pctLabel(rendimiento.acumulado.closeRate) },
+    { id: "ventas", metrica: "Ventas", mes: money(rendimiento.mes.ventas), ant: money(rendimiento.anterior.ventas), acc: money(rendimiento.acumulado.ventas) },
+    { id: "cash", metrica: "Cash", mes: money(rendimiento.mes.cash), ant: money(rendimiento.anterior.cash), acc: money(rendimiento.acumulado.cash) },
+  ];
   return (
-    <section className="space-y-2">
-      <p className="text-sm font-medium">Operación comercial</p>
-      <p className="text-[11px] text-fg3">
-        Una fila por reunión. El extractor llena esto; no se edita a mano aquí.
-      </p>
-      {rows.length === 0 ? (
-        <p className="text-sm text-fg3">Aún no hay llamadas en esta oferta.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-separator1 bg-bg1">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {[
-                  "Fecha",
-                  "Cliente",
-                  "Teléfono",
-                  "Canal",
-                  "Estado agenda",
-                  "Próx. seg.",
-                  "Producto",
-                  "Venta",
-                  "Modo pago",
-                  "Cash",
-                  "Req. seg.",
-                  "Tipo seg.",
-                  "Acuerdo",
-                  "Calificado",
-                  "Razón no cierre",
-                  "Etapa pérdida",
-                  "Notas",
-                ].map((label) => (
-                  <TableHead key={label} className="whitespace-nowrap">
-                    {label}
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{row.fecha || "—"}</TableCell>
-                  <TableCell className="font-medium text-fg1">{row.cliente || "—"}</TableCell>
-                  <TableCell>{row.telefono || "—"}</TableCell>
-                  <TableCell>{row.canal || "—"}</TableCell>
-                  <TableCell>{row.estadoAgenda || "—"}</TableCell>
-                  <TableCell>{row.fechaProximo || "—"}</TableCell>
-                  <TableCell>{row.producto || row.oferta || "—"}</TableCell>
-                  <TableCell>{money(row.venta)}</TableCell>
-                  <TableCell>{row.modoPago || "—"}</TableCell>
-                  <TableCell>{money(row.cash)}</TableCell>
-                  <TableCell>{row.requiereSeguimiento || "—"}</TableCell>
-                  <TableCell>{row.tipoSeguimiento || "—"}</TableCell>
-                  <TableCell className="max-w-[220px] whitespace-normal text-xs">
-                    {row.acuerdo || "—"}
-                  </TableCell>
-                  <TableCell>{row.calificado || "—"}</TableCell>
-                  <TableCell className="max-w-[180px] whitespace-normal text-xs">
-                    {row.razonNoCierre || "—"}
-                  </TableCell>
-                  <TableCell>{row.etapaPerdida || "—"}</TableCell>
-                  <TableCell className="max-w-[240px] whitespace-normal text-xs">
-                    {row.notas || "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </section>
+    <div className="space-y-2">
+      {offerNote && <p className="text-[11px] text-fg3">{offerNote}</p>}
+      <SheetTable
+        columns={[
+          { key: "metrica", label: "Métrica", width: 140, value: (row) => row.metrica },
+          { key: "mes", label: "Mes en curso", width: 120, align: "right", value: (row) => row.mes },
+          { key: "ant", label: "Mes anterior", width: 120, align: "right", value: (row) => row.ant },
+          { key: "acc", label: "Acumulado", width: 120, align: "right", value: (row) => row.acc },
+        ]}
+        rows={rows}
+        getId={(row) => row.id}
+      />
+    </div>
   );
 }
 
-function DashboardBlock({
+function OperacionSheet({
+  rows,
+  money,
+  selectedId,
+  onSelect,
+  selected,
+}: {
+  rows: OperacionRow[];
+  money: (value: number | null | undefined) => string;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  selected: OperacionRow | null;
+}) {
+  const columns: SheetColumn<OperacionRow>[] = [
+    { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha },
+    { key: "cliente", label: "Cliente", width: 160, value: (row) => row.cliente },
+    { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
+    { key: "canal", label: "Canal", width: 80, value: (row) => row.canal },
+    { key: "estado", label: "Estado", width: 100, value: (row) => row.estadoAgenda },
+    { key: "prox", label: "Próx. seg.", width: 90, value: (row) => row.fechaProximo },
+    { key: "producto", label: "Producto", width: 140, value: (row) => row.producto || row.oferta },
+    { key: "venta", label: "Venta", width: 90, align: "right", value: (row) => money(row.venta) },
+    { key: "modo", label: "Modo pago", width: 100, value: (row) => row.modoPago },
+    { key: "cash", label: "Cash", width: 90, align: "right", value: (row) => money(row.cash) },
+    { key: "req", label: "Req. seg.", width: 70, value: (row) => row.requiereSeguimiento },
+    { key: "tipo", label: "Tipo seg.", width: 100, value: (row) => row.tipoSeguimiento },
+    { key: "acuerdo", label: "Acuerdo", width: 140, value: (row) => row.acuerdo },
+    { key: "cal", label: "Calificado", width: 80, value: (row) => row.calificado },
+    { key: "razon", label: "Razón no cierre", width: 140, value: (row) => row.razonNoCierre },
+    { key: "etapa", label: "Etapa pérdida", width: 100, value: (row) => row.etapaPerdida },
+    { key: "notas", label: "Notas", width: 160, value: (row) => row.notas },
+  ];
+  return (
+    <div className="space-y-2">
+      <SheetTable
+        columns={columns}
+        rows={rows}
+        getId={(row) => row.id}
+        selectedId={selectedId}
+        onRowClick={(row) => onSelect(row.id)}
+        empty="Aún no hay llamadas en esta oferta."
+      />
+      {selected && (
+        <div className="border border-separator1 bg-bg1 p-3 text-sm space-y-1">
+          <p className="text-[11px] uppercase tracking-wide text-fg3">Detalle de la fila</p>
+          {(
+            [
+              ["Fecha", selected.fecha],
+              ["Cliente", selected.cliente],
+              ["Teléfono", selected.telefono],
+              ["Email", selected.email],
+              ["Canal", selected.canal],
+              ["Estado", selected.estadoAgenda],
+              ["Próximo seguimiento", selected.fechaProximo],
+              ["Producto", selected.producto || selected.oferta],
+              ["Venta", money(selected.venta)],
+              ["Modo de pago", selected.modoPago],
+              ["Cash", money(selected.cash)],
+              ["Saldo", money(selected.saldo)],
+              ["Req. seguimiento", selected.requiereSeguimiento],
+              ["Tipo", selected.tipoSeguimiento],
+              ["Acuerdo", selected.acuerdo],
+              ["Calificado", selected.calificado],
+              ["Razón no cierre", selected.razonNoCierre],
+              ["Etapa pérdida", selected.etapaPerdida],
+              ["Notas", selected.notas],
+            ] as [string, string][]
+          ).map(([label, value]) => (
+            <p key={label} className="flex gap-3">
+              <span className="w-44 shrink-0 text-fg3">{label}</span>
+              <span className="whitespace-pre-wrap break-words">{sheetCell(value)}</span>
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DashboardSheet({
   data,
   money,
 }: {
@@ -473,262 +509,187 @@ function DashboardBlock({
 }) {
   const mes = data.rendimiento?.mes;
   const funnel = data.desglose?.embudo;
+  const kpis = [
+    { id: "agendas", metrica: "Agendas del período", valor: String(mes?.agendas || 0) },
+    { id: "shows", metrica: "Shows", valor: String(mes?.shows || 0) },
+    { id: "close", metrica: "Close rate s/ shows", valor: pctLabel(mes?.closeRate) },
+    { id: "cal", metrica: "Close rate calificado", valor: pctLabel(mes?.closeRateCalificado) },
+    { id: "ticket", metrica: "Ticket promedio", valor: money(mes?.ticket) },
+    { id: "ventas", metrica: "Ventas", valor: money(mes?.ventas) },
+    { id: "cash", metrica: "Cash", valor: money(mes?.cash) },
+    { id: "cashpct", metrica: "% cash cobrado", valor: pctLabel(mes?.cashPct) },
+    { id: "cgen", metrica: "Comisión gen.", valor: money(data.comisionResumen?.generada) },
+    { id: "ccob", metrica: "Comisión cobrada", valor: money(data.comisionResumen?.cobrada) },
+    { id: "cpct", metrica: "% comisión cobrada", valor: pctLabel(data.comisionResumen?.pctCobrado) },
+    { id: "pipe", metrica: "Pipeline 7 días", valor: String(data.now?.agendasFuturas || 0) },
+  ];
+  const funnelRows = [
+    { id: "a", etapa: "Agendas", valor: String(funnel?.agendas || 0) },
+    { id: "s", etapa: "Shows", valor: String(funnel?.shows || 0) },
+    { id: "c", etapa: "Cierres", valor: String(funnel?.cierres || 0) },
+  ];
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Metric label="Agendas del período" value={String(mes?.agendas || 0)} />
-        <Metric label="Shows" value={String(mes?.shows || 0)} />
-        <Metric label="Close rate s/ shows" value={pctLabel(mes?.closeRate)} />
-        <Metric label="Close rate calificado" value={pctLabel(mes?.closeRateCalificado)} />
-        <Metric label="Ticket promedio" value={money(mes?.ticket)} />
-        <Metric label="Ventas" value={money(mes?.ventas)} />
-        <Metric label="Cash" value={money(mes?.cash)} />
-        <Metric label="% cash cobrado" value={pctLabel(mes?.cashPct)} />
-        <Metric label="Comisión gen." value={money(data.comisionResumen?.generada)} />
-        <Metric label="Comisión cobrada" value={money(data.comisionResumen?.cobrada)} />
-        <Metric label="% comisión cobrada" value={pctLabel(data.comisionResumen?.pctCobrado)} />
-        <Metric label="Pipeline 7 días" value={String(data.now?.agendasFuturas || 0)} />
-      </div>
-      <section className="space-y-2">
-        <p className="text-sm font-medium">Embudo de la llamada</p>
-        <div className="grid grid-cols-3 gap-3">
-          <Metric label="Agendas" value={String(funnel?.agendas || 0)} />
-          <Metric label="Shows" value={String(funnel?.shows || 0)} />
-          <Metric label="Cierres" value={String(funnel?.cierres || 0)} />
-        </div>
-      </section>
-      {(data.desglose?.porOferta || []).length > 0 && (
-        <section className="space-y-2">
-          <p className="text-sm font-medium">Desglose por oferta</p>
-          <div className="overflow-x-auto rounded-xl border border-separator1 bg-bg1">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Oferta</TableHead>
-                  <TableHead>Cierres</TableHead>
-                  <TableHead>Ventas</TableHead>
-                  <TableHead>Cash</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.desglose?.porOferta.map((row) => (
-                  <TableRow key={row.oferta}>
-                    <TableCell>{row.oferta}</TableCell>
-                    <TableCell>{row.cierres}</TableCell>
-                    <TableCell>{money(row.ventas)}</TableCell>
-                    <TableCell>{money(row.cash)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </section>
-      )}
+    <div className="space-y-4">
+      <SheetTable
+        columns={[
+          { key: "metrica", label: "Métrica", width: 220, value: (row) => row.metrica },
+          { key: "valor", label: "Valor", width: 160, align: "right", value: (row) => row.valor },
+        ]}
+        rows={kpis}
+        getId={(row) => row.id}
+      />
+      <SheetTable
+        columns={[
+          { key: "etapa", label: "Embudo", width: 140, value: (row) => row.etapa },
+          { key: "valor", label: "Cantidad", width: 90, align: "right", value: (row) => row.valor },
+        ]}
+        rows={funnelRows}
+        getId={(row) => row.id}
+      />
+      <SheetTable
+        columns={[
+          { key: "oferta", label: "Oferta", width: 180, value: (row) => row.oferta },
+          { key: "cierres", label: "Cierres", width: 80, align: "right", value: (row) => row.cierres },
+          { key: "ventas", label: "Ventas", width: 110, align: "right", value: (row) => money(row.ventas) },
+          { key: "cash", label: "Cash", width: 110, align: "right", value: (row) => money(row.cash) },
+        ]}
+        rows={data.desglose?.porOferta || []}
+        getId={(row) => row.oferta}
+        empty="Sin desglose por oferta."
+      />
       <div className="grid md:grid-cols-2 gap-4">
-        <CountList title="Razón de no cierre" rows={data.desglose?.razonNoCierre || []} keyName="razon" />
-        <CountList title="Etapa pérdida" rows={data.desglose?.etapaPerdida || []} keyName="etapa" />
+        <SheetTable
+          columns={[
+            { key: "razon", label: "Razón de no cierre", width: 220, value: (row) => row.razon },
+            { key: "count", label: "N", width: 60, align: "right", value: (row) => row.count },
+          ]}
+          rows={data.desglose?.razonNoCierre || []}
+          getId={(row) => `${row.razon}-${row.count}`}
+          empty="Sin datos aún."
+        />
+        <SheetTable
+          columns={[
+            { key: "etapa", label: "Etapa pérdida", width: 220, value: (row) => row.etapa },
+            { key: "count", label: "N", width: 60, align: "right", value: (row) => row.count },
+          ]}
+          rows={data.desglose?.etapaPerdida || []}
+          getId={(row) => `${row.etapa}-${row.count}`}
+          empty="Sin datos aún."
+        />
       </div>
-      {(data.evolucion || []).length > 0 && (
-        <section className="space-y-2">
-          <p className="text-sm font-medium">Evolución · últimos 6 meses</p>
-          <div className="overflow-x-auto rounded-xl border border-separator1 bg-bg1">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Mes</TableHead>
-                  <TableHead>Agendas</TableHead>
-                  <TableHead>Shows</TableHead>
-                  <TableHead>Cierres</TableHead>
-                  <TableHead>Ventas</TableHead>
-                  <TableHead>Cash</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(data.evolucion || []).map((row) => (
-                  <TableRow key={row.mes}>
-                    <TableCell>{row.mes}</TableCell>
-                    <TableCell>{row.agendas}</TableCell>
-                    <TableCell>{row.shows}</TableCell>
-                    <TableCell>{row.cierres}</TableCell>
-                    <TableCell>{money(row.ventas)}</TableCell>
-                    <TableCell>{money(row.cash)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </section>
-      )}
+      <SheetTable
+        columns={[
+          { key: "mes", label: "Mes", width: 90, value: (row) => row.mes },
+          { key: "agendas", label: "Agendas", width: 80, align: "right", value: (row) => row.agendas },
+          { key: "shows", label: "Shows", width: 80, align: "right", value: (row) => row.shows },
+          { key: "cierres", label: "Cierres", width: 80, align: "right", value: (row) => row.cierres },
+          { key: "ventas", label: "Ventas", width: 110, align: "right", value: (row) => money(row.ventas) },
+          { key: "cash", label: "Cash", width: 110, align: "right", value: (row) => money(row.cash) },
+        ]}
+        rows={data.evolucion || []}
+        getId={(row) => row.mes}
+        empty="Sin evolución aún."
+      />
     </div>
   );
 }
 
-function CountList({
-  title,
-  rows,
-  keyName,
-}: {
-  title: string;
-  rows: { count: number; razon?: string; etapa?: string }[];
-  keyName: "razon" | "etapa";
-}) {
-  return (
-    <section className="space-y-2">
-      <p className="text-sm font-medium">{title}</p>
-      <div className="rounded-xl border border-separator1 bg-bg1 p-3 space-y-1">
-        {rows.length === 0 ? (
-          <p className="text-xs text-fg3">Sin datos aún.</p>
-        ) : (
-          rows.map((row) => (
-            <p key={`${row[keyName]}-${row.count}`} className="flex justify-between text-sm">
-              <span>{row[keyName]}</span>
-              <span className="text-fg3">{row.count}</span>
-            </p>
-          ))
-        )}
-      </div>
-    </section>
-  );
-}
-
-function SeguimientosTable({
+function SeguimientosSheet({
   rows,
   money,
-  openId,
-  onOpen,
+  selected,
+  onSelect,
   onPick,
   onPatch,
 }: {
   rows: Followup[];
   money: (value: number | null | undefined) => string;
-  openId: string | null;
-  onOpen: (id: string | null) => void;
+  selected: Followup | null;
+  onSelect: (id: string) => void;
   onPick: (alertId: string, optionId: string) => Promise<void>;
   onPatch: (alertId: string, resultado: string, agenda?: boolean) => Promise<void>;
 }) {
   return (
-    <section className="space-y-2">
-      <p className="text-sm font-medium">Cola de seguimiento</p>
-      <p className="text-[11px] text-fg3">
-        Ordenada por fecha. Elige un guion, ábrelo en WhatsApp y marca el resultado.
-      </p>
-      {rows.length === 0 ? (
-        <p className="text-sm text-fg3">No hay seguimientos abiertos.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-separator1 bg-bg1">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {[
-                  "Estado",
-                  "Cuándo",
-                  "Días",
-                  "Cliente",
-                  "Teléfono",
-                  "Oferta",
-                  "Tipo",
-                  "Próxima acción",
-                  "En juego",
-                  "Canal",
-                ].map((label) => (
-                  <TableHead key={label}>{label}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <Fragment key={row.id}>
-                  <TableRow
-                    className="cursor-pointer"
-                    onClick={() => onOpen(openId === row.id ? null : row.id)}
+    <div className="space-y-2">
+      <SheetTable
+        columns={[
+          { key: "estado", label: "Estado", width: 90, value: (row) => row.estado },
+          { key: "cuando", label: "Cuándo", width: 90, value: (row) => row.dueAt.slice(0, 10) },
+          { key: "dias", label: "Días", width: 60, align: "right", value: (row) => row.days },
+          { key: "cliente", label: "Cliente", width: 160, value: (row) => row.cliente },
+          { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
+          { key: "oferta", label: "Oferta", width: 140, value: (row) => row.oferta },
+          { key: "tipo", label: "Tipo", width: 120, value: (row) => row.tipo },
+          { key: "accion", label: "Próxima acción", width: 180, value: (row) => row.acuerdo || row.question },
+          { key: "juego", label: "En juego", width: 100, align: "right", value: (row) => (row.enJuego ? money(row.enJuego) : "—") },
+          { key: "canal", label: "Canal", width: 80, value: (row) => row.canal },
+        ]}
+        rows={rows}
+        getId={(row) => row.id}
+        selectedId={selected?.id || null}
+        onRowClick={(row) => onSelect(row.id)}
+        empty="No hay seguimientos abiertos."
+      />
+      {selected && (
+        <div className="border border-separator1 bg-bg1 p-3 space-y-3">
+          {selected.contexto && <p className="text-xs text-fg3">{selected.contexto}</p>}
+          {selected.tipo !== "AGENDA_CHECK" && (selected.opciones || []).length > 0 ? (
+            <FollowupPicker
+              alertId={selected.id}
+              options={selected.opciones || []}
+              selectedId={selected.selectedId}
+              phone={selected.telefono}
+              onChoose={onPick}
+            />
+          ) : (
+            selected.mensajeSugerido && (
+              <p className="text-xs whitespace-pre-wrap">{selected.mensajeSugerido}</p>
+            )
+          )}
+          <div className="flex flex-wrap gap-1">
+            {selected.tipo === "AGENDA_CHECK"
+              ? (
+                  [
+                    ["SHOW", "Show"],
+                    ["NO SHOW", "No show"],
+                    ["REPROGRAMA", "Reprogramó"],
+                  ] as const
+                ).map(([estado, label]) => (
+                  <Button
+                    key={estado}
+                    size="sm"
+                    variant={estado === "SHOW" ? "primary" : "outline"}
+                    onClick={() => void onPatch(selected.id, estado, true)}
                   >
-                    <TableCell className={row.estado === "VENCIDO" ? "text-fgSerious1" : ""}>
-                      {row.estado}
-                    </TableCell>
-                    <TableCell>{row.dueAt.slice(0, 10)}</TableCell>
-                    <TableCell>{row.days}</TableCell>
-                    <TableCell className="font-medium text-fg1">{row.cliente}</TableCell>
-                    <TableCell>{row.telefono || "—"}</TableCell>
-                    <TableCell>{row.oferta || "—"}</TableCell>
-                    <TableCell>{row.tipo}</TableCell>
-                    <TableCell className="max-w-[240px] whitespace-normal text-xs">
-                      {row.acuerdo || row.question}
-                    </TableCell>
-                    <TableCell>{row.enJuego ? money(row.enJuego) : "—"}</TableCell>
-                    <TableCell>{row.canal || "—"}</TableCell>
-                  </TableRow>
-                  {openId === row.id && (
-                    <TableRow>
-                      <TableCell colSpan={10} className="bg-bg2 whitespace-normal">
-                        <div className="space-y-3 py-2">
-                          {row.contexto && (
-                            <p className="text-xs text-fg3">{row.contexto}</p>
-                          )}
-                          {row.tipo !== "AGENDA_CHECK" && (row.opciones || []).length > 0 ? (
-                            <FollowupPicker
-                              alertId={row.id}
-                              options={row.opciones || []}
-                              selectedId={row.selectedId}
-                              phone={row.telefono}
-                              onChoose={onPick}
-                            />
-                          ) : (
-                            row.mensajeSugerido && (
-                              <p className="text-xs whitespace-pre-wrap">{row.mensajeSugerido}</p>
-                            )
-                          )}
-                          <div className="flex flex-wrap gap-1">
-                            {row.tipo === "AGENDA_CHECK"
-                              ? (
-                                  [
-                                    ["SHOW", "Show"],
-                                    ["NO SHOW", "No show"],
-                                    ["REPROGRAMA", "Reprogramó"],
-                                  ] as const
-                                ).map(([estado, label]) => (
-                                  <Button
-                                    key={estado}
-                                    size="sm"
-                                    variant={estado === "SHOW" ? "primary" : "outline"}
-                                    onClick={() => void onPatch(row.id, estado, true)}
-                                  >
-                                    {label}
-                                  </Button>
-                                ))
-                              : (
-                                  [
-                                    ["hecho", "Hecho"],
-                                    ["no_contesto", "No contestó"],
-                                    ["reprogramado", "Reprogramar"],
-                                    ["cerro", "Cerró"],
-                                    ["perdido", "Perdido"],
-                                  ] as const
-                                ).map(([value, label]) => (
-                                  <Button
-                                    key={value}
-                                    size="sm"
-                                    variant={value === "hecho" ? "primary" : "outline"}
-                                    onClick={() => void onPatch(row.id, value)}
-                                  >
-                                    {label}
-                                  </Button>
-                                ))}
-                          </div>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </Fragment>
-              ))}
-            </TableBody>
-          </Table>
+                    {label}
+                  </Button>
+                ))
+              : (
+                  [
+                    ["hecho", "Hecho"],
+                    ["no_contesto", "No contestó"],
+                    ["reprogramado", "Reprogramar"],
+                    ["cerro", "Cerró"],
+                    ["perdido", "Perdido"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Button
+                    key={value}
+                    size="sm"
+                    variant={value === "hecho" ? "primary" : "outline"}
+                    onClick={() => void onPatch(selected.id, value)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+          </div>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
-function ComisionesTable({
+function ComisionesSheet({
   rows,
   resumen,
   money,
@@ -739,68 +700,42 @@ function ComisionesTable({
   money: (value: number | null | undefined) => string;
   onPaid: (id: string) => Promise<void>;
 }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const selected = rows.find((row) => row.id === openId) || null;
   return (
-    <section className="space-y-2">
-      <p className="text-sm font-medium">Módulo de comisiones</p>
-      <p className="text-[11px] text-fg3">
-        Entra sola cualquier fila con cash cobrado. Aquí marcas si ya te la pagaron.
-      </p>
+    <div className="space-y-2">
       {resumen && (
         <p className="text-sm">
           Generada {money(resumen.generada)} · cobrada {money(resumen.cobrada)} ·
           pendiente {money(resumen.pendiente)} ({pctLabel(resumen.pctCobrado)})
         </p>
       )}
-      {rows.length === 0 ? (
-        <p className="text-sm text-fg3">Todavía no hay cash cobrado en llamadas.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-separator1 bg-bg1">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {[
-                  "Fecha",
-                  "Cliente",
-                  "Oferta",
-                  "Venta",
-                  "Cash",
-                  "%",
-                  "Generada",
-                  "Cobrada",
-                  "Estado",
-                  "Fecha cobro",
-                  "",
-                ].map((label) => (
-                  <TableHead key={label || "accion"}>{label}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{row.fecha.slice(0, 10)}</TableCell>
-                  <TableCell>{row.cliente || "—"}</TableCell>
-                  <TableCell>{row.oferta || "—"}</TableCell>
-                  <TableCell>{money(row.venta)}</TableCell>
-                  <TableCell>{money(row.cash)}</TableCell>
-                  <TableCell>{pctLabel(row.pct)}</TableCell>
-                  <TableCell>{money(row.generada)}</TableCell>
-                  <TableCell>{money(row.cobrada)}</TableCell>
-                  <TableCell>{row.estado}</TableCell>
-                  <TableCell>{row.fechaCobro?.slice(0, 10) || "—"}</TableCell>
-                  <TableCell>
-                    {row.estado !== "COBRADA" && (
-                      <Button size="sm" variant="outline" onClick={() => void onPaid(row.id)}>
-                        Marcar cobrada
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+      <SheetTable
+        columns={[
+          { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha.slice(0, 10) },
+          { key: "cliente", label: "Cliente", width: 160, value: (row) => row.cliente },
+          { key: "oferta", label: "Oferta", width: 140, value: (row) => row.oferta },
+          { key: "venta", label: "Venta", width: 90, align: "right", value: (row) => money(row.venta) },
+          { key: "cash", label: "Cash", width: 90, align: "right", value: (row) => money(row.cash) },
+          { key: "pct", label: "%", width: 60, align: "right", value: (row) => pctLabel(row.pct) },
+          { key: "gen", label: "Generada", width: 100, align: "right", value: (row) => money(row.generada) },
+          { key: "cob", label: "Cobrada", width: 100, align: "right", value: (row) => money(row.cobrada) },
+          { key: "estado", label: "Estado", width: 100, value: (row) => row.estado },
+          { key: "fcobro", label: "Fecha cobro", width: 90, value: (row) => row.fechaCobro?.slice(0, 10) },
+        ]}
+        rows={rows}
+        getId={(row) => row.id}
+        selectedId={openId}
+        onRowClick={(row) => setOpenId(openId === row.id ? null : row.id)}
+        empty="Todavía no hay cash cobrado en llamadas."
+      />
+      {selected && selected.estado !== "COBRADA" && (
+        <div className="border border-separator1 bg-bg1 p-3">
+          <Button size="sm" variant="outline" onClick={() => void onPaid(selected.id)}>
+            Marcar cobrada
+          </Button>
         </div>
       )}
-    </section>
+    </div>
   );
 }

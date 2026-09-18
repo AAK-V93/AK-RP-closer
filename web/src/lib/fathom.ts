@@ -153,6 +153,17 @@ export function meetingTitle(meeting: FathomMeeting) {
   );
 }
 
+export function meetingDurationMs(meeting: FathomMeeting) {
+  const start = meeting.recording_start_time
+    ? new Date(meeting.recording_start_time).getTime()
+    : NaN;
+  const end = meeting.recording_end_time
+    ? new Date(meeting.recording_end_time).getTime()
+    : NaN;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  return end - start;
+}
+
 export function meetingRecordedAt(meeting: FathomMeeting) {
   const raw =
     meeting.recording_start_time ||

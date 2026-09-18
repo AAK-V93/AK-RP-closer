@@ -3,6 +3,11 @@ import type { PrismaClient } from "@prisma/client";
 import { encryptSecret, decryptSecret } from "@/lib/secret-crypto";
 import { upsertLeadForAgenda } from "@/lib/agenda";
 import { appUrl, isPublicHttpsUrl } from "@/lib/app-url";
+import {
+  calendarEventDurationMs,
+  shouldKeepCalendarEvent,
+} from "@/lib/call-intake";
+import { isGenericMeetingTitle } from "@/lib/fathom-import";
 
 const CAL_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
 
@@ -172,10 +177,19 @@ export async function syncUserCalendar(prisma: PrismaClient, userId: string, ref
     items?: {
       id?: string;
       summary?: string;
+      status?: string;
       hangoutLink?: string;
       location?: string;
       description?: string;
       start?: { dateTime?: string; date?: string };
+      end?: { dateTime?: string; date?: string };
+      attendees?: {
+        email?: string;
+        displayName?: string;
+        self?: boolean;
+        resource?: boolean;
+        responseStatus?: string;
+      }[];
       conferenceData?: { entryPoints?: { uri?: string }[] };
     }[];
   };
@@ -188,7 +202,21 @@ export async function syncUserCalendar(prisma: PrismaClient, userId: string, ref
     const when = new Date(startRaw);
     if (Number.isNaN(when.getTime())) continue;
     const title = event.summary?.trim() || "Llamada";
-    const leadName = leadNameFromEvent(title);
+    const durationMs = calendarEventDurationMs({
+      start: event.start,
+      end: event.end,
+    });
+    const keep = shouldKeepCalendarEvent({
+      title,
+      durationMs,
+      attendees: event.attendees,
+      cancelled: event.status === "cancelled",
+    });
+    if (!keep.keep) continue;
+    const leadName =
+      keep.leadName ||
+      (isGenericMeetingTitle(title) ? "" : leadNameFromEvent(title));
+    if (!leadName) continue;
     const existing = await prisma.callRecord.findUnique({
       where: {
         userId_source_sourceId: {

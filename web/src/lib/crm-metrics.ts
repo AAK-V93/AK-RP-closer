@@ -4,6 +4,7 @@ import { userHasReadyCrm } from "@/lib/offer-commercial";
 import { loadOffersForCrm } from "@/lib/crm-apply";
 import { attachFollowupOptions } from "@/lib/followup-library";
 import { operacionFromCall } from "@/lib/crm-operacion";
+import { isNonSalesCall } from "@/lib/call-kind";
 
 function monthRange(at: Date) {
   const from = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
@@ -38,7 +39,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     prisma.callRecord.findMany({
       where: { userId, filingStatus: { not: "skipped" } },
       orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
-      take: 200,
+      take: 2000,
     }),
     prisma.leadAlert.findMany({
       where: { userId, resolvedAt: null },
@@ -229,12 +230,14 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     })),
     operacion: (() => {
       const byName = new Map(leads.map((lead) => [lead.name.trim().toLowerCase(), lead]));
-      return allCalls.map((row) =>
-        operacionFromCall(
-          row,
-          byName.get((row.leadName || "").trim().toLowerCase()) || null,
-        ),
-      );
+      return allCalls
+        .filter((row) => !isNonSalesCall(row.estadoAgenda))
+        .map((row) =>
+          operacionFromCall(
+            row,
+            byName.get((row.leadName || "").trim().toLowerCase()) || null,
+          ),
+        );
     })(),
   };
 }

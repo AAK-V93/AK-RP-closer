@@ -14,13 +14,14 @@ export async function fileCallQuietly(
     title: string;
     transcript: string;
     recordedAt?: Date | null;
+    durationMs?: number | null;
   },
 ) {
   try {
     await ensureCrmTables(prisma);
     const filed = await classifyAndFileCall(prisma, userId, args);
     const { refreshLiveGuides } = await import("@/lib/live-guide");
-    if (!isNonSalesCall(filed.estado_agenda)) {
+    if (filed.filingStatus !== "skipped" && !isNonSalesCall(filed.estado_agenda)) {
       void refreshLiveGuides(prisma, userId).catch((error) =>
         console.error("live guide refresh", error),
       );

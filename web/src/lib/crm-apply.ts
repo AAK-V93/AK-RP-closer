@@ -24,7 +24,8 @@ import {
 } from "@/lib/offer-commercial";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { addDays, parseCrmPrefs, parseFollowupDate } from "@/lib/crm-prefs";
-import { isNonSalesCall } from "@/lib/call-kind";
+import { inferFollowupDate } from "@/lib/followup-date";
+import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
 
 function parseCrmReadyOffersImpl(
   rows: { id: string; productName: string; productDescription: string; commercial: unknown }[],
@@ -527,13 +528,16 @@ export function fillExtractorField(
   const text = value.trim();
   const n = Number(text.replace(/[^\d.-]/g, ""));
   if (field === "cliente_real") next.cliente_real = text;
-  if (field === "estado_agenda") next.estado_agenda = text.toUpperCase();
+  if (field === "estado_agenda") next.estado_agenda = normalizeEstadoAgenda(text);
   if (field === "producto") next.producto = text;
   if (field === "venta_total" && Number.isFinite(n)) next.venta_total = n;
   if (field === "cash_collected" && Number.isFinite(n)) next.cash_collected = n;
   if (field === "modo_pago") next.modo_pago = text;
   if (field === "tipo_seguimiento") next.tipo_seguimiento = text.toUpperCase();
-  if (field === "proximo_seguimiento") next.proximo_seguimiento = text;
+  if (field === "proximo_seguimiento") {
+    next.proximo_seguimiento = inferFollowupDate(text, new Date()) || text;
+    next.confianza.proximo_seguimiento = 95;
+  }
   if (field === "requiere_seguimiento") {
     next.requiere_seguimiento = /si|true|sí|yes/i.test(text)
       ? true
@@ -560,6 +564,7 @@ export function fillExtractorField(
     requiere_seguimiento:
       next.requiere_seguimiento != null ? 95 : next.confianza.requiere_seguimiento,
     tipo_seguimiento: next.tipo_seguimiento ? 95 : next.confianza.tipo_seguimiento,
+    proximo_seguimiento: next.proximo_seguimiento ? 95 : next.confianza.proximo_seguimiento,
   };
   next.requiere_revision_humana = false;
   return next;

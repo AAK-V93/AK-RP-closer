@@ -9,6 +9,7 @@ import {
   getFathomTranscript,
   listFathomMeetings,
   meetingRecordedAt,
+  meetingDurationMs,
   meetingTitle,
   normalizeFathomRecordingId,
   type FathomMeeting,
@@ -265,6 +266,7 @@ export async function ingestFathomMeeting(
 
   const title = meetingTitle(meeting);
   const recordedAt = meetingRecordedAt(meeting);
+  const durationMs = meetingDurationMs(meeting);
   const recording = await saveFathomRecording(prisma, {
     userId,
     connectionId: connection.id,
@@ -361,6 +363,7 @@ export async function ingestFathomMeeting(
     title,
     transcript: transcriptText,
     recordedAt,
+    durationMs,
   });
   if (filed?.callRecordId) {
     await notifyCloserAfterIngest(prisma, userId, {

@@ -1,7 +1,8 @@
 import { generateGeminiJson } from "@/lib/gemini";
 import type { OfferForCrm } from "@/lib/offer-commercial";
 import { RAZONES_NO_CIERRE, ETAPAS_PERDIDAS } from "@/lib/crm-catalog";
-import { isNonSalesCall } from "@/lib/call-kind";
+import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
+import { inferFollowupDate } from "@/lib/followup-date";
 
 export type ExtractorEvidencia = {
   identidad: string | null;
@@ -203,7 +204,7 @@ precio mencionado ≠ oferta ≠ valor contractual final ≠ pago prometido ≠ 
 CASH COLLECTED = dinero efectivamente cobrado DURANTE ESTA llamada. No pagos históricos. No “lo hago esta tarde”.
 Enviar un link NO es pago. “Lo hago ahora” NO es pago.
 
-SEGUNDA PASADA OBLIGATORIA del último 25%: acuerdo final, precio final, pago, comprobante, bienvenida, siguiente reunión.
+SEGUNDA PASADA OBLIGATORIA del último 25%: acuerdo final, precio final, pago, comprobante, bienvenida, siguiente reunión, FECHA de seguimiento.
 
 ==================================================
 ESTADO AGENDA
@@ -248,7 +249,11 @@ requiere_seguimiento: true | false | null
 true = acción comercial futura clara. false = evidencia de que no queda nada. null = insuficiente.
 Nunca uses false solo porque no encontraste seguimiento.
 tipo_seguimiento: SEGUNDA REUNION | PAGO PENDIENTE | DECISION | RETOMAR | OTRO
-proximo_seguimiento: YYYY-MM-DD o YYYY-MM-DD HH:MM, solo si es verificable. Usa FECHA_LLAMADA para “mañana”, “el lunes”.
+proximo_seguimiento: YYYY-MM-DD o YYYY-MM-DD HH:MM. OBLIGATORIO si hay cualquier fecha (absoluta o relativa).
+Usa FECHA_LLAMADA para resolver: “hoy”, “mañana”, “pasado mañana”, “el lunes/martes/…”, “el 20”, “el 20 de septiembre”, “en 3 días”, “la otra semana”.
+Si el closer o el lead dicen “te escribo el jueves” / “nos vemos el lunes” / “te marco mañana”, eso ES una fecha: conviértela. No dejes null.
+Copia en evidencia.seguimiento la frase textual que prueba la fecha.
+Si hay seguimiento claro pero no hay día, proximo_seguimiento = null y requiere_revision_humana no sustituye esa fecha: el hueco es la fecha.
 acuerdo_seguimiento: una frase operativa.
 
 ==================================================
@@ -356,7 +361,7 @@ export function parseExtractorJson(raw: unknown): ExtractorJson {
   const parsed: ExtractorJson = {
     ...emptyExtractor(),
     cliente_real: str(row.cliente_real),
-    estado_agenda: str(row.estado_agenda)?.toUpperCase() || null,
+    estado_agenda: normalizeEstadoAgenda(str(row.estado_agenda)),
     producto: str(row.producto),
     venta_total: num(row.venta_total),
     cash_collected: num(row.cash_collected),
@@ -412,10 +417,17 @@ export function parseExtractorJson(raw: unknown): ExtractorJson {
   ] as const;
   for (const key of gatedKeys) {
     if (parsed.confianza[key] < 85) {
-      if (key === "requiere_seguimiento") {
-        if (parsed.requiere_seguimiento !== false || parsed.confianza[key] < 85) {
-          if (parsed.requiere_seguimiento !== false) parsed.requiere_seguimiento = null;
+      if (key === "estado_agenda" && isNonSalesCall(parsed.estado_agenda)) {
+        continue;
+      }
+      if (key === "proximo_seguimiento") {
+        if (parsed.confianza[key] < 70 && !inferFollowupDate(parsed.proximo_seguimiento || "")) {
+          parsed.proximo_seguimiento = null;
         }
+        continue;
+      }
+      if (key === "requiere_seguimiento") {
+        if (parsed.requiere_seguimiento !== false) parsed.requiere_seguimiento = null;
       } else if (key === "venta_total" || key === "cash_collected") {
         parsed[key] = null;
       } else {
@@ -435,6 +447,33 @@ export function parseExtractorJson(raw: unknown): ExtractorJson {
     parsed.saldo_pendiente == null
   ) {
     parsed.saldo_pendiente = Math.max(0, parsed.venta_total - parsed.cash_collected);
+  }
+  return parsed;
+}
+
+export function enrichExtractorFollowup(
+  parsed: ExtractorJson,
+  args: { transcript?: string | null; callAt?: Date | string | null },
+) {
+  if (isNonSalesCall(parsed.estado_agenda)) return parsed;
+  const blobs = [
+    parsed.proximo_seguimiento,
+    parsed.evidencia.seguimiento,
+    parsed.acuerdo_seguimiento,
+    parsed.notas_crm,
+    String(args.transcript || "").slice(-8_000),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const inferred = inferFollowupDate(blobs, args.callAt);
+  if (!inferred) return parsed;
+  if (!parsed.proximo_seguimiento || !/^\d{4}-\d{2}-\d{2}/.test(parsed.proximo_seguimiento)) {
+    parsed.proximo_seguimiento = inferred;
+    parsed.confianza.proximo_seguimiento = Math.max(parsed.confianza.proximo_seguimiento, 85);
+  }
+  if (parsed.requiere_seguimiento == null) {
+    parsed.requiere_seguimiento = true;
+    parsed.confianza.requiere_seguimiento = Math.max(parsed.confianza.requiere_seguimiento, 85);
   }
   return parsed;
 }
@@ -462,6 +501,45 @@ export function extractorGap(
       question: `¿${name} hizo show, no show, reprogramó, acordó o cerró?`,
     };
   }
+  if (
+    parsed.estado_agenda === "CIERRE VENTA" ||
+    parsed.estado_agenda === "ACUERDO SIN PAGO"
+  ) {
+    if (readyCrm && parsed.venta_total == null) {
+      return {
+        field: "venta_total",
+        question: `¿Cuál fue el valor de la venta con ${name}?`,
+      };
+    }
+    if (
+      readyCrm &&
+      parsed.estado_agenda === "CIERRE VENTA" &&
+      parsed.cash_collected == null
+    ) {
+      return {
+        field: "cash_collected",
+        question: `¿Cuánto pagó ${name} en la llamada?`,
+      };
+    }
+  }
+  if (parsed.requiere_seguimiento === true && !parsed.tipo_seguimiento) {
+    return {
+      field: "tipo_seguimiento",
+      question: `¿Qué seguimiento quedó con ${name}? (segunda reunión, pago, decisión, retomar)`,
+    };
+  }
+  if (parsed.requiere_seguimiento === true && !parsed.proximo_seguimiento) {
+    return {
+      field: "proximo_seguimiento",
+      question: `¿Para cuándo quedó el seguimiento con ${name}? (día o fecha)`,
+    };
+  }
+  if (parsed.requiere_seguimiento === null) {
+    return {
+      field: "requiere_seguimiento",
+      question: `¿Quedó algún seguimiento con ${name}?`,
+    };
+  }
   if (!readyCrm) {
     if (parsed.requiere_revision_humana) {
       return {
@@ -479,35 +557,6 @@ export function extractorGap(
       question:
         parsed.motivo_revision ||
         `Hace falta confirmar un dato de la llamada con ${name}.`,
-    };
-  }
-  if (
-    parsed.estado_agenda === "CIERRE VENTA" ||
-    parsed.estado_agenda === "ACUERDO SIN PAGO"
-  ) {
-    if (parsed.venta_total == null) {
-      return {
-        field: "venta_total",
-        question: `¿Cuál fue el valor de la venta con ${name}?`,
-      };
-    }
-    if (parsed.estado_agenda === "CIERRE VENTA" && parsed.cash_collected == null) {
-      return {
-        field: "cash_collected",
-        question: `¿Cuánto pagó ${name} en la llamada?`,
-      };
-    }
-  }
-  if (parsed.requiere_seguimiento === true && !parsed.tipo_seguimiento) {
-    return {
-      field: "tipo_seguimiento",
-      question: `¿Qué seguimiento quedó con ${name}? (segunda reunión, pago, decisión, retomar)`,
-    };
-  }
-  if (parsed.requiere_seguimiento === null) {
-    return {
-      field: "requiere_seguimiento",
-      question: `¿Quedó algún seguimiento con ${name}?`,
     };
   }
   const crmKeys: (keyof ExtractorConfianza)[] = [
@@ -564,7 +613,10 @@ export async function runExtractor(args: {
       .replace(/^```\s*/, "")
       .replace(/```$/u, "")
       .trim();
-    return parseExtractorJson(JSON.parse(cleaned));
+    return enrichExtractorFollowup(parseExtractorJson(JSON.parse(cleaned)), {
+      transcript: args.transcript,
+      callAt: args.fechaLlamada,
+    });
   } catch {
     const fallback = emptyExtractor();
     fallback.requiere_revision_humana = true;
