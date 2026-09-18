@@ -30,7 +30,7 @@ import { prismaErrorCode } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const TRANSCRIPT_BATCH = 3;
+const TRANSCRIPT_BATCH = 2;
 
 export async function POST(request: Request) {
   try {
@@ -87,9 +87,10 @@ export async function POST(request: Request) {
     if (importSince) {
       await skipFathomRecordingsBefore(prisma, userId, importSince);
     }
-    await unskipEmptyTranscriptsForImport(prisma, userId, importSince);
-
     const phase = body.phase === "transcripts" ? "transcripts" : "meetings";
+    if (phase === "meetings" && !body.cursor) {
+      await unskipEmptyTranscriptsForImport(prisma, userId, importSince);
+    }
     const afterIso = importSince?.toISOString() || null;
 
     if (phase === "meetings") {
@@ -159,7 +160,7 @@ export async function POST(request: Request) {
 
     const pending = await prisma.fathomRecording.findMany({
       where: pendingTranscriptWhere(userId, importSince),
-      orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
+      orderBy: [{ syncedAt: "asc" }, { recordedAt: "desc" }],
       take: TRANSCRIPT_BATCH,
     });
 
@@ -184,17 +185,12 @@ export async function POST(request: Request) {
 
     let imported = 0;
     let skipped = 0;
-    let retryable = 0;
+    let throttled = false;
     for (const row of pending) {
       try {
         const transcript = await getFathomTranscript(apiKey, row.fathomRecordingId);
         const transcriptText = fathomTranscriptToText(transcript, row.title);
         if (!isUsableTranscript(transcriptText)) {
-          const young = isYoungRecording(row.recordedAt);
-          if (young) {
-            retryable += 1;
-            continue;
-          }
           await prisma.fathomRecording.update({
             where: { id: row.id },
             data: {
@@ -219,31 +215,24 @@ export async function POST(request: Request) {
       } catch (error) {
         console.error("fathom transcript fetch", row.fathomRecordingId, error);
         const status = error instanceof FathomApiError ? error.status : 0;
-        const young = isYoungRecording(row.recordedAt);
-        if ((status === 404 || status === 400) && !young) {
+        if (status === 429 || status >= 500 || status === 0) {
+          throttled = true;
           await prisma.fathomRecording.update({
             where: { id: row.id },
-            data: {
-              transcriptText: EMPTY_TRANSCRIPT_MARK,
-              practiceSessionId: FATHOM_SKIPPED,
-              syncedAt: new Date(),
-            },
+            data: { syncedAt: new Date() },
           });
-          skipped += 1;
-        } else {
-          retryable += 1;
+          break;
         }
+        await prisma.fathomRecording.update({
+          where: { id: row.id },
+          data: {
+            transcriptText: EMPTY_TRANSCRIPT_MARK,
+            practiceSessionId: FATHOM_SKIPPED,
+            syncedAt: new Date(),
+          },
+        });
+        skipped += 1;
       }
-    }
-
-    if (imported === 0 && skipped === 0 && retryable > 0) {
-      return NextResponse.json(
-        {
-          error:
-            "Fathom aún no entregó esas transcripciones. Espera un minuto e intenta de nuevo.",
-        },
-        { status: 502 },
-      );
     }
 
     const remainingTranscripts = await prisma.fathomRecording.count({
@@ -262,6 +251,7 @@ export async function POST(request: Request) {
       imported,
       skipped,
       remainingTranscripts,
+      waitMs: throttled && imported === 0 && skipped === 0 ? 8_000 : 0,
       done: remainingTranscripts === 0,
       importSince: afterIso,
       nextPhase: remainingTranscripts > 0 ? "transcripts" : null,
@@ -314,9 +304,4 @@ function pendingTranscriptWhere(userId: string, importSince: Date | null) {
     transcriptText: "",
     practiceSessionId: null,
   };
-}
-
-function isYoungRecording(recordedAt: Date | null) {
-  if (!recordedAt) return true;
-  return Date.now() - recordedAt.getTime() < 2 * 24 * 60 * 60 * 1000;
 }

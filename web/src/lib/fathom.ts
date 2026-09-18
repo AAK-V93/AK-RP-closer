@@ -95,7 +95,8 @@ async function fathomRequest<T>(
         throw error;
       }
       if (attempt === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        const waitMs = error instanceof FathomApiError && error.status === 429 ? 2500 : 800;
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
     }
   }

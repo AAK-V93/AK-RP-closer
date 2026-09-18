@@ -213,19 +213,39 @@ export function FathomSyncPanel({
       }
 
       let transcriptsDone = false;
+      let transcriptStalls = 0;
       while (!transcriptsDone) {
         const data = await postJson<{
           remainingTranscripts?: number;
           done?: boolean;
           skipped?: number;
+          imported?: number;
+          waitMs?: number;
         }>("/api/fathom/sync", {
           phase: "transcripts",
           createdAfter: importSince,
         });
         const remaining = data.remainingTranscripts ?? 0;
+        if (data.waitMs) {
+          transcriptStalls += 1;
+          setSyncMessage(
+            remaining > 0
+              ? `Fathom pidió espera. Reintento en unos segundos… faltan ${remaining}`
+              : "Fathom pidió espera. Reintento en unos segundos…",
+          );
+          if (transcriptStalls >= 6) {
+            setSyncMessage(
+              "Fathom limitó las peticiones. Sigo con las que sí bajaron; el resto se reintenta al importar de nuevo.",
+            );
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, data.waitMs));
+          continue;
+        }
+        transcriptStalls = 0;
         setSyncMessage(
           remaining > 0
-            ? `Descargando transcripciones (incluye omitidas)… faltan ${remaining}`
+            ? `Descargando transcripciones… faltan ${remaining}`
             : "Transcripciones listas. Auditando llamadas…",
         );
         transcriptsDone = Boolean(data.done);
