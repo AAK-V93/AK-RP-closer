@@ -29,6 +29,7 @@ model User {
   commissions  Commission[]
   followupPacks FollowupPack[]
   followupStars FollowupStar[]
+  pushSubs     PushSubscription[]
 }
 
 model CoachProfile {
@@ -222,8 +223,10 @@ model LeadAlert {
   intentos         Int       @default(0)
   callRecordId     String?
   libraryScriptId  String    @default("")
+  notifiedAt       DateTime?
 
   @@index([userId, dueAt])
+  @@index([userId, resolvedAt, notifiedAt])
 }
 
 model CommissionRule {
@@ -305,4 +308,18 @@ model FollowupStar {
   createdAt DateTime     @default(now())
 
   @@unique([userId, packId])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }

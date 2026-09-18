@@ -12,7 +12,7 @@
     "format:write": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "postinstall": "DATABASE_URL=${DATABASE_URL:-postgresql://localhost:5432/dummy} prisma generate",
     "db:push": "prisma db push",
-    "test": "npx --yes tsx --test src/lib/replay-lead-profile.test.ts src/lib/crm-operacion.test.ts src/lib/crm-projection.test.ts src/lib/offer-confirm.test.ts"
+    "test": "npx --yes tsx --test src/lib/replay-lead-profile.test.ts src/lib/crm-operacion.test.ts src/lib/crm-projection.test.ts src/lib/offer-confirm.test.ts src/lib/hub-utterance.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -72,6 +72,7 @@
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.172.0",
     "vaul": "^1.1.2",
+    "web-push": "^3.6.7",
     "zod": "^4.0.17"
   },
   "devDependencies": {
@@ -81,6 +82,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/web-push": "^3.6.4",
     "@typescript-eslint/eslint-plugin": "^7.2.0",
     "@typescript-eslint/parser": "^7.2.0",
     "eslint": "^8",

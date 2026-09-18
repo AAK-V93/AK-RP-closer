@@ -7,6 +7,7 @@ import { CycleIntro } from "@/components/cycle-intro";
 import { HubChat, type HubSnapshot } from "@/components/hub-chat";
 import { OfferExtractReview } from "@/components/offer-extract-review";
 import { ProjectionCard } from "@/components/projection-card";
+import { PushEnable } from "@/components/push-enable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -366,6 +367,7 @@ function NoviceB({
           onSaveGoal={saveGoal}
         />
       )}
+      <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Button asChild variant="primary" className="h-auto py-4 justify-start">
           <Link href="/practicar" className="flex items-start gap-3 text-left">
@@ -428,6 +430,7 @@ function ConfiguredC({
         saving={savingGoal}
         onSaveGoal={saveGoal}
       />
+      <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
       <div className="grid gap-3">
         <Button asChild variant="primary" className="h-auto py-4 justify-start">
           <Link href="/llamadas" className="flex items-start gap-3 text-left">

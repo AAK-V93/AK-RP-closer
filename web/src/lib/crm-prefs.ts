@@ -9,6 +9,7 @@ export type CrmPrefs = {
   digestHour: number;
   whatsappE164: string;
   monthlyGoalUsd: number | null;
+  pushPromptedAt: string | null;
 };
 
 export function parseCrmPrefs(raw: unknown): CrmPrefs {
@@ -31,6 +32,7 @@ export function parseCrmPrefs(raw: unknown): CrmPrefs {
       goalRaw == null || goalRaw === "" || !Number.isFinite(goal) || goal <= 0
         ? null
         : Math.round(goal),
+    pushPromptedAt: String(value.pushPromptedAt || "").trim() || null,
   };
 }
 

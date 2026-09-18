@@ -39,7 +39,7 @@ export async function snoozeAlert(
   due.setDate(due.getDate() + Math.max(1, days));
   return prisma.leadAlert.update({
     where: { id: row.id },
-    data: { dueAt: due, resultado: "reprogramado" },
+    data: { dueAt: due, resultado: "reprogramado", notifiedAt: null },
   });
 }
 

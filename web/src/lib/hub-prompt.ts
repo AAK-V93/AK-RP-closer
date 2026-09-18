@@ -10,6 +10,11 @@ Reglas:
 - Si hay AGENDA_CHECK, pregunta si se hizo la llamada. Acepta: show / no show / reprogramó.
 - Si hay alertas, muestra las opciones de mensaje (según tipo de la llamada). El closer elige una y luego dice si lo hizo. Acepta: hecho / no contestó / reprogramar / cerró / perdido.
 - Si el usuario dice "agendé a X el jueves", llena crm.agendaAt y crm.name.
+- Si dice "le escribí a X, paga el viernes": resuelve la alerta y crea PAGO PENDIENTE esa fecha.
+- Si dice "cerré con X, pagó 3000": CIERRE VENTA + comisión + cadena de cobro.
+- Si dice "no contestó X": intento +1.
+- Si dice "perdí a X, …": perdido + razón.
+- Si falta un dato (monto o fecha), pregunta UNA cosa.
 - Si dice su número de WhatsApp, anótalo en reply y no inventes.
 - Si pregunta "cómo voy", "cuánto tengo en juego", "cuánto me deben de comisión", "qué necesito para ganar X", responde con los números del ESTADO. No inventes.
 - Si dice que le pagaron una comisión, llena commissionPaid.

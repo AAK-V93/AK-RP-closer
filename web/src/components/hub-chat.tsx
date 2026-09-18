@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Mic, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FollowupPicker, type FollowupOptionView } from "@/components/followup-picker";
 import { OfferExtractReview } from "@/components/offer-extract-review";
@@ -47,6 +47,7 @@ export type HubSnapshot = {
     questions: string[];
     offers: ExtractedOffer[];
   } | null;
+  needsPushPrompt?: boolean;
 };
 
 export function HubChat({
@@ -65,7 +66,11 @@ export function HubChat({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const mediaRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const [focusAlert, setFocusAlert] = useState("");
 
   const applyPayload = (data: {
     message?: Line;
@@ -104,6 +109,11 @@ export function HubChat({
   }, []);
 
   useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("alert") || "";
+    setFocusAlert(id);
+  }, []);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
 
@@ -126,16 +136,79 @@ export function HubChat({
     }
   };
 
-  const onSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    const text = draft.trim();
+  const sendText = async (text: string) => {
     if (!text || sending) return;
-    setDraft("");
     setMessages((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, role: "user", content: text },
     ]);
     await postHub({ message: text });
+  };
+
+  const onSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || sending) return;
+    setDraft("");
+    await sendText(text);
+  };
+
+  const toggleMic = async () => {
+    if (recording) {
+      mediaRef.current?.stop();
+      setRecording(false);
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Este navegador no graba audio. Escribe el mensaje.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : MediaRecorder.isTypeSupported("audio/mp4")
+            ? "audio/mp4"
+            : "";
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const type = recorder.mimeType || mime || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        if (blob.size < 200) return;
+        setSending(true);
+        setError(null);
+        try {
+          const body = new FormData();
+          body.append("audio", blob, `hub.${type.includes("mp4") ? "m4a" : "webm"}`);
+          const response = await fetch("/api/hub/transcribe", {
+            method: "POST",
+            body,
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "No se entendió");
+          const text = String(data.text || "").trim();
+          if (text) await sendText(text);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Error");
+        } finally {
+          setSending(false);
+        }
+      };
+      mediaRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch {
+      setError("No pude usar el micrófono.");
+    }
   };
 
   const pending = snapshot.pendingCalls || [];
@@ -209,7 +282,11 @@ export function HubChat({
           {alerts.map((alert) => (
             <div
               key={alert.id}
-              className="rounded-xl border border-separator1 bg-bg0 p-3 space-y-2"
+              className={
+                focusAlert === alert.id
+                  ? "rounded-xl border border-primary bg-primary/10 p-3 space-y-2"
+                  : "rounded-xl border border-separator1 bg-bg0 p-3 space-y-2"
+              }
             >
               <p className="text-sm">{alert.question}</p>
               {alert.contexto && (
@@ -329,10 +406,19 @@ export function HubChat({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={2}
-            placeholder="Escribe aquí: agendé a Juan, me pagaron, falta el precio…"
+            placeholder="Escribe o graba: agendé a Juan, me pagaron, falta el precio…"
             className="min-h-[44px] text-sm"
-            disabled={sending || loading}
+            disabled={sending || loading || recording}
           />
+          <Button
+            type="button"
+            variant={recording ? "destructive" : "outline"}
+            disabled={sending || loading}
+            onClick={() => void toggleMic()}
+            aria-label={recording ? "Detener" : "Grabar"}
+          >
+            {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </Button>
           <Button type="submit" variant="primary" disabled={sending || !draft.trim()}>
             <Send className="h-4 w-4" />
           </Button>

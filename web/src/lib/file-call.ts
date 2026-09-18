@@ -22,6 +22,20 @@ export async function fileCallQuietly(
     void refreshLiveGuides(prisma, userId).catch((error) =>
       console.error("live guide refresh", error),
     );
+    try {
+      const { notifyFiling } = await import("@/lib/web-push");
+      void notifyFiling(prisma, userId, {
+        leadName: filed.cliente_real || args.title,
+        offerName: filed.producto,
+        estado: filed.estado_agenda,
+        followup: filed.proximo_seguimiento
+          ? `seguimiento ${filed.proximo_seguimiento}`
+          : filed.acuerdo_seguimiento,
+        gap: filed.autoApplied ? null : filed.gap?.question || filed.summary,
+      }).catch((error) => console.error("filing push", error));
+    } catch (error) {
+      console.error("filing push import", error);
+    }
     return filed;
   } catch (error) {
     console.error("fileCallQuietly", error);

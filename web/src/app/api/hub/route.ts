@@ -40,6 +40,8 @@ import {
 } from "@/lib/offer-ingest";
 import { getHomeState } from "@/lib/home-state";
 import { parseCrmPrefs, parseMonthlyGoalUsd, saveMonthlyGoal } from "@/lib/crm-prefs";
+import { applyHubUtterance, parseHubUtterance } from "@/lib/hub-utterance";
+import { vapidPublicKey } from "@/lib/web-push";
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -95,6 +97,7 @@ export async function GET() {
           needsMonthlyGoal: false,
           projection: null,
           pendingOfferExtract: null,
+          needsPushPrompt: false,
         },
       },
       { status: 200 },
@@ -391,6 +394,17 @@ export async function POST(request: Request) {
           snapshot: fresh,
         });
       }
+    }
+    const spoken = parseHubUtterance(userText);
+    if (spoken && !body.start) {
+      const out = await applyHubUtterance(prisma, userId, spoken);
+      const coachLine = await appendHubLines(prisma, userId, userText, out.reply);
+      const fresh = await hubSnapshot(prisma, userId);
+      return NextResponse.json({
+        message: coachLine,
+        actions: nextHubActions(fresh),
+        snapshot: fresh,
+      });
     }
     if (live.pendingCalls[0] && !body.start) {
       const pending = live.pendingCalls[0];
@@ -800,6 +814,8 @@ async function hubSnapshot(
     needsMonthlyGoal: goalSeed.needsMonthlyGoal,
     projection: goalSeed.projection,
     pendingOfferExtract,
+    needsPushPrompt:
+      home.phase !== "a" && !prefs.pushPromptedAt && Boolean(vapidPublicKey()),
   };
   if (home.phase !== "c") {
     return empty;
@@ -869,6 +885,7 @@ async function hubSnapshot(
       needsMonthlyGoal: goalBundle.needsMonthlyGoal,
       projection: goalBundle.projection,
       pendingOfferExtract,
+      needsPushPrompt: !prefs.pushPromptedAt && Boolean(vapidPublicKey()),
     };
   } catch (error) {
     console.error("hub snapshot crm", error);
