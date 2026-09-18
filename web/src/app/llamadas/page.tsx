@@ -7,6 +7,7 @@ import { AppShell } from "@/components/app-shell";
 import { FathomSyncPanel } from "@/components/fathom-sync-panel";
 import { CalendarConnectPanel } from "@/components/calendar-connect-panel";
 import { Button } from "@/components/ui/button";
+import { isNonSalesCall } from "@/lib/call-kind";
 
 type CallRow = {
   id: string;
@@ -90,7 +91,16 @@ export default function LlamadasPage() {
                   <div className="min-w-0">
                     <p className="text-sm truncate">{row.title}</p>
                     <p className="text-xs text-fg3">
-                      {[row.leadName, row.offerName, row.callType, row.result]
+                      {[
+                        row.leadName,
+                        row.offerName,
+                        isNonSalesCall(row.callType)
+                          ? row.callType === "NO_COMERCIAL"
+                            ? "no comercial"
+                            : "interna (coach/práctica)"
+                          : row.callType,
+                        row.result,
+                      ]
                         .filter(Boolean)
                         .join(" · ") || row.source}
                       {row.trainsBot ? " · entra a la práctica" : ""}
@@ -140,16 +150,12 @@ export default function LlamadasPage() {
                     <Button asChild size="sm" variant="outline">
                       <Link
                         href={
-                          row.result === "cerro" ||
-                          row.callType === "interna" ||
-                          row.callType === "no_comercial"
+                          row.result === "cerro" || isNonSalesCall(row.callType)
                             ? `/practicar?mode=compose&focus=${encodeURIComponent(row.leadName || row.title)}`
                             : `/practicar?mode=replay&call=${encodeURIComponent(`${row.source}:${row.id}`)}`
                         }
                       >
-                        {row.result === "cerro" ||
-                        row.callType === "interna" ||
-                        row.callType === "no_comercial"
+                        {row.result === "cerro" || isNonSalesCall(row.callType)
                           ? "Lead nuevo"
                           : "Recrear"}
                       </Link>

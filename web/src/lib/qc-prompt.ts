@@ -127,6 +127,7 @@ Reglas:
 - Si no hubo venta, dilo en headline. No suavices.
 - leadName y offerName son obligatorios si el transcript los da, aunque el título sea "Impromptu Google Meet Meeting".
 - Un Meet improvisado puede ser una llamada de venta real: audítala igual.
+- Si es coaching, práctica, roleplay o auditoría interna (no hay un prospecto comprando en la llamada), dilo en headline. leadName = quien se está formando, no un comprador. offerName vacío. sold false. No inventes ficha de prospecto ni marco de dinero. overallScore evalúa la sesión de coach/práctica, no un cierre.
 - suggestedLine siempre en primera persona, anclada a ESTE lead.
 - No inventes datos médicos, precios ni deudas que no estén en la transcripción.
 - Si el closer downsellea sin aislar la objeción de dinero, márcalo como falla.

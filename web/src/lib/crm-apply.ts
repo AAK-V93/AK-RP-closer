@@ -24,6 +24,7 @@ import {
 } from "@/lib/offer-commercial";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { addDays, parseCrmPrefs, parseFollowupDate } from "@/lib/crm-prefs";
+import { isNonSalesCall } from "@/lib/call-kind";
 
 function parseCrmReadyOffersImpl(
   rows: { id: string; productName: string; productDescription: string; commercial: unknown }[],
@@ -57,6 +58,7 @@ function leadStatusFromAgenda(estado: string | null) {
 }
 
 function trainsBot(estado: string | null) {
+  if (isNonSalesCall(estado)) return false;
   return estado === "SHOW" || estado === "CIERRE VENTA" || estado === "ACUERDO SIN PAGO";
 }
 
@@ -301,7 +303,7 @@ export async function applyExtractorToCrm(
   const saldo = moneyOk ? parsed.saldo_pendiente : null;
 
   let leadId: string | null = null;
-  if (parsed.cliente_real) {
+  if (parsed.cliente_real && !isNonSalesCall(parsed.estado_agenda)) {
     const leads = await prisma.lead.findMany({ where: { userId } });
     const existing = findMatchingLead(leads, parsed.cliente_real);
     const status = leadStatusFromAgenda(parsed.estado_agenda);
@@ -381,13 +383,15 @@ export async function applyExtractorToCrm(
     data: {
       callType: parsed.estado_agenda || row.callType,
       result:
-        parsed.estado_agenda === "CIERRE VENTA"
-          ? "cerro"
-          : parsed.estado_agenda === "NO SHOW"
-            ? "no_cerro"
-            : parsed.estado_agenda === "ACUERDO SIN PAGO"
-              ? "pendiente"
-              : "pendiente",
+        isNonSalesCall(parsed.estado_agenda)
+          ? ""
+          : parsed.estado_agenda === "CIERRE VENTA"
+            ? "cerro"
+            : parsed.estado_agenda === "NO SHOW"
+              ? "no_cerro"
+              : parsed.estado_agenda === "ACUERDO SIN PAGO"
+                ? "pendiente"
+                : "pendiente",
       leadName: parsed.cliente_real || row.leadName,
       offerName: offerName || row.offerName,
       trainsBot: trainsBot(parsed.estado_agenda),

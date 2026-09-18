@@ -1,6 +1,7 @@
 import { generateGeminiJson } from "@/lib/gemini";
 import type { OfferForCrm } from "@/lib/offer-commercial";
 import { RAZONES_NO_CIERRE, ETAPAS_PERDIDAS } from "@/lib/crm-catalog";
+import { isNonSalesCall } from "@/lib/call-kind";
 
 export type ExtractorEvidencia = {
   identidad: string | null;
@@ -208,6 +209,8 @@ SEGUNDA PASADA OBLIGATORIA del último 25%: acuerdo final, precio final, pago, c
 ESTADO AGENDA
 ==================================================
 Valores permitidos:
+INTERNA
+NO_COMERCIAL
 SHOW
 CIERRE VENTA
 ACUERDO SIN PAGO
@@ -215,7 +218,13 @@ REPROGRAMA
 NO SHOW
 AGENDADO
 
-Si existe conversación comercial real: estado_agenda = SHOW, confianza mínima 95, aunque falte el final.
+ANTES de clasificar como SHOW, decide si esto ni siquiera es una llamada de ventas:
+INTERNA = coaching, práctica, roleplay, auditoría de llamadas, junta de equipo/directivos, feedback entre closers. No hay un prospecto comprando AHORA.
+NO_COMERCIAL = personal, operativa, logistica, o no se está vendiendo nada.
+Si es INTERNA o NO_COMERCIAL: estado_agenda ese valor, confianza >= 95, producto/montos/pago/seguimiento en null, requiere_seguimiento = false. cliente_real puede ser con quién se practicó o null. notas_crm = una frase de qué tipo de sesión fue.
+NO uses SHOW solo porque hablaron de ventas o de un programa: si están ensayando o revisando llamadas, es INTERNA.
+
+Si existe conversación comercial REAL closer↔prospecto (el prospecto está en la llamada para comprar o decidir): estado_agenda = SHOW, confianza mínima 95, aunque falte el final.
 CIERRE VENTA requiere acuerdo definitivo + dinero cobrado EN la llamada.
 ACUERDO SIN PAGO: acuerdo definitivo (producto, precio, modo) pero el pago se hará fuera de la llamada. NO es CIERRE VENTA.
 REPROGRAMA: no se realizó la llamada comercial y se movió.
@@ -436,6 +445,7 @@ export function extractorGap(
   parsed: ExtractorJson,
   readyCrm: boolean,
 ): ExtractorGap | null {
+  if (isNonSalesCall(parsed.estado_agenda)) return null;
   const name = parsed.cliente_real || "el lead";
   if (parsed.requiere_revision_humana && !parsed.cliente_real) {
     return {
@@ -516,6 +526,14 @@ export function extractorGap(
 }
 
 export function extractorOneLiner(parsed: ExtractorJson) {
+  if (isNonSalesCall(parsed.estado_agenda)) {
+    return (
+      parsed.notas_crm ||
+      (parsed.estado_agenda === "INTERNA"
+        ? "Sesión interna (coach/práctica). No entra al CRM."
+        : "Llamada no comercial. No entra al CRM.")
+    );
+  }
   const bits = [
     parsed.cliente_real,
     parsed.producto,

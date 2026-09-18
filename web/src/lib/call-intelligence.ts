@@ -11,6 +11,7 @@ import {
 } from "@/lib/crm-apply";
 import { runExtractor } from "@/lib/extractor";
 import { userHasReadyCrm } from "@/lib/offer-commercial";
+import { isNonSalesCall } from "@/lib/call-kind";
 
 export type SpeakerRole = { name: string; role: "closer" | "lead" };
 
@@ -45,6 +46,7 @@ export function filingSummaryLines(parsed: CallFiling): string[] {
 }
 
 export function trainsBotFromType(callType: string) {
+  if (isNonSalesCall(callType)) return false;
   return (
     callType === "cierre" ||
     callType === "seguimiento" ||
@@ -127,7 +129,7 @@ export async function classifyAndFileCall(
     },
   });
 
-  if (auto) {
+  if (auto && !isNonSalesCall(parsed.estado_agenda)) {
     await applyExtractorToCrm(prisma, userId, row.id, parsed, offers);
     const { fulfillAgendado } = await import("@/lib/agenda");
     await fulfillAgendado(prisma, userId, {

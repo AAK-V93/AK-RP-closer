@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { SpeakerRole } from "@/lib/call-intelligence";
 import { EMPTY_TRANSCRIPT_MARK, isUsableTranscript } from "@/lib/fathom-import";
+import { isNonSalesCall } from "@/lib/call-kind";
 import {
   fathomTranscriptToLines,
   type FathomTranscriptItem,
@@ -79,11 +80,10 @@ export function filingFromCall(
 }
 
 const OPEN_RESULTS = new Set(["", "no_cerro", "pendiente", "sin_resultado"]);
-const SKIP_TYPES = new Set(["interna", "no_comercial"]);
 const CLOSER_SPEAKER = /^(closer|vendedor|seller|host|agent|ak\b)/i;
 
 export function isReplayableResult(result: string, callType: string) {
-  if (SKIP_TYPES.has(callType)) return false;
+  if (isNonSalesCall(callType)) return false;
   if (result === "cerro") return false;
   return OPEN_RESULTS.has(result) || !result;
 }

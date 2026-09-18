@@ -3,6 +3,7 @@ import { classifyAndFileCall, maybeCreateAlert } from "@/lib/call-intelligence";
 import { findMatchingLead } from "@/lib/lead-match";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
 import { ensureCrmTables } from "@/lib/prisma";
+import { isNonSalesCall } from "@/lib/call-kind";
 
 export async function fileCallQuietly(
   prisma: PrismaClient,
@@ -19,22 +20,24 @@ export async function fileCallQuietly(
     await ensureCrmTables(prisma);
     const filed = await classifyAndFileCall(prisma, userId, args);
     const { refreshLiveGuides } = await import("@/lib/live-guide");
-    void refreshLiveGuides(prisma, userId).catch((error) =>
-      console.error("live guide refresh", error),
-    );
-    try {
-      const { notifyFiling } = await import("@/lib/web-push");
-      void notifyFiling(prisma, userId, {
-        leadName: filed.cliente_real || args.title,
-        offerName: filed.producto,
-        estado: filed.estado_agenda,
-        followup: filed.proximo_seguimiento
-          ? `seguimiento ${filed.proximo_seguimiento}`
-          : filed.acuerdo_seguimiento,
-        gap: filed.autoApplied ? null : filed.gap?.question || filed.summary,
-      }).catch((error) => console.error("filing push", error));
-    } catch (error) {
-      console.error("filing push import", error);
+    if (!isNonSalesCall(filed.estado_agenda)) {
+      void refreshLiveGuides(prisma, userId).catch((error) =>
+        console.error("live guide refresh", error),
+      );
+      try {
+        const { notifyFiling } = await import("@/lib/web-push");
+        void notifyFiling(prisma, userId, {
+          leadName: filed.cliente_real || args.title,
+          offerName: filed.producto,
+          estado: filed.estado_agenda,
+          followup: filed.proximo_seguimiento
+            ? `seguimiento ${filed.proximo_seguimiento}`
+            : filed.acuerdo_seguimiento,
+          gap: filed.autoApplied ? null : filed.gap?.question || filed.summary,
+        }).catch((error) => console.error("filing push", error));
+      } catch (error) {
+        console.error("filing push import", error);
+      }
     }
     return filed;
   } catch (error) {
