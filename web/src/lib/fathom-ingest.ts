@@ -10,6 +10,7 @@ import {
   listFathomMeetings,
   meetingRecordedAt,
   meetingTitle,
+  normalizeFathomRecordingId,
   type FathomMeeting,
 } from "@/lib/fathom";
 import {
@@ -91,19 +92,22 @@ export async function ingestFathomMeeting(
   const connection = await prisma.fathomConnection.findUnique({ where: { userId } });
   if (!connection) return { ok: false as const, reason: "no-connection" };
 
+  const recordingId = normalizeFathomRecordingId(meeting.recording_id);
+  if (!recordingId) return { ok: false as const, reason: "no-recording-id" };
+
   const title = meetingTitle(meeting);
   const recordedAt = meetingRecordedAt(meeting);
   const recording = await prisma.fathomRecording.upsert({
     where: {
       userId_fathomRecordingId: {
         userId,
-        fathomRecordingId: meeting.recording_id,
+        fathomRecordingId: recordingId,
       },
     },
     create: {
       userId,
       connectionId: connection.id,
-      fathomRecordingId: meeting.recording_id,
+      fathomRecordingId: recordingId,
       title,
       shareUrl: meeting.share_url || meeting.url || "",
       recordedAt,
@@ -121,7 +125,7 @@ export async function ingestFathomMeeting(
   if (transcriptItems.length === 0 && !isUsableTranscript(recording.transcriptText)) {
     try {
       const apiKey = decryptSecret(connection.apiKeyEnc);
-      transcriptItems = await getFathomTranscript(apiKey, meeting.recording_id);
+      transcriptItems = await getFathomTranscript(apiKey, recordingId);
     } catch (error) {
       const status = error instanceof FathomApiError ? error.status : 0;
       if (status === 404 || status === 400) {

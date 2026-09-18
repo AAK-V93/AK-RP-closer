@@ -99,7 +99,7 @@ model FathomRecording {
   user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   connectionId      String
   connection        FathomConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  fathomRecordingId Int
+  fathomRecordingId String
   title             String
   shareUrl          String           @default("")
   recordedAt        DateTime?

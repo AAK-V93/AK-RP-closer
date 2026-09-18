@@ -56,5 +56,10 @@ export async function getFathomApiKey(
 ) {
   const connection = await getFathomConnection(prisma, userId);
   if (!connection) return null;
-  return decryptSecret(connection.apiKeyEnc);
+  try {
+    return decryptSecret(connection.apiKeyEnc);
+  } catch (error) {
+    console.error("fathom decrypt", error);
+    return null;
+  }
 }

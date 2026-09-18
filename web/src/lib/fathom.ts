@@ -6,7 +6,7 @@ const WEBHOOK_MAX_SKEW_SEC = 300;
 export type FathomMeeting = {
   title: string;
   meeting_title?: string | null;
-  recording_id: number;
+  recording_id: number | string;
   share_url?: string;
   url?: string;
   created_at?: string;
@@ -15,6 +15,16 @@ export type FathomMeeting = {
   recorded_by?: { name?: string; email?: string };
   transcript?: FathomTranscriptPayload[] | null;
 };
+
+export function normalizeFathomRecordingId(raw: unknown): string {
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw) || raw <= 0) return "";
+    return String(Math.trunc(raw));
+  }
+  const text = String(raw ?? "").trim();
+  if (!text || text === "undefined" || text === "null" || text === "0") return "";
+  return text.slice(0, 64);
+}
 
 export type FathomTranscriptPayload = {
   speaker?: { display_name?: string };
@@ -127,10 +137,12 @@ export async function listFathomMeetings(
   });
 }
 
-export async function getFathomTranscript(apiKey: string, recordingId: number) {
+export async function getFathomTranscript(apiKey: string, recordingId: string | number) {
+  const id = normalizeFathomRecordingId(recordingId);
+  if (!id) throw new FathomApiError("recording id inválido", 400);
   const data = await fathomFetch<TranscriptResponse>(
     apiKey,
-    `/recordings/${recordingId}/transcript`,
+    `/recordings/${id}/transcript`,
   );
   return data.transcript || [];
 }
@@ -212,7 +224,7 @@ export function verifyFathomWebhookSignature(
   });
 }
 
-export function recordingIdFromWebhookPayload(body: unknown): number | null {
+export function recordingIdFromWebhookPayload(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const root = body as Record<string, unknown>;
   const nested =
@@ -222,8 +234,8 @@ export function recordingIdFromWebhookPayload(body: unknown): number | null {
         ? (root.data as Record<string, unknown>)
         : null;
   const raw = root.recording_id ?? root.recordingId ?? nested?.recording_id ?? nested?.recordingId;
-  const value = typeof raw === "string" ? Number(raw) : typeof raw === "number" ? raw : NaN;
-  return Number.isFinite(value) && value > 0 ? value : null;
+  const value = normalizeFathomRecordingId(raw);
+  return value || null;
 }
 
 export function meetingFromWebhookPayload(body: unknown): FathomMeeting | null {

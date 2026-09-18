@@ -6,6 +6,7 @@ import {
   listFathomMeetings,
   meetingRecordedAt,
   meetingTitle,
+  normalizeFathomRecordingId,
 } from "@/lib/fathom";
 import {
   EMPTY_TRANSCRIPT_MARK,
@@ -19,6 +20,7 @@ import {
   getFathomConnection,
   requireFathomUser,
 } from "@/lib/fathom-auth";
+import { prismaErrorCode } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -42,7 +44,7 @@ export async function POST(request: Request) {
     const apiKey = await getFathomApiKey(prisma, userId);
     if (!apiKey) {
       return NextResponse.json(
-        { error: "No hay API key guardada para Fathom" },
+        { error: "No pude leer la API key. Desconecta Fathom y pégala otra vez." },
         { status: 400 },
       );
     }
@@ -106,41 +108,49 @@ export async function POST(request: Request) {
         const message =
           error instanceof FathomApiError && error.status === 401
             ? "La API key de Fathom ya no es válida. Vuelve a conectarla."
-            : "No se pudieron listar las llamadas de Fathom.";
+            : error instanceof FathomApiError
+              ? `Fathom no listó las llamadas (${error.status}).`
+              : "No se pudieron listar las llamadas de Fathom.";
         return NextResponse.json({ error: message }, { status: 502 });
       }
 
       const items = page.items || [];
       let imported = 0;
       for (const meeting of items) {
+        const recordingId = normalizeFathomRecordingId(meeting.recording_id);
+        if (!recordingId) continue;
         const title = meetingTitle(meeting);
         const recordedAt = meetingRecordedAt(meeting);
         if (importSince && recordedAt && recordedAt < importSince) continue;
 
-        await prisma.fathomRecording.upsert({
-          where: {
-            userId_fathomRecordingId: {
-              userId,
-              fathomRecordingId: meeting.recording_id,
+        try {
+          await prisma.fathomRecording.upsert({
+            where: {
+              userId_fathomRecordingId: {
+                userId,
+                fathomRecordingId: recordingId,
+              },
             },
-          },
-          create: {
-            userId,
-            connectionId: connection.id,
-            fathomRecordingId: meeting.recording_id,
-            title,
-            shareUrl: meeting.share_url || meeting.url || "",
-            recordedAt,
-            transcriptText: "",
-            transcriptJson: [],
-          },
-          update: {
-            title,
-            shareUrl: meeting.share_url || meeting.url || "",
-            recordedAt,
-          },
-        });
-        imported += 1;
+            create: {
+              userId,
+              connectionId: connection.id,
+              fathomRecordingId: recordingId,
+              title,
+              shareUrl: meeting.share_url || meeting.url || "",
+              recordedAt,
+              transcriptText: "",
+              transcriptJson: [],
+            },
+            update: {
+              title,
+              shareUrl: meeting.share_url || meeting.url || "",
+              recordedAt,
+            },
+          });
+          imported += 1;
+        } catch (error) {
+          console.error("fathom upsert", recordingId, error);
+        }
       }
 
       const meetingsDone = !page.next_cursor;
@@ -271,10 +281,29 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("fathom sync", error);
     return NextResponse.json(
-      { error: "No se pudo sincronizar Fathom" },
+      { error: syncErrorMessage(error) },
       { status: 500 },
     );
   }
+}
+
+function syncErrorMessage(error: unknown) {
+  const code = prismaErrorCode(error);
+  const message = error instanceof Error ? error.message : "";
+  if (/decrypt|auth tag|Unsupported state|AUTH_SECRET/i.test(message)) {
+    return "No pude leer la API key. Desconecta Fathom y pégala otra vez.";
+  }
+  if (/int4|integer|does not fit|overflow/i.test(message)) {
+    return "El ID de una llamada de Fathom no se pudo guardar. Recarga e intenta de nuevo.";
+  }
+  if (code === "P2002") return "Esa llamada ya estaba importada. Intenta de nuevo.";
+  if (code === "P1001" || code === "TX") {
+    return "La base de datos no respondió. Intenta de nuevo.";
+  }
+  if (code === "P2011" || /argument.*(missing|invalid)/i.test(message)) {
+    return "Fathom mandó una llamada sin ID. Intenta de nuevo o achica el rango de fechas.";
+  }
+  return "No se pudo sincronizar Fathom";
 }
 
 function inWindowWhere(userId: string, importSince: Date | null) {

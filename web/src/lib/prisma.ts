@@ -154,7 +154,7 @@ export async function ensureFathomTables(prisma: PrismaClient) {
           "id" TEXT NOT NULL,
           "userId" TEXT NOT NULL,
           "connectionId" TEXT NOT NULL,
-          "fathomRecordingId" INTEGER NOT NULL,
+          "fathomRecordingId" TEXT NOT NULL,
           "title" TEXT NOT NULL,
           "shareUrl" TEXT NOT NULL DEFAULT '',
           "recordedAt" TIMESTAMP(3),
@@ -168,6 +168,15 @@ export async function ensureFathomTables(prisma: PrismaClient) {
       await prisma.$executeRawUnsafe(
         `CREATE UNIQUE INDEX IF NOT EXISTS "FathomRecording_userId_fathomRecordingId_key" ON "FathomRecording"("userId", "fathomRecordingId")`,
       );
+      try {
+        await prisma.$executeRawUnsafe(`
+          ALTER TABLE "FathomRecording"
+            ALTER COLUMN "fathomRecordingId" TYPE TEXT
+            USING "fathomRecordingId"::text
+        `);
+      } catch {
+        /* already text */
+      }
       await prisma.$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS "FathomRecording_userId_recordedAt_idx" ON "FathomRecording"("userId", "recordedAt")`,
       );
