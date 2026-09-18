@@ -16,6 +16,7 @@ import {
   parseImportSince,
 } from "@/lib/fathom-import";
 import { fileCallQuietly } from "@/lib/file-call";
+import { unskipFathomIfHasTranscript } from "@/lib/fathom-ingest";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -31,14 +32,7 @@ export async function POST() {
       connection?.importSince?.toISOString() || null,
     );
 
-    await prisma.fathomRecording.updateMany({
-      where: {
-        userId,
-        practiceSessionId: FATHOM_SKIPPED,
-        NOT: { transcriptText: EMPTY_TRANSCRIPT_MARK },
-      },
-      data: { practiceSessionId: null },
-    });
+    await unskipFathomIfHasTranscript(prisma, userId);
 
     const pending = await prisma.fathomRecording.findFirst({
       where: pendingAnalyzeWhere(userId, importSince),

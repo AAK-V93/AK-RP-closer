@@ -93,6 +93,8 @@ export function getPrisma(): PrismaClient | null {
       arrayMode: false,
       fullResults: true,
     });
+    // Neon HTTP cannot run Prisma transactions. updateMany/createMany are
+    // wrapped in one and throw; use $executeRaw or find+create/update.
     globalForPrisma.prisma = new PrismaClient({ adapter });
   }
   return globalForPrisma.prisma;

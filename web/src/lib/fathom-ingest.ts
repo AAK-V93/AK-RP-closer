@@ -23,7 +23,7 @@ import { fileCallQuietly } from "@/lib/file-call";
 import { decryptSecret, encryptSecret } from "@/lib/secret-crypto";
 import { emailConfigured, sendEmail } from "@/lib/email";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
-import { ensureFathomTables } from "@/lib/prisma";
+import { ensureFathomTables, prismaErrorCode } from "@/lib/prisma";
 
 const POLL_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 const MAX_POLL_USERS = 8;
@@ -83,6 +83,110 @@ export async function unregisterFathomWebhook(prisma: PrismaClient, userId: stri
   }
 }
 
+export async function saveFathomRecording(
+  prisma: PrismaClient,
+  args: {
+    userId: string;
+    connectionId: string;
+    fathomRecordingId: string;
+    title: string;
+    shareUrl: string;
+    recordedAt: Date | null;
+  },
+) {
+  const existing = await prisma.fathomRecording.findUnique({
+    where: {
+      userId_fathomRecordingId: {
+        userId: args.userId,
+        fathomRecordingId: args.fathomRecordingId,
+      },
+    },
+  });
+  if (existing) {
+    return prisma.fathomRecording.update({
+      where: { id: existing.id },
+      data: {
+        title: args.title,
+        shareUrl: args.shareUrl,
+        recordedAt: args.recordedAt,
+      },
+    });
+  }
+  try {
+    return await prisma.fathomRecording.create({
+      data: {
+        userId: args.userId,
+        connectionId: args.connectionId,
+        fathomRecordingId: args.fathomRecordingId,
+        title: args.title,
+        shareUrl: args.shareUrl,
+        recordedAt: args.recordedAt,
+        transcriptText: "",
+        transcriptJson: [],
+      },
+    });
+  } catch (error) {
+    if (prismaErrorCode(error) !== "P2002") throw error;
+    return prisma.fathomRecording.update({
+      where: {
+        userId_fathomRecordingId: {
+          userId: args.userId,
+          fathomRecordingId: args.fathomRecordingId,
+        },
+      },
+      data: {
+        title: args.title,
+        shareUrl: args.shareUrl,
+        recordedAt: args.recordedAt,
+      },
+    });
+  }
+}
+
+/** Neon HTTP rejects Prisma updateMany (it wraps a transaction). */
+export async function skipFathomRecordingsBefore(
+  prisma: PrismaClient,
+  userId: string,
+  importSince: Date,
+) {
+  await prisma.$executeRaw`
+    UPDATE "FathomRecording"
+    SET "transcriptText" = ${EMPTY_TRANSCRIPT_MARK},
+        "practiceSessionId" = ${FATHOM_SKIPPED}
+    WHERE "userId" = ${userId}
+      AND "practiceSessionId" IS NULL
+      AND "recordedAt" IS NOT NULL
+      AND "recordedAt" < ${importSince}
+  `;
+}
+
+export async function markFathomRecordingsSkipped(
+  prisma: PrismaClient,
+  ids: string[],
+) {
+  if (!ids.length) return;
+  await prisma.$executeRaw`
+    UPDATE "FathomRecording"
+    SET "transcriptText" = ${EMPTY_TRANSCRIPT_MARK},
+        "practiceSessionId" = ${FATHOM_SKIPPED},
+        "syncedAt" = NOW()
+    WHERE "id" IN (${Prisma.join(ids)})
+  `;
+}
+
+export async function unskipFathomIfHasTranscript(
+  prisma: PrismaClient,
+  userId: string,
+) {
+  await prisma.$executeRaw`
+    UPDATE "FathomRecording"
+    SET "practiceSessionId" = NULL
+    WHERE "userId" = ${userId}
+      AND "practiceSessionId" = ${FATHOM_SKIPPED}
+      AND "transcriptText" <> ${EMPTY_TRANSCRIPT_MARK}
+  `;
+}
+
 export async function ingestFathomMeeting(
   prisma: PrismaClient,
   userId: string,
@@ -97,28 +201,13 @@ export async function ingestFathomMeeting(
 
   const title = meetingTitle(meeting);
   const recordedAt = meetingRecordedAt(meeting);
-  const recording = await prisma.fathomRecording.upsert({
-    where: {
-      userId_fathomRecordingId: {
-        userId,
-        fathomRecordingId: recordingId,
-      },
-    },
-    create: {
-      userId,
-      connectionId: connection.id,
-      fathomRecordingId: recordingId,
-      title,
-      shareUrl: meeting.share_url || meeting.url || "",
-      recordedAt,
-      transcriptText: "",
-      transcriptJson: [],
-    },
-    update: {
-      title,
-      shareUrl: meeting.share_url || meeting.url || "",
-      recordedAt,
-    },
+  const recording = await saveFathomRecording(prisma, {
+    userId,
+    connectionId: connection.id,
+    fathomRecordingId: recordingId,
+    title,
+    shareUrl: meeting.share_url || meeting.url || "",
+    recordedAt,
   });
 
   let transcriptItems = meeting.transcript || [];

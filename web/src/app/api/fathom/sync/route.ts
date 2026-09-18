@@ -20,6 +20,11 @@ import {
   getFathomConnection,
   requireFathomUser,
 } from "@/lib/fathom-auth";
+import {
+  markFathomRecordingsSkipped,
+  saveFathomRecording,
+  skipFathomRecordingsBefore,
+} from "@/lib/fathom-ingest";
 import { prismaErrorCode } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -80,17 +85,7 @@ export async function POST(request: Request) {
     }
 
     if (importSince) {
-      await prisma.fathomRecording.updateMany({
-        where: {
-          userId,
-          recordedAt: { lt: importSince },
-          practiceSessionId: null,
-        },
-        data: {
-          transcriptText: EMPTY_TRANSCRIPT_MARK,
-          practiceSessionId: FATHOM_SKIPPED,
-        },
-      });
+      await skipFathomRecordingsBefore(prisma, userId, importSince);
     }
 
     const phase = body.phase === "transcripts" ? "transcripts" : "meetings";
@@ -124,28 +119,13 @@ export async function POST(request: Request) {
         if (importSince && recordedAt && recordedAt < importSince) continue;
 
         try {
-          await prisma.fathomRecording.upsert({
-            where: {
-              userId_fathomRecordingId: {
-                userId,
-                fathomRecordingId: recordingId,
-              },
-            },
-            create: {
-              userId,
-              connectionId: connection.id,
-              fathomRecordingId: recordingId,
-              title,
-              shareUrl: meeting.share_url || meeting.url || "",
-              recordedAt,
-              transcriptText: "",
-              transcriptJson: [],
-            },
-            update: {
-              title,
-              shareUrl: meeting.share_url || meeting.url || "",
-              recordedAt,
-            },
+          await saveFathomRecording(prisma, {
+            userId,
+            connectionId: connection.id,
+            fathomRecordingId: recordingId,
+            title,
+            shareUrl: meeting.share_url || meeting.url || "",
+            recordedAt,
           });
           imported += 1;
         } catch (error) {
@@ -247,14 +227,10 @@ export async function POST(request: Request) {
     }
 
     if (imported === 0 && skipped === 0) {
-      await prisma.fathomRecording.updateMany({
-        where: { id: { in: pending.map((row) => row.id) } },
-        data: {
-          transcriptText: EMPTY_TRANSCRIPT_MARK,
-          practiceSessionId: FATHOM_SKIPPED,
-          syncedAt: new Date(),
-        },
-      });
+      await markFathomRecordingsSkipped(
+        prisma,
+        pending.map((row) => row.id),
+      );
       skipped = pending.length;
     }
 
@@ -297,8 +273,11 @@ function syncErrorMessage(error: unknown) {
     return "El ID de una llamada de Fathom no se pudo guardar. Recarga e intenta de nuevo.";
   }
   if (code === "P2002") return "Esa llamada ya estaba importada. Intenta de nuevo.";
-  if (code === "P1001" || code === "TX") {
+  if (code === "P1001") {
     return "La base de datos no respondió. Intenta de nuevo.";
+  }
+  if (code === "TX" || /transaction/i.test(message)) {
+    return "No se pudo escribir el lote de llamadas. Recarga e intenta de nuevo.";
   }
   if (code === "P2011" || /argument.*(missing|invalid)/i.test(message)) {
     return "Fathom mandó una llamada sin ID. Intenta de nuevo o achica el rango de fechas.";
