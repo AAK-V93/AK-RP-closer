@@ -8,6 +8,7 @@ import { displayCallTitle } from "@/lib/fathom-import";
 import {
   compactTranscriptText,
   formatParsedTranscript,
+  linesFromRawTranscript,
   parseCallTranscript,
   type ParsedLine,
 } from "@/lib/parse-transcript";
@@ -129,11 +130,17 @@ export async function generateQcReportFromTranscript(args: {
   }
 
   const parsed = parseCallTranscript(raw.slice(0, MAX_CHARS));
-  if (parsed.lines.length < 2) {
+  const lines =
+    parsed.lines.length > 0
+      ? parsed.lines
+      : linesFromRawTranscript(raw.slice(0, MAX_CHARS));
+  if (!lines.length) {
     throw new Error("No pude leer la transcripción.");
   }
 
-  const transcript = compactTranscriptText(formatParsedTranscript(parsed));
+  const transcript = compactTranscriptText(
+    parsed.lines.length > 0 ? formatParsedTranscript(parsed) : raw.slice(0, MAX_CHARS),
+  );
   const prompt = buildQcReportPrompt({
     transcript,
     closerHint: args.closerName,
@@ -150,7 +157,7 @@ export async function generateQcReportFromTranscript(args: {
   const report = enrichCallIdentity(normalizeQcReport(parsedJson), transcript);
   return {
     report,
-    lines: parsed.lines as ParsedLine[],
+    lines,
   };
 }
 
@@ -164,8 +171,13 @@ export function enrichCallIdentity(report: QcCallReport, transcript: string) {
 export async function extractCallIdentity(transcriptRaw: string) {
   const raw = coerceTranscriptText(transcriptRaw);
   const parsed = parseCallTranscript(raw.slice(0, 12_000));
+  const lines =
+    parsed.lines.length > 0
+      ? parsed.lines
+      : linesFromRawTranscript(raw.slice(0, 12_000));
   const transcript =
-    compactTranscriptText(formatParsedTranscript(parsed)) || raw.slice(0, 8_000);
+    compactTranscriptText(formatParsedTranscript({ ...parsed, lines })) ||
+    raw.slice(0, 8_000);
   try {
     const text = await generateGeminiJson(
       `Extrae identidad de esta llamada de ventas. JSON: {"leadName":"","offerName":""}.
@@ -188,7 +200,7 @@ ${transcript}`,
         }),
         transcript,
       ),
-      lines: parsed.lines,
+      lines,
     };
   } catch {
     return {
@@ -198,7 +210,7 @@ ${transcript}`,
         }),
         transcript,
       ),
-      lines: parsed.lines,
+      lines,
     };
   }
 }

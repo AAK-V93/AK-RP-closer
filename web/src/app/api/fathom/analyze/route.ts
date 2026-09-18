@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type FathomRecording, type PrismaClient } from "@prisma/client";
 import {
   callDisplayName,
   coerceTranscriptText,
@@ -8,7 +8,7 @@ import {
   normalizeQcReport,
   saveQcPracticeSession,
 } from "@/lib/qc-report-service";
-import { requireFathomUser, getFathomConnection } from "@/lib/fathom-auth";
+import { requireFathomUser, getFathomConnection, getFathomApiKey } from "@/lib/fathom-auth";
 import {
   EMPTY_TRANSCRIPT_MARK,
   FATHOM_SKIPPED,
@@ -24,9 +24,11 @@ import {
 } from "@/lib/fathom-ingest";
 import {
   fathomTranscriptToLines,
+  fathomTranscriptToText,
   normalizeFathomTranscriptItems,
 } from "@/lib/fathom-transcript";
-import { parseCallTranscript, type ParsedLine } from "@/lib/parse-transcript";
+import { linesFromRawTranscript, parseCallTranscript, type ParsedLine } from "@/lib/parse-transcript";
+import { getFathomTranscript } from "@/lib/fathom";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
     await unskipRecentEmptyTranscripts(prisma, userId);
     await requeuePartialFathomQc(prisma, userId);
 
-    const pending =
+    let pending =
       targeted ||
       (await prisma.fathomRecording.findFirst({
         where: pendingAnalyzeWhere(userId, importSince),
@@ -82,6 +84,10 @@ export async function POST(request: Request) {
         analyzed,
         done: true,
       });
+    }
+
+    if (targeted || linesFromRecording(pending).length < 2) {
+      pending = await refreshTranscriptFromFathom(prisma, userId, pending);
     }
 
     if (!isUsableTranscript(pending.transcriptText)) {
@@ -146,12 +152,39 @@ function linesFromRecording(pending: {
   transcriptText: string;
   transcriptJson: unknown;
 }): ParsedLine[] {
-  const parsed = parseCallTranscript(coerceTranscriptText(pending.transcriptText));
+  const text = coerceTranscriptText(pending.transcriptText);
+  const parsed = parseCallTranscript(text);
   if (parsed.lines.length >= 2) return parsed.lines;
   const fromJson = fathomTranscriptToLines(
     normalizeFathomTranscriptItems(pending.transcriptJson),
   );
-  return fromJson.length ? fromJson : parsed.lines;
+  if (fromJson.length) return fromJson;
+  return linesFromRawTranscript(text);
+}
+
+async function refreshTranscriptFromFathom(
+  prisma: PrismaClient,
+  userId: string,
+  row: FathomRecording,
+): Promise<FathomRecording> {
+  try {
+    const apiKey = await getFathomApiKey(prisma, userId);
+    if (!apiKey) return row;
+    const items = await getFathomTranscript(apiKey, row.fathomRecordingId);
+    const transcriptText = fathomTranscriptToText(items, row.title);
+    if (!isUsableTranscript(transcriptText)) return row;
+    return prisma.fathomRecording.update({
+      where: { id: row.id },
+      data: {
+        transcriptText,
+        transcriptJson: items as unknown as Prisma.InputJsonValue,
+        syncedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    console.error("fathom refresh transcript", row.id, error);
+    return row;
+  }
 }
 
 async function finishAnalyze(

@@ -56,6 +56,16 @@ test("normalizeFathomTranscriptItems unwraps Fathom payload shapes", () => {
   assert.equal(nested[0]?.text, "¿Cuál es el problema?");
 });
 
+test("parseCallTranscript keeps unstructured Fathom dumps instead of dropping them", () => {
+  const raw = `Impromptu Google Meet Meeting
+Hola Leonardo gracias por entrar hoy quería platicar del programa de consultoría y cómo lo están estructurando en la empresa.
+Claro Alina dime qué necesitamos para arrancar y de cuánto es la inversión.`;
+  const parsed = parseCallTranscript(raw);
+  assert.ok(parsed.lines.length >= 1);
+  assert.match(parsed.lines.map((line) => line.text).join(" "), /Leonardo/);
+  assert.match(parsed.lines.map((line) => line.text).join(" "), /inversión/);
+});
+
 test("parseCallTranscript reads Fathom [ts] Speaker: text lines", () => {
   const raw = `Impromptu Google Meet Meeting
 

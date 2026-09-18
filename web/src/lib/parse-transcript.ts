@@ -113,7 +113,10 @@ export function parseCallTranscript(raw: string): ParsedTranscript {
       continue;
     }
 
-    if (!current) continue;
+    if (!current) {
+      current = { timestamp: null, speaker: "Llamada", text: line };
+      continue;
+    }
     current.text = current.text ? `${current.text} ${line}` : line;
   }
 
@@ -126,6 +129,16 @@ export function parseCallTranscript(raw: string): ParsedTranscript {
     lines: lines.filter((l) => l.text.trim().length > 0),
     speakers,
   };
+}
+
+/** If diarization failed, keep the raw text as lines Gemini can still audit. */
+export function linesFromRawTranscript(raw: string): ParsedLine[] {
+  const parsed = parseCallTranscript(raw);
+  if (parsed.lines.length) return parsed.lines;
+  const text = raw.replace(/\s+/g, " ").trim();
+  return text
+    ? [{ timestamp: null, speaker: "Llamada", text: text.slice(0, 80_000) }]
+    : [];
 }
 
 export function formatParsedTranscript(parsed: ParsedTranscript): string {
