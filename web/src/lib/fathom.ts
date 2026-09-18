@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import { normalizeFathomTranscriptItems } from "@/lib/fathom-transcript";
 
 const FATHOM_BASE = "https://api.fathom.ai/external/v1";
 const WEBHOOK_MAX_SKEW_SEC = 300;
@@ -36,10 +37,6 @@ type MeetingListResponse = {
   limit?: number | null;
   next_cursor?: string | null;
   items?: FathomMeeting[];
-};
-
-type TranscriptResponse = {
-  transcript?: FathomTranscriptPayload[];
 };
 
 export class FathomApiError extends Error {
@@ -140,11 +137,11 @@ export async function listFathomMeetings(
 export async function getFathomTranscript(apiKey: string, recordingId: string | number) {
   const id = normalizeFathomRecordingId(recordingId);
   if (!id) throw new FathomApiError("recording id inválido", 400);
-  const data = await fathomFetch<TranscriptResponse>(
+  const data = await fathomFetch<unknown>(
     apiKey,
     `/recordings/${id}/transcript`,
   );
-  return data.transcript || [];
+  return normalizeFathomTranscriptItems(data);
 }
 
 export function meetingTitle(meeting: FathomMeeting) {
@@ -246,11 +243,8 @@ export function meetingFromWebhookPayload(body: unknown): FathomMeeting | null {
     root.meeting && typeof root.meeting === "object"
       ? (root.meeting as Record<string, unknown>)
       : root;
-  const transcript = Array.isArray(nested.transcript)
-    ? (nested.transcript as FathomTranscriptPayload[])
-    : Array.isArray(root.transcript)
-      ? (root.transcript as FathomTranscriptPayload[])
-      : null;
+  const transcriptRaw = nested.transcript ?? root.transcript;
+  const transcript = normalizeFathomTranscriptItems(transcriptRaw);
   return {
     recording_id: recordingId,
     title: String(nested.title || root.title || ""),

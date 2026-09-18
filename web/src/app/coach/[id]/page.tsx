@@ -17,7 +17,7 @@ import {
   CallSection,
 } from "@/data/training-session";
 
-type TranscriptLine = { role?: string; text?: string };
+type TranscriptLine = { role?: string; speaker?: string; text?: string; timestamp?: string | null };
 
 type PracticeDetail = {
   id: string;
@@ -45,6 +45,7 @@ export default function CoachDetailPage() {
   const [detail, setDetail] = useState<PracticeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [retryingQc, setRetryingQc] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
 
   const goBackAfterDelete = () => {
@@ -91,6 +92,31 @@ export default function CoachDetailPage() {
     }
   };
 
+  const retryQc = async () => {
+    if (!id) return;
+    setRetryingQc(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/fathom/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ practiceSessionId: id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo re-auditar");
+      const nextId = data.recording?.practiceSessionId;
+      if (nextId && nextId !== id) {
+        router.replace(`/coach/${nextId}`);
+        return;
+      }
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo re-auditar");
+    } finally {
+      setRetryingQc(false);
+    }
+  };
+
   const qc =
     detail && isQcReport(detail.evaluation) ? detail.evaluation : null;
   const practiceEval =
@@ -98,6 +124,12 @@ export default function CoachDetailPage() {
       ? (detail.evaluation as CallEvaluation)
       : null;
   const lines = Array.isArray(detail?.transcript) ? detail.transcript : [];
+  const qcIncomplete =
+    Boolean(qc) &&
+    (/QC parcial|no perderla|Re-auditar/i.test(
+      `${detail?.outcomeSummary || ""} ${qc?.headline || ""}`,
+    ) ||
+      (lines.length === 0 && (qc?.overallScore || 0) === 0));
 
   return (
     <AppShell>
@@ -151,6 +183,22 @@ export default function CoachDetailPage() {
               </div>
             )}
 
+            {qcIncomplete && (
+              <div className="rounded-2xl border border-separator1 bg-bg1 p-4 space-y-3">
+                <p className="text-sm">
+                  Esta llamada se guardó, pero el QC no leyó la transcripción.
+                  Vuelve a auditarla para llenar el reporte.
+                </p>
+                <Button
+                  variant="primary"
+                  disabled={retryingQc}
+                  onClick={retryQc}
+                >
+                  {retryingQc ? "Auditando…" : "Volver a auditar"}
+                </Button>
+              </div>
+            )}
+
             {qc && (
               <QcReportView report={{ ...qc, saved: false }} authenticated />
             )}
@@ -186,7 +234,8 @@ export default function CoachDetailPage() {
                     {lines.map((line, i) => (
                       <p key={i} className="text-sm">
                         <span className="text-xs uppercase text-fg3 mr-2">
-                          {line.role === "prospect" ? "Prospecto" : "Tú"}
+                          {line.speaker ||
+                            (line.role === "prospect" ? "Prospecto" : "Tú")}
                         </span>
                         {line.text}
                       </p>

@@ -37,7 +37,7 @@ export function parseCallTranscript(raw: string): ParsedTranscript {
     if (/^VIEW RECORDING/i.test(line)) continue;
     if (/^https?:\/\//i.test(line)) continue;
 
-    const roleMatch = line.match(/^(CLOSER|PROSPECTO|CLOSER|LEAD)\s*:\s*(.+)$/i);
+    const roleMatch = line.match(/^(CLOSER|PROSPECTO|LEAD)\s*:\s*(.+)$/i);
     if (roleMatch) {
       if (current?.text) lines.push(current);
       current = {
@@ -45,6 +45,20 @@ export function parseCallTranscript(raw: string): ParsedTranscript {
         speaker: roleMatch[1].toUpperCase() === "CLOSER" ? "Closer" : "Prospecto",
         text: roleMatch[2].trim(),
       };
+      continue;
+    }
+
+    const fathomStamp = line.match(
+      /^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*([^:]{1,80}):\s*(.+)$/,
+    );
+    if (fathomStamp) {
+      if (current?.text) lines.push(current);
+      lines.push({
+        timestamp: fathomStamp[1],
+        speaker: fathomStamp[2].trim(),
+        text: fathomStamp[3].trim(),
+      });
+      current = null;
       continue;
     }
 
@@ -85,6 +99,17 @@ export function parseCallTranscript(raw: string): ParsedTranscript {
         speaker: maybeSpeaker.replace(/^\d{1,2}:\d{2}(?::\d{2})?\s*[-–—]\s*/, "").trim(),
         text: "",
       };
+      continue;
+    }
+
+    const standaloneSpeaker =
+      !line.includes(":") &&
+      looksLikeSpeaker(line) &&
+      !/[.?!]$/.test(line) &&
+      line.split(/\s+/).length <= 8;
+    if (standaloneSpeaker) {
+      if (current?.text) lines.push(current);
+      current = { timestamp: null, speaker: line, text: "" };
       continue;
     }
 

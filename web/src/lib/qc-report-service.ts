@@ -11,8 +11,26 @@ import {
   parseCallTranscript,
   type ParsedLine,
 } from "@/lib/parse-transcript";
+import {
+  fathomTranscriptToText,
+  normalizeFathomTranscriptItems,
+} from "@/lib/fathom-transcript";
 
 const MAX_CHARS = 80_000;
+
+export function coerceTranscriptText(raw: string) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    try {
+      const text = fathomTranscriptToText(normalizeFathomTranscriptItems(JSON.parse(trimmed)));
+      if (text.length >= 40) return text;
+    } catch {
+      /* not json */
+    }
+  }
+  return trimmed;
+}
 
 function emptyBlock() {
   return {
@@ -105,7 +123,7 @@ export async function generateQcReportFromTranscript(args: {
   closerName?: string;
   productName?: string;
 }) {
-  const raw = args.transcriptRaw.trim();
+  const raw = coerceTranscriptText(args.transcriptRaw);
   if (raw.length < 80) {
     throw new Error("Transcripción demasiado corta para auditar.");
   }
@@ -123,8 +141,8 @@ export async function generateQcReportFromTranscript(args: {
     speakers: parsed.speakers,
   });
 
-  const text = await generateGeminiJson(prompt, 0.25, 4096, {
-    timeoutMs: 75_000,
+  const text = await generateGeminiJson(prompt, 0.25, 8192, {
+    timeoutMs: 90_000,
     models: ["gemini-flash-latest", "gemini-flash-lite-latest"],
   });
 
@@ -144,28 +162,45 @@ export function enrichCallIdentity(report: QcCallReport, transcript: string) {
 }
 
 export async function extractCallIdentity(transcriptRaw: string) {
-  const parsed = parseCallTranscript(transcriptRaw.trim().slice(0, 12_000));
-  const transcript = compactTranscriptText(formatParsedTranscript(parsed));
-  const text = await generateGeminiJson(
-    `Extrae identidad de esta llamada de ventas. JSON: {"leadName":"","offerName":""}.
+  const raw = coerceTranscriptText(transcriptRaw);
+  const parsed = parseCallTranscript(raw.slice(0, 12_000));
+  const transcript =
+    compactTranscriptText(formatParsedTranscript(parsed)) || raw.slice(0, 8_000);
+  try {
+    const text = await generateGeminiJson(
+      `Extrae identidad de esta llamada de ventas. JSON: {"leadName":"","offerName":""}.
 leadName = prospecto, no el closer. offerName = programa/oferta/plan si se menciona.
 Si el título era Impromptu/Meet/Zoom, IGNÓRALO y usa solo el diálogo.
 Speakers: ${parsed.speakers.join(" · ") || "desconocidos"}
 
 ${transcript}`,
-    0.1,
-    256,
-    { timeoutMs: 20_000, models: ["gemini-flash-lite-latest"] },
-  );
-  const parsedJson = parseModelJson(text) as { leadName?: string; offerName?: string };
-  return enrichCallIdentity(
-    normalizeQcReport({
-      headline: "QC parcial: se guardó la llamada para no perderla",
-      leadName: parsedJson.leadName,
-      offerName: parsedJson.offerName,
-    }),
-    transcript,
-  );
+      0.1,
+      256,
+      { timeoutMs: 20_000, models: ["gemini-flash-lite-latest"] },
+    );
+    const parsedJson = parseModelJson(text) as { leadName?: string; offerName?: string };
+    return {
+      report: enrichCallIdentity(
+        normalizeQcReport({
+          headline: "QC parcial: se guardó la llamada para no perderla",
+          leadName: parsedJson.leadName,
+          offerName: parsedJson.offerName,
+        }),
+        transcript,
+      ),
+      lines: parsed.lines,
+    };
+  } catch {
+    return {
+      report: enrichCallIdentity(
+        normalizeQcReport({
+          headline: "QC parcial: se guardó la llamada para no perderla",
+        }),
+        transcript,
+      ),
+      lines: parsed.lines,
+    };
+  }
 }
 
 export function callDisplayName(report: QcCallReport, fallback?: string) {

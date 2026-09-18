@@ -1,5 +1,55 @@
 import type { ParsedLine } from "@/lib/parse-transcript";
 
+export function normalizeFathomTranscriptItems(
+  raw: unknown,
+): FathomTranscriptItem[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map(normalizeFathomTranscriptItem)
+      .filter((row): row is FathomTranscriptItem => Boolean(row));
+  }
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    return text
+      ? [{ speaker: { display_name: "Speaker" }, text, timestamp: "00:00:00" }]
+      : [];
+  }
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.transcript)) {
+      return normalizeFathomTranscriptItems(obj.transcript);
+    }
+    if (Array.isArray(obj.items)) {
+      return normalizeFathomTranscriptItems(obj.items);
+    }
+    if (obj.data && typeof obj.data === "object") {
+      return normalizeFathomTranscriptItems(obj.data);
+    }
+  }
+  return [];
+}
+
+function normalizeFathomTranscriptItem(row: unknown): FathomTranscriptItem | null {
+  if (!row || typeof row !== "object") return null;
+  const obj = row as Record<string, unknown>;
+  const text = String(obj.text || obj.content || obj.utterance || "").trim();
+  if (!text) return null;
+  const speaker = obj.speaker;
+  let display = "Speaker";
+  if (typeof speaker === "string" && speaker.trim()) display = speaker.trim();
+  else if (speaker && typeof speaker === "object") {
+    const named = speaker as { display_name?: string; name?: string };
+    display = String(named.display_name || named.name || "Speaker").trim() || "Speaker";
+  } else if (obj.speaker_name) {
+    display = String(obj.speaker_name).trim() || "Speaker";
+  }
+  return {
+    speaker: { display_name: display },
+    text,
+    timestamp: String(obj.timestamp || obj.ts || ""),
+  };
+}
+
 export type FathomTranscriptItem = {
   speaker?: {
     display_name?: string;

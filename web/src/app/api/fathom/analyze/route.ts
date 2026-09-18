@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { PrismaClient } from "@prisma/client";
 import {
   callDisplayName,
+  coerceTranscriptText,
   extractCallIdentity,
   generateQcReportFromTranscript,
   normalizeQcReport,
@@ -16,28 +17,58 @@ import {
   parseImportSince,
 } from "@/lib/fathom-import";
 import { fileCallQuietly } from "@/lib/file-call";
-import { unskipFathomIfHasTranscript } from "@/lib/fathom-ingest";
+import {
+  requeuePartialFathomQc,
+  unskipFathomIfHasTranscript,
+  unskipRecentEmptyTranscripts,
+} from "@/lib/fathom-ingest";
+import {
+  fathomTranscriptToLines,
+  normalizeFathomTranscriptItems,
+} from "@/lib/fathom-transcript";
+import { parseCallTranscript, type ParsedLine } from "@/lib/parse-transcript";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const auth = await requireFathomUser();
     if ("error" in auth && auth.error) return auth.error;
     const { prisma, userId } = auth;
+
+    let body: { recordingId?: string; practiceSessionId?: string } = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
 
     const connection = await getFathomConnection(prisma, userId);
     const importSince = parseImportSince(
       connection?.importSince?.toISOString() || null,
     );
 
-    await unskipFathomIfHasTranscript(prisma, userId);
+    const targeted = body.recordingId
+      ? await prisma.fathomRecording.findFirst({
+          where: { id: body.recordingId, userId },
+        })
+      : body.practiceSessionId
+        ? await prisma.fathomRecording.findFirst({
+            where: { userId, practiceSessionId: body.practiceSessionId },
+          })
+        : null;
 
-    const pending = await prisma.fathomRecording.findFirst({
-      where: pendingAnalyzeWhere(userId, importSince),
-      orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
-    });
+    await unskipFathomIfHasTranscript(prisma, userId);
+    await unskipRecentEmptyTranscripts(prisma, userId);
+    await requeuePartialFathomQc(prisma, userId);
+
+    const pending =
+      targeted ||
+      (await prisma.fathomRecording.findFirst({
+        where: pendingAnalyzeWhere(userId, importSince),
+        orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
+      }));
 
     if (!pending) {
       const remaining = await prisma.fathomRecording.count({
@@ -67,123 +98,38 @@ export async function POST() {
     const productHint = isGenericMeetingTitle(pending.title)
       ? undefined
       : pending.title;
+    const fallbackLines = linesFromRecording(pending);
 
     try {
       const { report, lines } = await generateQcReportFromTranscript({
         transcriptRaw: pending.transcriptText,
         productName: productHint,
       });
-      const title = callDisplayName(report, pending.title);
-      const sessionId = await saveQcPracticeSession(prisma, userId, {
+      return finishAnalyze(prisma, userId, importSince, pending, {
         report,
-        lines,
-        productName: title,
-      });
-      await prisma.fathomRecording.update({
-        where: { id: pending.id },
-        data: { practiceSessionId: sessionId, title },
-      });
-      void fileCallQuietly(prisma, userId, {
-        source: "fathom",
-        sourceId: pending.id,
-        title,
-        transcript: pending.transcriptText,
-        recordedAt: pending.recordedAt,
-      });
-
-      const remaining = await prisma.fathomRecording.count({
-        where: pendingAnalyzeWhere(userId, importSince),
-      });
-      const analyzed = await countAnalyzed(prisma, userId, importSince);
-      return NextResponse.json({
-        imported: 1,
-        skipped: 0,
-        remaining,
-        analyzed,
-        done: remaining === 0,
-        recording: {
-          id: pending.id,
-          title,
-          leadName: report.leadName,
-          offerName: report.offerName,
-          practiceSessionId: sessionId,
-        },
+        lines: lines.length ? lines : fallbackLines,
       });
     } catch (error) {
       console.error("fathom analyze", pending.id, error);
       try {
-        const report = await extractCallIdentity(pending.transcriptText);
-        const title = callDisplayName(report, pending.title);
-        const sessionId = await saveQcPracticeSession(prisma, userId, {
+        const { report, lines } = await extractCallIdentity(pending.transcriptText);
+        return finishAnalyze(prisma, userId, importSince, pending, {
           report,
-          lines: [],
-          productName: title,
-        });
-        await prisma.fathomRecording.update({
-          where: { id: pending.id },
-          data: { practiceSessionId: sessionId, title },
-        });
-        void fileCallQuietly(prisma, userId, {
-          source: "fathom",
-          sourceId: pending.id,
-          title,
-          transcript: pending.transcriptText,
-          recordedAt: pending.recordedAt,
-        });
-        const remaining = await prisma.fathomRecording.count({
-          where: pendingAnalyzeWhere(userId, importSince),
-        });
-        const analyzed = await countAnalyzed(prisma, userId, importSince);
-        return NextResponse.json({
-          imported: 1,
-          skipped: 0,
+          lines: lines.length ? lines : fallbackLines,
           partial: true,
-          remaining,
-          analyzed,
-          done: remaining === 0,
-          recording: {
-            id: pending.id,
-            title,
-            leadName: report.leadName,
-            offerName: report.offerName,
-            practiceSessionId: sessionId,
-          },
         });
       } catch (identityError) {
         console.error("fathom identity", pending.id, identityError);
         const title = isGenericMeetingTitle(pending.title)
           ? "Lead · oferta por confirmar"
           : pending.title;
-        const sessionId = await saveQcPracticeSession(prisma, userId, {
+        return finishAnalyze(prisma, userId, importSince, pending, {
           report: normalizeQcReport({
             headline: "Se guardó la llamada. Re-auditar desde el coach si hace falta.",
           }),
-          lines: [],
+          lines: fallbackLines,
           productName: title,
-        });
-        await prisma.fathomRecording.update({
-          where: { id: pending.id },
-          data: { practiceSessionId: sessionId, title },
-        });
-        void fileCallQuietly(prisma, userId, {
-          source: "fathom",
-          sourceId: pending.id,
-          title,
-          transcript: pending.transcriptText,
-          recordedAt: pending.recordedAt,
-        });
-        const remaining = await prisma.fathomRecording.count({
-          where: pendingAnalyzeWhere(userId, importSince),
-        });
-        const analyzed = await countAnalyzed(prisma, userId, importSince);
-        return NextResponse.json({
-          imported: 1,
-          skipped: 0,
           partial: true,
-          remaining,
-          analyzed,
-          done: remaining === 0,
-          recording: { id: pending.id, title, practiceSessionId: sessionId },
         });
       }
     }
@@ -194,6 +140,74 @@ export async function POST() {
       { status: 500 },
     );
   }
+}
+
+function linesFromRecording(pending: {
+  transcriptText: string;
+  transcriptJson: unknown;
+}): ParsedLine[] {
+  const parsed = parseCallTranscript(coerceTranscriptText(pending.transcriptText));
+  if (parsed.lines.length >= 2) return parsed.lines;
+  const fromJson = fathomTranscriptToLines(
+    normalizeFathomTranscriptItems(pending.transcriptJson),
+  );
+  return fromJson.length ? fromJson : parsed.lines;
+}
+
+async function finishAnalyze(
+  prisma: PrismaClient,
+  userId: string,
+  importSince: Date | null,
+  pending: {
+    id: string;
+    title: string;
+    transcriptText: string;
+    recordedAt: Date | null;
+  },
+  args: {
+    report: ReturnType<typeof normalizeQcReport>;
+    lines: ParsedLine[];
+    productName?: string;
+    partial?: boolean;
+  },
+) {
+  const title = callDisplayName(args.report, args.productName || pending.title);
+  const sessionId = await saveQcPracticeSession(prisma, userId, {
+    report: args.report,
+    lines: args.lines,
+    productName: title,
+  });
+  await prisma.fathomRecording.update({
+    where: { id: pending.id },
+    data: { practiceSessionId: sessionId, title },
+  });
+  void fileCallQuietly(prisma, userId, {
+    source: "fathom",
+    sourceId: pending.id,
+    title,
+    transcript: pending.transcriptText,
+    recordedAt: pending.recordedAt,
+  });
+
+  const remaining = await prisma.fathomRecording.count({
+    where: pendingAnalyzeWhere(userId, importSince),
+  });
+  const analyzed = await countAnalyzed(prisma, userId, importSince);
+  return NextResponse.json({
+    imported: 1,
+    skipped: 0,
+    partial: Boolean(args.partial),
+    remaining,
+    analyzed,
+    done: remaining === 0,
+    recording: {
+      id: pending.id,
+      title,
+      leadName: args.report.leadName,
+      offerName: args.report.offerName,
+      practiceSessionId: sessionId,
+    },
+  });
 }
 
 function pendingAnalyzeWhere(userId: string, importSince: Date | null) {

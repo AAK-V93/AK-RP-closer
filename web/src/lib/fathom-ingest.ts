@@ -18,7 +18,10 @@ import {
   FATHOM_SKIPPED,
   isUsableTranscript,
 } from "@/lib/fathom-import";
-import { fathomTranscriptToText } from "@/lib/fathom-transcript";
+import {
+  fathomTranscriptToText,
+  normalizeFathomTranscriptItems,
+} from "@/lib/fathom-transcript";
 import { fileCallQuietly } from "@/lib/file-call";
 import { decryptSecret, encryptSecret } from "@/lib/secret-crypto";
 import { emailConfigured, sendEmail } from "@/lib/email";
@@ -187,6 +190,47 @@ export async function unskipFathomIfHasTranscript(
   `;
 }
 
+/** Retry 404/empty skips while Fathom may still be transcribing. */
+export async function unskipRecentEmptyTranscripts(
+  prisma: PrismaClient,
+  userId: string,
+) {
+  await prisma.$executeRaw`
+    UPDATE "FathomRecording"
+    SET "practiceSessionId" = NULL,
+        "transcriptText" = ''
+    WHERE "userId" = ${userId}
+      AND "practiceSessionId" = ${FATHOM_SKIPPED}
+      AND "transcriptText" = ${EMPTY_TRANSCRIPT_MARK}
+      AND ("recordedAt" IS NULL OR "recordedAt" > NOW() - INTERVAL '2 days')
+  `;
+}
+
+/** QC that saved the call but dropped the transcript (empty lines / 0 score). */
+export async function requeuePartialFathomQc(
+  prisma: PrismaClient,
+  userId: string,
+) {
+  await prisma.$executeRaw`
+    UPDATE "FathomRecording" AS r
+    SET "practiceSessionId" = NULL
+    FROM "PracticeSession" AS s
+    WHERE r."userId" = ${userId}
+      AND r."practiceSessionId" = s.id
+      AND r."transcriptText" <> ${EMPTY_TRANSCRIPT_MARK}
+      AND length(r."transcriptText") >= 80
+      AND (
+        s."outcomeSummary" ILIKE '%QC parcial%'
+        OR s."outcomeSummary" ILIKE '%no perderla%'
+        OR s."outcomeSummary" ILIKE '%Re-auditar%'
+        OR (
+          COALESCE(s."overallScore", 0) = 0
+          AND (s."transcript" IS NULL OR s."transcript"::text IN ('[]', 'null'))
+        )
+      )
+  `;
+}
+
 export async function ingestFathomMeeting(
   prisma: PrismaClient,
   userId: string,
@@ -210,7 +254,7 @@ export async function ingestFathomMeeting(
     recordedAt,
   });
 
-  let transcriptItems = meeting.transcript || [];
+  let transcriptItems = normalizeFathomTranscriptItems(meeting.transcript);
   if (transcriptItems.length === 0 && !isUsableTranscript(recording.transcriptText)) {
     try {
       const apiKey = decryptSecret(connection.apiKeyEnc);
@@ -218,6 +262,11 @@ export async function ingestFathomMeeting(
     } catch (error) {
       const status = error instanceof FathomApiError ? error.status : 0;
       if (status === 404 || status === 400) {
+        const young =
+          !recordedAt || Date.now() - recordedAt.getTime() < 2 * 24 * 60 * 60 * 1000;
+        if (young) {
+          return { ok: false as const, reason: "transcript-pending" };
+        }
         await prisma.fathomRecording.update({
           where: { id: recording.id },
           data: {

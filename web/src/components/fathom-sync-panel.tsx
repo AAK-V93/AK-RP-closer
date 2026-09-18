@@ -77,7 +77,6 @@ type FathomRecordingRow = {
 
 export function FathomSyncPanel({
   authenticated,
-  onAnalyze,
 }: {
   authenticated: boolean;
   onAnalyze?: (args: { transcript: string; title: string }) => void;
@@ -284,15 +283,30 @@ export function FathomSyncPanel({
   };
 
   const pickRecording = async (id: string, title: string) => {
-    if (!onAnalyze) return;
+    setSyncing(true);
     setError(null);
+    setSyncMessage(`Auditando ${title}…`);
     try {
-      const response = await fetch(`/api/fathom/recordings/${id}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No se pudo cargar");
-      onAnalyze({ transcript: data.transcript, title: data.title || title });
+      const data = await postJson<{
+        recording?: { practiceSessionId?: string; title?: string };
+        partial?: boolean;
+      }>("/api/fathom/analyze", { recordingId: id });
+      await load();
+      const sessionId = data.recording?.practiceSessionId;
+      if (sessionId) {
+        window.location.href = `/coach/${sessionId}`;
+        return;
+      }
+      setSyncMessage(
+        data.partial
+          ? `Guardada (QC parcial): ${data.recording?.title || title}`
+          : `No pude auditar ${title}`,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
+      setSyncMessage(null);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -463,12 +477,12 @@ export function FathomSyncPanel({
                       <Link href={`/coach/${row.practiceSessionId}`}>Ver QC</Link>
                     </Button>
                   )}
-                  {onAnalyze && (
+                  {row.hasTranscript && (
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      disabled={!row.hasTranscript || syncing}
+                      disabled={syncing}
                       onClick={() => pickRecording(row.id, row.title)}
                     >
                       {row.analyzed ? "Re-auditar" : "Auditar"}
