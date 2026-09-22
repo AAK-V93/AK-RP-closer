@@ -38,8 +38,8 @@ test("nine corrections do not auto-classify yet", () => {
 test("home cards keep a status line even when nothing is pending", () => {
   assert.equal(analyzeCardStatus(5), "5 sin clasificar");
   assert.equal(analyzeCardStatus(0), "Todo al día");
-  assert.equal(followupCardStatus(4, 1), "4 hoy · 1 vencido");
-  assert.equal(followupCardStatus(0, 3), "0 hoy · 3 vencidos");
+  assert.equal(followupCardStatus(4, 1), "5 pendientes de hoy");
+  assert.equal(followupCardStatus(0, 3), "3 pendientes de hoy");
   assert.equal(followupCardStatus(0, 0), "Todo al día");
   assert.equal(coachCardStatus({ newPattern: true, analyzedThisWeek: 2 }), "Nuevo patrón detectado");
   assert.equal(

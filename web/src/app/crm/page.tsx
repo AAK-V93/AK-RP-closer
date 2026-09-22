@@ -369,8 +369,11 @@ function AhoraSheet({
   currency: string;
 }) {
   const rows = [
-    { id: "vencidos", metrica: "Seguimientos vencidos", valor: String(now.seguimientosVencidos || 0) },
-    { id: "hoy", metrica: "Seguimientos de hoy", valor: String(now.seguimientosHoy || 0) },
+    {
+      id: "hoy",
+      metrica: "Pendientes de hoy",
+      valor: String((now.seguimientosHoy || 0) + (now.seguimientosVencidos || 0)),
+    },
     { id: "agendas-hoy", metrica: "Agendas de hoy", valor: String(now.agendasHoy || 0) },
     { id: "juego", metrica: "Dinero en juego", valor: money(now.dineroEnJuego) },
     { id: "cash", metrica: "Cash pendiente", valor: money(now.cashPendiente) },
