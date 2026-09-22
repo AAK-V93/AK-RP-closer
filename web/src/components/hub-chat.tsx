@@ -4,8 +4,6 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2, Mic, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FollowupPicker, type FollowupOptionView } from "@/components/followup-picker";
-import { OfferExtractReview } from "@/components/offer-extract-review";
 import { Textarea } from "@/components/ui/textarea";
 import type { ExtractedOffer } from "@/lib/offer-commercial";
 import type { CommissionProjection } from "@/lib/crm-projection";
@@ -18,23 +16,25 @@ type PendingCall = {
   lines: string[];
   question?: string;
   field?: string;
+  showToggle?: boolean;
 };
 type DueAlert = {
   id: string;
   question: string;
   leadName: string;
-  mensajeSugerido?: string;
-  enJuego?: number;
-  tipo?: string;
-  contexto?: string;
-  opciones?: FollowupOptionView[];
-  selectedId?: string;
-  telefono?: string;
 };
 
 export type HubSnapshot = {
   home?: import("@/lib/home-state").HomeState;
   pendingCalls?: PendingCall[];
+  desk?: {
+    unclassified: number;
+    analyzeStatus: string;
+    followupStatus: string;
+    practiceHref: string;
+    practiceStatus: string;
+    coachStatus: string;
+  };
   alertsDue?: DueAlert[];
   appliedCalls?: string[];
   missingCrm?: { question: string } | null;
@@ -70,7 +70,6 @@ export function HubChat({
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const [focusAlert, setFocusAlert] = useState("");
 
   const applyPayload = (data: {
     message?: Line;
@@ -106,11 +105,6 @@ export function HubChat({
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("alert") || "";
-    setFocusAlert(id);
   }, []);
 
   useEffect(() => {
@@ -211,8 +205,6 @@ export function HubChat({
     }
   };
 
-  const pending = snapshot.pendingCalls || [];
-  const alerts = snapshot.alertsDue || [];
   const dock = variant === "dock";
 
   return (
@@ -225,144 +217,12 @@ export function HubChat({
     >
       <div className="px-4 py-3 border-b border-separator1">
         <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-          {dock ? "Pendientes de hoy" : "Inicio"}
+          Chat
         </p>
-        <p className="text-sm">
-          {dock
-            ? "Alertas, huecos del extractor y el chat abajo."
-            : "Dime qué pasó o qué quieres hacer."}
+        <p className="text-sm text-fg3">
+          Para casos sueltos: cerré con alguien, agendé, me pagaron.
         </p>
       </div>
-      {(pending.length > 0 ||
-        alerts.length > 0 ||
-        snapshot.missingCrm ||
-        snapshot.pendingOfferExtract ||
-        (snapshot.appliedCalls || []).length > 0) && (
-        <div className="px-4 pt-3 space-y-2 border-b border-separator1 pb-3">
-          {(snapshot.appliedCalls || []).map((line) => (
-            <p key={line} className="text-xs text-fg3">
-              {line}
-            </p>
-          ))}
-          {snapshot.pendingOfferExtract && (
-            <OfferExtractReview
-              batch={snapshot.pendingOfferExtract}
-              saving={sending}
-              onConfirm={(offers) => void postHub({ confirmOffers: offers })}
-            />
-          )}
-          {snapshot.missingCrm && !pending.length && !snapshot.pendingOfferExtract && (
-            <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
-              <p className="text-sm">{snapshot.missingCrm.question}</p>
-              <p className="text-[11px] text-fg3 mt-1">
-                Pega un bloque abajo, o súbelo en Ofertas. No hace falta ir dato por dato.
-              </p>
-            </div>
-          )}
-          {pending.map((call) => (
-            <div
-              key={call.id}
-              className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-2"
-            >
-              <p className="text-sm">{call.question || call.lines[0]}</p>
-              <p className="text-[11px] text-fg3">{call.title}</p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={sending}
-                  onClick={() => void postHub({ skipCallId: call.id })}
-                >
-                  No es comercial
-                </Button>
-              </div>
-              <p className="text-[11px] text-fg3">Escribe la respuesta abajo.</p>
-            </div>
-          ))}
-          {alerts.map((alert) => (
-            <div
-              key={alert.id}
-              className={
-                focusAlert === alert.id
-                  ? "rounded-xl border border-primary bg-primary/10 p-3 space-y-2"
-                  : "rounded-xl border border-separator1 bg-bg0 p-3 space-y-2"
-              }
-            >
-              <p className="text-sm">{alert.question}</p>
-              {alert.contexto && (
-                <p className="text-[11px] text-fg3">{alert.contexto.split("\n")[0]}</p>
-              )}
-              {alert.tipo !== "AGENDA_CHECK" && (alert.opciones || []).length > 0 ? (
-                <FollowupPicker
-                  alertId={alert.id}
-                  options={alert.opciones || []}
-                  selectedId={alert.selectedId}
-                  phone={alert.telefono}
-                  disabled={sending}
-                  onChoose={(id, optionId) =>
-                    postHub({ pickScript: { id, optionId } })
-                  }
-                />
-              ) : (
-                alert.mensajeSugerido && (
-                  <p className="text-xs text-fg2 whitespace-pre-wrap rounded-lg bg-bg1 p-2">
-                    {alert.mensajeSugerido}
-                  </p>
-                )
-              )}
-              <div className="flex flex-wrap gap-2">
-                {alert.tipo === "AGENDA_CHECK" ? (
-                  (
-                    [
-                      ["SHOW", "Show (sin grabación)"],
-                      ["NO SHOW", "No show"],
-                      ["REPROGRAMA", "Reprogramó"],
-                    ] as const
-                  ).map(([estado, label]) => (
-                    <Button
-                      key={estado}
-                      size="sm"
-                      variant={estado === "SHOW" ? "primary" : "outline"}
-                      disabled={sending}
-                      onClick={() =>
-                        void postHub({
-                          agendaOutcome: { id: alert.id, estado },
-                        })
-                      }
-                    >
-                      {label}
-                    </Button>
-                  ))
-                ) : (
-                  (
-                    [
-                      ["hecho", "Hecho"],
-                      ["no_contesto", "No contestó"],
-                      ["reprogramado", "Reprogramar"],
-                      ["cerro", "Cerró"],
-                      ["perdido", "Perdido"],
-                    ] as const
-                  ).map(([resultado, label]) => (
-                    <Button
-                      key={resultado}
-                      size="sm"
-                      variant={resultado === "hecho" ? "primary" : "outline"}
-                      disabled={sending}
-                      onClick={() =>
-                        void postHub({
-                          alertOutcome: { id: alert.id, resultado },
-                        })
-                      }
-                    >
-                      {label}
-                    </Button>
-                  ))
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
       <div className={dock ? "max-h-48 overflow-y-auto p-4 space-y-3" : "flex-1 overflow-y-auto p-4 space-y-3"}>
         {loading && (
           <p className="text-sm text-fg3 flex items-center gap-2">
@@ -406,7 +266,7 @@ export function HubChat({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={2}
-            placeholder="Escribe o graba: agendé a Juan, me pagaron, falta el precio…"
+            placeholder="Cerré con Ana, agendé a Juan el jueves, me pagaron…"
             className="min-h-[44px] text-sm"
             disabled={sending || loading || recording}
           />

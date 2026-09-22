@@ -30,6 +30,7 @@ model User {
   followupPacks FollowupPack[]
   followupStars FollowupStar[]
   pushSubs     PushSubscription[]
+  extractorFeedback ExtractorFeedback[]
 }
 
 model CoachProfile {
@@ -201,6 +202,20 @@ model Lead {
   commissions   Commission[]
 
   @@index([userId, updatedAt])
+}
+
+model ExtractorFeedback {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  callRecordId   String
+  campo          String
+  valorExtraido  String   @default("")
+  valorCorregido String   @default("")
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, campo])
 }
 
 model LeadAlert {

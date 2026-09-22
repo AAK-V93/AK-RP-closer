@@ -8,6 +8,7 @@ import { FathomSyncPanel } from "@/components/fathom-sync-panel";
 import { CalendarConnectPanel } from "@/components/calendar-connect-panel";
 import { Button } from "@/components/ui/button";
 import { isNonSalesCall } from "@/lib/call-kind";
+import { quickFollowupIso } from "@/lib/followup-date";
 
 type CallRow = {
   id: string;
@@ -23,16 +24,31 @@ type CallRow = {
   href: string;
 };
 
+type Review = {
+  id: string;
+  title: string;
+  question: string;
+  field: string;
+  showToggle: boolean;
+};
+
 export default function LlamadasPage() {
   const { status } = useSession();
   const [calls, setCalls] = useState<CallRow[]>([]);
+  const [review, setReview] = useState<Review | null>(null);
+  const [otherDate, setOtherDate] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [reviewing, setReviewing] = useState(false);
   const [auditingId, setAuditingId] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
 
   const loadCalls = () =>
     fetch("/api/llamadas")
       .then((r) => r.json())
-      .then((data) => setCalls(data.calls || []))
+      .then((data) => {
+        setCalls(data.calls || []);
+        setReview(data.review || null);
+      })
       .catch(() => undefined);
 
   useEffect(() => {
@@ -57,6 +73,29 @@ export default function LlamadasPage() {
     };
   }, [status, calls]);
 
+  const sendReview = async (body: Record<string, string>) => {
+    if (!review) return;
+    setReviewing(true);
+    setAuditError(null);
+    try {
+      const response = await fetch("/api/llamadas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callRecordId: review.id, ...body }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo guardar");
+      setReview(data.review || null);
+      setAnswer("");
+      setOtherDate("");
+      await loadCalls();
+    } catch (error) {
+      setAuditError(error instanceof Error ? error.message : "No se pudo guardar");
+    } finally {
+      setReviewing(false);
+    }
+  };
+
   return (
     <AppShell wide>
       <div className="max-w-3xl mx-auto space-y-6">
@@ -79,6 +118,108 @@ export default function LlamadasPage() {
             <Button asChild variant="outline" size="sm">
               <Link href="/ofertas">Subir archivos o pegar transcript</Link>
             </Button>
+            {review && (
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+                <p className="text-[11px] uppercase tracking-wide text-fg3">
+                  Una llamada por clasificar
+                </p>
+                <p className="text-sm font-medium">{review.title}</p>
+                {review.showToggle ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={reviewing}
+                      onClick={() => void sendReview({ action: "commercial" })}
+                    >
+                      Es comercial
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={reviewing}
+                      onClick={() => void sendReview({ action: "non_commercial" })}
+                    >
+                      No es comercial
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm">{review.question}</p>
+                    {review.field === "proximo_seguimiento" ? (
+                      <div className="flex flex-wrap gap-2">
+                        {(
+                          [
+                            ["hoy", "Hoy"],
+                            ["manana", "Mañana"],
+                            ["semana", "Esta semana"],
+                          ] as const
+                        ).map(([choice, label]) => (
+                          <Button
+                            key={choice}
+                            size="sm"
+                            variant="outline"
+                            disabled={reviewing}
+                            onClick={() =>
+                              void sendReview({
+                                action: "answer",
+                                field: "proximo_seguimiento",
+                                value: quickFollowupIso(choice),
+                              })
+                            }
+                          >
+                            {label}
+                          </Button>
+                        ))}
+                        <input
+                          type="date"
+                          value={otherDate}
+                          onChange={(event) => setOtherDate(event.target.value)}
+                          className="h-8 rounded-md border border-separator1 bg-bg0 px-2 text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={reviewing || !otherDate}
+                          onClick={() =>
+                            void sendReview({
+                              action: "answer",
+                              field: "proximo_seguimiento",
+                              value: otherDate,
+                            })
+                          }
+                        >
+                          Otra fecha
+                        </Button>
+                      </div>
+                    ) : (
+                      <form
+                        className="flex gap-2"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          if (!answer.trim()) return;
+                          void sendReview({
+                            action: "answer",
+                            field: review.field || "revision",
+                            value: answer.trim(),
+                          });
+                        }}
+                      >
+                        <input
+                          value={answer}
+                          onChange={(event) => setAnswer(event.target.value)}
+                          className="flex-1 h-8 rounded-md border border-separator1 bg-bg0 px-2 text-sm"
+                          placeholder="La respuesta"
+                        />
+                        <Button size="sm" variant="primary" disabled={reviewing || !answer.trim()}>
+                          Guardar
+                        </Button>
+                      </form>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {auditError && (
               <p className="text-sm text-destructive">{auditError}</p>
             )}

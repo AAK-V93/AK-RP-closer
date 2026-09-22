@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Loader2, Mic, Phone, Sparkles, Upload } from "lucide-react";
+import { ClipboardList, Loader2, Mic, Phone, Sparkles, Upload } from "lucide-react";
 import { CycleIntro } from "@/components/cycle-intro";
 import { HubChat, type HubSnapshot } from "@/components/hub-chat";
 import { OfferExtractReview } from "@/components/offer-extract-review";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/hooks/use-toast";
 import type { HomeState } from "@/lib/home-state";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 
@@ -407,7 +408,7 @@ function ConfiguredC({
   snapshot: HubSnapshot | null;
   onRefresh: () => void;
 }) {
-  const last = snapshot?.home?.lastUnanalyzed;
+  const desk = snapshot?.desk;
   const [savingGoal, setSavingGoal] = useState(false);
   const saveGoal = async (usd: number) => {
     setSavingGoal(true);
@@ -416,6 +417,10 @@ function ConfiguredC({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ monthlyGoalUsd: usd }),
+      });
+      toast({
+        title: `Guardé tu meta: USD ${Math.round(usd)}`,
+        duration: 3000,
       });
       onRefresh();
     } finally {
@@ -432,43 +437,59 @@ function ConfiguredC({
       />
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
       <div className="grid gap-3">
-        <Button asChild variant="primary" className="h-auto py-4 justify-start">
-          <Link href="/llamadas" className="flex items-start gap-3 text-left">
-            <Phone className="h-5 w-5 mt-0.5" />
-            <span>
-              <span className="block text-base">Analizar llamada real</span>
-              <span className="block text-xs font-normal opacity-80">
-                {last
-                  ? `Sin auditar: ${last.title}`
-                  : "Últimas en Llamadas"}
-              </span>
-            </span>
-          </Link>
-        </Button>
-        <Button asChild variant="outline" className="h-auto py-4 justify-start">
-          <Link href="/practicar" className="flex items-start gap-3 text-left">
-            <Mic className="h-5 w-5 mt-0.5" />
-            <span>
-              <span className="block text-base">Práctica por voz</span>
-              <span className="block text-xs font-normal text-fg3">
-                Compose o replay
-              </span>
-            </span>
-          </Link>
-        </Button>
-        <Button asChild variant="outline" className="h-auto py-4 justify-start">
-          <Link href="/coach" className="flex items-start gap-3 text-left">
-            <Sparkles className="h-5 w-5 mt-0.5" />
-            <span>
-              <span className="block text-base">Coach</span>
-              <span className="block text-xs font-normal text-fg3">
-                Guía viva, insights y chat
-              </span>
-            </span>
-          </Link>
-        </Button>
+        <HomeCard
+          href="/llamadas"
+          icon={<Phone className="h-5 w-5 mt-0.5" />}
+          title="Analizar llamada real"
+          status={desk?.analyzeStatus || "Todo al día"}
+          primary
+        />
+        <HomeCard
+          href={desk?.practiceHref || "/practicar"}
+          icon={<Mic className="h-5 w-5 mt-0.5" />}
+          title="Práctica por voz"
+          status={desk?.practiceStatus || "Elige con quién practicar"}
+        />
+        <HomeCard
+          href="/crm#seguimientos"
+          icon={<ClipboardList className="h-5 w-5 mt-0.5" />}
+          title="Seguimientos"
+          status={desk?.followupStatus || "Todo al día"}
+        />
+        <HomeCard
+          href="/coach"
+          icon={<Sparkles className="h-5 w-5 mt-0.5" />}
+          title="Coach"
+          status={desk?.coachStatus || "Sin novedades"}
+        />
       </div>
       <HubChat variant="dock" initialSnapshot={snapshot} />
     </div>
+  );
+}
+
+function HomeCard({
+  href,
+  icon,
+  title,
+  status,
+  primary,
+}: {
+  href: string;
+  icon: ReactNode;
+  title: string;
+  status: string;
+  primary?: boolean;
+}) {
+  return (
+    <Button asChild variant={primary ? "primary" : "outline"} className="h-auto py-4 justify-start">
+      <Link href={href} className="flex items-start gap-3 text-left">
+        {icon}
+        <span>
+          <span className="block text-base">{title}</span>
+          <span className="block text-xs font-normal opacity-80">{status}</span>
+        </span>
+      </Link>
+    </Button>
   );
 }

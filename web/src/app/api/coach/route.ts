@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
+import { ensureCrmTables, getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { buildCoachingInsights } from "@/lib/coaching";
+import { extractorGapWeeks } from "@/lib/extractor-feedback";
 import { evidenceSessionFilter } from "@/lib/chat-threads";
 import { isCoachThreadSection } from "@/lib/closer-coach";
 import { loadLiveGuides } from "@/lib/live-guide";
@@ -36,8 +37,19 @@ export async function GET() {
     });
     const visible = rows.filter((row) => !isCoachThreadSection(row.callSection));
     const liveGuides = await loadLiveGuides(prisma, session.user.id);
+    let extractorGaps = { thisWeek: 0, lastWeek: 0 };
+    try {
+      await ensureCrmTables(prisma);
+      extractorGaps = await extractorGapWeeks(prisma, session.user.id);
+    } catch (error) {
+      console.error("extractor gaps", error);
+    }
 
-    return NextResponse.json({ ...buildCoachingInsights(visible), liveGuides });
+    return NextResponse.json({
+      ...buildCoachingInsights(visible),
+      liveGuides,
+      extractorGaps,
+    });
   } catch (error) {
     console.error("coach insights", error);
     return NextResponse.json(

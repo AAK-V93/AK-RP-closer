@@ -23,6 +23,8 @@ import {
   loadThread,
 } from "@/lib/chat-threads";
 import { crmDashboard } from "@/lib/crm-metrics";
+import { analyzeCardStatus, coachCardStatus, followupCardStatus } from "@/lib/home-desk";
+import { loadLiveGuides } from "@/lib/live-guide";
 import { loadCommissionProjection, projectCommission } from "@/lib/crm-projection";
 import {
   applyCommercialAnswer,
@@ -808,6 +810,14 @@ async function hubSnapshot(
       telefono: string;
     }[],
     pendingCalls: [] as Awaited<ReturnType<typeof listPendingFilings>>,
+    desk: {
+      unclassified: 0,
+      analyzeStatus: "Todo al día",
+      followupStatus: "Todo al día",
+      practiceHref: "/practicar",
+      practiceStatus: "Elige con quién practicar",
+      coachStatus: "Sin novedades",
+    },
     appliedCalls: [] as string[],
     recentCalls: [] as unknown[],
     monthlyGoalUsd: goalSeed.monthlyGoalUsd,
@@ -846,6 +856,41 @@ async function hubSnapshot(
         take: 3,
       }),
     ]);
+    const unclassified = await prisma.callRecord.count({
+      where: { userId, filingStatus: "pending" },
+    });
+    const weekStart = new Date();
+    const weekday = weekStart.getUTCDay();
+    weekStart.setUTCDate(weekStart.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const [analyzedThisWeek, guides] = await Promise.all([
+      prisma.callRecord.count({
+        where: {
+          userId,
+          filingStatus: "confirmed",
+          confirmedAt: { gte: weekStart },
+          estadoAgenda: { notIn: ["INTERNA", "NO_COMERCIAL"] },
+        },
+      }),
+      loadLiveGuides(prisma, userId),
+    ]);
+    const drill = guides.flatMap((guide) => guide.drills).find((item) => item.trim()) || "";
+    const desk = {
+      unclassified,
+      analyzeStatus: analyzeCardStatus(unclassified),
+      followupStatus: followupCardStatus(
+        dash.now.seguimientosHoy || 0,
+        dash.now.seguimientosVencidos || 0,
+      ),
+      practiceHref: drill
+        ? `/practicar?focus=${encodeURIComponent(drill)}`
+        : "/practicar",
+      practiceStatus: drill ? drill.slice(0, 90) : "Elige con quién practicar",
+      coachStatus: coachCardStatus({
+        newPattern: guides.some((guide) => guide.ready),
+        analyzedThisWeek,
+      }),
+    };
     return {
       home,
       offers: workspace.offers.map((row) => row.productName),
@@ -879,6 +924,7 @@ async function hubSnapshot(
           telefono: row.telefono || "",
         })),
       pendingCalls,
+      desk,
       appliedCalls: recentAuto.map((row) => row.summary).filter(Boolean),
       recentCalls: [],
       monthlyGoalUsd: goalBundle.monthlyGoalUsd,
@@ -899,15 +945,6 @@ function nextHubActions(snapshot: Awaited<ReturnType<typeof hubSnapshot>>) {
   }
   if (snapshot.home?.phase === "b") {
     return [{ type: "practice", href: "/practicar", label: "Practicar" }];
-  }
-  if (snapshot.pendingCalls.length) {
-    return [{ type: "none", href: "/", label: "Responde el hueco de arriba" }];
-  }
-  if (snapshot.missingCrm) {
-    return [{ type: "navigate", href: "/ofertas", label: "Subir oferta" }];
-  }
-  if (snapshot.alertsDue.length) {
-    return [{ type: "navigate", href: "/", label: "Pendientes de hoy" }];
   }
   if (snapshot.canPractice) {
     return [{ type: "practice", href: "/practicar", label: "Practicar" }];

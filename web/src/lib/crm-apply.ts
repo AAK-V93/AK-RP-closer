@@ -26,6 +26,7 @@ import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { addDays, parseCrmPrefs, parseFollowupDate } from "@/lib/crm-prefs";
 import { inferFollowupDate } from "@/lib/followup-date";
 import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
+import { recordExtractorFeedback } from "@/lib/extractor-feedback";
 
 function parseCrmReadyOffersImpl(
   rows: { id: string; productName: string; productDescription: string; commercial: unknown }[],
@@ -588,8 +589,22 @@ export async function confirmExtractorFiling(
         producto: row.offerName,
         notas_crm: row.summary,
       });
+  const before = parsed;
   if (patch && "field" in patch && patch.field && patch.value != null) {
     parsed = fillExtractorField(parsed, patch.field, String(patch.value));
+    const field = patch.field;
+    const previous =
+      field in before ? String((before as Record<string, unknown>)[field] ?? "") : "";
+    const next =
+      field in parsed ? String((parsed as Record<string, unknown>)[field] ?? "") : String(patch.value);
+    await recordExtractorFeedback(prisma, {
+      userId,
+      callRecordId: row.id,
+      campo: field,
+      valorExtraido: previous,
+      valorCorregido: next,
+      title: row.title,
+    });
   } else if (patch) {
     parsed = parseExtractorJson({ ...parsed, ...patch });
     parsed.requiere_revision_humana = false;

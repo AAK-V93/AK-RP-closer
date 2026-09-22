@@ -15,7 +15,12 @@ import { DeleteAnalysisButton } from "@/components/delete-analysis-button";
 
 export default function CoachPage() {
   const { status } = useSession();
-  const [insights, setInsights] = useState<(CoachingInsights & { liveGuides?: LiveGuide[] }) | null>(null);
+  const [insights, setInsights] = useState<
+    (CoachingInsights & {
+      liveGuides?: LiveGuide[];
+      extractorGaps?: { thisWeek: number; lastWeek: number };
+    }) | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadInsights = () => {
@@ -45,6 +50,12 @@ export default function CoachPage() {
             llamadas reales. Te dice el nivel, la debilidad y el siguiente
             drill — no un score suelto.
           </p>
+          {insights?.extractorGaps && (
+            <p className="text-xs text-fg3 mt-2">
+              Huecos esta semana: {insights.extractorGaps.thisWeek} (semana
+              pasada: {insights.extractorGaps.lastWeek})
+            </p>
+          )}
         </div>
 
         {status === "unauthenticated" && (

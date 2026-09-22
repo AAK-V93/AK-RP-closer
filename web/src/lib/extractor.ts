@@ -168,6 +168,7 @@ export function buildExtractorPrompt(args: {
   fechaLlamada: string | null;
   transcript: string;
   readyCrm: boolean;
+  hints?: string | null;
 }) {
   const productos = productBlock(args.offers);
   const pagos = paymentBlock(args.offers);
@@ -182,6 +183,16 @@ Nunca inventes información. Es preferible null antes que un dato incorrecto.
 Analiza la llamada completa antes de emitir una conclusión.
 
 ${moneyNote}
+${
+  args.hints?.trim()
+    ? `
+==================================================
+CORRECCIONES DE ESTE CLOSER
+==================================================
+${args.hints.trim()}
+Si el caso coincide, clasifica así con confianza >= 95. No le pidas al closer que reconfirme.`
+    : ""
+}
 
 ==================================================
 FASE 1 — NORMALIZACIÓN OBLIGATORIA
@@ -600,6 +611,7 @@ export async function runExtractor(args: {
   fechaLlamada: string | null;
   transcript: string;
   readyCrm: boolean;
+  hints?: string | null;
 }) {
   const prompt = buildExtractorPrompt(args);
   try {

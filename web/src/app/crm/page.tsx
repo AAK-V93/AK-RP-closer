@@ -134,6 +134,11 @@ export default function CrmPage() {
       .catch(() => undefined);
 
   useEffect(() => {
+    const hash = window.location.hash.replace("#", "") as ModuleId;
+    if (MODULES.some((item) => item.id === hash)) setModule(hash);
+  }, []);
+
+  useEffect(() => {
     if (status !== "authenticated") return;
     fetch("/api/workspace")
       .then((r) => r.json())
@@ -272,7 +277,10 @@ export default function CrmPage() {
                   key={item.id}
                   size="sm"
                   variant={module === item.id ? "primary" : "outline"}
-                  onClick={() => setModule(item.id)}
+                  onClick={() => {
+                    setModule(item.id);
+                    window.history.replaceState(null, "", `#${item.id}`);
+                  }}
                 >
                   {item.label}
                 </Button>

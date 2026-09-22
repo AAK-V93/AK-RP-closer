@@ -555,6 +555,24 @@ export async function ensureCrmTables(prisma: PrismaClient) {
       await prisma.$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS "Commission_userId_fecha_idx" ON "Commission"("userId", "fecha")`,
       );
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "ExtractorFeedback" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "callRecordId" TEXT NOT NULL,
+          "campo" TEXT NOT NULL,
+          "valorExtraido" TEXT NOT NULL DEFAULT '',
+          "valorCorregido" TEXT NOT NULL DEFAULT '',
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "ExtractorFeedback_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "ExtractorFeedback_userId_createdAt_idx" ON "ExtractorFeedback"("userId", "createdAt")`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "ExtractorFeedback_userId_campo_idx" ON "ExtractorFeedback"("userId", "campo")`,
+      );
     })().catch((error) => {
       crmTablesReady = null;
       throw error;

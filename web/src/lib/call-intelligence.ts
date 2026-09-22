@@ -13,6 +13,11 @@ import { emptyExtractor, enrichExtractorFollowup, runExtractor } from "@/lib/ext
 import { userHasReadyCrm } from "@/lib/offer-commercial";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
+import {
+  loadExtractorPattern,
+  matchesLearnedNonCommercial,
+  recordExtractorFeedback,
+} from "@/lib/extractor-feedback";
 
 export type SpeakerRole = { name: string; role: "closer" | "lead" };
 
@@ -75,60 +80,23 @@ export async function classifyAndFileCall(
     durationMs: args.durationMs,
   });
   if (intake.action === "skip") {
-    const parsed = emptyExtractor();
-    parsed.estado_agenda = intake.estado;
-    parsed.requiere_seguimiento = false;
-    parsed.confianza.estado_agenda = 100;
-    parsed.notas_crm =
-      intake.reason === "no_transcript"
-        ? "Sin transcripción real. No va al extractor."
-        : intake.reason === "short"
-          ? "Reunión de menos de 5 minutos. No entra al CRM."
-          : "Reunión interna. No entra al CRM.";
-    const summary = parsed.notas_crm;
-    const row = await prisma.callRecord.upsert({
-      where: {
-        userId_source_sourceId: {
-          userId,
-          source: args.source,
-          sourceId: args.sourceId,
-        },
-      },
-      create: {
-        userId,
-        source: args.source,
-        sourceId: args.sourceId,
-        title: args.title,
-        callType: parsed.estado_agenda || "",
-        leadName: "",
-        trainsBot: false,
-        recordedAt: args.recordedAt || new Date(),
-        summary,
-        filingStatus: "skipped",
-        filingJson: parsed as unknown as Prisma.InputJsonValue,
-        confirmedAt: new Date(),
-        estadoAgenda: parsed.estado_agenda || "",
-      },
-      update: {
-        title: args.title,
-        callType: parsed.estado_agenda || "",
-        trainsBot: false,
-        recordedAt: args.recordedAt || undefined,
-        summary,
-        filingStatus: "skipped",
-        filingJson: parsed as unknown as Prisma.InputJsonValue,
-        confirmedAt: new Date(),
-        estadoAgenda: parsed.estado_agenda || "",
-      },
+    return fileSkipped(prisma, userId, args, {
+      estado: intake.estado,
+      note:
+        intake.reason === "no_transcript"
+          ? "Sin transcripción real. No va al extractor."
+          : intake.reason === "short"
+            ? "Reunión de menos de 5 minutos. No entra al CRM."
+            : "Reunión interna. No entra al CRM.",
     });
-    return {
-      ...parsed,
-      callRecordId: row.id,
-      filingStatus: "skipped" as const,
-      autoApplied: true,
-      gap: null,
-      summary,
-    };
+  }
+
+  const pattern = await loadExtractorPattern(prisma, userId);
+  if (matchesLearnedNonCommercial(args.title, pattern)) {
+    return fileSkipped(prisma, userId, args, {
+      estado: "NO_COMERCIAL",
+      note: "Aprendido de tus correcciones: este título no es comercial.",
+    });
   }
 
   const offers = await loadOffersForCrm(prisma, userId);
@@ -141,6 +109,7 @@ export async function classifyAndFileCall(
       fechaLlamada: fecha,
       transcript: args.transcript,
       readyCrm,
+      hints: pattern?.summary || null,
     }),
     { transcript: args.transcript, callAt: args.recordedAt },
   );
@@ -218,6 +187,67 @@ export async function classifyAndFileCall(
   };
 }
 
+async function fileSkipped(
+  prisma: PrismaClient,
+  userId: string,
+  args: {
+    source: "fathom" | "upload" | "qc" | "chat";
+    sourceId: string;
+    title: string;
+    recordedAt?: Date | null;
+  },
+  skipped: { estado: "INTERNA" | "NO_COMERCIAL"; note: string },
+) {
+  const parsed = emptyExtractor();
+  parsed.estado_agenda = skipped.estado;
+  parsed.requiere_seguimiento = false;
+  parsed.confianza.estado_agenda = 100;
+  parsed.notas_crm = skipped.note;
+  const row = await prisma.callRecord.upsert({
+    where: {
+      userId_source_sourceId: {
+        userId,
+        source: args.source,
+        sourceId: args.sourceId,
+      },
+    },
+    create: {
+      userId,
+      source: args.source,
+      sourceId: args.sourceId,
+      title: args.title,
+      callType: parsed.estado_agenda || "",
+      leadName: "",
+      trainsBot: false,
+      recordedAt: args.recordedAt || new Date(),
+      summary: skipped.note,
+      filingStatus: "skipped",
+      filingJson: parsed as unknown as Prisma.InputJsonValue,
+      confirmedAt: new Date(),
+      estadoAgenda: parsed.estado_agenda || "",
+    },
+    update: {
+      title: args.title,
+      callType: parsed.estado_agenda || "",
+      trainsBot: false,
+      recordedAt: args.recordedAt || undefined,
+      summary: skipped.note,
+      filingStatus: "skipped",
+      filingJson: parsed as unknown as Prisma.InputJsonValue,
+      confirmedAt: new Date(),
+      estadoAgenda: parsed.estado_agenda || "",
+    },
+  });
+  return {
+    ...parsed,
+    callRecordId: row.id,
+    filingStatus: "skipped" as const,
+    autoApplied: true,
+    gap: null,
+    summary: skipped.note,
+  };
+}
+
 export async function maybeCreateAlert(
   prisma: PrismaClient,
   userId: string,
@@ -292,10 +322,93 @@ export async function skipCallFiling(
     where: { id: callRecordId, userId },
   });
   if (!row) return null;
+  await recordExtractorFeedback(prisma, {
+    userId,
+    callRecordId: row.id,
+    campo: "estado_agenda",
+    valorExtraido: row.estadoAgenda || "DUDA",
+    valorCorregido: "NO_COMERCIAL",
+    title: row.title,
+  });
   return prisma.callRecord.update({
     where: { id: row.id },
-    data: { filingStatus: "skipped", confirmedAt: new Date() },
+    data: {
+      filingStatus: "skipped",
+      confirmedAt: new Date(),
+      estadoAgenda: "NO_COMERCIAL",
+      callType: "NO_COMERCIAL",
+      trainsBot: false,
+    },
   });
+}
+
+const SALES_ESTADOS = new Set([
+  "SHOW",
+  "CIERRE VENTA",
+  "ACUERDO SIN PAGO",
+  "NO SHOW",
+  "REPROGRAMA",
+  "AGENDADO",
+]);
+
+export async function reviewPendingCall(
+  prisma: PrismaClient,
+  userId: string,
+  args: {
+    callRecordId: string;
+    action: "commercial" | "non_commercial" | "answer";
+    field?: string;
+    value?: string;
+  },
+) {
+  if (args.action === "non_commercial") {
+    await skipCallFiling(prisma, userId, args.callRecordId);
+    return { applied: false as const, done: true as const, gap: null };
+  }
+  if (args.action === "answer") {
+    return confirmExtractorFiling(prisma, userId, args.callRecordId, {
+      field: args.field,
+      value: args.value,
+    });
+  }
+  const row = await prisma.callRecord.findFirst({
+    where: { id: args.callRecordId, userId },
+  });
+  if (!row) return null;
+  const parsed = isExtractorJson(row.filingJson)
+    ? parseExtractorJson(row.filingJson)
+    : emptyExtractor();
+  const before = parsed.estado_agenda || "DUDA";
+  const low = parsed.confianza.estado_agenda < 85;
+  if (!SALES_ESTADOS.has(parsed.estado_agenda || "")) parsed.estado_agenda = "SHOW";
+  parsed.confianza.estado_agenda = 95;
+  parsed.requiere_revision_humana = false;
+  await recordExtractorFeedback(prisma, {
+    userId,
+    callRecordId: row.id,
+    campo: "estado_agenda",
+    valorExtraido: low ? `DUDA:${before}` : before,
+    valorCorregido: parsed.estado_agenda || "SHOW",
+    title: row.title,
+  });
+  const offers = await loadOffersForCrm(prisma, userId);
+  const readyCrm = userHasReadyCrm(offers);
+  const gap = extractorGap(parsed, readyCrm);
+  await prisma.callRecord.update({
+    where: { id: row.id },
+    data: {
+      filingJson: parsed as unknown as Prisma.InputJsonValue,
+      estadoAgenda: parsed.estado_agenda || "",
+      callType: parsed.estado_agenda || "",
+      summary: gap?.question || extractorOneLiner(parsed),
+      filingStatus: gap ? "pending" : "confirmed",
+      confirmedAt: gap ? null : new Date(),
+    },
+  });
+  if (!gap) {
+    await applyExtractorToCrm(prisma, userId, row.id, parsed, offers);
+  }
+  return { applied: !gap, done: !gap, gap, parsed };
 }
 
 export async function archiveSilentNonSalesPendings(
@@ -364,6 +477,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
         sourceId: row.sourceId,
         question: gap?.question || row.summary,
         field: gap?.field || "",
+        showToggle: parsed.confianza.estado_agenda < 85,
         line: extractorOneLiner(parsed),
         lines: gap ? [gap.question] : [extractorOneLiner(parsed)],
         filing: {
@@ -404,6 +518,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
       sourceId: row.sourceId,
       question: filingSummaryLines(filing)[0],
       field: "",
+      showToggle: true,
       line: filing.summary,
       lines: filingSummaryLines(filing),
       filing,

@@ -50,6 +50,20 @@ function nextWeekday(from: Date, weekday: number) {
   return addDays(from, delta);
 }
 
+export function quickFollowupIso(
+  choice: "hoy" | "manana" | "semana",
+  from = new Date(),
+) {
+  const base = utcDay(from);
+  if (choice === "hoy") return isoDay(base);
+  if (choice === "manana") return isoDay(addDays(base, 1));
+  const friday = 5;
+  const day = base.getUTCDay();
+  if (day === friday) return isoDay(base);
+  if (day === 6 || day === 0) return isoDay(nextWeekday(base, friday));
+  return isoDay(nextWeekday(base, friday));
+}
+
 function parseIsoLike(raw: string) {
   const iso = raw.match(/\b(20\d{2}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?\b/);
   if (iso) return iso[1];
