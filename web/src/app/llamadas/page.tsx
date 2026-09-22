@@ -30,6 +30,7 @@ type Review = {
   question: string;
   field: string;
   showToggle: boolean;
+  options?: string[];
 };
 
 export default function LlamadasPage() {
@@ -146,7 +147,27 @@ export default function LlamadasPage() {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-sm">{review.question}</p>
-                    {review.field === "proximo_seguimiento" ? (
+                    {review.options && review.options.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {review.options.map((option) => (
+                          <Button
+                            key={option}
+                            size="sm"
+                            variant="outline"
+                            disabled={reviewing}
+                            onClick={() =>
+                              void sendReview({
+                                action: "answer",
+                                field: review.field || "producto",
+                                value: option,
+                              })
+                            }
+                          >
+                            {option}
+                          </Button>
+                        ))}
+                      </div>
+                    ) : review.field === "proximo_seguimiento" ? (
                       <div className="flex flex-wrap gap-2">
                         {(
                           [

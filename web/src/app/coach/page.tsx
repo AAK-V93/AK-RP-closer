@@ -19,6 +19,7 @@ export default function CoachPage() {
     (CoachingInsights & {
       liveGuides?: LiveGuide[];
       extractorGaps?: { thisWeek: number; lastWeek: number };
+      learning?: { offerAutoPct: number | null; temperatureHitPct: number | null };
     }) | null
   >(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,10 +52,24 @@ export default function CoachPage() {
             drill — no un score suelto.
           </p>
           {insights?.extractorGaps && (
-            <p className="text-xs text-fg3 mt-2">
-              Huecos esta semana: {insights.extractorGaps.thisWeek} (semana
-              pasada: {insights.extractorGaps.lastWeek})
-            </p>
+            <div className="text-xs text-fg3 mt-2 space-y-1">
+              <p>
+                Huecos esta semana: {insights.extractorGaps.thisWeek} (semana
+                pasada: {insights.extractorGaps.lastWeek})
+              </p>
+              <p>
+                Oferta detectada sola:{" "}
+                {insights.learning?.offerAutoPct == null
+                  ? "—"
+                  : `${insights.learning.offerAutoPct}%`}
+              </p>
+              <p>
+                Temperatura vs resultado:{" "}
+                {insights.learning?.temperatureHitPct == null
+                  ? "—"
+                  : `${insights.learning.temperatureHitPct}%`}
+              </p>
+            </div>
           )}
         </div>
 

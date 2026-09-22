@@ -5,6 +5,7 @@ import { loadOffersForCrm } from "@/lib/crm-apply";
 import { attachFollowupOptions } from "@/lib/followup-library";
 import { operacionFromCall } from "@/lib/crm-operacion";
 import { isNonSalesCall } from "@/lib/call-kind";
+import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-temperature";
 
 function monthRange(at: Date) {
   const from = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
@@ -97,6 +98,16 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
 
   const followups = alerts.map((row) => {
     const { estado, days } = alertBucket(row.dueAt, now);
+    const silenceDays = days < 0 ? -days : 0;
+    const decisionDate = row.type === "DECISION" || row.type === "PAGO PENDIENTE";
+    const temperatura = leadTemperature({
+      enJuego: row.enJuego || 0,
+      silenceDays,
+      calificado: row.lead.calificado,
+      objectionOpen: Boolean((row.lead.razonNoCierre || row.lead.objections || "").trim()),
+      decisionDate,
+      intentos: row.intentos,
+    }).level;
     return {
       id: row.id,
       estado,
@@ -115,6 +126,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       intentos: row.intentos,
       libraryScriptId: row.libraryScriptId,
       objecion: row.lead.razonNoCierre || row.lead.objections || "",
+      temperatura,
     };
   });
 
@@ -138,7 +150,17 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     (row) => row.estadoAgenda === "AGENDADO" && row.recordedAt && row.recordedAt >= tomorrow,
   ).length;
 
-  const followupsWithOptions = await attachFollowupOptions(prisma, userId, followups);
+  const followupsWithOptions = (await attachFollowupOptions(prisma, userId, followups))
+    .map((row) => ({
+      ...row,
+      queHacer: temperatureAction(row.temperatura, row.opciones?.[0]?.recomendacion || ""),
+    }))
+    .sort(
+      (a, b) =>
+        temperatureRank(b.temperatura) - temperatureRank(a.temperatura) ||
+        (b.enJuego || 0) - (a.enJuego || 0) ||
+        a.dueAt.localeCompare(b.dueAt),
+    );
 
   const byOffer = new Map<string, { cierres: number; ventas: number; cash: number }>();
   for (const row of calls.filter((item) => inRange(item.recordedAt || item.createdAt, month.from, month.to))) {

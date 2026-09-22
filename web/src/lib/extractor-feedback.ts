@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { ensureCrmTables } from "@/lib/prisma";
+import { amountBandsFromFeedback } from "@/lib/offer-resolve";
 
 export const FEEDBACK_BATCH = 10;
 
@@ -132,11 +133,13 @@ export async function recordExtractorFeedback(
     valorExtraido: string;
     valorCorregido: string;
     title: string;
+    force?: boolean;
   },
 ) {
   const before = String(args.valorExtraido || "").trim();
   const after = String(args.valorCorregido || "").trim();
-  if (!after || before.toLowerCase() === after.toLowerCase()) return null;
+  if (!after) return null;
+  if (!args.force && before.toLowerCase() === after.toLowerCase()) return null;
   await ensureCrmTables(prisma);
   await prisma.extractorFeedback.create({
     data: {
@@ -201,4 +204,70 @@ export async function extractorGapWeeks(prisma: PrismaClient, userId: string, no
     rows.map((row) => row.createdAt),
     now,
   );
+}
+
+const SALES = new Set(["SHOW", "CIERRE VENTA", "ACUERDO SIN PAGO"]);
+
+export function learningRates(args: {
+  calls: { id: string; offerName: string; estadoAgenda: string }[];
+  feedback: { callRecordId: string; campo: string; valorExtraido: string; valorCorregido: string }[];
+}) {
+  const corrected = new Set(
+    args.feedback.filter((row) => row.campo === "producto").map((row) => row.callRecordId),
+  );
+  const decided = args.calls.filter(
+    (row) => SALES.has(row.estadoAgenda) && (row.offerName || corrected.has(row.id)),
+  );
+  const auto = decided.filter((row) => row.offerName && !corrected.has(row.id)).length;
+  const temps = args.feedback.filter(
+    (row) =>
+      row.campo === "temperatura" &&
+      (row.valorCorregido === "alto" || row.valorCorregido === "bajo"),
+  );
+  const hits = temps.filter((row) => row.valorExtraido === row.valorCorregido).length;
+  return {
+    offerAutoPct: decided.length ? Math.round((100 * auto) / decided.length) : null,
+    temperatureHitPct: temps.length ? Math.round((100 * hits) / temps.length) : null,
+  };
+}
+
+export async function loadOfferAmountBands(prisma: PrismaClient, userId: string) {
+  try {
+    await ensureCrmTables(prisma);
+    const rows = await prisma.extractorFeedback.findMany({
+      where: { userId, campo: "producto" },
+      select: { valorExtraido: true, valorCorregido: true },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    return amountBandsFromFeedback(rows);
+  } catch {
+    return [];
+  }
+}
+
+export async function productLearningStats(prisma: PrismaClient, userId: string) {
+  try {
+    await ensureCrmTables(prisma);
+    const [calls, feedback] = await Promise.all([
+      prisma.callRecord.findMany({
+        where: { userId, filingStatus: "confirmed" },
+        select: { id: true, offerName: true, estadoAgenda: true },
+        take: 500,
+      }),
+      prisma.extractorFeedback.findMany({
+        where: { userId, campo: { in: ["producto", "temperatura"] } },
+        select: {
+          callRecordId: true,
+          campo: true,
+          valorExtraido: true,
+          valorCorregido: true,
+        },
+        take: 500,
+      }),
+    ]);
+    return learningRates({ calls, feedback });
+  } catch {
+    return { offerAutoPct: null, temperatureHitPct: null };
+  }
 }

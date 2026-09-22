@@ -50,6 +50,8 @@ type Followup = {
   oferta?: string;
   contexto?: string;
   acuerdo?: string;
+  temperatura?: "alto" | "medio" | "bajo";
+  queHacer?: string;
   opciones?: FollowupOptionView[];
   selectedId?: string;
 };
@@ -621,6 +623,7 @@ function SeguimientosSheet({
     <div className="space-y-2">
       <SheetTable
         columns={[
+          { key: "temp", label: "Temperatura", width: 100, value: (row) => row.temperatura || "—" },
           { key: "estado", label: "Estado", width: 90, value: (row) => row.estado },
           { key: "cuando", label: "Cuándo", width: 90, value: (row) => row.dueAt.slice(0, 10) },
           { key: "dias", label: "Días", width: 60, align: "right", value: (row) => row.days },
@@ -628,7 +631,7 @@ function SeguimientosSheet({
           { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
           { key: "oferta", label: "Oferta", width: 140, value: (row) => row.oferta },
           { key: "tipo", label: "Tipo", width: 120, value: (row) => row.tipo },
-          { key: "accion", label: "Próxima acción", width: 180, value: (row) => row.acuerdo || row.question },
+          { key: "accion", label: "Qué hacer", width: 220, value: (row) => row.queHacer || row.acuerdo || row.question },
           { key: "juego", label: "En juego", width: 100, align: "right", value: (row) => (row.enJuego ? money(row.enJuego) : "—") },
           { key: "canal", label: "Canal", width: 80, value: (row) => row.canal },
         ]}

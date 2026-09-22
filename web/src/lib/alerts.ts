@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { addDays, parseCrmPrefs } from "@/lib/crm-prefs";
+import { addDays, alertBucket, parseCrmPrefs } from "@/lib/crm-prefs";
 import { RAZONES_NO_CIERRE } from "@/lib/crm-catalog";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { defaultCommissionRule, parseCommercial } from "@/lib/offer-commercial";
@@ -8,6 +8,8 @@ import {
   followupQuestion,
 } from "@/lib/followup-scripts";
 import { recordLibraryOutcome } from "@/lib/followup-library";
+import { recordExtractorFeedback } from "@/lib/extractor-feedback";
+import { expectedTemperature, leadTemperature } from "@/lib/lead-temperature";
 
 export async function resolveAlert(
   prisma: PrismaClient,
@@ -119,6 +121,27 @@ export async function applyAlertOutcome(
     },
   });
   await recordLibraryOutcome(prisma, row.libraryScriptId, args.resultado);
+  const expected = expectedTemperature(args.resultado);
+  if (expected) {
+    const { days } = alertBucket(row.dueAt, now);
+    const predicted = leadTemperature({
+      enJuego: row.enJuego || 0,
+      silenceDays: days < 0 ? -days : 0,
+      calificado: row.lead.calificado,
+      objectionOpen: Boolean((row.lead.razonNoCierre || row.lead.objections || "").trim()),
+      decisionDate: row.type === "DECISION" || row.type === "PAGO PENDIENTE",
+      intentos: row.intentos,
+    }).level;
+    await recordExtractorFeedback(prisma, {
+      userId,
+      callRecordId: row.callRecordId || row.id,
+      campo: "temperatura",
+      valorExtraido: predicted,
+      valorCorregido: expected,
+      title: row.lead.name,
+      force: true,
+    });
+  }
 
   if (args.resultado === "hecho") {
     if (row.type === "PAGO PENDIENTE" || row.type === "COBRO_VENCIDO") {

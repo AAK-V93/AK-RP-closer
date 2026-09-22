@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { ensureCrmTables, getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { buildCoachingInsights } from "@/lib/coaching";
-import { extractorGapWeeks } from "@/lib/extractor-feedback";
+import { extractorGapWeeks, productLearningStats } from "@/lib/extractor-feedback";
 import { evidenceSessionFilter } from "@/lib/chat-threads";
 import { isCoachThreadSection } from "@/lib/closer-coach";
 import { loadLiveGuides } from "@/lib/live-guide";
@@ -38,9 +38,11 @@ export async function GET() {
     const visible = rows.filter((row) => !isCoachThreadSection(row.callSection));
     const liveGuides = await loadLiveGuides(prisma, session.user.id);
     let extractorGaps = { thisWeek: 0, lastWeek: 0 };
+    let learning = { offerAutoPct: null as number | null, temperatureHitPct: null as number | null };
     try {
       await ensureCrmTables(prisma);
       extractorGaps = await extractorGapWeeks(prisma, session.user.id);
+      learning = await productLearningStats(prisma, session.user.id);
     } catch (error) {
       console.error("extractor gaps", error);
     }
@@ -49,6 +51,7 @@ export async function GET() {
       ...buildCoachingInsights(visible),
       liveGuides,
       extractorGaps,
+      learning,
     });
   } catch (error) {
     console.error("coach insights", error);

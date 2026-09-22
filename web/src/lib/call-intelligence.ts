@@ -11,10 +11,16 @@ import {
 } from "@/lib/crm-apply";
 import { emptyExtractor, enrichExtractorFollowup, runExtractor } from "@/lib/extractor";
 import { userHasReadyCrm } from "@/lib/offer-commercial";
+import {
+  offerLearningHint,
+  offerSignals,
+  resolveOfferAssignment,
+} from "@/lib/offer-resolve";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
 import {
   loadExtractorPattern,
+  loadOfferAmountBands,
   matchesLearnedNonCommercial,
   recordExtractorFeedback,
 } from "@/lib/extractor-feedback";
@@ -102,6 +108,7 @@ export async function classifyAndFileCall(
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
   const fecha = args.recordedAt ? args.recordedAt.toISOString().slice(0, 10) : null;
+  const learned = await loadOfferAmountBands(prisma, userId);
   const parsed = enrichExtractorFollowup(
     await runExtractor({
       offers,
@@ -109,12 +116,24 @@ export async function classifyAndFileCall(
       fechaLlamada: fecha,
       transcript: args.transcript,
       readyCrm,
-      hints: pattern?.summary || null,
+      hints: [pattern?.summary, offerLearningHint(learned)].filter(Boolean).join("\n") || null,
     }),
     { transcript: args.transcript, callAt: args.recordedAt },
   );
+  if (!isNonSalesCall(parsed.estado_agenda)) {
+    const resolution = resolveOfferAssignment({
+      offers: offerSignals(offers),
+      transcript: `${args.title}\n${args.transcript}`,
+      amounts: [parsed.venta_total, parsed.cash_collected, parsed.saldo_pendiente].filter(
+        (amount): amount is number => amount != null,
+      ),
+      learned,
+    });
+    parsed.producto = resolution.producto;
+    parsed.confianza.producto = resolution.confidence;
+  }
   const nonSales = isNonSalesCall(parsed.estado_agenda);
-  const gap = nonSales ? null : extractorGap(parsed, readyCrm);
+  const gap = nonSales ? null : extractorGap(parsed, readyCrm, offers);
   const auto = !gap;
   const summary = auto ? extractorOneLiner(parsed) : gap?.question || extractorOneLiner(parsed);
   const filingStatus = nonSales ? "skipped" : auto ? "confirmed" : "pending";
@@ -393,7 +412,7 @@ export async function reviewPendingCall(
   });
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
-  const gap = extractorGap(parsed, readyCrm);
+  const gap = extractorGap(parsed, readyCrm, offers);
   await prisma.callRecord.update({
     where: { id: row.id },
     data: {
@@ -469,7 +488,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
       const parsed = enrichExtractorFollowup(parseExtractorJson(row.filingJson), {
         callAt: row.recordedAt,
       });
-      const gap = extractorGap(parsed, readyCrm);
+      const gap = extractorGap(parsed, readyCrm, offers);
       return {
         id: row.id,
         title: row.title,
@@ -477,6 +496,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
         sourceId: row.sourceId,
         question: gap?.question || row.summary,
         field: gap?.field || "",
+        options: gap?.options || [],
         showToggle: parsed.confianza.estado_agenda < 85,
         line: extractorOneLiner(parsed),
         lines: gap ? [gap.question] : [extractorOneLiner(parsed)],
@@ -518,6 +538,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
       sourceId: row.sourceId,
       question: filingSummaryLines(filing)[0],
       field: "",
+      options: [] as string[],
       showToggle: true,
       line: filing.summary,
       lines: filingSummaryLines(filing),

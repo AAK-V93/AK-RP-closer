@@ -128,7 +128,11 @@ No hay ofertas CRM listas. Si reconoces un producto, usa OTROS.`;
 ${lines.join("\n")}
 OTROS
 
-Mapea al nombre exacto de la lista. Si no coincide: OTROS. Si no puedes determinarlo: null.`;
+Mapea al nombre exacto de la lista.
+Si el nombre o un alias se dice en la llamada, usa ese nombre y confianza >= 95.
+Si un monto (precio negociado, lista o alternativo) coincide con UNA sola oferta, usa esa oferta y confianza >= 95.
+Si el monto coincide con dos ofertas, o no hay nombre ni monto, producto = null y confianza < 50.
+Nunca elijas una oferta por defecto cuando hay ambigüedad entre dos.`;
 }
 
 function paymentBlock(offers: OfferForCrm[]) {
@@ -489,11 +493,12 @@ export function enrichExtractorFollowup(
   return parsed;
 }
 
-export type ExtractorGap = { field: string; question: string };
+export type ExtractorGap = { field: string; question: string; options?: string[] };
 
 export function extractorGap(
   parsed: ExtractorJson,
   readyCrm: boolean,
+  offers?: { productName: string }[],
 ): ExtractorGap | null {
   if (isNonSalesCall(parsed.estado_agenda)) return null;
   const name = parsed.cliente_real || "el lead";
@@ -510,6 +515,14 @@ export function extractorGap(
     return {
       field: "estado_agenda",
       question: `¿${name} hizo show, no show, reprogramó, acordó o cerró?`,
+    };
+  }
+  const offerNames = (offers || []).map((offer) => offer.productName).filter(Boolean);
+  if (readyCrm && !parsed.producto && offerNames.length > 0) {
+    return {
+      field: "producto",
+      question: `¿A qué oferta pertenece la llamada con ${name}?`,
+      options: offerNames,
     };
   }
   if (

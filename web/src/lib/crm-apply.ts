@@ -530,7 +530,10 @@ export function fillExtractorField(
   const n = Number(text.replace(/[^\d.-]/g, ""));
   if (field === "cliente_real") next.cliente_real = text;
   if (field === "estado_agenda") next.estado_agenda = normalizeEstadoAgenda(text);
-  if (field === "producto") next.producto = text;
+  if (field === "producto") {
+    next.producto = text;
+    next.confianza.producto = 95;
+  }
   if (field === "venta_total" && Number.isFinite(n)) next.venta_total = n;
   if (field === "cash_collected" && Number.isFinite(n)) next.cash_collected = n;
   if (field === "modo_pago") next.modo_pago = text;
@@ -593,10 +596,14 @@ export async function confirmExtractorFiling(
   if (patch && "field" in patch && patch.field && patch.value != null) {
     parsed = fillExtractorField(parsed, patch.field, String(patch.value));
     const field = patch.field;
-    const previous =
+    let previous =
       field in before ? String((before as Record<string, unknown>)[field] ?? "") : "";
     const next =
       field in parsed ? String((parsed as Record<string, unknown>)[field] ?? "") : String(patch.value);
+    if (field === "producto") {
+      const amount = before.venta_total ?? before.cash_collected ?? before.saldo_pendiente;
+      if (amount != null && amount > 0) previous = `MONTO:${Math.round(amount)}`;
+    }
     await recordExtractorFeedback(prisma, {
       userId,
       callRecordId: row.id,
@@ -611,7 +618,7 @@ export async function confirmExtractorFiling(
   }
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
-  const gap = extractorGap(parsed, readyCrm);
+  const gap = extractorGap(parsed, readyCrm, offers);
   await prisma.callRecord.update({
     where: { id: row.id },
     data: { filingJson: parsed as unknown as Prisma.InputJsonValue },

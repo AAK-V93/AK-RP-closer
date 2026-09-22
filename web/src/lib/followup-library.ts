@@ -13,6 +13,7 @@ import {
   type FollowupScript,
   type FollowupVars,
 } from "@/lib/followup-scripts";
+import { scriptTemperatureFit, type TemperatureLevel } from "@/lib/lead-temperature";
 
 export function packScore(row: {
   uses: number;
@@ -396,12 +397,16 @@ export async function followupOptionsFor(
     offerScripts: FollowupScript[];
     selectedId?: string;
     libraryRows?: LibraryRow[];
+    temperature?: TemperatureLevel;
   },
 ): Promise<FollowupOption[]> {
   if (SKIP_OPTIONS.has(args.type)) return [];
-  const own = listFollowupScripts(args.type, args.intentos, args.offerScripts).filter(
-    (row) => args.offerScripts.some((item) => item.key === row.key && item.guion === row.guion),
-  );
+  const own = listFollowupScripts(args.type, args.intentos, args.offerScripts)
+    .filter((row) => args.offerScripts.some((item) => item.key === row.key && item.guion === row.guion))
+    .sort(
+      (a, b) =>
+        scriptTemperatureFit(b, args.temperature) - scriptTemperatureFit(a, args.temperature),
+    );
   const base = listFollowupScripts(args.type, args.intentos, []).slice(0, 1);
   const fromDb =
     args.libraryRows ||
@@ -443,7 +448,11 @@ export async function followupOptionsFor(
   }
   const rankedLib = matchingLib
     .map((row) => ({ row, score: packScore(row) }))
-    .sort((a, b) => b.score.puntaje - a.score.puntaje || b.score.uses - a.score.uses);
+    .sort((a, b) => {
+      const scoreA = a.score.puntaje + scriptTemperatureFit(a.row, args.temperature);
+      const scoreB = b.score.puntaje + scriptTemperatureFit(b.row, args.temperature);
+      return scoreB - scoreA || b.score.uses - a.score.uses;
+    });
   for (const { row, score } of rankedLib) {
     const fromCatalog = row.id.startsWith("builtin-");
     const published = options.filter(
@@ -555,6 +564,7 @@ export async function attachFollowupOptions<
     contexto: string;
     mensajeSugerido: string;
     objecion?: string;
+    temperatura?: TemperatureLevel;
   },
 >(
   prisma: PrismaClient,
@@ -599,6 +609,7 @@ export async function attachFollowupOptions<
         offerScripts: commercial.scripts,
         selectedId: row.libraryScriptId,
         libraryRows,
+        temperature: row.temperatura,
       });
       const selectedId =
         opciones.find((item) => item.originId && item.originId === row.libraryScriptId)?.id ||

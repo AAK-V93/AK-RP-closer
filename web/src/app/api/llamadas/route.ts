@@ -99,6 +99,7 @@ export async function GET() {
           question: pending[0].question,
           field: pending[0].field,
           showToggle: pending[0].showToggle,
+          options: pending[0].options || [],
         }
       : null;
 
@@ -138,6 +139,7 @@ export async function POST(request: Request) {
               question: pending[0].question,
               field: pending[0].field,
               showToggle: pending[0].showToggle,
+              options: pending[0].options || [],
             }
           : null;
         return NextResponse.json({ ok: true, result, review, unclassified: pending.length });
