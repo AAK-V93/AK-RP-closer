@@ -2,6 +2,11 @@ import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { parseCommercial } from "@/lib/offer-commercial";
 import {
+  BUILTIN_FOLLOWUP_PACKS,
+  builtinPackById,
+  builtinScriptId,
+} from "@/lib/followup-catalog";
+import {
   fillFollowupGuion,
   listFollowupScripts,
   parseFollowupScripts,
@@ -26,6 +31,39 @@ export function packScore(row: {
   };
 }
 
+function builtinPackCards() {
+  return BUILTIN_FOLLOWUP_PACKS.map((pack) => ({
+    id: pack.id,
+    title: pack.title,
+    description: pack.description,
+    tags: pack.tags,
+    publisher: "Biblioteca",
+    publisherId: "",
+    mine: false,
+    starred: false,
+    stars: 0,
+    scripts: pack.scripts.length,
+    updatedAt: "2026-09-22T00:00:00.000Z",
+    uses: 0,
+    tasaEnvio: 0,
+    tasaCierre: 0,
+    puntaje: 0,
+    builtin: true,
+    items: pack.scripts.map((row) => ({
+      id: builtinScriptId(pack.id, row.key),
+      type: row.type,
+      canal: row.canal,
+      recomendacion: row.recomendacion,
+      guion: row.guion,
+      asset: row.asset || "",
+      uses: 0,
+      tasaEnvio: 0,
+      tasaCierre: 0,
+      puntaje: 0,
+    })),
+  }));
+}
+
 export async function listPublicPacks(prisma: PrismaClient, userId: string) {
   const packs = await prisma.followupPack.findMany({
     where: { visibility: "public" },
@@ -38,7 +76,7 @@ export async function listPublicPacks(prisma: PrismaClient, userId: string) {
     orderBy: { updatedAt: "desc" },
     take: 80,
   });
-  return packs.map((pack) => {
+  const listed = packs.map((pack) => {
     const agg = pack.scripts.reduce(
       (sum, row) => ({
         uses: sum.uses + row.uses,
@@ -73,8 +111,10 @@ export async function listPublicPacks(prisma: PrismaClient, userId: string) {
         asset: row.asset,
         ...packScore(row),
       })),
+      builtin: false,
     };
   });
+  return [...builtinPackCards(), listed];
 }
 
 async function linkOriginIdsToOffer(
@@ -188,22 +228,19 @@ export async function toggleStar(prisma: PrismaClient, userId: string, packId: s
   return { starred: true };
 }
 
-export async function installPack(
-  prisma: PrismaClient,
-  userId: string,
-  args: { packId: string; offerId: string },
-) {
-  const pack = await prisma.followupPack.findFirst({
-    where: { id: args.packId, visibility: "public" },
-    include: { scripts: true },
-  });
-  if (!pack) return { error: "Pack no encontrado" as const };
-  const offer = await prisma.userOffer.findFirst({
-    where: { id: args.offerId, userId },
-  });
-  if (!offer) return { error: "Oferta no encontrada" as const };
-  const commercial = parseCommercial(offer.commercial);
-  const incoming: FollowupScript[] = pack.scripts.map((row) => ({
+function scriptsFromPack(
+  rows: {
+    id: string;
+    key: string;
+    type: string;
+    intentosMin: number;
+    canal: string;
+    recomendacion: string;
+    guion: string;
+    asset: string | null | undefined;
+  }[],
+): FollowupScript[] {
+  return rows.map((row) => ({
     key: row.key || `${row.type}-${row.id.slice(0, 6)}`,
     type: row.type,
     intentosMin: row.intentosMin,
@@ -213,6 +250,40 @@ export async function installPack(
     asset: row.asset || undefined,
     originId: row.id,
   }));
+}
+
+export async function installPack(
+  prisma: PrismaClient,
+  userId: string,
+  args: { packId: string; offerId: string },
+) {
+  const offer = await prisma.userOffer.findFirst({
+    where: { id: args.offerId, userId },
+  });
+  if (!offer) return { error: "Oferta no encontrada" as const };
+  const builtin = builtinPackById(args.packId);
+  const pack = builtin
+    ? null
+    : await prisma.followupPack.findFirst({
+        where: { id: args.packId, visibility: "public" },
+        include: { scripts: true },
+      });
+  if (!builtin && !pack) return { error: "Pack no encontrado" as const };
+  const commercial = parseCommercial(offer.commercial);
+  const incoming: FollowupScript[] = builtin
+    ? scriptsFromPack(
+        builtin.scripts.map((row) => ({
+          id: builtinScriptId(builtin.id, row.key),
+          key: row.key,
+          type: row.type,
+          intentosMin: row.intentosMin,
+          canal: row.canal,
+          recomendacion: row.recomendacion,
+          guion: row.guion,
+          asset: row.asset || "",
+        })),
+      )
+    : scriptsFromPack(pack!.scripts);
   const byKey = new Map(commercial.scripts.map((row) => [row.key, row]));
   for (const row of incoming) byKey.set(row.key, row);
   commercial.scripts = [...byKey.values()];
@@ -282,6 +353,26 @@ type LibraryRow = {
   pack: { user: { name: string | null; email: string } };
 };
 
+function builtinLibraryRows(): LibraryRow[] {
+  return BUILTIN_FOLLOWUP_PACKS.flatMap((pack) =>
+    pack.scripts.map((row) => ({
+      id: builtinScriptId(pack.id, row.key),
+      key: row.key,
+      type: row.type,
+      intentosMin: row.intentosMin,
+      canal: row.canal,
+      recomendacion: row.recomendacion,
+      guion: row.guion,
+      asset: row.asset || "",
+      uses: 0,
+      hechos: 0,
+      cierres: 0,
+      perdidos: 0,
+      pack: { user: { name: "Biblioteca", email: "biblioteca" } },
+    })),
+  );
+}
+
 function optionId(script: FollowupScript, source: FollowupOption["source"]) {
   if (script.originId) return script.originId;
   return `${source}:${script.key}`;
@@ -312,7 +403,7 @@ export async function followupOptionsFor(
     (row) => args.offerScripts.some((item) => item.key === row.key && item.guion === row.guion),
   );
   const base = listFollowupScripts(args.type, args.intentos, []).slice(0, 1);
-  const library =
+  const fromDb =
     args.libraryRows ||
     (await prisma.followupLibraryScript.findMany({
       where: {
@@ -325,6 +416,7 @@ export async function followupOptionsFor(
       },
       take: 40,
     }));
+  const library = [...fromDb, ...builtinLibraryRows()];
   const matchingLib = library.filter(
     (row) =>
       row.intentosMin <= args.intentos &&
@@ -353,6 +445,11 @@ export async function followupOptionsFor(
     .map((row) => ({ row, score: packScore(row) }))
     .sort((a, b) => b.score.puntaje - a.score.puntaje || b.score.uses - a.score.uses);
   for (const { row, score } of rankedLib) {
+    const fromCatalog = row.id.startsWith("builtin-");
+    const published = options.filter(
+      (item) => item.source === "biblioteca" && !item.id.startsWith("builtin-"),
+    ).length;
+    if (!fromCatalog && published >= 3) continue;
     const script: FollowupScript = {
       key: row.key,
       type: row.type,
@@ -375,7 +472,6 @@ export async function followupOptionsFor(
       puntaje: score.puntaje,
       uses: row.uses,
     });
-    if (options.filter((item) => item.source === "biblioteca").length >= 3) break;
   }
   for (const script of base) {
     push({
@@ -391,14 +487,7 @@ export async function followupOptionsFor(
       uses: 0,
     });
   }
-  const sliced = options.slice(0, 4);
-  if (args.selectedId && !sliced.some((row) => row.id === args.selectedId || row.originId === args.selectedId)) {
-    const selected = options.find(
-      (row) => row.id === args.selectedId || row.originId === args.selectedId,
-    );
-    if (selected) sliced[sliced.length - 1] = selected;
-  }
-  return sliced;
+  return options;
 }
 
 export async function chooseFollowupOption(

@@ -16,6 +16,7 @@ type PackItem = {
   canal: string;
   recomendacion: string;
   guion: string;
+  asset?: string;
   uses: number;
   puntaje: number;
   tasaCierre: number;
@@ -37,6 +38,7 @@ type Pack = {
   tasaCierre: number;
   tasaEnvio: number;
   items: PackItem[];
+  builtin?: boolean;
 };
 
 type OfferOpt = { id: string; productName: string; scriptCount: number };
@@ -263,18 +265,20 @@ export default function BibliotecaPage() {
                             {pack.uses} usos
                           </p>
                         </button>
-                        <Button
-                          size="sm"
-                          variant={pack.starred ? "primary" : "outline"}
-                          onClick={() =>
-                            void post({ action: "star", packId: pack.id }).catch((e) =>
-                              setError(e instanceof Error ? e.message : "Error"),
-                            )
-                          }
-                        >
-                          <Star className={`h-3.5 w-3.5 ${pack.starred ? "fill-current" : ""}`} />
-                          {pack.stars}
-                        </Button>
+                        {pack.builtin ? null : (
+                          <Button
+                            size="sm"
+                            variant={pack.starred ? "primary" : "outline"}
+                            onClick={() =>
+                              void post({ action: "star", packId: pack.id }).catch((e) =>
+                                setError(e instanceof Error ? e.message : "Error"),
+                              )
+                            }
+                          >
+                            <Star className={`h-3.5 w-3.5 ${pack.starred ? "fill-current" : ""}`} />
+                            {pack.stars}
+                          </Button>
+                        )}
                       </div>
                       {pack.description && (
                         <p className="text-sm text-fg2">{pack.description}</p>
@@ -310,6 +314,9 @@ export default function BibliotecaPage() {
                                 <p className="text-[11px] text-fg3">{item.recomendacion}</p>
                               )}
                               <p className="text-xs text-fg2 whitespace-pre-wrap">{item.guion}</p>
+                              {item.asset ? (
+                                <p className="text-[11px] text-fg3 break-all">{item.asset}</p>
+                              ) : null}
                             </div>
                           ))}
                           {offers.length > 0 ? (

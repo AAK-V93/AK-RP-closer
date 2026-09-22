@@ -1,0 +1,273 @@
+{
+  "packs": [
+    {
+      "id": "builtin-creativos",
+      "title": "Creativos",
+      "description": "Seguimientos creativos (premonición, llamada en frío, cierre, poema, noticia, cumpleaños y video). Lo que iba en azul queda como [Nombre], [PROGRAMA], [DESEO], [FECHA], [CLOSER] o la frase a adaptar.",
+      "tags": [
+        "creativo",
+        "whatsapp",
+        "llamada",
+        "video"
+      ],
+      "scripts": [
+        {
+          "key": "sone-contigo-tuve-una-premonicion",
+          "type": "DECISION",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Espiritual. Instrucción: Enviar foto Esta foto se tiene que mandar de su mismo rubro\nEjemplo, si es de una ferreteria, mandar foto de una ferreteria grande, tipo SODIMAC y el empresario parado en la puerta.\nSacar la cara en foto del empresario.",
+          "guion": "[Nombre], no me vas a creer, tuve una premonición. Cuando estaba en mi sillón/descansando se me vino una visión repentinamente.\nEras tú. Entrabas al [PROGRAMA] y tu empresa empezaba a escalar de forma sorprendente . Tu estabas ultra feliz y con una empresa [organizada] al lado de un equipo [comprometido] y [estable]\nSe veía mas o menos así.",
+          "asset": ""
+        },
+        {
+          "key": "llamada-en-frio",
+          "type": "RETOMAR",
+          "intentosMin": 1,
+          "canal": "LLAMADA",
+          "recomendacion": "Tipo de lead: Que pasea. Exclusivamente para leads que se hizo seguimiento pero no contestan.\nHacer una llamada en frìo ¿Por qué todavía no estas dentro?, si no contesta, *enviar audio*",
+          "guion": "Opcion 1:\nQué tal [Nombre]. Te llamo para que podamos avanzar y me cuentes, [¿Qué falta para que hagamos la inscripción?]\n\n[¿Por qué todavía no estás dentro?]\n\nOpcion 2:\nQue tal [Nombre], venimos hablando desde hace 2 semanas, cuéntame [Nombre] [¿Tienes ganas de ingresar al [PROGRAMA] si o no? ¿Qué hace falta para que estés dentro del [PROGRAMA]?]",
+          "asset": ""
+        },
+        {
+          "key": "cierre-victima",
+          "type": "RETOMAR",
+          "intentosMin": 2,
+          "canal": "VIDEO",
+          "recomendacion": "Tipo de lead: Para lead que ya mandaste de todo y no contesta. El closer debe intentar primero en llamada, sino le contesta, grabarse un video y enviarselo al lead",
+          "guion": "Ey [Nombre], necesito tu ayuda. Entiendo que decidiste no avanzar con el [PROGRAMA] y quería preguntarte: [¿Hubo algo que yo hice mal, te hice sentir mal, porfavor dime ¿En que me equivoqué, en que fallè? que te haya llevado a no ingresar?]\nTe pregunto porque nos serviría muchísimo para seguir mejorando y tu feedback sería de gran ayuda",
+          "asset": ""
+        },
+        {
+"key": "ni-mi-ex-manejaba-esta-indiferencia",
+      "type": "RETOMAR",
+      "intentosMin": 0,
+      "canal": "AUDIO",
+          "recomendacion": "Tipo de lead: Emocional. Mandar en aduio si o si con una tonalidad muy dramática",
+          "guion": "Ey [Nombre], ni mi ex me trató con tanta indiferencia. Dime algo porfavor 🙏. Te lo ruego. Dame señales de humo.",
+          "asset": ""
+        },
+        {
+          "key": "te-escribi-un-poema",
+          "type": "PAGO PENDIENTE",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Emocional. Hablar con chat gpt y usar este PRONT:\n\nDecirle todas las características del lead, soy closer de la empresa Acelerador de resultados Millonarios que se dedica……y vende……………. para este tipo de avatar que tiene estos problemas\n\nTe pido que hagas un poema que tenga no más de 200 palabras, en la cual puedas convencer al lead y romper la objeción sutilmente de “nombre de objeción”",
+          "guion": "Ejemplo:\n\n“En el viaje hacia el éxito, juntos navegamos,\naunque el pago esté pendiente, confiamos y esperamos.\nTu negocio es una estrella lista para brillar,\nsolo un paso nos separa de verla facturar.\nEl momento de impulsarlo está aquí,\nque empieces a crecer depende solo de un click.\nY aunque tal vez tengas dudas te pido que en mí confíes\nporque dentro del programa facturarás de a miles.\n¡Haz tu pago ahora y asegura tu lugar,\nque seas caso de éxito es nuestra meta a alcanzar!\n\n[Nombre] hasta un poema te escribí [¿Qué hace falta para que tomes acción?]",
+          "asset": "https://www.canva.com/design/DAG7Psuv9nw/MHUaoQbHdI8CdVk5fok8_Q/edit?utm_content=DAG7Psuv9nw&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton"
+        },
+        {
+          "key": "noticia-de-ultimo-minuto",
+          "type": "DECISION",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Emocional. Ingresar a canva, descargar *plantilla de diario y poner imagen del empresario*",
+          "guion": "Ejemplo:\nTitulo: Dueño de negocio logra (tener una empresa que funciona sin él) [DESEO]\nEsta es la historia de [Nombre], un empresario que estaba atravesando desorden, muchas rotaciones del personal y descontrol en su empresa, que apostó en invertir en expertos y gracias a [PROGRAMA] logró tener más libertad de tiempo para él y su familia, teniendo una empresa que funcione sin él\n\nEnviar por escrito: [Nombre] yo ya te visualicé logrando [DESEO]",
+          "asset": "https://www.canva.com/design/DAG7JhNQjJw/M5AWal1RiuyBVUnFSc62uw/edit?utm_content=DAG7JhNQjJw&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton"
+        },
+        {
+          "key": "feliz-cumpleanos-nombre",
+          "type": "DECISION",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Emocional.",
+          "guion": "[Nombre], ¡ten un feliz cumpleaños.!\nEspero tengas un excelente dia!\nDisfrutalo al lado de tu familia!\n\nRespta: No es mi cumpleaños\n\nahh, no era tu cumpleaños? creí que sí, pues te cuento que desde [PROGRAMA], te preparamos un regalo ¿Te gustaría que te comparta?",
+          "asset": ""
+        },
+        {
+          "key": "video",
+          "type": "SEGUNDA REUNION",
+          "intentosMin": 0,
+          "canal": "VIDEO",
+          "recomendacion": "Se recomienda grabar un video como previa presentacion para generar confianza al lead",
+          "guion": "Hola, [Nombre] ,que tal como vas?, te saluda [CLOSER], Director de Admision quien te acompañarà en la sesión que tendremos el [FECHA]\nMi equipo me dejó toda tu información de tu empresa. Respóndeme este video de que lo viste y que vas a conectarte!. Vamos a empezar a ayudarte a que tu empresa logre estar organizada!.",
+          "asset": ""
+        }
+      ]
+    },
+    {
+      "id": "builtin-valor",
+      "title": "De valor",
+      "description": "Podcasts y PDF para leads desconfiados. El nombre en azul se reemplaza con el del lead. El link va junto al mensaje.",
+      "tags": [
+        "valor",
+        "podcast",
+        "pdf",
+        "desconfiado"
+      ],
+      "scripts": [
+        {
+          "key": "como-contratar-trabajdores-leales-y-confiables",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre]🙌 Me acordé de lo que me comentaste sobre lo difícil que está siendo encontrar personas realmente comprometidas con tu empresa. Justo este episodio habla de eso y creo que te puede dar mucha claridad. Te lo comparto porque conecta bastante con tu situación 👌",
+          "asset": "https://youtu.be/VZE-UWE_cCQ?si=KzyHGmNDPSLFhR0y"
+        },
+        {
+          "key": "como-delegar-puede-cambiar-tu-vida",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "[Nombre] justo me encontré con este episodio y pensé en nuestra conversación. Hablamos mucho de cuánto depende hoy la empresa de ti. Escúchalo cuando puedas, porque toca justamente cómo empezar a soltar la operación sin perder el control. 🙌",
+          "asset": "https://youtu.be/PoDJ2_3_Rzs?si=7lEs29RtydDeqkPZ"
+        },
+        {
+          "key": "el-secreto-para-tener-una-empresa-competitiva",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre] . Te comparto este episodio porque conecta mucho con lo que conversamos sobre llevar tu empresa al siguiente nivel. A veces el crecimiento no depende de trabajar más, sino de fortalecer lo que hay detrás del negocio. Creo que te va a hacer sentido.",
+          "asset": "https://youtu.be/ZMtd6zzQg1Q?si=i2z7bFoOoYirZvqo"
+        },
+        {
+          "key": "3-maneras-para-formar-un-buen-equipo-de-trabajo",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "[Nombre] , me acordé de ti con este episodio porque me comentaste varios retos con tu equipo. Aquí se hablan de 3 puntos muy concretos para empezar a construir un equipo que realmente responda. Dale click al siguiente link 👉",
+          "asset": "https://www.youtube.com/live/_OOAZLttt8E?si=DYGEifH3SvVHdpJP"
+        },
+        {
+          "key": "como-contratar-trabajadores-eficientes",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre] 👋 Como me comentaste que uno de tus retos es incorporar mejores personas al equipo, quería dejarte este episodio. Habla precisamente de cómo identificar trabajadores que realmente aporten resultados. Creo que te puede ayudar bastante.",
+          "asset": "https://youtu.be/SGKWEBZBuoM?si=8Xoub_DKCFgY_jrg"
+        },
+        {
+          "key": "como-fidelizar-a-tus-clientes",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "[Nombre] , te comparto algo que creo que puede sumar bastante a tu negocio. Este episodio habla de cómo lograr que un cliente no solo compre una vez, sino que quiera quedarse. Escúchalo y luego me cuentas qué punto te hizo más sentido 👌",
+          "asset": "https://youtu.be/j2Vjax03b78?si=2jHJiY3hUxtW69mX"
+        },
+        {
+          "key": "quieres-tener-lideres-que-te-representen",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre]. Me acordé de algo que conversamos: no se trata solo de tener trabajadores, sino de formar personas que puedan representar tu forma de pensar y ejecutar. Este episodio toca exactamente eso. Te lo dejo por aquí porque creo que te va a resonar bastante.",
+          "asset": "https://youtu.be/1IsIuIOHwlc?si=aQbZRiwBh9hwWr9M"
+        },
+        {
+          "key": "como-afecta-tener-areas-desordenadas",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "[Nombre], este episodio me hizo recordar lo que me contaste sobre el desorden que hoy existe entre algunas áreas de tu empresa. A veces ese desorden parece pequeño, pero termina costando tiempo y dinero. Te recomiendo escucharlo 🙌",
+          "asset": "https://youtu.be/_WfmipsFhC0?si=_IOz_VDMXFM_tuqg"
+        },
+        {
+          "key": "como-tener-trabajadores-productivos",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre]. Como me comentaste que sientes que tu equipo podría producir mucho más, te quiero compartir este episodio. Habla justamente de cómo empezar a construir mayor productividad dentro de la empresa. Creo que te puede dar otra perspectiva.",
+          "asset": "https://youtu.be/8VE4Iw2Jgl8?si=AAbvsrwbcvz6Doj6"
+        },
+        {
+          "key": "cuando-es-el-momento-para-delegar",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "[Nombre], me acordé de ti con este episodio. Muchas veces sabemos que necesitamos delegar, pero no sabemos cuándo realmente estamos preparados para hacerlo. Como este fue uno de los temas que conversamos, te lo quería compartir 👌",
+          "asset": "https://youtu.be/ysuIJk1NgP8?si=-4uB7eWV-SriWwwO"
+        },
+        {
+          "key": "el-equilibrio-perfecto-entre-tu-vida-y-tu-negocio",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre]🙌 Este episodio me hizo pensar bastante en lo que me contaste sobre el tiempo que hoy tu empresa está absorbiendo de tu vida personal. Creo que te va a ayudar a mirar ese tema desde otra perspectiva. Escúchalo cuando tengas un momento.",
+          "asset": "https://youtu.be/HzJDFhx4JvI?si=4t9ZLYe25veuobGc"
+        },
+        {
+          "key": "los-4-errores-que-te-convierten-en-esclavo",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "[Nombre], el título es fuerte 😅, pero justamente por lo que conversamos creo que vale la pena que lo escuches. Habla de errores que hacen que el dueño termine trabajando para su empresa en lugar de que la empresa trabaje para él. Me cuentas qué te pareció.",
+          "asset": "https://youtu.be/LVB_If-07S4?si=BHZCtpenNv5c5yqB"
+        },
+        {
+          "key": "pierde-el-miedo-de-contratar-personal",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre]. Como me comentaste que todavía tienes cierta resistencia a volver a contratar, pensé en enviarte este episodio. Muchas veces el problema no es contratar, sino hacerlo sin estructura. Creo que te puede aportar bastante claridad.",
+          "asset": "https://youtu.be/xzYM__c3vVk?si=Mpy0186TkoL46L4T"
+        },
+        {
+          "key": "las-claves-para-que-tu-empresa-funcione-sin-ti",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "[Nombre] te quiero dejar este episodio porque resume muchísimo de lo que conversamos. Si hoy te alejaras unas semanas de la empresa, ¿realmente podría seguir funcionando igual? Este contenido justamente habla de cómo empezar a construir una empresa que no dependa de ti para todo.",
+          "asset": "https://youtu.be/gJEnKXJzTv4?si=ISFbH_OEAzmSymQW"
+        },
+        {
+          "key": "por-que-tus-trabajadores-se-van-de-tu-empresa",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre]. Recordé lo que me comentaste sobre las personas que han pasado por tu equipo y no han permanecido. Este episodio explica algunos de los motivos que muchas veces el empresario no alcanza a ver. Creo que vale mucho la pena escucharlo.",
+          "asset": "https://youtu.be/mGjOOAtrT6w?si=81Jc54-u3-WUI09K"
+        },
+        {
+          "key": "convierte-el-miedo-en-la-clave-de-tu-exito",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "[Nombre], pensé especialmente en ti al ver este episodio. A veces sabemos cuál es el siguiente paso, pero aparece ese miedo antes de tomar una decisión importante. Este contenido habla justamente de cómo utilizarlo a favor. Te lo comparto porque creo que llega en un buen momento para ti 🙌",
+          "asset": "https://youtu.be/5dW7zY3W1VU?si=ds5f8QlIDEd04Kw8"
+        },
+        {
+          "key": "que-hacer-si-tu-personal-no-te-hace-caso",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre]. Me acordé de algo que comentaste sobre la dificultad para lograr que ciertas indicaciones realmente se ejecuten. Este episodio aborda precisamente ese problema. Creo que puede ayudarte a identificar qué está pasando detrás de esa situación.",
+          "asset": "https://youtu.be/hWYl3xukH88?si=fCOjHetr1i49lDLW"
+        },
+        {
+          "key": "como-acabar-con-las-tardanzas-de-tus-trabajadores",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: podcast/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "[Nombre] como parte de lo que conversamos sobre orden y disciplina dentro del equipo, quería compartirte este episodio. Las tardanzas muchas veces son solo el síntoma de algo más profundo en la cultura de la empresa. Creo que este contenido te puede servir bastante.",
+          "asset": "https://youtu.be/hD0buNTxRMk?si=O3ar52K_oFVIsXrc"
+        },
+        {
+          "key": "te-cuesta-delegar-porque-sientes-que-nadie-hace-las-cosas-como-tu",
+          "type": "RETOMAR",
+          "intentosMin": 0,
+          "canal": "WHATSAPP",
+          "recomendacion": "Tipo de lead: Desconfiado. Método: Pdf/whatsap. Objeción que cubre: No conozco a Essika.",
+          "guion": "Hola, [Nombre]😊 Me acordé de algo que conversamos sobre lo difícil que puede ser soltar ciertas funciones cuando sientes que nadie las hará como tú. Te comparto esta guía porque justamente ayuda a identificar a quién sí puedes delegar con mayor seguridad. Échale una mirada y cuéntame: ¿hoy qué función de tu empresa te cuesta más soltar?”",
+          "asset": "LA GUÍA PERFECTA PARA ELEGIR A LA PERSONA CORRECTA A QUIEN VAS A DELEGAR (1).pdf"
+        }
+      ]
+    }
+  ]
+}
