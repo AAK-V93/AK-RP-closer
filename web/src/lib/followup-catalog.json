@@ -13,7 +13,7 @@
       "scripts": [
         {
           "key": "sone-contigo-tuve-una-premonicion",
-          "type": "DECISION",
+          "type": "CREATIVO",
           "intentosMin": 0,
           "canal": "WHATSAPP",
           "recomendacion": "Tipo de lead: Espiritual. Instrucción: Enviar foto Esta foto se tiene que mandar de su mismo rubro\nEjemplo, si es de una ferreteria, mandar foto de una ferreteria grande, tipo SODIMAC y el empresario parado en la puerta.\nSacar la cara en foto del empresario.",
@@ -49,7 +49,7 @@
         },
         {
           "key": "te-escribi-un-poema",
-          "type": "PAGO PENDIENTE",
+          "type": "CREATIVO",
           "intentosMin": 0,
           "canal": "WHATSAPP",
           "recomendacion": "Tipo de lead: Emocional. Hablar con chat gpt y usar este PRONT:\n\nDecirle todas las características del lead, soy closer de la empresa Acelerador de resultados Millonarios que se dedica……y vende……………. para este tipo de avatar que tiene estos problemas\n\nTe pido que hagas un poema que tenga no más de 200 palabras, en la cual puedas convencer al lead y romper la objeción sutilmente de “nombre de objeción”",
@@ -58,7 +58,7 @@
         },
         {
           "key": "noticia-de-ultimo-minuto",
-          "type": "DECISION",
+          "type": "CREATIVO",
           "intentosMin": 0,
           "canal": "WHATSAPP",
           "recomendacion": "Tipo de lead: Emocional. Ingresar a canva, descargar *plantilla de diario y poner imagen del empresario*",
@@ -67,7 +67,7 @@
         },
         {
           "key": "feliz-cumpleanos-nombre",
-          "type": "DECISION",
+          "type": "CREATIVO",
           "intentosMin": 0,
           "canal": "WHATSAPP",
           "recomendacion": "Tipo de lead: Emocional.",

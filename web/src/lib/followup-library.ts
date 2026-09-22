@@ -6,13 +6,7 @@ import {
   builtinPackById,
   builtinScriptId,
 } from "@/lib/followup-catalog";
-import {
-  fillFollowupGuion,
-  listFollowupScripts,
-  parseFollowupScripts,
-  type FollowupScript,
-  type FollowupVars,
-} from "@/lib/followup-scripts";
+import { fillFollowupGuion, isCreativeFollowup, listFollowupScripts, parseFollowupScripts, type FollowupScript, type FollowupVars } from "@/lib/followup-scripts";
 import { scriptTemperatureFit, type TemperatureLevel } from "@/lib/lead-temperature";
 
 export function packScore(row: {
@@ -425,7 +419,8 @@ export async function followupOptionsFor(
   const matchingLib = library.filter(
     (row) =>
       row.intentosMin <= args.intentos &&
-      (row.type === args.type || (args.type === "OTRO" && row.type === "RETOMAR")),
+      (row.type === args.type || (args.type === "OTRO" && row.type === "RETOMAR")) &&
+      (args.type === "CREATIVO" || !isCreativeFollowup(row)),
   );
   const options: FollowupOption[] = [];
   const push = (row: FollowupOption) => {

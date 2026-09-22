@@ -9,6 +9,8 @@ import {
 } from "@/lib/followup-scripts";
 import { recordLibraryOutcome } from "@/lib/followup-library";
 import { recordExtractorFeedback } from "@/lib/extractor-feedback";
+import { advanceStoredThread } from "@/lib/followup-threads";
+import type { ThreadAction } from "@/lib/followup-machine";
 import { expectedTemperature, leadTemperature } from "@/lib/lead-temperature";
 
 export async function resolveAlert(
@@ -61,7 +63,10 @@ export type AlertOutcome =
   | "no_contesto"
   | "reprogramado"
   | "cerro"
-  | "perdido";
+  | "perdido"
+  | "mostro"
+  | "no_mostro"
+  | "pago";
 
 export async function applyAlertOutcome(
   prisma: PrismaClient,
@@ -141,6 +146,29 @@ export async function applyAlertOutcome(
       title: row.lead.name,
       force: true,
     });
+  }
+
+  const threadActions = new Set<ThreadAction>([
+    "hecho",
+    "no_contesto",
+    "cerro",
+    "mostro",
+    "no_mostro",
+    "perdido",
+    "pago",
+    "reprogramado",
+  ]);
+  if (row.threadId && threadActions.has(args.resultado as ThreadAction)) {
+    const moved = await advanceStoredThread(
+      prisma,
+      userId,
+      row,
+      row.lead,
+      args.resultado as ThreadAction,
+      now,
+      { paymentDetails: commercial.paymentDetails, customScripts: commercial.scripts, nota },
+    );
+    if (moved) return { ok: true as const, followUp: moved.followUp };
   }
 
   if (args.resultado === "hecho") {

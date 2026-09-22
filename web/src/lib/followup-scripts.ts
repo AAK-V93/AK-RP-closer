@@ -216,14 +216,24 @@ export function parseFollowupScripts(raw: unknown): FollowupScript[] {
   return out;
 }
 
+export function isCreativeFollowup(script: { key: string; type: string }) {
+  return (
+    script.type === "CREATIVO" ||
+    /premonic|poema|noticia-de-ultimo|cumpleanos|testimonial|ni-mi-ex/.test(script.key)
+  );
+}
+
 export function listFollowupScripts(
   type: string,
   intentos: number,
   custom: FollowupScript[] = [],
 ): FollowupScript[] {
-  const match = (row: FollowupScript) =>
-    (row.type === type || (type === "OTRO" && row.type === "RETOMAR")) &&
-    row.intentosMin <= intentos;
+  const match = (row: FollowupScript) => {
+    const typeOk = row.type === type || (type === "OTRO" && row.type === "RETOMAR");
+    if (!typeOk || row.intentosMin > intentos) return false;
+    if (type !== "CREATIVO" && isCreativeFollowup(row)) return false;
+    return true;
+  };
   const own = custom.filter(match).sort((a, b) => b.intentosMin - a.intentosMin);
   const base = DEFAULT_FOLLOWUP_SCRIPTS.filter(match).sort(
     (a, b) => b.intentosMin - a.intentosMin,

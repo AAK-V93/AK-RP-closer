@@ -573,6 +573,51 @@ export async function ensureCrmTables(prisma: PrismaClient) {
       await prisma.$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS "ExtractorFeedback_userId_campo_idx" ON "ExtractorFeedback"("userId", "campo")`,
       );
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "LeadAlert" ADD COLUMN IF NOT EXISTS "threadId" TEXT`,
+      );
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "FollowupThread" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "leadId" TEXT NOT NULL,
+          "offerId" TEXT NOT NULL DEFAULT '',
+          "tipo" TEXT NOT NULL,
+          "secuenciaKey" TEXT NOT NULL,
+          "pasoActual" INTEGER NOT NULL DEFAULT 0,
+          "estado" TEXT NOT NULL DEFAULT 'activo',
+          "askLost" BOOLEAN NOT NULL DEFAULT false,
+          "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "pagoAt" TIMESTAMP(3),
+          "meetingAt" TIMESTAMP(3),
+          "creadoDesdeCallRecordId" TEXT NOT NULL DEFAULT '',
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "FollowupThread_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "FollowupThread_userId_estado_idx" ON "FollowupThread"("userId", "estado")`,
+      );
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "FollowupThread_leadId_estado_idx" ON "FollowupThread"("leadId", "estado")`,
+      );
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "FollowupTouch" (
+          "id" TEXT NOT NULL,
+          "threadId" TEXT NOT NULL,
+          "fecha" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "canal" TEXT NOT NULL DEFAULT 'WHATSAPP',
+          "guionUsado" TEXT NOT NULL DEFAULT '',
+          "libraryScriptId" TEXT NOT NULL DEFAULT '',
+          "resultado" TEXT NOT NULL DEFAULT 'enviado',
+          "notas" TEXT NOT NULL DEFAULT '',
+          CONSTRAINT "FollowupTouch_pkey" PRIMARY KEY ("id")
+        )
+      `);
+      await prisma.$executeRawUnsafe(
+        `CREATE INDEX IF NOT EXISTS "FollowupTouch_threadId_fecha_idx" ON "FollowupTouch"("threadId", "fecha")`,
+      );
     })().catch((error) => {
       crmTablesReady = null;
       throw error;

@@ -40,6 +40,11 @@ type Followup = {
   question: string;
   dueAt: string;
   tipo: string;
+  hilo?: string;
+  paso?: string;
+  ultimoToque?: string;
+  proximaAccion?: string;
+  askLost?: boolean;
   cliente: string;
   estado: string;
   days: number;
@@ -623,17 +628,13 @@ function SeguimientosSheet({
     <div className="space-y-2">
       <SheetTable
         columns={[
-          { key: "temp", label: "Temperatura", width: 100, value: (row) => row.temperatura || "—" },
-          { key: "estado", label: "Estado", width: 90, value: (row) => row.estado },
-          { key: "cuando", label: "Cuándo", width: 90, value: (row) => row.dueAt.slice(0, 10) },
-          { key: "dias", label: "Días", width: 60, align: "right", value: (row) => row.days },
           { key: "cliente", label: "Cliente", width: 160, value: (row) => row.cliente },
-          { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
-          { key: "oferta", label: "Oferta", width: 140, value: (row) => row.oferta },
-          { key: "tipo", label: "Tipo", width: 120, value: (row) => row.tipo },
-          { key: "accion", label: "Qué hacer", width: 220, value: (row) => row.queHacer || row.acuerdo || row.question },
+          { key: "hilo", label: "Tipo", width: 140, value: (row) => row.hilo || row.tipo },
+          { key: "paso", label: "Paso", width: 80, value: (row) => row.paso || "—" },
+          { key: "toque", label: "Último toque", width: 180, value: (row) => row.ultimoToque || "sin toques" },
+          { key: "accion", label: "Próxima acción", width: 240, value: (row) => row.proximaAccion || row.queHacer || row.acuerdo || row.question },
           { key: "juego", label: "En juego", width: 100, align: "right", value: (row) => (row.enJuego ? money(row.enJuego) : "—") },
-          { key: "canal", label: "Canal", width: 80, value: (row) => row.canal },
+          { key: "temp", label: "Temperatura", width: 110, value: (row) => row.temperatura || "—" },
         ]}
         rows={rows}
         getId={(row) => row.id}
@@ -658,41 +659,50 @@ function SeguimientosSheet({
             )
           )}
           <div className="flex flex-wrap gap-1">
-            {selected.tipo === "AGENDA_CHECK"
+            {(selected.tipo === "AGENDA_CHECK"
               ? (
                   [
                     ["SHOW", "Show"],
                     ["NO SHOW", "No show"],
                     ["REPROGRAMA", "Reprogramó"],
                   ] as const
-                ).map(([estado, label]) => (
-                  <Button
-                    key={estado}
-                    size="sm"
-                    variant={estado === "SHOW" ? "primary" : "outline"}
-                    onClick={() => void onPatch(selected.id, estado, true)}
-                  >
-                    {label}
-                  </Button>
-                ))
-              : (
-                  [
-                    ["hecho", "Hecho"],
-                    ["no_contesto", "No contestó"],
-                    ["reprogramado", "Reprogramar"],
-                    ["cerro", "Cerró"],
-                    ["perdido", "Perdido"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <Button
-                    key={value}
-                    size="sm"
-                    variant={value === "hecho" ? "primary" : "outline"}
-                    onClick={() => void onPatch(selected.id, value)}
-                  >
-                    {label}
-                  </Button>
-                ))}
+                )
+              : selected.askLost
+                ? (
+                    [
+                      ["perdido", "Perdido"],
+                      ["cerro", "Cerró"],
+                    ] as const
+                  )
+                : selected.hilo === "SEGUNDA_REUNION"
+                  ? (
+                      [
+                        ["mostro", "Mostró"],
+                        ["no_mostro", "No mostró"],
+                        ["perdido", "Perdido"],
+                      ] as const
+                    )
+                  : (
+                      [
+                        ["hecho", "Hecho"],
+                        ["no_contesto", "No contestó"],
+                        ["reprogramado", "Reprogramar"],
+                        ["cerro", "Cerró"],
+                        ["perdido", "Perdido"],
+                      ] as const
+                    )
+            ).map(([value, label]) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={value === "hecho" || value === "SHOW" || value === "mostro" ? "primary" : "outline"}
+                onClick={() =>
+                  void onPatch(selected.id, value, selected.tipo === "AGENDA_CHECK")
+                }
+              >
+                {label}
+              </Button>
+            ))}
           </div>
         </div>
       )}

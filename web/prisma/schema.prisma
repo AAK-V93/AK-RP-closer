@@ -25,6 +25,7 @@ model User {
   transcripts  ClientTranscript[]
   leads        Lead[]
   leadAlerts   LeadAlert[]
+  followupThreads FollowupThread[]
   commissionRules CommissionRule[]
   commissions  Commission[]
   followupPacks FollowupPack[]
@@ -199,6 +200,7 @@ model Lead {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   alerts        LeadAlert[]
+  followupThreads FollowupThread[]
   commissions   Commission[]
 
   @@index([userId, updatedAt])
@@ -238,10 +240,52 @@ model LeadAlert {
   intentos         Int       @default(0)
   callRecordId     String?
   libraryScriptId  String    @default("")
+  threadId         String?
+  thread           FollowupThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
   notifiedAt       DateTime?
 
   @@index([userId, dueAt])
   @@index([userId, resolvedAt, notifiedAt])
+  @@index([threadId])
+}
+
+model FollowupThread {
+  id                       String          @id @default(cuid())
+  userId                   String
+  user                     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId                   String
+  lead                     Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  offerId                  String          @default("")
+  tipo                     String
+  secuenciaKey             String
+  pasoActual               Int             @default(0)
+  estado                   String          @default("activo")
+  askLost                  Boolean         @default(false)
+  startedAt                DateTime        @default(now())
+  pagoAt                   DateTime?
+  meetingAt                DateTime?
+  creadoDesdeCallRecordId  String          @default("")
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
+  touches                  FollowupTouch[]
+  alerts                   LeadAlert[]
+
+  @@index([userId, estado])
+  @@index([leadId, estado])
+}
+
+model FollowupTouch {
+  id              String         @id @default(cuid())
+  threadId        String
+  thread          FollowupThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  fecha           DateTime       @default(now())
+  canal           String         @default("WHATSAPP")
+  guionUsado      String         @default("")
+  libraryScriptId String         @default("")
+  resultado       String         @default("enviado")
+  notas           String         @default("")
+
+  @@index([threadId, fecha])
 }
 
 model CommissionRule {

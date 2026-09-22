@@ -6,6 +6,7 @@ import { attachFollowupOptions } from "@/lib/followup-library";
 import { operacionFromCall } from "@/lib/crm-operacion";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-temperature";
+import { presentThread } from "@/lib/followup-threads";
 
 function monthRange(at: Date) {
   const from = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
@@ -96,42 +97,116 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const previous = bucket(prev.from, prev.to);
   const all = bucket(new Date(0), new Date(8640000000000000));
 
-  const followups = alerts.map((row) => {
-    const { estado, days } = alertBucket(row.dueAt, now);
-    const silenceDays = days < 0 ? -days : 0;
-    const decisionDate = row.type === "DECISION" || row.type === "PAGO PENDIENTE";
-    const temperatura = leadTemperature({
-      enJuego: row.enJuego || 0,
-      silenceDays,
-      calificado: row.lead.calificado,
-      objectionOpen: Boolean((row.lead.razonNoCierre || row.lead.objections || "").trim()),
-      decisionDate,
-      intentos: row.intentos,
-    }).level;
-    return {
-      id: row.id,
-      estado,
-      days,
-      dueAt: row.dueAt.toISOString(),
-      cliente: row.lead.name,
-      telefono: row.lead.telefono,
-      oferta: row.lead.offerName,
-      tipo: row.type,
-      acuerdo: row.lead.nextStep,
-      contexto: row.contexto,
-      enJuego: row.enJuego,
-      canal: row.canal,
-      mensajeSugerido: row.mensajeSugerido,
-      question: row.question,
-      intentos: row.intentos,
-      libraryScriptId: row.libraryScriptId,
-      objecion: row.lead.razonNoCierre || row.lead.objections || "",
-      temperatura,
-    };
+  const threads = await prisma.followupThread.findMany({
+    where: { userId, estado: "activo" },
+    include: {
+      lead: true,
+      touches: { orderBy: { fecha: "desc" }, take: 1 },
+    },
   });
+  const alertByThread = new Map(
+    alerts.filter((row) => row.threadId).map((row) => [row.threadId as string, row]),
+  );
+  const threadRows = threads.flatMap((thread) => {
+    const alert = alertByThread.get(thread.id);
+    if (!alert) return [];
+    const view = presentThread({
+      tipo: thread.tipo,
+      pasoActual: thread.pasoActual,
+      askLost: thread.askLost,
+      startedAt: thread.startedAt,
+      pagoAt: thread.pagoAt,
+      meetingAt: thread.meetingAt,
+      enJuego: alert.enJuego,
+      lastTouch: thread.touches[0] || null,
+      now,
+    });
+    const silenceDays = thread.touches[0]
+      ? Math.max(0, Math.round((now.getTime() - thread.touches[0].fecha.getTime()) / 86_400_000))
+      : 0;
+    const temperatura = leadTemperature({
+      enJuego: alert.enJuego || 0,
+      silenceDays,
+      calificado: thread.lead.calificado,
+      objectionOpen: Boolean((thread.lead.razonNoCierre || thread.lead.objections || "").trim()),
+      decisionDate: thread.tipo === "DECISION" || thread.tipo === "COBRANZA",
+      intentos: thread.pasoActual,
+    }).level;
+    return [
+      {
+        id: alert.id,
+        estado: "HOY",
+        days: 0,
+        dueAt: view.dueAt,
+        cliente: thread.lead.name,
+        telefono: thread.lead.telefono,
+        oferta: thread.lead.offerName,
+        tipo: view.scriptType,
+        hilo: view.hilo,
+        paso: view.paso,
+        ultimoToque: view.ultimoToque,
+        proximaAccion: view.proximaAccion,
+        askLost: view.askLost,
+        acuerdo: view.proximaAccion,
+        contexto: alert.contexto,
+        enJuego: alert.enJuego,
+        canal: view.canal,
+        mensajeSugerido: alert.mensajeSugerido,
+        question: alert.question,
+        intentos: thread.pasoActual,
+        libraryScriptId: alert.libraryScriptId,
+        objecion: thread.lead.razonNoCierre || thread.lead.objections || "",
+        temperatura,
+      },
+    ];
+  });
+  const followups = [
+    ...threadRows,
+    ...alerts
+      .filter((row) => !row.threadId)
+      .map((row) => {
+        const { estado, days } = alertBucket(row.dueAt, now);
+        const silenceDays = days < 0 ? -days : 0;
+        const decisionDate = row.type === "DECISION" || row.type === "PAGO PENDIENTE";
+        const temperatura = leadTemperature({
+          enJuego: row.enJuego || 0,
+          silenceDays,
+          calificado: row.lead.calificado,
+          objectionOpen: Boolean((row.lead.razonNoCierre || row.lead.objections || "").trim()),
+          decisionDate,
+          intentos: row.intentos,
+        }).level;
+        const ultimoToque = days < 0 ? "pendiente de hoy" : days === 0 ? "hoy" : `en ${days} días`;
+        return {
+          id: row.id,
+          estado,
+          days: Math.max(0, days),
+          dueAt: row.dueAt.toISOString(),
+          cliente: row.lead.name,
+          telefono: row.lead.telefono,
+          oferta: row.lead.offerName,
+          tipo: row.type,
+          hilo: row.type,
+          paso: "—",
+          ultimoToque,
+          proximaAccion: "",
+          askLost: false,
+          acuerdo: row.lead.nextStep,
+          contexto: row.contexto,
+          enJuego: row.enJuego,
+          canal: row.canal,
+          mensajeSugerido: row.mensajeSugerido,
+          question: row.question,
+          intentos: row.intentos,
+          libraryScriptId: row.libraryScriptId,
+          objecion: row.lead.razonNoCierre || row.lead.objections || "",
+          temperatura,
+        };
+      }),
+  ];
 
-  const vencidos = followups.filter((row) => row.estado === "VENCIDO").length;
-  const hoy = followups.filter((row) => row.estado === "HOY").length;
+  const vencidos = alerts.filter((row) => alertBucket(row.dueAt, now).estado === "VENCIDO").length;
+  const hoy = alerts.filter((row) => alertBucket(row.dueAt, now).estado === "HOY").length;
   const enJuego = followups.reduce((sum, row) => sum + (row.enJuego || 0), 0);
   const cashPendiente = calls.reduce((sum, row) => sum + (row.saldoPendiente || 0), 0);
   const comisionPendiente = commissions
@@ -153,7 +228,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const followupsWithOptions = (await attachFollowupOptions(prisma, userId, followups))
     .map((row) => ({
       ...row,
-      queHacer: temperatureAction(row.temperatura, row.opciones?.[0]?.recomendacion || ""),
+      queHacer: row.proximaAccion || temperatureAction(row.temperatura, row.opciones?.[0]?.recomendacion || ""),
     }))
     .sort(
       (a, b) =>

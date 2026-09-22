@@ -1,10 +1,10 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   buildFollowupCopy,
-  collectionSequence,
   followupQuestion,
   type FollowupVars,
 } from "@/lib/followup-scripts";
+import { openFollowupThread } from "@/lib/followup-threads";
 import { generateGeminiJson } from "@/lib/gemini";
 import {
   extractorGap,
@@ -428,50 +428,10 @@ async function spawnAlertsFromExtractor(
   },
 ) {
   const { parsed, prefs } = args;
-  const contexto = parsed.notas_crm || "";
-  const acuerdo = parsed.acuerdo_seguimiento || "";
   const paymentDetails = args.offer?.commercial.paymentDetails || "";
   const customScripts = args.offer?.commercial.scripts || [];
   const fechaPago = parseFollowupDate(parsed.proximo_seguimiento, args.callAt);
   const objecion = parsed.razon_no_cierre || "";
-
-  const make = (
-    type: string,
-    dueAt: Date,
-    enJuego = 0,
-    intentos = 0,
-  ) =>
-    createFollowupAlert(prisma, {
-      userId: args.userId,
-      leadId: args.leadId,
-      leadName: args.leadName,
-      type,
-      dueAt,
-      enJuego,
-      contexto,
-      acuerdo,
-      offerName: args.offerName,
-      paymentDetails,
-      callRecordId: args.callRecordId,
-      intentos,
-      customScripts,
-      objecion,
-      fecha: dueAt.toISOString().slice(0, 10),
-    });
-
-  if (parsed.estado_agenda === "NO SHOW") {
-    await make("REAGENDAR", addDays(args.callAt, 1));
-    return;
-  }
-  if (parsed.estado_agenda === "REPROGRAMA") {
-    const when = fechaPago || addDays(args.callAt, 1);
-    await make("SEGUNDA REUNION", when);
-    return;
-  }
-
-  const closed =
-    parsed.estado_agenda === "CIERRE VENTA" ||
-    parsed.estado_agenda === "ACUERDO SIN PAGO";
   const saldo = parsed.saldo_pendiente || 0;
   const hasSaldo = args.readyCrm && (saldo > 0 || parsed.estado_agenda === "ACUERDO SIN PAGO");
   const pagoAt = hasSaldo
@@ -484,39 +444,28 @@ async function spawnAlertsFromExtractor(
       )
     : null;
 
-  if (closed && args.readyCrm) {
-    const steps = collectionSequence({
-      callAt: args.callAt,
-      pagoAt,
-      hasSaldo: Boolean(hasSaldo && (saldo > 0 || parsed.venta_total)),
-      closed: true,
-    });
-    for (const step of steps) {
-      const enJuego =
-        step.type === "ONBOARDING" || step.type === "VALIDACION" || step.type === "EXPERIENCIA"
-          ? 0
-          : saldo || parsed.venta_total || 0;
-      await make(step.type, step.dueAt, enJuego);
-    }
-    return;
-  }
-
-  if (parsed.requiere_seguimiento === true) {
-    const due = fechaPago || addDays(args.callAt, prefs.followupGraceDays);
-    const tipo = parsed.tipo_seguimiento || "OTRO";
-    await make(tipo, due, saldo);
-  }
-
-  if (hasSaldo && pagoAt) {
-    await make("PAGO PENDIENTE", pagoAt, saldo || parsed.venta_total || 0);
-  }
-
-  if (
-    parsed.estado_agenda === "SHOW" &&
-    parsed.requiere_seguimiento !== false &&
-    !parsed.tipo_seguimiento
-  ) {
-    await make("DECISION", addDays(args.callAt, prefs.followupGraceDays));
+  const opened = await openFollowupThread(prisma, {
+    userId: args.userId,
+    leadId: args.leadId,
+    leadName: args.leadName,
+    offerId: args.offer?.id || "",
+    offerName: args.offerName,
+    parsed,
+    callAt: args.callAt,
+    callRecordId: args.callRecordId,
+    pagoAt,
+    meetingAt:
+      parsed.estado_agenda === "REPROGRAMA" ||
+      parsed.tipo_seguimiento?.toUpperCase().includes("SEGUNDA")
+        ? fechaPago
+        : null,
+    enJuego: saldo || parsed.venta_total || 0,
+    paymentDetails,
+    customScripts,
+    objecion,
+  });
+  if (!opened && parsed.requiere_seguimiento === false) {
+    await resolveOpenAlertsForLead(prisma, args.userId, args.leadId);
   }
 }
 
