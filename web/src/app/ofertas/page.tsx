@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, type InputHTMLAttributes } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -18,6 +18,7 @@ import {
   type ExtractedOffer,
 } from "@/lib/offer-commercial";
 import { OfferExtractReview } from "@/components/offer-extract-review";
+import { partitionTranscriptUploads } from "@/lib/transcript-batch";
 
 type OfferRow = {
   id: string;
@@ -47,6 +48,7 @@ export default function OfertasPage() {
   const [loading, setLoading] = useState(true);
   const [savingOffer, setSavingOffer] = useState(false);
   const [savingTranscripts, setSavingTranscripts] = useState(false);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [offerId, setOfferId] = useState<string | null>(null);
@@ -205,20 +207,65 @@ export default function OfertasPage() {
     }
     setSavingTranscripts(true);
     setError(null);
+    setUploadNote(null);
     try {
-      const body = new FormData();
-      body.append("offerId", offerId);
-      if (files) {
-        Array.from(files).forEach((file) => body.append("files", file));
+      if (files && files.length > 0) {
+        const split = partitionTranscriptUploads(Array.from(files));
+        if (split.accepted.length === 0) {
+          throw new Error(
+            split.ignored > 0
+              ? "En esa carpeta no hay transcripciones (.txt, .vtt, .srt, .md, .csv, .pdf)."
+              : "Esos archivos pasan de 6 MB.",
+          );
+        }
+        const toFile: string[] = [];
+        let saved = 0;
+        let already = 0;
+        for (let index = 0; index < split.chunks.length; index += 1) {
+          setUploadNote(`Guardando ${index + 1} de ${split.chunks.length}…`);
+          const body = new FormData();
+          body.append("offerId", offerId);
+          body.append("batch", "1");
+          for (const file of split.chunks[index]) body.append("files", file);
+          const response = await fetch("/api/workspace/transcripts", { method: "POST", body });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "No se subieron");
+          saved += data.saved || 0;
+          already += data.already || 0;
+          if (Array.isArray(data.toFile)) toFile.push(...data.toFile);
+        }
+        let filed = 0;
+        let failed = 0;
+        for (let index = 0; index < toFile.length; index += 1) {
+          setUploadNote(`Pasando al CRM ${index + 1} de ${toFile.length}…`);
+          const response = await fetch("/api/workspace/transcripts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ offerId, fileId: toFile[index] }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) failed += 1;
+          else if (data.filed) filed += 1;
+        }
+        await fetch("/api/workspace/transcripts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offerId, finalize: true }),
+        });
+        const ignored = split.ignored ? ` Ignoré ${split.ignored} que no son transcripción.` : "";
+        const missed = failed ? ` ${failed} no entraron al CRM; vuelve a elegir la carpeta para reintentarlas.` : "";
+        setUploadNote(
+          `Listo: ${saved} nuevas, ${filed} al CRM, ${already} ya estaban.${ignored}${missed} Las que falte un dato quedan en Inicio.`,
+        );
+      } else if (paste.trim()) {
+        const body = new FormData();
+        body.append("offerId", offerId);
+        body.append("paste", paste.trim());
+        const response = await fetch("/api/workspace/transcripts", { method: "POST", body });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "No se subieron");
+        setPaste("");
       }
-      if (paste.trim()) body.append("paste", paste.trim());
-      const response = await fetch("/api/workspace/transcripts", {
-        method: "POST",
-        body,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No se subieron");
-      setPaste("");
       await load(offerId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
@@ -453,24 +500,45 @@ export default function OfertasPage() {
         <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
           <h2 className="text-lg font-light">2. Llamadas de esta oferta</h2>
           <p className="text-sm text-fg3">
-            Sube o pega transcripts de esta oferta. El agente de voz emula a esos leads,
-            no a los de otra oferta.
+            Sube la carpeta de transcripciones de esta oferta (.txt, .vtt, .srt, .md, .csv, .pdf).
+            El video no entra. No hay tope de archivos: se mandan todas y cada una pasa al CRM.
+            Deja esta pestaña abierta hasta que diga listo.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline" size="sm">
               <Link href="/llamadas#conectar-fathom">Conectar / sync Fathom</Link>
             </Button>
             <label className="inline-flex">
-              <Button type="button" variant="outline" size="sm" asChild>
+              <Button type="button" variant="outline" size="sm" asChild disabled={savingTranscripts}>
                 <span>
                   <Upload className="h-4 w-4" />
-                  Subir transcripciones
+                  Subir carpeta
                 </span>
               </Button>
               <input
                 type="file"
                 className="hidden"
+                disabled={savingTranscripts}
+                {...({
+                  webkitdirectory: "",
+                  directory: "",
+                  multiple: true,
+                } as InputHTMLAttributes<HTMLInputElement>)}
+                onChange={(event) => {
+                  void uploadTranscripts(event.target.files);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+            <label className="inline-flex">
+              <Button type="button" variant="outline" size="sm" asChild disabled={savingTranscripts}>
+                <span>Elegir archivos</span>
+              </Button>
+              <input
+                type="file"
+                className="hidden"
                 multiple
+                disabled={savingTranscripts}
                 accept=".txt,.md,.vtt,.srt,.pdf,.csv,text/plain,application/pdf"
                 onChange={(event) => {
                   void uploadTranscripts(event.target.files);
@@ -479,6 +547,7 @@ export default function OfertasPage() {
               />
             </label>
           </div>
+          {uploadNote && <p className="text-sm text-fg2">{uploadNote}</p>}
           <div className="space-y-1">
             <Label htmlFor="paste-calls">O pega una transcripción</Label>
             <Textarea

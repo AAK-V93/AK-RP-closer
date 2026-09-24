@@ -1,25 +1,26 @@
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { extractLeadPlaybook } from "@/lib/lead-playbook";
 import { getWorkspace } from "@/lib/workspace";
 import { isUsableTranscript } from "@/lib/fathom-import";
 import { fileCallQuietly } from "@/lib/file-call";
+import { MAX_TRANSCRIPT_BYTES, transcriptTitle } from "@/lib/transcript-batch";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
 
-const MAX_BYTES = 6 * 1024 * 1024;
-const MAX_FILES = 20;
-
-function fileTitle(name: string) {
-  return name.replace(/\.[^.]+$/, "").slice(0, 120) || "Transcripción";
-}
+const MAX_BYTES = MAX_TRANSCRIPT_BYTES;
 
 export async function POST(request: Request) {
   try {
     const auth = await requireWorkspaceUser();
     if ("error" in auth && auth.error) return auth.error;
+
+    const contentType = request.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      return handleTranscriptJson(request, auth.prisma, auth.userId);
+    }
 
     const form = await request.formData();
     const files = form
@@ -34,35 +35,74 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    if (files.length > MAX_FILES) {
-      return NextResponse.json(
-        { error: `Máximo ${MAX_FILES} archivos por tanda` },
-        { status: 400 },
-      );
-    }
+    const batch = form.get("batch") === "1";
+    const titles = files.map((file) => transcriptTitle(file.name));
+    const existing = titles.length
+      ? await auth.prisma.clientTranscript.findMany({
+          where: { userId: auth.userId, offerId, title: { in: titles } },
+          select: { id: true, title: true },
+        })
+      : [];
+    const alreadyFiled = new Set(
+      existing.length
+        ? (
+            await auth.prisma.callRecord.findMany({
+              where: {
+                userId: auth.userId,
+                source: "upload",
+                sourceId: { in: existing.map((row) => row.id) },
+              },
+              select: { sourceId: true },
+            })
+          ).map((row) => row.sourceId)
+        : [],
+    );
+    const byTitle = new Map(existing.map((row) => [row.title, row.id]));
 
     let saved = 0;
+    let already = 0;
+    let unreadable = 0;
+    let tooBig = 0;
+    const toFile: string[] = [];
     for (const file of files) {
-      if (file.size > MAX_BYTES) continue;
+      if (file.size > MAX_BYTES) {
+        tooBig += 1;
+        continue;
+      }
+      const title = transcriptTitle(file.name);
+      const prior = byTitle.get(title);
+      if (prior) {
+        already += 1;
+        if (!alreadyFiled.has(prior)) toFile.push(prior);
+        continue;
+      }
       const text = await readTranscriptFile(file);
-      if (!isUsableTranscript(text)) continue;
+      if (!isUsableTranscript(text)) {
+        unreadable += 1;
+        continue;
+      }
       const created = await auth.prisma.clientTranscript.create({
         data: {
           userId: auth.userId,
           offerId,
           source: "upload",
-          title: fileTitle(file.name),
+          title,
           transcriptText: text.slice(0, 200_000),
         },
       });
-      void fileCallQuietly(auth.prisma, auth.userId, {
-        source: "upload",
-        sourceId: created.id,
-        title: created.title,
-        transcript: created.transcriptText,
-        recordedAt: created.createdAt,
-      });
+      byTitle.set(title, created.id);
       saved += 1;
+      if (batch) {
+        toFile.push(created.id);
+      } else {
+        await fileCallQuietly(auth.prisma, auth.userId, {
+          source: "upload",
+          sourceId: created.id,
+          title: created.title,
+          transcript: created.transcriptText,
+          recordedAt: created.createdAt,
+        });
+      }
     }
 
     if (pasted.length >= 80) {
@@ -75,7 +115,7 @@ export async function POST(request: Request) {
           transcriptText: pasted.slice(0, 200_000),
         },
       });
-      void fileCallQuietly(auth.prisma, auth.userId, {
+      await fileCallQuietly(auth.prisma, auth.userId, {
         source: "upload",
         sourceId: pastedRow.id,
         title: pastedRow.title,
@@ -85,34 +125,22 @@ export async function POST(request: Request) {
       saved += 1;
     }
 
-    if (saved === 0) {
+    if (saved === 0 && toFile.length === 0 && already === 0) {
       return NextResponse.json(
         { error: "No pude leer transcripciones útiles en esos archivos" },
         { status: 400 },
       );
     }
 
-    const workspace = await getWorkspace(auth.prisma, auth.userId, offerId);
-    if (workspace.offer) {
-      try {
-        const playbook = await extractLeadPlaybook({
-          productName: workspace.offer.productName,
-          productDescription: workspace.offer.productDescription,
-          transcripts: workspace.corpus,
-          existing: workspace.playbook,
-        });
-        await auth.prisma.userOffer.update({
-          where: { id: workspace.offer.id },
-          data: { playbook: playbook as unknown as Prisma.InputJsonValue },
-        });
-      } catch (error) {
-        console.error("playbook after transcripts", error);
-      }
-    }
+    if (!batch) await refreshPlaybook(auth.prisma, auth.userId, offerId);
 
     const next = await getWorkspace(auth.prisma, auth.userId, offerId);
     return NextResponse.json({
       saved,
+      already,
+      unreadable,
+      tooBig,
+      toFile: [...new Set(toFile)],
       ready: next.ready,
       transcriptCount: next.transcriptCount,
       playbookReady: next.playbookReady,
@@ -124,6 +152,61 @@ export async function POST(request: Request) {
       { error: "No se pudieron guardar las transcripciones" },
       { status: 500 },
     );
+  }
+}
+
+async function handleTranscriptJson(request: Request, prisma: PrismaClient, userId: string) {
+  const body = (await request.json()) as { offerId?: string; fileId?: string; finalize?: boolean };
+  const offerId = String(body.offerId || "").trim() || null;
+  if (body.finalize) {
+    await refreshPlaybook(prisma, userId, offerId);
+    const next = await getWorkspace(prisma, userId, offerId);
+    return NextResponse.json({
+      ready: next.ready,
+      transcriptCount: next.transcriptCount,
+      playbookReady: next.playbookReady,
+      transcripts: next.transcripts,
+    });
+  }
+  const fileId = String(body.fileId || "").trim();
+  if (!fileId) {
+    return NextResponse.json({ error: "Falta la transcripción" }, { status: 400 });
+  }
+  const row = await prisma.clientTranscript.findFirst({
+    where: { id: fileId, userId },
+  });
+  if (!row) return NextResponse.json({ error: "No está esa transcripción" }, { status: 404 });
+  const prior = await prisma.callRecord.findFirst({
+    where: { userId, source: "upload", sourceId: row.id },
+    select: { id: true },
+  });
+  if (prior) return NextResponse.json({ filed: false, already: true });
+  const filed = await fileCallQuietly(prisma, userId, {
+    source: "upload",
+    sourceId: row.id,
+    title: row.title,
+    transcript: row.transcriptText,
+    recordedAt: row.createdAt,
+  });
+  return NextResponse.json({ filed: Boolean(filed), already: false });
+}
+
+async function refreshPlaybook(prisma: PrismaClient, userId: string, offerId: string | null) {
+  const workspace = await getWorkspace(prisma, userId, offerId);
+  if (!workspace.offer) return;
+  try {
+    const playbook = await extractLeadPlaybook({
+      productName: workspace.offer.productName,
+      productDescription: workspace.offer.productDescription,
+      transcripts: workspace.corpus,
+      existing: workspace.playbook,
+    });
+    await prisma.userOffer.update({
+      where: { id: workspace.offer.id },
+      data: { playbook: playbook as unknown as Prisma.InputJsonValue },
+    });
+  } catch (error) {
+    console.error("playbook after transcripts", error);
   }
 }
 
