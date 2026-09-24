@@ -532,7 +532,7 @@ function FilterSelect({
 }) {
   return (
     <label className="space-y-1">
-      <span className="block text-[11px] uppercase tracking-wide text-fg3">{label}</span>
+      <span className="block text-sm text-fg3">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -546,6 +546,15 @@ function FilterSelect({
         ))}
       </select>
     </label>
+  );
+}
+
+function QuietFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-3">
+      <dt className="text-sm text-fg3">{label}</dt>
+      <dd className="text-sm text-fg0">{value}</dd>
+    </div>
   );
 }
 
@@ -582,29 +591,15 @@ function AhoraSheet({
       />
       <div className="space-y-4">
         <SectionHeading>Ahora mismo</SectionHeading>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
-            label="Pendientes de hoy"
-            value={String(pending)}
-            tone={pending > 0 ? "attention" : "muted"}
-          />
-          <MetricCard label="Agendas de hoy" value={String(now.agendasHoy || 0)} tone="brand" />
-          <MetricCard
-            label="Dinero en juego"
-            value={money(now.dineroEnJuego)}
-            tone={(now.dineroEnJuego || 0) > 0 ? "attention" : "muted"}
-          />
-          <MetricCard
-            label="Cash pendiente de cobro"
-            value={money(now.cashPendiente)}
-            tone={(now.cashPendiente || 0) > 0 ? "attention" : "muted"}
-          />
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <MetricCard label="Comisión pendiente" value={money(now.comisionPendiente)} tone="brand" />
-          <MetricCard label="Oportunidades activas" value={String(now.oportunidadesActivas || 0)} tone="brand" />
-          <MetricCard label="Agendas futuras" value={String(now.agendasFuturas || 0)} tone="brand" />
-        </div>
+        <dl className="divide-y divide-separator1 border-t border-separator1">
+          <QuietFact label="Pendientes de hoy" value={String(pending)} />
+          <QuietFact label="Agendas de hoy" value={String(now.agendasHoy || 0)} />
+          <QuietFact label="Dinero en juego" value={money(now.dineroEnJuego)} />
+          <QuietFact label="Cash pendiente de cobro" value={money(now.cashPendiente)} />
+          <QuietFact label="Comisión pendiente" value={money(now.comisionPendiente)} />
+          <QuietFact label="Oportunidades activas" value={String(now.oportunidadesActivas || 0)} />
+          <QuietFact label="Agendas futuras" value={String(now.agendasFuturas || 0)} />
+        </dl>
         <HelpNote>
           <p>Pendientes de hoy son los seguimientos que toca hacer hoy, también los que ya debían salir.</p>
           <p>Dinero en juego es lo que todavía puedes cerrar o cobrar en esos seguimientos. Cash pendiente es lo ya acordado que aún no entró.</p>

@@ -16,7 +16,7 @@ export default function HomePage() {
       ) : status === "unauthenticated" ? (
         <div className="space-y-6">
           <div className="space-y-2">
-            <h1 className="text-3xl font-light">Entrena con tus llamadas reales</h1>
+            <h1 className="font-display text-4xl text-fg0">Entrena con tus llamadas reales</h1>
             <p className="text-sm text-fg3">
               Conectas Fathom o subes transcripts. El agente de voz de práctica
               emula a tus leads, el coach te corrige y el CRM te dice con quién

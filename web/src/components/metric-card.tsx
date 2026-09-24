@@ -5,10 +5,10 @@ import { useState, type ReactNode } from "react";
 export type MetricTone = "attention" | "money" | "brand" | "muted";
 
 const TONE_CLASS: Record<MetricTone, string> = {
-  attention: "text-tone-attention font-heading",
-  money: "text-tone-money font-heading",
-  brand: "text-fg0 font-heading",
-  muted: "text-fg3 font-heading",
+  attention: "text-tone-attention",
+  money: "text-tone-money",
+  brand: "text-fg0",
+  muted: "text-fg3",
 };
 
 export function MetricCard({
@@ -21,9 +21,9 @@ export function MetricCard({
   tone?: MetricTone;
 }) {
   return (
-    <div className="flex min-h-[132px] flex-col justify-between rounded-2xl border border-separator1 bg-bg1 px-5 py-5">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">{label}</p>
-      <p className={`text-[32px] font-bold leading-none tracking-tight ${TONE_CLASS[tone]}`}>{value}</p>
+    <div className="flex min-h-[112px] flex-col justify-between rounded-2xl bg-bg1 px-5 py-5">
+      <p className="text-sm text-fg3">{label}</p>
+      <p className={`text-[28px] font-medium leading-none tracking-tight ${TONE_CLASS[tone]}`}>{value}</p>
     </div>
   );
 }
@@ -31,7 +31,7 @@ export function MetricCard({
 export function SectionHeading({ children }: { children: ReactNode }) {
   return (
     <div className="space-y-2 pt-4">
-      <h2 className="text-[11px] font-semibold uppercase tracking-widest text-fg3">{children}</h2>
+      <h2 className="text-sm text-fg3">{children}</h2>
       <div className="h-px bg-separator1" />
     </div>
   );

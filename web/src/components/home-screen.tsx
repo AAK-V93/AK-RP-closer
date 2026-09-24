@@ -1,12 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { ClipboardList, Loader2, Mic, Phone, Sparkles, Upload } from "lucide-react";
+import { Loader2, Upload } from "lucide-react";
 import { CycleIntro } from "@/components/cycle-intro";
 import { HubChat, type HubSnapshot } from "@/components/hub-chat";
 import { OfferExtractReview } from "@/components/offer-extract-review";
-import { SectionHeading } from "@/components/metric-card";
 import { ProjectionCard } from "@/components/projection-card";
 import { PushEnable } from "@/components/push-enable";
 import { Button } from "@/components/ui/button";
@@ -187,7 +186,7 @@ function OnboardingA({
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-3xl font-light">Closer Trainer</h1>
+        <h1 className="font-display text-4xl text-fg0">Closer Trainer</h1>
         <p className="text-sm text-fg3">
           Entrenás cierre high-ticket con un agente de voz de práctica que
           habla como tus leads. El coach te corrige. El CRM te dice con quién
@@ -198,10 +197,7 @@ function OnboardingA({
 
       {step === "calls" && (
         <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-            Un paso
-          </p>
-          <h2 className="text-xl font-light">Conecta Fathom</h2>
+          <h2 className="font-display text-3xl text-fg0">Conecta Fathom</h2>
           <p className="text-sm text-fg3">
             Las llamadas nuevas entran solas cuando Fathom termina de
             transcribir. Si aún no grabas, sube lo que tengas de los últimos
@@ -263,10 +259,7 @@ function OnboardingA({
 
       {step === "offer" && !review && (
         <form onSubmit={extractOffer} className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-            Un paso
-          </p>
-          <h2 className="text-xl font-light">Cuéntanos tu oferta</h2>
+          <h2 className="font-display text-3xl text-fg0">Cuéntanos tu oferta</h2>
           <p className="text-sm text-fg3">
             Sube el PDF o escribe todo en un texto: qué vendes, precios, cómo
             paga el lead y cómo te pagan comisión (si cambia según el plazo o
@@ -355,7 +348,7 @@ function NoviceB({
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h1 className="text-3xl font-light">A practicar</h1>
+        <h1 className="font-display text-4xl text-fg0">A practicar</h1>
         <p className="text-sm text-fg3">
           El agente de voz de práctica ya puede armarse con el playbook de tu
           oferta. El CRM aparece solo cuando entre la primera llamada real.
@@ -370,29 +363,15 @@ function NoviceB({
         />
       )}
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Button asChild variant="primary" className="h-auto py-4 justify-start">
-          <Link href="/practicar" className="flex items-start gap-3 text-left">
-            <Mic className="h-5 w-5 mt-0.5" />
-            <span>
-              <span className="block text-base">Práctica por voz</span>
-              <span className="block text-xs font-normal opacity-80">
-                Prospecto según tu ICP y objeciones
-              </span>
-            </span>
-          </Link>
-        </Button>
-        <Button asChild variant="outline" className="h-auto py-4 justify-start">
-          <Link href="/coach" className="flex items-start gap-3 text-left">
-            <Sparkles className="h-5 w-5 mt-0.5" />
-            <span>
-              <span className="block text-base">Coach</span>
-              <span className="block text-xs font-normal text-fg3">
-                Insights y chat
-              </span>
-            </span>
-          </Link>
-        </Button>
+      <div className="divide-y divide-separator1 border-t border-separator1">
+        <Link href="/practicar" className="flex items-baseline justify-between gap-4 py-4">
+          <span className="text-fg0">Práctica por voz</span>
+          <span className="text-sm text-fg3">Prospecto según tu oferta</span>
+        </Link>
+        <Link href="/coach" className="flex items-baseline justify-between gap-4 py-4">
+          <span className="text-fg0">Coach</span>
+          <span className="text-sm text-fg3">Lo que se repite en tus llamadas</span>
+        </Link>
       </div>
       <p className="text-xs text-fg3 rounded-xl border border-separator1 px-3 py-2">
         Cuando tengas tu primera llamada real, conecta Fathom o súbela y se
@@ -437,34 +416,21 @@ function ConfiguredC({
         onSaveGoal={saveGoal}
       />
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
-      <div className="space-y-4">
-        <SectionHeading>Qué hacer</SectionHeading>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <HomeCard
-            href="/llamadas"
-            icon={<Phone className="h-5 w-5" />}
-            title="Analizar"
-            status={desk?.analyzeStatus || "Todo al día"}
-          />
-          <HomeCard
+      <div>
+        <h2 className="text-sm text-fg3">Qué hacer</h2>
+        <div className="mt-1 divide-y divide-separator1 border-t border-separator1">
+          <HomeRow href="/llamadas" title="Analizar" status={desk?.analyzeStatus || "Todo al día"} />
+          <HomeRow
             href={desk?.practiceHref || "/practicar"}
-            icon={<Mic className="h-5 w-5" />}
             title="Práctica"
             status={desk?.practiceStatus || "Elige con quién practicar"}
           />
-          <HomeCard
+          <HomeRow
             href="/crm#seguimientos"
-            icon={<ClipboardList className="h-5 w-5" />}
             title="Seguimientos"
             status={desk?.followupStatus || "Todo al día"}
-            attention={Boolean(desk?.followupStatus && desk.followupStatus !== "Todo al día")}
           />
-          <HomeCard
-            href="/coach"
-            icon={<Sparkles className="h-5 w-5" />}
-            title="Coach"
-            status={desk?.coachStatus || "Sin novedades"}
-          />
+          <HomeRow href="/coach" title="Coach" status={desk?.coachStatus || "Sin novedades"} />
         </div>
       </div>
       <HubChat variant="dock" initialSnapshot={snapshot} />
@@ -472,31 +438,11 @@ function ConfiguredC({
   );
 }
 
-function HomeCard({
-  href,
-  icon,
-  title,
-  status,
-  attention,
-}: {
-  href: string;
-  icon: ReactNode;
-  title: string;
-  status: string;
-  attention?: boolean;
-}) {
+function HomeRow({ href, title, status }: { href: string; title: string; status: string }) {
   return (
-    <Link
-      href={href}
-      className="flex min-h-[120px] flex-col justify-between rounded-2xl border border-separator1 bg-bg1 px-5 py-5 text-left"
-    >
-      <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-fg3">
-        {icon}
-        {title}
-      </span>
-      <span className={`font-heading text-xl font-bold leading-tight ${attention ? "text-tone-attention" : "text-fg0"}`}>
-        {status}
-      </span>
+    <Link href={href} className="flex items-baseline justify-between gap-4 py-4">
+      <span className="text-fg0">{title}</span>
+      <span className="text-right text-sm text-fg3">{status}</span>
     </Link>
   );
 }

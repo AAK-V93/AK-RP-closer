@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { HelpNote, MetricCard, SectionHeading } from "@/components/metric-card";
+import { HelpNote } from "@/components/metric-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { moneyLabel } from "@/lib/crm-operacion";
@@ -36,11 +36,8 @@ export function ProjectionCard({
 
   if (needsGoal && onSaveGoal) {
     return (
-      <section className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-          Meta de comisión
-        </p>
-        <h2 className="text-lg font-light">¿Cuánto quieres ganar de comisión este mes?</h2>
+      <section className="space-y-4">
+        <h2 className="font-display text-3xl text-fg0">¿Cuánto quieres ganar de comisión este mes?</h2>
         <form onSubmit={submitGoal} className="flex flex-wrap gap-2 items-end">
           <div className="space-y-1">
             <Input
@@ -64,23 +61,21 @@ export function ProjectionCard({
 
   const money = (value: number) => moneyLabel(value, currency);
 
+  const covered = projection.falta <= 0;
+
   return (
-    <section className="space-y-4">
-      <SectionHeading>Proyección del mes</SectionHeading>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <MetricCard label="Meta" value={money(projection.metaUsd)} tone="brand" />
-        <MetricCard label="Ya asegurado" value={money(Math.round(projection.asegurada))} tone="brand" />
-        <MetricCard
-          label="Falta"
-          value={money(Math.round(projection.falta))}
-          tone={projection.falta > 0 ? "attention" : "muted"}
-        />
+    <section className="space-y-6">
+      <div className="rounded-2xl bg-bg1 px-6 py-8">
+        <p className="text-sm text-fg3">Falta para la meta</p>
+        <p className={`font-display mt-2 text-6xl leading-none ${covered ? "text-tone-money" : "text-tone-attention"}`}>
+          {money(Math.round(projection.falta))}
+        </p>
+        <p className="mt-4 text-sm text-fg3">
+          Meta {money(projection.metaUsd)}. Ya asegurado {money(Math.round(projection.asegurada))}.
+        </p>
       </div>
-      <p className="text-sm text-fg1">{projection.todayAction}</p>
-      <p className="text-sm text-fg3">
-        Asegurado = comisión pendiente + saldos por cobrar.
-        {projection.assumedRatesLabel ? ` ${projection.assumedRatesLabel}` : ""}
-      </p>
+      {projection.todayAction && <p className="text-base text-fg0">{projection.todayAction}</p>}
+      {projection.assumedRatesLabel && <p className="text-sm text-fg3">{projection.assumedRatesLabel}</p>}
       <HelpNote>
         <p>Ya asegurado es la comisión de lo que falta cobrar más la comisión de los saldos que el cliente todavía debe.</p>
         <p>Falta es la meta del mes menos eso. Si todavía hay pocas llamadas reales, las tasas de show y cierre son un supuesto y se dice en la línea de arriba.</p>

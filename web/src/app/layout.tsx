@@ -1,21 +1,21 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
-import { Lora, Poppins } from "next/font/google";
+import { Fraunces, Public_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthSessionProvider } from "@/components/auth-session-provider";
 
-const poppins = Poppins({
+const fraunces = Fraunces({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-poppins",
+  weight: ["500", "600", "700"],
+  variable: "--font-fraunces",
   display: "swap",
 });
 
-const lora = Lora({
+const publicSans = Public_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-lora",
+  variable: "--font-public",
   display: "swap",
 });
 
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#141413",
+  themeColor: "#F2ECE1",
 };
 
 export default function RootLayout({
@@ -43,8 +43,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className={`${poppins.variable} ${lora.variable}`}>
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+      <body className={`${fraunces.variable} ${publicSans.variable}`}>
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           <AuthSessionProvider>
             {children}
             <Toaster />

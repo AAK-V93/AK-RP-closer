@@ -18,10 +18,8 @@ export function CycleIntro() {
   }, []);
 
   return (
-    <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4 overflow-hidden">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-        El ciclo
-      </p>
+    <div className="space-y-4 overflow-hidden">
+      <p className="text-sm text-fg3">El ciclo</p>
       <div className="flex gap-2">
         {STEPS.map((step, idx) => (
           <div
@@ -43,13 +41,11 @@ export function CycleIntro() {
           transition={{ duration: 0.28 }}
           className="min-h-[72px]"
         >
-          <p className="text-2xl font-light">{STEPS[i].k}</p>
+          <p className="font-display text-3xl text-fg0">{STEPS[i].k}</p>
           <p className="text-sm text-fg3 mt-1">{STEPS[i].t}</p>
         </motion.div>
       </AnimatePresence>
-      <p className="text-[11px] text-fg3">
-        {STEPS.map((s) => s.k).join(" → ")}
-      </p>
+      <p className="text-sm text-fg3">Llamadas, voz, coach, CRM.</p>
     </div>
   );
 }

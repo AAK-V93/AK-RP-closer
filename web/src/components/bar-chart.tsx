@@ -79,7 +79,7 @@ export function BarChart({
           })}
         </svg>
       )}
-      <div className="flex flex-wrap gap-4 text-[11px] uppercase tracking-widest text-fg3">
+      <div className="flex flex-wrap gap-4 text-sm text-fg3">
         {series.map((item) => (
           <span key={item.label} className="inline-flex items-center gap-2">
             <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: FILL[item.tone] }} />

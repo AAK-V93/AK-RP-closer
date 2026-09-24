@@ -98,7 +98,7 @@ test("today action prefers open DECISION followups", () => {
       { tipo: "RETOMAR", enJuego: 5000, cliente: "Paz" },
     ],
   });
-  assert.equal(out.todayAction, "cierra 1 de tus 3 seguimientos en DECISION");
+  assert.equal(out.todayAction, "Cierra 1 de tus 3 seguimientos de decisión");
 });
 
 test("parseMonthlyGoalUsd reads mil and grouped thousands", () => {

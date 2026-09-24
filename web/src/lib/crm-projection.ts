@@ -137,7 +137,7 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
         ? "Cobra lo pendiente: ya cubres la meta."
         : "Ya cubres la meta de este mes.";
   } else if (decision.length > 0) {
-    todayAction = `cierra 1 de tus ${decision.length} seguimientos en DECISION`;
+    todayAction = `Cierra 1 de tus ${decision.length} seguimientos de decisión`;
   } else if (pct <= 0) {
     todayAction = "Define tu comisión en la oferta para calcular agendas/día.";
   } else {
@@ -160,7 +160,7 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
       : "- No hay comisión asegurada todavía.",
     falta <= 0
       ? "- Ya la tienes: solo cobra lo pendiente."
-      : `- Te faltan USD ${Math.round(falta)} → ${cierres} cierres → ${shows} shows → ${agendas} agendas.`,
+      : `- Te faltan USD ${Math.round(falta)}: ${cierres} cierres, ${shows} shows, ${agendas} agendas.`,
     todayAction ? `- Hoy: ${todayAction}.` : "",
     assumedRatesLabel ? `- ${assumedRatesLabel}` : "",
   ].filter(Boolean);

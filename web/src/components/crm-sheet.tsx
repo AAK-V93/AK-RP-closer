@@ -66,7 +66,7 @@ export function SheetTable<T>({
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="border border-separator1 bg-bg2 px-2 text-[11px] font-semibold uppercase tracking-wide text-fg3"
+                  className="border-b border-separator1 bg-bg1 px-2 text-sm text-fg3"
                   style={{
                     height: SHEET_ROW_PX,
                     textAlign: col.align || "left",
