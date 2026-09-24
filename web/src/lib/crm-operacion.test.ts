@@ -30,7 +30,7 @@ test("operacion row prefers indexed money and ungated filing notes", () => {
         venta_total: 1,
       },
     },
-    { razonNoCierre: "", etapaPerdida: "" },
+    { razonNoCierre: "" },
   );
   assert.equal(row.cliente, "Ana Pérez");
   assert.equal(row.oferta, "Mentoría");
@@ -41,7 +41,6 @@ test("operacion row prefers indexed money and ungated filing notes", () => {
   assert.equal(row.tipoSeguimiento, "PAGO PENDIENTE");
   assert.equal(row.fechaProximo, "2026-09-15");
   assert.match(row.notas, /reserva/);
-  assert.equal(row.calificado, "SI");
   assert.equal(row.canal, "ZOOM");
 });
 

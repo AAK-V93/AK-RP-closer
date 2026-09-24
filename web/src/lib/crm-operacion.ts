@@ -17,9 +17,7 @@ export type OperacionRow = {
   requiereSeguimiento: string;
   tipoSeguimiento: string;
   acuerdo: string;
-  calificado: string;
   razonNoCierre: string;
-  etapaPerdida: string;
   filingStatus: string;
 };
 
@@ -42,12 +40,6 @@ function asSiNo(value: unknown) {
     return "SI";
   }
   if (value === false || String(value).toLowerCase() === "no") return "NO";
-  return "";
-}
-
-function asCalificado(value: unknown) {
-  if (value === true) return "SI";
-  if (value === false) return "NO";
   return "";
 }
 
@@ -79,9 +71,7 @@ export type OperacionLead = {
   telefono?: string | null;
   email?: string | null;
   canalContacto?: string | null;
-  calificado?: boolean | null;
   razonNoCierre?: string | null;
-  etapaPerdida?: string | null;
 };
 
 export function operacionFromCall(
@@ -113,9 +103,7 @@ export function operacionFromCall(
     requiereSeguimiento: requiere,
     tipoSeguimiento: asStr(filing.tipo_seguimiento).toUpperCase(),
     acuerdo: asStr(filing.acuerdo_seguimiento),
-    calificado: asCalificado(filing.calificado ?? lead?.calificado),
     razonNoCierre: asStr(filing.razon_no_cierre) || asStr(lead?.razonNoCierre),
-    etapaPerdida: asStr(filing.etapa_perdida) || asStr(lead?.etapaPerdida),
     filingStatus: asStr(call.filingStatus) || "confirmed",
   };
 }

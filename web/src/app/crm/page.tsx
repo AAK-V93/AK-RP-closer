@@ -8,8 +8,19 @@ import { Button } from "@/components/ui/button";
 import { FollowupPicker, type FollowupOptionView } from "@/components/followup-picker";
 import { ProjectionCard } from "@/components/projection-card";
 import { SheetTable, sheetCell, type SheetColumn } from "@/components/crm-sheet";
+import { Input } from "@/components/ui/input";
 import type { OperacionRow } from "@/lib/crm-operacion";
 import { moneyLabel, pctLabel } from "@/lib/crm-operacion";
+import {
+  EMPTY_CRM_FILTER,
+  matchesCrmListFilter,
+  monthKey,
+  monthLabel,
+  uniqueSorted,
+  weekKey,
+  weekLabel,
+  type CrmListFilter,
+} from "@/lib/crm-filters";
 import type { CommissionProjection } from "@/lib/crm-projection";
 
 type ModuleId =
@@ -92,7 +103,7 @@ type Dash = {
     porOferta: { oferta: string; cierres: number; ventas: number; cash: number }[];
     embudo: { agendas: number; shows: number; cierres: number };
     razonNoCierre: { razon: string; count: number }[];
-    etapaPerdida: { etapa: string; count: number }[];
+    etapaPerdida?: { etapa: string; count: number }[];
   };
   evolucion?: {
     mes: string;
@@ -129,6 +140,7 @@ export default function CrmPage() {
   const { status } = useSession();
   const [data, setData] = useState<Dash | null>(null);
   const [offer, setOffer] = useState("todas");
+  const [listFilter, setListFilter] = useState<CrmListFilter>(EMPTY_CRM_FILTER);
   const [module, setModule] = useState<ModuleId>("operacion");
   const [openAlert, setOpenAlert] = useState<string | null>(null);
   const [openCall, setOpenCall] = useState<string | null>(null);
@@ -211,18 +223,70 @@ export default function CrmPage() {
     "USD";
   const money = (value: number | null | undefined) => moneyLabel(value, currency);
 
-  const operacion = useMemo(
+  const operacionBase = useMemo(
     () => (data?.operacion || []).filter((row) => matchesOffer(row.oferta || row.producto, offer)),
     [data?.operacion, offer],
   );
-  const followups = useMemo(
+  const followupsBase = useMemo(
     () => (data?.followups || []).filter((row) => matchesOffer(row.oferta || "", offer)),
     [data?.followups, offer],
   );
-  const commissions = useMemo(
+  const commissionsBase = useMemo(
     () => (data?.commissions || []).filter((row) => matchesOffer(row.oferta || "", offer)),
     [data?.commissions, offer],
   );
+  const listRows = useMemo(() => {
+    if (module === "seguimientos") {
+      return followupsBase.map((row) => ({
+        name: row.cliente,
+        date: row.dueAt,
+        estado: row.hilo || row.tipo,
+      }));
+    }
+    if (module === "comisiones") {
+      return commissionsBase.map((row) => ({
+        name: row.cliente || "",
+        date: row.fecha,
+        estado: row.estado,
+      }));
+    }
+    return operacionBase.map((row) => ({
+      name: row.cliente,
+      date: row.fecha,
+      estado: row.estadoAgenda,
+    }));
+  }, [module, operacionBase, followupsBase, commissionsBase]);
+  const operacion = useMemo(
+    () =>
+      operacionBase.filter((row) =>
+        matchesCrmListFilter(
+          { name: row.cliente, date: row.fecha, estado: row.estadoAgenda },
+          listFilter,
+        ),
+      ),
+    [operacionBase, listFilter],
+  );
+  const followups = useMemo(
+    () =>
+      followupsBase.filter((row) =>
+        matchesCrmListFilter(
+          { name: row.cliente, date: row.dueAt, estado: row.hilo || row.tipo },
+          listFilter,
+        ),
+      ),
+    [followupsBase, listFilter],
+  );
+  const commissions = useMemo(
+    () =>
+      commissionsBase.filter((row) =>
+        matchesCrmListFilter(
+          { name: row.cliente || "", date: row.fecha, estado: row.estado },
+          listFilter,
+        ),
+      ),
+    [commissionsBase, listFilter],
+  );
+  const showListFilters = module === "operacion" || module === "seguimientos" || module === "comisiones";
 
   const now = data?.now || {};
   const rendimiento = data?.rendimiento;
@@ -294,6 +358,21 @@ export default function CrmPage() {
               ))}
             </div>
 
+            {showListFilters && (
+              <CrmListFilters
+                rows={listRows}
+                filter={listFilter}
+                shown={
+                  module === "seguimientos"
+                    ? followups.length
+                    : module === "comisiones"
+                      ? commissions.length
+                      : operacion.length
+                }
+                onChange={setListFilter}
+              />
+            )}
+
             {module === "ahora" && (
               <AhoraSheet
                 now={now}
@@ -323,6 +402,11 @@ export default function CrmPage() {
                 selectedId={openCall}
                 onSelect={(id) => setOpenCall(openCall === id ? null : id)}
                 selected={selectedCall}
+                empty={
+                  operacionBase.length > 0 && operacion.length === 0
+                    ? "Nada con estos filtros."
+                    : "Aún no hay llamadas en esta oferta."
+                }
               />
             )}
             {module === "dashboard" && <DashboardSheet data={data} money={money} />}
@@ -334,6 +418,11 @@ export default function CrmPage() {
                 onSelect={(id) => setOpenAlert(openAlert === id ? null : id)}
                 onPick={pickScript}
                 onPatch={patch}
+                empty={
+                  followupsBase.length > 0 && followups.length === 0
+                    ? "Nada con estos filtros."
+                    : "No hay seguimientos abiertos."
+                }
               />
             )}
             {module === "comisiones" && (
@@ -342,12 +431,112 @@ export default function CrmPage() {
                 resumen={data.comisionResumen}
                 money={money}
                 onPaid={markCommission}
+                empty={
+                  commissionsBase.length > 0 && commissions.length === 0
+                    ? "Nada con estos filtros."
+                    : "Todavía no hay cash cobrado en llamadas."
+                }
               />
             )}
           </>
         )}
       </div>
     </AppShell>
+  );
+}
+
+function CrmListFilters({
+  rows,
+  filter,
+  shown,
+  onChange,
+}: {
+  rows: { name: string; date: string | null | undefined; estado: string }[];
+  filter: CrmListFilter;
+  shown: number;
+  onChange: (next: CrmListFilter) => void;
+}) {
+  const months = uniqueSorted(rows.map((row) => monthKey(row.date))).reverse();
+  const weeks = uniqueSorted(
+    rows
+      .filter((row) => !filter.month || monthKey(row.date) === filter.month)
+      .map((row) => weekKey(row.date)),
+  ).reverse();
+  const estados = uniqueSorted(rows.map((row) => row.estado));
+  const active = Boolean(filter.q || filter.estado || filter.month || filter.week);
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <label className="space-y-1">
+        <span className="block text-[11px] uppercase tracking-wide text-fg3">Nombre</span>
+        <Input
+          value={filter.q}
+          placeholder="Buscar"
+          className="h-8 w-44"
+          onChange={(event) => onChange({ ...filter, q: event.target.value })}
+        />
+      </label>
+      <FilterSelect
+        label="Estado"
+        value={filter.estado}
+        allLabel="Todos"
+        options={estados.map((value) => ({ value, label: value }))}
+        onChange={(estado) => onChange({ ...filter, estado })}
+      />
+      <FilterSelect
+        label="Mes"
+        value={filter.month}
+        allLabel="Todos"
+        options={months.map((value) => ({ value, label: monthLabel(value) }))}
+        onChange={(month) => onChange({ ...filter, month, week: "" })}
+      />
+      <FilterSelect
+        label="Semana"
+        value={weeks.includes(filter.week) ? filter.week : ""}
+        allLabel="Todas"
+        options={weeks.map((value) => ({ value, label: weekLabel(value) }))}
+        onChange={(week) => onChange({ ...filter, week })}
+      />
+      <p className="pb-1.5 text-xs text-fg3">
+        {shown} de {rows.length}
+      </p>
+      {active && (
+        <Button size="sm" variant="ghost" onClick={() => onChange(EMPTY_CRM_FILTER)}>
+          Quitar filtros
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  allLabel,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  allLabel: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="space-y-1">
+      <span className="block text-[11px] uppercase tracking-wide text-fg3">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 rounded border border-separator2 bg-bg1 px-2 text-sm text-fg2"
+      >
+        <option value="">{allLabel}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -445,12 +634,14 @@ function OperacionSheet({
   selectedId,
   onSelect,
   selected,
+  empty = "Aún no hay llamadas en esta oferta.",
 }: {
   rows: OperacionRow[];
   money: (value: number | null | undefined) => string;
   selectedId: string | null;
   onSelect: (id: string) => void;
   selected: OperacionRow | null;
+  empty?: string;
 }) {
   const columns: SheetColumn<OperacionRow>[] = [
     { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha },
@@ -466,9 +657,7 @@ function OperacionSheet({
     { key: "req", label: "Req. seg.", width: 70, value: (row) => row.requiereSeguimiento },
     { key: "tipo", label: "Tipo seg.", width: 100, value: (row) => row.tipoSeguimiento },
     { key: "acuerdo", label: "Acuerdo", width: 140, value: (row) => row.acuerdo },
-    { key: "cal", label: "Calificado", width: 80, value: (row) => row.calificado },
     { key: "razon", label: "Razón no cierre", width: 140, value: (row) => row.razonNoCierre },
-    { key: "etapa", label: "Etapa pérdida", width: 100, value: (row) => row.etapaPerdida },
     { key: "notas", label: "Notas", width: 160, value: (row) => row.notas },
   ];
   return (
@@ -479,7 +668,7 @@ function OperacionSheet({
         getId={(row) => row.id}
         selectedId={selectedId}
         onRowClick={(row) => onSelect(row.id)}
-        empty="Aún no hay llamadas en esta oferta."
+        empty={empty}
       />
       {selected && (
         <div className="border border-separator1 bg-bg1 p-3 text-sm space-y-1">
@@ -501,9 +690,7 @@ function OperacionSheet({
               ["Req. seguimiento", selected.requiereSeguimiento],
               ["Tipo", selected.tipoSeguimiento],
               ["Acuerdo", selected.acuerdo],
-              ["Calificado", selected.calificado],
               ["Razón no cierre", selected.razonNoCierre],
-              ["Etapa pérdida", selected.etapaPerdida],
               ["Notas", selected.notas],
             ] as [string, string][]
           ).map(([label, value]) => (
@@ -531,7 +718,6 @@ function DashboardSheet({
     { id: "agendas", metrica: "Agendas del período", valor: String(mes?.agendas || 0) },
     { id: "shows", metrica: "Shows", valor: String(mes?.shows || 0) },
     { id: "close", metrica: "Close rate s/ shows", valor: pctLabel(mes?.closeRate) },
-    { id: "cal", metrica: "Close rate calificado", valor: pctLabel(mes?.closeRateCalificado) },
     { id: "ticket", metrica: "Ticket promedio", valor: money(mes?.ticket) },
     { id: "ventas", metrica: "Ventas", valor: money(mes?.ventas) },
     { id: "cash", metrica: "Cash", valor: money(mes?.cash) },
@@ -575,26 +761,15 @@ function DashboardSheet({
         getId={(row) => row.oferta}
         empty="Sin desglose por oferta."
       />
-      <div className="grid md:grid-cols-2 gap-4">
-        <SheetTable
-          columns={[
-            { key: "razon", label: "Razón de no cierre", width: 220, value: (row) => row.razon },
-            { key: "count", label: "N", width: 60, align: "right", value: (row) => row.count },
-          ]}
-          rows={data.desglose?.razonNoCierre || []}
-          getId={(row) => `${row.razon}-${row.count}`}
-          empty="Sin datos aún."
-        />
-        <SheetTable
-          columns={[
-            { key: "etapa", label: "Etapa pérdida", width: 220, value: (row) => row.etapa },
-            { key: "count", label: "N", width: 60, align: "right", value: (row) => row.count },
-          ]}
-          rows={data.desglose?.etapaPerdida || []}
-          getId={(row) => `${row.etapa}-${row.count}`}
-          empty="Sin datos aún."
-        />
-      </div>
+      <SheetTable
+        columns={[
+          { key: "razon", label: "Razón de no cierre", width: 220, value: (row) => row.razon },
+          { key: "count", label: "N", width: 60, align: "right", value: (row) => row.count },
+        ]}
+        rows={data.desglose?.razonNoCierre || []}
+        getId={(row) => `${row.razon}-${row.count}`}
+        empty="Sin datos aún."
+      />
       <SheetTable
         columns={[
           { key: "mes", label: "Mes", width: 90, value: (row) => row.mes },
@@ -619,6 +794,7 @@ function SeguimientosSheet({
   onSelect,
   onPick,
   onPatch,
+  empty = "No hay seguimientos abiertos.",
 }: {
   rows: Followup[];
   money: (value: number | null | undefined) => string;
@@ -626,6 +802,7 @@ function SeguimientosSheet({
   onSelect: (id: string) => void;
   onPick: (alertId: string, optionId: string) => Promise<void>;
   onPatch: (alertId: string, resultado: string, agenda?: boolean) => Promise<void>;
+  empty?: string;
 }) {
   return (
     <div className="space-y-2">
@@ -643,7 +820,7 @@ function SeguimientosSheet({
         getId={(row) => row.id}
         selectedId={selected?.id || null}
         onRowClick={(row) => onSelect(row.id)}
-        empty="No hay seguimientos abiertos."
+        empty={empty}
       />
       {selected && (
         <div className="border border-separator1 bg-bg1 p-3 space-y-3">
@@ -718,11 +895,13 @@ function ComisionesSheet({
   resumen,
   money,
   onPaid,
+  empty = "Todavía no hay cash cobrado en llamadas.",
 }: {
   rows: Commission[];
   resumen?: Dash["comisionResumen"];
   money: (value: number | null | undefined) => string;
   onPaid: (id: string) => Promise<void>;
+  empty?: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const selected = rows.find((row) => row.id === openId) || null;
@@ -751,7 +930,7 @@ function ComisionesSheet({
         getId={(row) => row.id}
         selectedId={openId}
         onRowClick={(row) => setOpenId(openId === row.id ? null : row.id)}
-        empty="Todavía no hay cash cobrado en llamadas."
+        empty={empty}
       />
       {selected && selected.estado !== "COBRADA" && (
         <div className="border border-separator1 bg-bg1 p-3">
