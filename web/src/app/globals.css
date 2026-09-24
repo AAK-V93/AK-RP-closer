@@ -69,6 +69,8 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-tone-attention: var(--tone-attention);
+  --color-tone-money: var(--tone-money);
   
   /* Border radius */
   --radius-sm: calc(var(--radius) - 4px);
@@ -135,6 +137,8 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
   --fg-accent-primary: #002CF2;
+  --tone-attention: #C2410C;
+  --tone-money: #15803D;
   
   /* LiveKit-specific variables */
   --lk-va-bar-width: 2px;
@@ -194,6 +198,8 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
   --fg-accent-primary: #1FD5F9;
+  --tone-attention: #FB923C;
+  --tone-money: #4ADE80;
 }
 
 @layer base {

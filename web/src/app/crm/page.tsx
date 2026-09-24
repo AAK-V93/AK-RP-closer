@@ -6,6 +6,8 @@ import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { FollowupPicker, type FollowupOptionView } from "@/components/followup-picker";
+import { BarChart } from "@/components/bar-chart";
+import { HelpNote, MetricCard, SectionHeading } from "@/components/metric-card";
 import { ProjectionCard } from "@/components/projection-card";
 import { SheetTable, sheetCell, type SheetColumn } from "@/components/crm-sheet";
 import { Input } from "@/components/ui/input";
@@ -22,6 +24,7 @@ import {
   type CrmListFilter,
 } from "@/lib/crm-filters";
 import type { CommissionProjection } from "@/lib/crm-projection";
+import { plainStatus } from "@/lib/plain-labels";
 
 type ModuleId =
   | "ahora"
@@ -382,6 +385,12 @@ export default function CrmPage() {
                 saving={savingGoal}
                 onSaveGoal={saveGoal}
                 currency={currency}
+                rendimiento={rendimiento}
+                offerNote={
+                  offer !== "todas"
+                    ? `Las tasas de abajo son de todas las ofertas. Operación, seguimientos y comisiones sí están filtradas a ${offer}.`
+                    : null
+                }
               />
             )}
             {module === "periodo" && rendimiento && (
@@ -479,7 +488,7 @@ function CrmListFilters({
         label="Estado"
         value={filter.estado}
         allLabel="Todos"
-        options={estados.map((value) => ({ value, label: value }))}
+        options={estados.map((value) => ({ value, label: plainStatus(value) }))}
         onChange={(estado) => onChange({ ...filter, estado })}
       />
       <FilterSelect
@@ -548,6 +557,8 @@ function AhoraSheet({
   saving,
   onSaveGoal,
   currency,
+  rendimiento,
+  offerNote,
 }: {
   now: Record<string, number>;
   money: (value: number | null | undefined) => string;
@@ -556,22 +567,12 @@ function AhoraSheet({
   saving: boolean;
   onSaveGoal: (usd: number) => Promise<void>;
   currency: string;
+  rendimiento?: { mes: Period; anterior: Period; acumulado: Period };
+  offerNote?: string | null;
 }) {
-  const rows = [
-    {
-      id: "hoy",
-      metrica: "Pendientes de hoy",
-      valor: String((now.seguimientosHoy || 0) + (now.seguimientosVencidos || 0)),
-    },
-    { id: "agendas-hoy", metrica: "Agendas de hoy", valor: String(now.agendasHoy || 0) },
-    { id: "juego", metrica: "Dinero en juego", valor: money(now.dineroEnJuego) },
-    { id: "cash", metrica: "Cash pendiente", valor: money(now.cashPendiente) },
-    { id: "comision", metrica: "Comisión pendiente", valor: money(now.comisionPendiente) },
-    { id: "oportunidades", metrica: "Oportunidades activas", valor: String(now.oportunidadesActivas || 0) },
-    { id: "futuras", metrica: "Agendas futuras", valor: String(now.agendasFuturas || 0) },
-  ];
+  const pending = (now.seguimientosHoy || 0) + (now.seguimientosVencidos || 0);
   return (
-    <div className="space-y-3">
+    <div className="space-y-8">
       <ProjectionCard
         projection={projection}
         needsGoal={needsGoal}
@@ -579,15 +580,43 @@ function AhoraSheet({
         onSaveGoal={onSaveGoal}
         currency={currency}
       />
-      <SheetTable
-        columns={[
-          { key: "metrica", label: "Métrica", width: 220, value: (row) => row.metrica },
-          { key: "valor", label: "Valor", width: 160, align: "right", value: (row) => row.valor },
-        ]}
-        rows={rows}
-        getId={(row) => row.id}
-        empty="Sin métricas."
-      />
+      <div className="space-y-4">
+        <SectionHeading>Ahora mismo</SectionHeading>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard
+            label="Pendientes de hoy"
+            value={String(pending)}
+            tone={pending > 0 ? "attention" : "muted"}
+          />
+          <MetricCard label="Agendas de hoy" value={String(now.agendasHoy || 0)} tone="brand" />
+          <MetricCard
+            label="Dinero en juego"
+            value={money(now.dineroEnJuego)}
+            tone={(now.dineroEnJuego || 0) > 0 ? "attention" : "muted"}
+          />
+          <MetricCard
+            label="Cash pendiente de cobro"
+            value={money(now.cashPendiente)}
+            tone={(now.cashPendiente || 0) > 0 ? "attention" : "muted"}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <MetricCard label="Comisión pendiente" value={money(now.comisionPendiente)} tone="brand" />
+          <MetricCard label="Oportunidades activas" value={String(now.oportunidadesActivas || 0)} tone="brand" />
+          <MetricCard label="Agendas futuras" value={String(now.agendasFuturas || 0)} tone="brand" />
+        </div>
+        <HelpNote>
+          <p>Pendientes de hoy son los seguimientos que toca hacer hoy, también los que ya debían salir.</p>
+          <p>Dinero en juego es lo que todavía puedes cerrar o cobrar en esos seguimientos. Cash pendiente es lo ya acordado que aún no entró.</p>
+          <p>Comisión pendiente es tu parte de ese cash. Agendas de hoy y futuras son llamadas en el calendario, no seguimientos escritos.</p>
+        </HelpNote>
+      </div>
+      {rendimiento && (
+        <div className="space-y-4">
+          <SectionHeading>Rendimiento</SectionHeading>
+          <PeriodoSheet rendimiento={rendimiento} money={money} offerNote={offerNote || null} />
+        </div>
+      )}
     </div>
   );
 }
@@ -648,7 +677,7 @@ function OperacionSheet({
     { key: "cliente", label: "Cliente", width: 160, value: (row) => row.cliente },
     { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
     { key: "canal", label: "Canal", width: 80, value: (row) => row.canal },
-    { key: "estado", label: "Estado", width: 100, value: (row) => row.estadoAgenda },
+    { key: "estado", label: "Estado", width: 120, value: (row) => plainStatus(row.estadoAgenda) },
     { key: "prox", label: "Próx. seg.", width: 90, value: (row) => row.fechaProximo },
     { key: "producto", label: "Producto", width: 140, value: (row) => row.producto || row.oferta },
     { key: "venta", label: "Venta", width: 90, align: "right", value: (row) => money(row.venta) },
@@ -680,7 +709,7 @@ function OperacionSheet({
               ["Teléfono", selected.telefono],
               ["Email", selected.email],
               ["Canal", selected.canal],
-              ["Estado", selected.estadoAgenda],
+              ["Estado", plainStatus(selected.estadoAgenda)],
               ["Próximo seguimiento", selected.fechaProximo],
               ["Producto", selected.producto || selected.oferta],
               ["Venta", money(selected.venta)],
@@ -688,7 +717,7 @@ function OperacionSheet({
               ["Cash", money(selected.cash)],
               ["Saldo", money(selected.saldo)],
               ["Req. seguimiento", selected.requiereSeguimiento],
-              ["Tipo", selected.tipoSeguimiento],
+              ["Tipo", plainStatus(selected.tipoSeguimiento)],
               ["Acuerdo", selected.acuerdo],
               ["Razón no cierre", selected.razonNoCierre],
               ["Notas", selected.notas],
@@ -713,76 +742,89 @@ function DashboardSheet({
   money: (value: number | null | undefined) => string;
 }) {
   const mes = data.rendimiento?.mes;
-  const funnel = data.desglose?.embudo;
-  const kpis = [
-    { id: "agendas", metrica: "Agendas del período", valor: String(mes?.agendas || 0) },
-    { id: "shows", metrica: "Shows", valor: String(mes?.shows || 0) },
-    { id: "close", metrica: "Close rate s/ shows", valor: pctLabel(mes?.closeRate) },
-    { id: "ticket", metrica: "Ticket promedio", valor: money(mes?.ticket) },
-    { id: "ventas", metrica: "Ventas", valor: money(mes?.ventas) },
-    { id: "cash", metrica: "Cash", valor: money(mes?.cash) },
-    { id: "cashpct", metrica: "% cash cobrado", valor: pctLabel(mes?.cashPct) },
-    { id: "cgen", metrica: "Comisión gen.", valor: money(data.comisionResumen?.generada) },
-    { id: "ccob", metrica: "Comisión cobrada", valor: money(data.comisionResumen?.cobrada) },
-    { id: "cpct", metrica: "% comisión cobrada", valor: pctLabel(data.comisionResumen?.pctCobrado) },
-    { id: "pipe", metrica: "Pipeline 7 días", valor: String(data.now?.agendasFuturas || 0) },
-  ];
-  const funnelRows = [
-    { id: "a", etapa: "Agendas", valor: String(funnel?.agendas || 0) },
-    { id: "s", etapa: "Shows", valor: String(funnel?.shows || 0) },
-    { id: "c", etapa: "Cierres", valor: String(funnel?.cierres || 0) },
-  ];
+  const series = data.evolucion || [];
   return (
-    <div className="space-y-4">
-      <SheetTable
-        columns={[
-          { key: "metrica", label: "Métrica", width: 220, value: (row) => row.metrica },
-          { key: "valor", label: "Valor", width: 160, align: "right", value: (row) => row.valor },
-        ]}
-        rows={kpis}
-        getId={(row) => row.id}
-      />
-      <SheetTable
-        columns={[
-          { key: "etapa", label: "Embudo", width: 140, value: (row) => row.etapa },
-          { key: "valor", label: "Cantidad", width: 90, align: "right", value: (row) => row.valor },
-        ]}
-        rows={funnelRows}
-        getId={(row) => row.id}
-      />
-      <SheetTable
-        columns={[
-          { key: "oferta", label: "Oferta", width: 180, value: (row) => row.oferta },
-          { key: "cierres", label: "Cierres", width: 80, align: "right", value: (row) => row.cierres },
-          { key: "ventas", label: "Ventas", width: 110, align: "right", value: (row) => money(row.ventas) },
-          { key: "cash", label: "Cash", width: 110, align: "right", value: (row) => money(row.cash) },
-        ]}
-        rows={data.desglose?.porOferta || []}
-        getId={(row) => row.oferta}
-        empty="Sin desglose por oferta."
-      />
-      <SheetTable
-        columns={[
-          { key: "razon", label: "Razón de no cierre", width: 220, value: (row) => row.razon },
-          { key: "count", label: "N", width: 60, align: "right", value: (row) => row.count },
-        ]}
-        rows={data.desglose?.razonNoCierre || []}
-        getId={(row) => `${row.razon}-${row.count}`}
-        empty="Sin datos aún."
-      />
-      <SheetTable
-        columns={[
-          { key: "mes", label: "Mes", width: 90, value: (row) => row.mes },
-          { key: "agendas", label: "Agendas", width: 80, align: "right", value: (row) => row.agendas },
-          { key: "shows", label: "Shows", width: 80, align: "right", value: (row) => row.shows },
-          { key: "cierres", label: "Cierres", width: 80, align: "right", value: (row) => row.cierres },
-          { key: "ventas", label: "Ventas", width: 110, align: "right", value: (row) => money(row.ventas) },
-          { key: "cash", label: "Cash", width: 110, align: "right", value: (row) => money(row.cash) },
-        ]}
-        rows={data.evolucion || []}
-        getId={(row) => row.mes}
-        empty="Sin evolución aún."
-      />
+    <div className="space-y-8">
+      <div className="space-y-4">
+        <SectionHeading>Actividad</SectionHeading>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <MetricCard label="Agendas del mes" value={String(mes?.agendas || 0)} tone="brand" />
+          <MetricCard label="Shows" value={String(mes?.shows || 0)} tone="money" />
+        </div>
+      </div>
+      <div className="space-y-4">
+        <SectionHeading>Conversión</SectionHeading>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <MetricCard label="Close rate" value={pctLabel(mes?.closeRate)} tone="brand" />
+          <MetricCard label="Show rate" value={pctLabel(mes?.showRate)} tone="brand" />
+          <MetricCard label="Ticket promedio" value={money(mes?.ticket)} tone="money" />
+        </div>
+      </div>
+      <div className="space-y-4">
+        <SectionHeading>Dinero y comisiones</SectionHeading>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Ventas" value={money(mes?.ventas)} tone="money" />
+          <MetricCard label="Cash cobrado" value={money(mes?.cash)} tone="money" />
+          <MetricCard label="Comisión generada" value={money(data.comisionResumen?.generada)} tone="brand" />
+          <MetricCard label="Comisión cobrada" value={money(data.comisionResumen?.cobrada)} tone="money" />
+        </div>
+      </div>
+      <div className="space-y-4">
+        <SectionHeading>Pipeline</SectionHeading>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <MetricCard label="Agendas futuras" value={String(data.now?.agendasFuturas || 0)} tone="brand" />
+          <MetricCard label="Cierres del mes" value={String(mes?.cierres || 0)} tone="money" />
+        </div>
+      </div>
+      <div className="space-y-4">
+        <SectionHeading>Evolución</SectionHeading>
+        <BarChart
+          title="Agendas, shows y cierres"
+          series={[
+            { label: "Agendas", tone: "brand" },
+            { label: "Shows", tone: "money" },
+            { label: "Cierres", tone: "attention" },
+          ]}
+          rows={series.map((row) => ({
+            label: monthLabel(row.mes),
+            values: [row.agendas, row.shows, row.cierres],
+          }))}
+        />
+        <BarChart
+          title="Ventas y cash cobrado"
+          series={[
+            { label: "Ventas", tone: "brand" },
+            { label: "Cash cobrado", tone: "money" },
+          ]}
+          rows={series.map((row) => ({
+            label: monthLabel(row.mes),
+            values: [row.ventas, row.cash],
+          }))}
+        />
+      </div>
+      <div className="space-y-4">
+        <SectionHeading>Desglose</SectionHeading>
+        <SheetTable
+          columns={[
+            { key: "oferta", label: "Oferta", width: 180, value: (row) => row.oferta },
+            { key: "cierres", label: "Cierres", width: 80, align: "right", value: (row) => row.cierres },
+            { key: "ventas", label: "Ventas", width: 110, align: "right", value: (row) => money(row.ventas) },
+            { key: "cash", label: "Cash", width: 110, align: "right", value: (row) => money(row.cash) },
+          ]}
+          rows={data.desglose?.porOferta || []}
+          getId={(row) => row.oferta}
+          empty="Sin desglose por oferta."
+        />
+        <SheetTable
+          columns={[
+            { key: "razon", label: "Razón de no cierre", width: 220, value: (row) => row.razon },
+            { key: "count", label: "N", width: 60, align: "right", value: (row) => row.count },
+          ]}
+          rows={data.desglose?.razonNoCierre || []}
+          getId={(row) => `${row.razon}-${row.count}`}
+          empty="Sin datos aún."
+        />
+      </div>
     </div>
   );
 }
@@ -805,11 +847,16 @@ function SeguimientosSheet({
   empty?: string;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
+      <HelpNote>
+        <p>El paso dice en qué mensaje de la secuencia vas, por ejemplo 2 de 4. El último toque es cuándo escribiste y qué pasó, en palabras.</p>
+        <p>Si no responde, marcas No contestó y avanza al siguiente paso. Si ya tocaba hacerlo, la próxima acción dice pendiente de hoy.</p>
+        <p>Perdido cierra el hilo. Cerró, en una decisión, lo pasa a cobro si todavía queda saldo.</p>
+      </HelpNote>
       <SheetTable
         columns={[
           { key: "cliente", label: "Cliente", width: 160, value: (row) => row.cliente },
-          { key: "hilo", label: "Tipo", width: 140, value: (row) => row.hilo || row.tipo },
+          { key: "hilo", label: "Tipo", width: 140, value: (row) => plainStatus(row.hilo || row.tipo) },
           { key: "paso", label: "Paso", width: 80, value: (row) => row.paso || "—" },
           { key: "toque", label: "Último toque", width: 180, value: (row) => row.ultimoToque || "sin toques" },
           { key: "accion", label: "Próxima acción", width: 240, value: (row) => row.proximaAccion || row.queHacer || row.acuerdo || row.question },
@@ -923,7 +970,7 @@ function ComisionesSheet({
           { key: "pct", label: "%", width: 60, align: "right", value: (row) => pctLabel(row.pct) },
           { key: "gen", label: "Generada", width: 100, align: "right", value: (row) => money(row.generada) },
           { key: "cob", label: "Cobrada", width: 100, align: "right", value: (row) => money(row.cobrada) },
-          { key: "estado", label: "Estado", width: 100, value: (row) => row.estado },
+          { key: "estado", label: "Estado", width: 110, value: (row) => plainStatus(row.estado) },
           { key: "fcobro", label: "Fecha cobro", width: 90, value: (row) => row.fechaCobro?.slice(0, 10) },
         ]}
         rows={rows}
@@ -932,7 +979,7 @@ function ComisionesSheet({
         onRowClick={(row) => setOpenId(openId === row.id ? null : row.id)}
         empty={empty}
       />
-      {selected && selected.estado !== "COBRADA" && (
+      {selected && plainStatus(selected.estado) !== "Cobrada" && (
         <div className="border border-separator1 bg-bg1 p-3">
           <Button size="sm" variant="outline" onClick={() => void onPaid(selected.id)}>
             Marcar cobrada

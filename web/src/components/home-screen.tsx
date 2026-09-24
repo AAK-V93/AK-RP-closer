@@ -6,6 +6,7 @@ import { ClipboardList, Loader2, Mic, Phone, Sparkles, Upload } from "lucide-rea
 import { CycleIntro } from "@/components/cycle-intro";
 import { HubChat, type HubSnapshot } from "@/components/hub-chat";
 import { OfferExtractReview } from "@/components/offer-extract-review";
+import { SectionHeading } from "@/components/metric-card";
 import { ProjectionCard } from "@/components/projection-card";
 import { PushEnable } from "@/components/push-enable";
 import { Button } from "@/components/ui/button";
@@ -428,7 +429,7 @@ function ConfiguredC({
     }
   };
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <ProjectionCard
         projection={snapshot?.projection || null}
         needsGoal={snapshot?.needsMonthlyGoal}
@@ -436,32 +437,35 @@ function ConfiguredC({
         onSaveGoal={saveGoal}
       />
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
-      <div className="grid gap-3">
-        <HomeCard
-          href="/llamadas"
-          icon={<Phone className="h-5 w-5 mt-0.5" />}
-          title="Analizar llamada real"
-          status={desk?.analyzeStatus || "Todo al día"}
-          primary
-        />
-        <HomeCard
-          href={desk?.practiceHref || "/practicar"}
-          icon={<Mic className="h-5 w-5 mt-0.5" />}
-          title="Práctica por voz"
-          status={desk?.practiceStatus || "Elige con quién practicar"}
-        />
-        <HomeCard
-          href="/crm#seguimientos"
-          icon={<ClipboardList className="h-5 w-5 mt-0.5" />}
-          title="Seguimientos"
-          status={desk?.followupStatus || "Todo al día"}
-        />
-        <HomeCard
-          href="/coach"
-          icon={<Sparkles className="h-5 w-5 mt-0.5" />}
-          title="Coach"
-          status={desk?.coachStatus || "Sin novedades"}
-        />
+      <div className="space-y-4">
+        <SectionHeading>Qué hacer</SectionHeading>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <HomeCard
+            href="/llamadas"
+            icon={<Phone className="h-5 w-5" />}
+            title="Analizar"
+            status={desk?.analyzeStatus || "Todo al día"}
+          />
+          <HomeCard
+            href={desk?.practiceHref || "/practicar"}
+            icon={<Mic className="h-5 w-5" />}
+            title="Práctica"
+            status={desk?.practiceStatus || "Elige con quién practicar"}
+          />
+          <HomeCard
+            href="/crm#seguimientos"
+            icon={<ClipboardList className="h-5 w-5" />}
+            title="Seguimientos"
+            status={desk?.followupStatus || "Todo al día"}
+            attention={Boolean(desk?.followupStatus && desk.followupStatus !== "Todo al día")}
+          />
+          <HomeCard
+            href="/coach"
+            icon={<Sparkles className="h-5 w-5" />}
+            title="Coach"
+            status={desk?.coachStatus || "Sin novedades"}
+          />
+        </div>
       </div>
       <HubChat variant="dock" initialSnapshot={snapshot} />
     </div>
@@ -473,23 +477,26 @@ function HomeCard({
   icon,
   title,
   status,
-  primary,
+  attention,
 }: {
   href: string;
   icon: ReactNode;
   title: string;
   status: string;
-  primary?: boolean;
+  attention?: boolean;
 }) {
   return (
-    <Button asChild variant={primary ? "primary" : "outline"} className="h-auto py-4 justify-start">
-      <Link href={href} className="flex items-start gap-3 text-left">
+    <Link
+      href={href}
+      className="flex min-h-[120px] flex-col justify-between rounded-2xl border border-separator1 bg-bg1 px-5 py-5 text-left"
+    >
+      <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-fg3">
         {icon}
-        <span>
-          <span className="block text-base">{title}</span>
-          <span className="block text-xs font-normal opacity-80">{status}</span>
-        </span>
-      </Link>
-    </Button>
+        {title}
+      </span>
+      <span className={`text-xl font-bold leading-tight ${attention ? "text-tone-attention" : "text-fg0"}`}>
+        {status}
+      </span>
+    </Link>
   );
 }

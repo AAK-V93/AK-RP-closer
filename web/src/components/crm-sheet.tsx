@@ -49,7 +49,7 @@ export function SheetTable<T>({
   return (
     <div className="space-y-2">
       <div
-        className="overflow-auto border border-separator1 bg-bg1"
+        className="overflow-auto rounded-2xl border border-separator1 bg-bg1"
         style={{ maxHeight: "calc(100vh - 220px)" }}
       >
         <table

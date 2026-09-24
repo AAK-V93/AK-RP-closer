@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { HelpNote, MetricCard, SectionHeading } from "@/components/metric-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { moneyLabel } from "@/lib/crm-operacion";
@@ -64,32 +65,26 @@ export function ProjectionCard({
   const money = (value: number) => moneyLabel(value, currency);
 
   return (
-    <section className="rounded-2xl border border-separator1 bg-bg1 p-4 space-y-3">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-        Proyección del mes
-      </p>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-        <div>
-          <p className="text-[11px] text-fg3">Meta</p>
-          <p>{money(projection.metaUsd)}</p>
-        </div>
-        <div>
-          <p className="text-[11px] text-fg3">Ya asegurado</p>
-          <p>{money(Math.round(projection.asegurada))}</p>
-        </div>
-        <div>
-          <p className="text-[11px] text-fg3">Falta</p>
-          <p>{money(Math.round(projection.falta))}</p>
-        </div>
-        <div>
-          <p className="text-[11px] text-fg3">Hoy</p>
-          <p>{projection.todayAction}</p>
-        </div>
+    <section className="space-y-4">
+      <SectionHeading>Proyección del mes</SectionHeading>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <MetricCard label="Meta" value={money(projection.metaUsd)} tone="brand" />
+        <MetricCard label="Ya asegurado" value={money(Math.round(projection.asegurada))} tone="money" />
+        <MetricCard
+          label="Falta"
+          value={money(Math.round(projection.falta))}
+          tone={projection.falta > 0 ? "attention" : "money"}
+        />
       </div>
-      <p className="text-[11px] text-fg3">
+      <p className="text-sm text-fg1">{projection.todayAction}</p>
+      <p className="text-sm text-fg3">
         Asegurado = comisión pendiente + saldos por cobrar.
         {projection.assumedRatesLabel ? ` ${projection.assumedRatesLabel}` : ""}
       </p>
+      <HelpNote>
+        <p>Ya asegurado es la comisión de lo que falta cobrar más la comisión de los saldos que el cliente todavía debe.</p>
+        <p>Falta es la meta del mes menos eso. Si todavía hay pocas llamadas reales, las tasas de show y cierre son un supuesto y se dice en la línea de arriba.</p>
+      </HelpNote>
     </section>
   );
 }
