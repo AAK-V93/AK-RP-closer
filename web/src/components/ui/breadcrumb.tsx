@@ -47,7 +47,7 @@ const BreadcrumbLink = React.forwardRef<
   return (
     <Comp
       ref={ref}
-      className={cn("transition-colors hover:text-fgAccent1", className)}
+      className={cn("transition-colors hover:text-tone-info", className)}
       {...props}
     />
   )
@@ -85,7 +85,7 @@ function BreadcrumbId({
       href={href}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md border border-separator1 bg-bg2 px-1.5 py-0.5 text-xs font-semibold",
-        href && "transition-colors hover:text-fgAccent1",
+        href && "transition-colors hover:text-tone-info",
         className
       )}
       {...props}

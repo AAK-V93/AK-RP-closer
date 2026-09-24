@@ -43,7 +43,7 @@ export function AppShell({
     <div className="min-h-screen bg-bg0 flex flex-col">
       <header className="border-b border-separator1">
         <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-3">
-          <Link href="/" className="text-lg font-light shrink-0">
+          <Link href="/" className="font-heading text-lg font-medium shrink-0">
             Closer Trainer
           </Link>
           <nav className="hidden md:flex items-center gap-1 text-sm">
@@ -58,8 +58,8 @@ export function AppShell({
                   href={item.href}
                   className={
                     active
-                      ? "rounded-full bg-bg2 px-3 py-1 text-fg1"
-                      : "rounded-full px-3 py-1 text-fg3 hover:text-fg1"
+                      ? "rounded-full bg-bg2 px-3 py-1 text-tone-info"
+                      : "rounded-full px-3 py-1 text-tone-info/80 hover:text-tone-info"
                   }
                 >
                   {item.label}
@@ -82,7 +82,7 @@ export function AppShell({
                 </Button>
               </>
             ) : (
-              <Button asChild variant="primary" size="sm">
+              <Button asChild variant="ghost" size="sm" className="text-tone-info">
                 <Link href="/login">Entrar</Link>
               </Button>
             )}
@@ -93,7 +93,7 @@ export function AppShell({
             <Link
               key={item.href}
               href={item.href}
-              className="shrink-0 rounded-full border border-separator1 px-2.5 py-1 text-fg2"
+              className="shrink-0 rounded-full border border-separator1 px-2.5 py-1 text-tone-info"
             >
               {item.label}
             </Link>

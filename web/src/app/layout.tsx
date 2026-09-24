@@ -1,14 +1,21 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
-import { Roboto } from "next/font/google";
+import { Lora, Poppins } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthSessionProvider } from "@/components/auth-session-provider";
 
-const roboto = Roboto({
+const poppins = Poppins({
   subsets: ["latin"],
-  weight: ["100", "300", "400", "500", "700", "900"],
-  style: ["normal", "italic"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-poppins",
+  display: "swap",
+});
+
+const lora = Lora({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-lora",
   display: "swap",
 });
 
@@ -26,7 +33,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b0b0c",
+  themeColor: "#141413",
 };
 
 export default function RootLayout({
@@ -36,7 +43,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className={roboto.className}>
+      <body className={`${poppins.variable} ${lora.variable}`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
           <AuthSessionProvider>
             {children}

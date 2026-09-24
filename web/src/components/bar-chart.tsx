@@ -1,6 +1,6 @@
 type BarSeries = {
   label: string;
-  tone: "brand" | "money" | "attention";
+  tone: "brand" | "money" | "attention" | "neutral" | "muted";
 };
 
 type BarRow = {
@@ -9,9 +9,11 @@ type BarRow = {
 };
 
 const FILL: Record<BarSeries["tone"], string> = {
-  brand: "var(--fg-accent-primary)",
+  brand: "var(--tone-info)",
   money: "var(--tone-money)",
   attention: "var(--tone-attention)",
+  neutral: "var(--tone-series)",
+  muted: "var(--fg-3)",
 };
 
 export function BarChart({

@@ -5,10 +5,10 @@ import { useState, type ReactNode } from "react";
 export type MetricTone = "attention" | "money" | "brand" | "muted";
 
 const TONE_CLASS: Record<MetricTone, string> = {
-  attention: "text-tone-attention",
-  money: "text-tone-money",
-  brand: "text-fgAccent1",
-  muted: "text-fg3",
+  attention: "text-tone-attention font-heading",
+  money: "text-tone-money font-heading",
+  brand: "text-fg0 font-heading",
+  muted: "text-fg3 font-heading",
 };
 
 export function MetricCard({
@@ -49,7 +49,7 @@ export function HelpNote({
     <div>
       <button
         type="button"
-        className="text-sm text-fgAccent1 underline-offset-2 hover:underline"
+        className="text-sm text-tone-info underline-offset-2 hover:underline"
         onClick={() => setOpen((value) => !value)}
       >
         {label}

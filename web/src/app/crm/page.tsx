@@ -749,7 +749,7 @@ function DashboardSheet({
         <SectionHeading>Actividad</SectionHeading>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <MetricCard label="Agendas del mes" value={String(mes?.agendas || 0)} tone="brand" />
-          <MetricCard label="Shows" value={String(mes?.shows || 0)} tone="money" />
+          <MetricCard label="Shows" value={String(mes?.shows || 0)} tone="brand" />
         </div>
       </div>
       <div className="space-y-4">
@@ -757,13 +757,13 @@ function DashboardSheet({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <MetricCard label="Close rate" value={pctLabel(mes?.closeRate)} tone="brand" />
           <MetricCard label="Show rate" value={pctLabel(mes?.showRate)} tone="brand" />
-          <MetricCard label="Ticket promedio" value={money(mes?.ticket)} tone="money" />
+          <MetricCard label="Ticket promedio" value={money(mes?.ticket)} tone="brand" />
         </div>
       </div>
       <div className="space-y-4">
         <SectionHeading>Dinero y comisiones</SectionHeading>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Ventas" value={money(mes?.ventas)} tone="money" />
+          <MetricCard label="Ventas" value={money(mes?.ventas)} tone="brand" />
           <MetricCard label="Cash cobrado" value={money(mes?.cash)} tone="money" />
           <MetricCard label="Comisión generada" value={money(data.comisionResumen?.generada)} tone="brand" />
           <MetricCard label="Comisión cobrada" value={money(data.comisionResumen?.cobrada)} tone="money" />
@@ -773,7 +773,7 @@ function DashboardSheet({
         <SectionHeading>Pipeline</SectionHeading>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <MetricCard label="Agendas futuras" value={String(data.now?.agendasFuturas || 0)} tone="brand" />
-          <MetricCard label="Cierres del mes" value={String(mes?.cierres || 0)} tone="money" />
+          <MetricCard label="Cierres del mes" value={String(mes?.cierres || 0)} tone="brand" />
         </div>
       </div>
       <div className="space-y-4">
@@ -782,8 +782,8 @@ function DashboardSheet({
           title="Agendas, shows y cierres"
           series={[
             { label: "Agendas", tone: "brand" },
-            { label: "Shows", tone: "money" },
-            { label: "Cierres", tone: "attention" },
+            { label: "Shows", tone: "muted" },
+            { label: "Cierres", tone: "neutral" },
           ]}
           rows={series.map((row) => ({
             label: monthLabel(row.mes),

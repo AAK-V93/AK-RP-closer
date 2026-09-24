@@ -36,7 +36,7 @@ export function ProjectionCard({
 
   if (needsGoal && onSaveGoal) {
     return (
-      <section className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+      <section className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3">
         <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
           Meta de comisión
         </p>
@@ -69,11 +69,11 @@ export function ProjectionCard({
       <SectionHeading>Proyección del mes</SectionHeading>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <MetricCard label="Meta" value={money(projection.metaUsd)} tone="brand" />
-        <MetricCard label="Ya asegurado" value={money(Math.round(projection.asegurada))} tone="money" />
+        <MetricCard label="Ya asegurado" value={money(Math.round(projection.asegurada))} tone="brand" />
         <MetricCard
           label="Falta"
           value={money(Math.round(projection.falta))}
-          tone={projection.falta > 0 ? "attention" : "money"}
+          tone={projection.falta > 0 ? "attention" : "muted"}
         />
       </div>
       <p className="text-sm text-fg1">{projection.todayAction}</p>

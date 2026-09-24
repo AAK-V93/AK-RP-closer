@@ -494,7 +494,7 @@ function HomeCard({
         {icon}
         {title}
       </span>
-      <span className={`text-xl font-bold leading-tight ${attention ? "text-tone-attention" : "text-fg0"}`}>
+      <span className={`font-heading text-xl font-bold leading-tight ${attention ? "text-tone-attention" : "text-fg0"}`}>
         {status}
       </span>
     </Link>
