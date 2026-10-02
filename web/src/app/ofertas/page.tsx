@@ -254,13 +254,39 @@ export default function OfertasPage() {
           `Listo: ${saved} nuevas, ${filed} al CRM, ${already} ya estaban.${ignored}${missed} Las que falte un dato quedan en Inicio.`,
         );
       } else if (paste.trim()) {
+        setUploadNote("Revisando si ya estaba…");
+        const check = await fetch("/api/workspace/transcripts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stage: "check", paste: paste.trim(), offerId }),
+        });
+        const checked = await check.json();
+        if (!check.ok) throw new Error(checked.error || "No pude revisar el texto");
+        if (checked.duplicate) {
+          setUploadNote(checked.message);
+          setPaste("");
+          return;
+        }
+        setUploadNote("Leyendo la llamada…");
         const body = new FormData();
         body.append("offerId", offerId);
         body.append("paste", paste.trim());
+        body.append("skipGuide", "1");
         const response = await fetch("/api/workspace/transcripts", { method: "POST", body });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "No se subieron");
+        if (data.duplicate) {
+          setUploadNote(data.message);
+          setPaste("");
+          return;
+        }
         setPaste("");
+        setUploadNote("Guardé la llamada. Actualizando la guía de la oferta…");
+        void fetch("/api/workspace/transcripts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offerId, finalize: true }),
+        }).then(() => setUploadNote("Listo. La llamada ya está en el CRM."));
       }
       await load(offerId);
     } catch (e) {

@@ -291,6 +291,29 @@ function followupInstant(from: Date, extraDays: number) {
   return addDays(noon, extraDays);
 }
 
+async function stampLeadOnCall(
+  prisma: PrismaClient,
+  userId: string,
+  callRecordId: string,
+  leadId: string,
+) {
+  const row = await prisma.callRecord.findFirst({
+    where: { id: callRecordId, userId },
+    select: { id: true, filingJson: true },
+  });
+  if (!row) return;
+  const filing =
+    row.filingJson && typeof row.filingJson === "object" && !Array.isArray(row.filingJson)
+      ? { ...(row.filingJson as Record<string, unknown>) }
+      : {};
+  if (filing.lead_id === leadId) return;
+  filing.lead_id = leadId;
+  await prisma.callRecord.update({
+    where: { id: row.id },
+    data: { filingJson: filing as Prisma.InputJsonValue },
+  });
+}
+
 export async function applyExtractorToCrm(
   prisma: PrismaClient,
   userId: string,
@@ -348,6 +371,7 @@ export async function applyExtractorToCrm(
           data: { userId, name: parsed.cliente_real, ...data },
         });
     leadId = lead.id;
+    (parsed as ExtractorJson & { lead_id?: string }).lead_id = lead.id;
     if (existing) {
       if (parsed.requiere_seguimiento === false) {
         await resolveOpenAlertsForLead(prisma, userId, lead.id);
@@ -372,6 +396,7 @@ export async function applyExtractorToCrm(
     }
 
     if (followupOnly) {
+      await stampLeadOnCall(prisma, userId, callRecordId, lead.id);
       return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed) };
     }
 

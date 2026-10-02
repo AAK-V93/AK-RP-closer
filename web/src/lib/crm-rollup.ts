@@ -1,4 +1,6 @@
-import { countedSale } from "@/lib/stated-deal";
+import { countedSale, explicitAgreement } from "@/lib/stated-deal";
+import { zonedDayKey } from "@/lib/crm-time";
+import { normalizePersonName } from "@/lib/lead-match";
 import {
   foldOffer,
   isInventedOfferLabel,
@@ -12,13 +14,29 @@ export type RollupOffer = NamedOffer & {
 };
 
 export type RollupCall = {
+  id?: string;
+  leadId?: string | null;
+  cliente?: string | null;
   offerName?: string | null;
   producto?: string | null;
   estadoAgenda?: string | null;
+  tipoSeguimiento?: string | null;
+  acuerdo?: string | null;
+  notas?: string | null;
+  evidenciaCierre?: string | null;
+  evidenciaVenta?: string | null;
   ventaTotal?: number | null;
   cashCollected?: number | null;
   recordedAt?: Date | string | null;
   createdAt?: Date | string | null;
+};
+
+export type ClosedDeal = {
+  id: string;
+  cliente: string;
+  fecha: string;
+  venta: number;
+  oferta: string;
 };
 
 export type OfferRow = {
@@ -88,10 +106,110 @@ function matchOffer(
   return "";
 }
 
+/** A sale is a closed deal that has an amount. A show that only talked a price is not. */
+export function bookedSale(estado: string | null | undefined, amount: number) {
+  return String(estado || "") === "CIERRE VENTA" && amount > 0 ? amount : 0;
+}
+
+function filingBlob(call: RollupCall) {
+  return [call.acuerdo, call.notas, call.evidenciaCierre, call.evidenciaVenta]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** The row only repeated a price. A segunda reunión without an agreement is the same. */
+export function mentionedPriceOnly(call: RollupCall) {
+  const blob = filingBlob(call);
+  if (explicitAgreement(blob)) return false;
+  if (isPriceLabel(String(call.producto || "")) || isPriceLabel(String(call.offerName || ""))) return true;
+  const tipo = String(call.tipoSeguimiento || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  if (tipo.includes("SEGUNDA")) return true;
+  return String(call.estadoAgenda || "") !== "CIERRE VENTA";
+}
+
+/** Same person once. "(QA)" and accents do not make a second deal. */
+export function dealLeadKey(call: RollupCall) {
+  const name = normalizePersonName(String(call.cliente || ""));
+  if (name) return name;
+  if (call.leadId) return `id:${call.leadId}`;
+  return call.id ? `call:${call.id}` : "";
+}
+
+function displayLead(call: RollupCall) {
+  const name = String(call.cliente || "")
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return name || "Sin nombre";
+}
+
+type PickedDeal = { call: RollupCall; amount: number; at: Date };
+
+/** One closed deal per lead. The newest real cierre wins. A mentioned price does not qualify. */
+export function pickDeals(calls: RollupCall[], prices: number[] = []): PickedDeal[] {
+  const best = new Map<string, PickedDeal>();
+  for (const call of calls) {
+    const at = callInstant(call);
+    if (!at) continue;
+    const amount = countedSale(call.ventaTotal, { at, prices });
+    if (!bookedSale(call.estadoAgenda, amount)) continue;
+    if (mentionedPriceOnly(call)) continue;
+    const key = dealLeadKey(call);
+    if (!key) continue;
+    const prev = best.get(key);
+    if (prev && prev.at.getTime() > at.getTime()) continue;
+    best.set(key, { call, amount, at });
+  }
+  return [...best.values()];
+}
+
+function toDeal(call: RollupCall, at: Date, venta: number): ClosedDeal {
+  return {
+    id: call.id || "",
+    cliente: displayLead(call),
+    fecha: zonedDayKey(at),
+    venta,
+    oferta: String(call.offerName || call.producto || "").trim(),
+  };
+}
+
+/** Cerró, but nothing to add. One row per person, and not someone who already has a counted deal. */
+export function cierresSinMonto(calls: RollupCall[], prices: number[] = []): ClosedDeal[] {
+  const sold = new Set(pickDeals(calls, prices).map((pick) => dealLeadKey(pick.call)));
+  const best = new Map<string, { call: RollupCall; at: Date }>();
+  for (const call of calls) {
+    if (String(call.estadoAgenda || "") !== "CIERRE VENTA") continue;
+    const at = callInstant(call);
+    if (!at) continue;
+    const amount = countedSale(call.ventaTotal, { at, prices });
+    if (amount > 0) continue;
+    const key = dealLeadKey(call);
+    if (!key || sold.has(key)) continue;
+    const prev = best.get(key);
+    if (prev && prev.at.getTime() > at.getTime()) continue;
+    best.set(key, { call, at });
+  }
+  return [...best.values()].map((pick) => toDeal(pick.call, pick.at, 0));
+}
+
+export function explainVentas(calls: RollupCall[], prices: number[] = []) {
+  const leads = pickDeals(calls, prices).map((pick) => toDeal(pick.call, pick.at, pick.amount));
+  return {
+    n: leads.length,
+    total: leads.reduce((sum, row) => sum + row.venta, 0),
+    leads,
+    sinMonto: cierresSinMonto(calls, prices),
+  };
+}
+
 /**
- * Ventas and cash are the explainable amounts (a calendar year is not a sale
- * unless it is the offer price). With one catalog offer, every such amount
- * lands on that row, so the rows add up to the totals.
+ * Ventas are closed deals with an amount. Cash is money already collected.
+ * A calendar year is not an amount unless it is the offer price.
+ * With one catalog offer, every counted amount lands on that row.
  */
 export function rollupCalls(
   offers: RollupOffer[],
@@ -122,19 +240,24 @@ export function rollupCalls(
     if (SHOW.has(estado)) shows += 1;
     if (estado === "NO SHOW") noShows += 1;
     if (estado === "REPROGRAMA") reprogramadas += 1;
-    if (estado === "CIERRE VENTA") cierres += 1;
 
     const at = callInstant(call);
-    const sale = countedSale(call.ventaTotal, { at, prices });
     const collected = countedSale(call.cashCollected, { at, prices });
+    cash += collected;
+
     const name = matchOffer(call, catalog);
     const row = name ? rows.get(name) : undefined;
+    if (row) row.cash += collected;
+  }
+
+  for (const pick of pickDeals(slice, prices)) {
+    cierres += 1;
+    ventas += pick.amount;
+    const name = matchOffer(pick.call, catalog);
+    const row = name ? rows.get(name) : undefined;
     if (!row) continue;
-    if (estado === "CIERRE VENTA") row.cierres += 1;
-    row.ventas += sale;
-    row.cash += collected;
-    ventas += sale;
-    cash += collected;
+    row.cierres += 1;
+    row.ventas += pick.amount;
   }
 
   return {

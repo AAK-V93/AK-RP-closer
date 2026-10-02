@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import type { HomeState } from "@/lib/home-state";
 import { moneyLabel } from "@/lib/crm-operacion";
+import { DINERO_EN_JUEGO_NOTE } from "@/lib/crm-followups";
 import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 
@@ -87,6 +88,7 @@ function OnboardingA({
   const [error, setError] = useState<string | null>(null);
   const [paste, setPaste] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [offerBlob, setOfferBlob] = useState("");
   const [offerFiles, setOfferFiles] = useState<File[]>([]);
   const [parsing, setParsing] = useState(false);
@@ -171,16 +173,47 @@ function OnboardingA({
     if (!files?.length && paste.trim().length < 80) return;
     setUploading(true);
     setError(null);
+    setUploadNote(null);
     try {
-      const body = new FormData();
-      if (files) {
-        Array.from(files).forEach((file) => body.append("files", file));
+      if (!files?.length && paste.trim()) {
+        setUploadNote("Revisando si ya estaba…");
+        const check = await fetch("/api/workspace/transcripts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stage: "check", paste: paste.trim() }),
+        });
+        const checked = await check.json();
+        if (!check.ok) throw new Error(checked.error || "No pude revisar el texto");
+        if (checked.duplicate) {
+          setUploadNote(checked.message);
+          setPaste("");
+          return;
+        }
+        setUploadNote("Leyendo la llamada…");
+        const body = new FormData();
+        body.set("paste", paste.trim());
+        body.set("skipGuide", "1");
+        const response = await fetch("/api/workspace/transcripts", { method: "POST", body });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "No se subieron");
+        if (data.duplicate) {
+          setUploadNote(data.message);
+          setPaste("");
+          return;
+        }
+        setPaste("");
+        setUploadNote("Guardé la llamada. Actualizando la guía de la oferta…");
+        void fetch("/api/workspace/transcripts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ finalize: true }),
+        }).then(() => setUploadNote("Listo. La llamada ya está en el CRM."));
+        onDone();
+        return;
       }
-      if (paste.trim()) body.set("paste", paste);
-      const response = await fetch("/api/workspace/transcripts", {
-        method: "POST",
-        body,
-      });
+      const body = new FormData();
+      if (files) Array.from(files).forEach((file) => body.append("files", file));
+      const response = await fetch("/api/workspace/transcripts", { method: "POST", body });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se subieron");
       onDone();
@@ -251,6 +284,7 @@ function OnboardingA({
               Guardar texto pegado
             </Button>
           )}
+          {uploadNote && <p className="text-sm text-fg2">{uploadNote}</p>}
           <button
             type="button"
             className="text-xs text-fg3 underline"
@@ -427,6 +461,9 @@ function ConfiguredC({
           Dinero en juego {moneyLabel(snapshot.now.dineroEnJuego || 0)} ·{" "}
           {snapshot.now.oportunidadesActivas || 0} clientes activos
         </p>
+      )}
+      {snapshot?.now && (
+        <p className="text-xs text-fg3">{DINERO_EN_JUEGO_NOTE}</p>
       )}
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
       <div>

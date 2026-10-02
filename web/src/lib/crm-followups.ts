@@ -1,4 +1,9 @@
 import { calendarDaysBetween } from "@/lib/crm-time";
+import { normalizePersonName } from "@/lib/lead-match";
+import { countedSale } from "@/lib/stated-deal";
+
+export const DINERO_EN_JUEGO_NOTE =
+  "Dinero en juego es el saldo abierto de cada lead con un próximo seguimiento. Cada persona cuenta una vez. Un año, un teléfono o el texto del precio no entran.";
 
 export type FollowupEstado = "VENCIDO" | "HOY" | "PRÓXIMO";
 
@@ -29,26 +34,18 @@ export function followupEstado(dueDay: string, today: string): FollowupEstado {
 }
 
 export function foldLeadName(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizePersonName(value);
 }
 
 export function moneyInPlay(row: {
   venta?: number | null;
   cash?: number | null;
   saldo?: number | null;
+  at?: Date | string | null;
+  prices?: number[];
 }) {
   const sane = (amount: number | null | undefined) =>
-    amount != null &&
-    Number.isFinite(amount) &&
-    amount > 0 &&
-    amount <= 1_000_000
-      ? amount
-      : 0;
+    countedSale(amount, { at: row.at, prices: row.prices });
   const saldo = sane(row.saldo);
   if (saldo) return saldo;
   const venta = sane(row.venta);
@@ -80,6 +77,7 @@ export function followupTouchLabel(estado: FollowupEstado, daysAhead: number) {
 
 export type OperacionFollowupSource = {
   id: string;
+  leadId?: string;
   cliente: string;
   fecha: string | null;
   fechaProximo: string;

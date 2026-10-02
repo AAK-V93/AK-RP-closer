@@ -11,7 +11,7 @@ import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-
 import { presentThread } from "@/lib/followup-threads";
 import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib/followup-machine";
 import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
-import { offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
+import { explainVentas, offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
 import { countedSale, shownMoney } from "@/lib/stated-deal";
 import { repairImportedCallFields } from "@/lib/call-normalize";
 import { catalogDisplayName, foldOffer, isInventedOfferLabel, isPriceLabel } from "@/lib/offer-name";
@@ -170,6 +170,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     return [
       {
         id: alert.id,
+        leadId: thread.leadId,
         callId: alert.callRecordId || thread.creadoDesdeCallRecordId || "",
         proximo: "",
         closesOnHecho: !nextOnHecho,
@@ -225,6 +226,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
         const keepsGoing = row.type === "PAGO PENDIENTE" || row.type === "COBRO_VENCIDO";
         return {
           id: row.id,
+          leadId: row.leadId,
           callId: row.callRecordId || "",
           proximo: "",
           closesOnHecho: !keepsGoing,
@@ -260,6 +262,15 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   ];
 
   const leadByName = new Map(leads.map((lead) => [lead.name.trim().toLowerCase(), lead]));
+  const leadIdByCall = new Map<string, string>();
+  for (const alert of alerts) {
+    if (alert.callRecordId && alert.leadId) leadIdByCall.set(alert.callRecordId, alert.leadId);
+  }
+  for (const thread of threads) {
+    if (thread.creadoDesdeCallRecordId && thread.leadId) {
+      leadIdByCall.set(thread.creadoDesdeCallRecordId, thread.leadId);
+    }
+  }
   const operacion = allCalls.flatMap((row) => {
     if (isNonSalesCall(row.estadoAgenda)) return [];
     try {
@@ -271,6 +282,9 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       return [
         {
           ...view,
+          leadId:
+            leadIdByCall.get(row.id) ||
+            String((row.filingJson as { lead_id?: string } | null)?.lead_id || ""),
           venta: shownMoney(view.venta, { at, prices }),
           cash: shownMoney(view.cash, { at, prices }),
           saldo: shownMoney(view.saldo, { at, prices }),
@@ -283,6 +297,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   });
   const openFollowups = alignFollowups(followups, operacion, todayKey, (draft) => ({
     id: `call:${draft.source.id}`,
+    leadId: draft.source.leadId || "",
     callId: draft.source.id,
     proximo: draft.source.fechaProximo,
     closesOnHecho: true,
@@ -360,6 +375,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     from: new Date(0),
     to: new Date(8640000000000000),
   });
+  const ventasDetalle = explainVentas(rollupInput, prices);
 
   const razones = new Map<string, number>();
   const etapas = new Map<string, number>();
@@ -403,6 +419,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       agendasFuturas,
     },
     rendimiento: { mes: current, anterior: previous, acumulado: all },
+    ventasDetalle,
     desglose: {
       porOferta: allTime.porOferta,
       embudo: {
@@ -473,6 +490,8 @@ function asRollupOffer(offer: OfferForCrm): RollupOffer {
 }
 
 function asRollupCall(row: {
+  id?: string;
+  leadName?: string | null;
   offerName?: string | null;
   estadoAgenda?: string | null;
   ventaTotal?: number | null;
@@ -481,10 +500,26 @@ function asRollupCall(row: {
   createdAt?: Date | null;
   filingJson?: unknown;
 }): RollupCall {
+  const filing = (row.filingJson || {}) as {
+    producto?: string;
+    tipo_seguimiento?: string;
+    acuerdo_seguimiento?: string;
+    notas_crm?: string;
+    evidencia?: { cierre?: string; venta_total?: string };
+    lead_id?: string;
+  };
   return {
+    id: row.id,
+    leadId: filing.lead_id || "",
+    cliente: row.leadName,
     offerName: row.offerName,
     producto: filingProduct(row.filingJson),
     estadoAgenda: row.estadoAgenda,
+    tipoSeguimiento: String(filing.tipo_seguimiento || ""),
+    acuerdo: String(filing.acuerdo_seguimiento || ""),
+    notas: String(filing.notas_crm || ""),
+    evidenciaCierre: String(filing.evidencia?.cierre || ""),
+    evidenciaVenta: String(filing.evidencia?.venta_total || ""),
     ventaTotal: row.ventaTotal,
     cashCollected: row.cashCollected,
     recordedAt: row.recordedAt,

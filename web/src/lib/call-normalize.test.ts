@@ -36,6 +36,22 @@ function alejandro(overrides: Partial<CallRepairInput> = {}): CallRepairInput {
   };
 }
 
+test("a field repair keeps the lead id and the lost reason while dropping an inferred show amount", () => {
+  const source = alejandro();
+  const filing = source.filingJson as Record<string, unknown>;
+  const repair = planCallRepair(
+    {
+      ...source,
+      filingJson: { ...filing, lead_id: "lead-carlos", razon_no_cierre: "Precio" },
+    },
+    ["Círculo Millonario"],
+  );
+  assert.ok(repair);
+  assert.equal(repair.ventaTotal, null);
+  assert.equal(repair.filingJson.lead_id, "lead-carlos");
+  assert.equal(repair.filingJson.razon_no_cierre, "Precio");
+});
+
 test("an interrupted Meet import is repaired to catalog fields", () => {
   const repair = planCallRepair(alejandro(), ["Círculo Millonario"]);
   assert.ok(repair);
