@@ -1,4 +1,5 @@
 import { normalizeProximo } from "@/lib/call-normalize";
+import { spanishAgendaInText } from "@/lib/plain-labels";
 import { followupIsClosed } from "@/lib/crm-followups";
 import { zonedDayKey } from "@/lib/crm-time";
 
@@ -134,7 +135,7 @@ export function operacionFromCall(
     modoPago: asStr(call.modoPago) || asStr(filing.modo_pago),
     cash: call.cashCollected ?? asNum(filing.cash_collected),
     saldo: call.saldoPendiente ?? asNum(filing.saldo_pendiente),
-    notas: asStr(filing.notas_crm) || asStr(call.summary),
+    notas: spanishAgendaInText(asStr(filing.notas_crm) || asStr(call.summary)),
     requiereSeguimiento: requiere,
     tipoSeguimiento: asStr(filing.tipo_seguimiento).toUpperCase(),
     acuerdo: asStr(filing.acuerdo_seguimiento),

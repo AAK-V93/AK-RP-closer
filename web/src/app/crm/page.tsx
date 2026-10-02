@@ -515,7 +515,7 @@ export default function CrmPage() {
           <p className="text-sm text-fg3">Cargando…</p>
         ) : (
           <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-4">
-          <div className="min-w-0 space-y-4">
+          <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden">
             {!data.readyCrm && (
               <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2">
                 <p className="text-sm">
@@ -1014,7 +1014,6 @@ function OperacionSheet({
   ];
   return (
     <div className="space-y-2">
-      <p className="text-xs text-fg3 md:hidden">Desliza a la derecha para ver el resto de columnas.</p>
       <SheetTable
         columns={columns}
         rows={rows}

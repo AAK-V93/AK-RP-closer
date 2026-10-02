@@ -324,6 +324,35 @@ function mainPrice(list: number | null, options: PricedOption[]) {
   return { ...main, fromList: false };
 }
 
+function cuotaCount(label: string, modes: OfferCommercial["paymentModes"]) {
+  const blob = [label, ...modes.map((row) => `${row.name} ${row.details}`)].join("\n");
+  const hit = blob.match(/\b(\d{1,2})\s*cuotas?\b/i);
+  return hit ? Number(hit[1]) : null;
+}
+
+/** A small "cuotas" amount is the down payment, not the price of the program. */
+function isCuotaDownPayment(label: string, amount: number, list: number | null) {
+  if (!/cuota/i.test(label)) return false;
+  if (/inicial|anticipo|enganche|primera/i.test(label)) return true;
+  return list != null && amount <= list * 0.6;
+}
+
+function priceOptionLine(
+  alt: PricedOption,
+  list: number | null,
+  modes: OfferCommercial["paymentModes"],
+  money: (amount: number) => string,
+) {
+  if (!isCuotaDownPayment(alt.label, alt.amount, list)) {
+    return `${alt.label}: ${money(alt.amount)}`;
+  }
+  const count = cuotaCount(alt.label, modes);
+  const total = list != null && list !== alt.amount ? `total ${money(list)}` : "";
+  const extra = [count ? `${count} cuotas` : "", total].filter(Boolean).join(", ");
+  const head = `Pago inicial en cuotas: ${money(alt.amount)}`;
+  return extra ? `${head} (${extra})` : head;
+}
+
 /**
  * Main price on its own line, other ways to pay named in plain words.
  * Same amount is not repeated as if it were a second price.
@@ -333,16 +362,19 @@ export function describeOfferPrices(commercial: OfferCommercial): string {
   const main = mainPrice(list, options);
   if (!main) return "";
   const money = (amount: number) => formatOfferAmount(currency, amount);
-  const lines = [`Precio: ${money(main.amount)}`, main.label];
+  const lines: string[] = [];
   if (list != null && list === main.amount && !main.fromList) {
-    lines.push("Es el mismo que el precio de lista.");
-  } else if (list != null && list !== main.amount) {
-    lines.push(`Precio de lista: ${money(list)}`);
+    lines.push(`Precio: ${money(main.amount)}`, main.label, "Es el mismo que el precio de lista.");
+  } else if (main.fromList) {
+    lines.push(`Precio de lista: ${money(main.amount)}`);
+  } else {
+    lines.push(`${main.label}: ${money(main.amount)}`);
+    if (list != null && list !== main.amount) lines.push(`Precio de lista: ${money(list)}`);
   }
   for (const alt of options) {
     if (!main.fromList && alt.label === main.label && alt.amount === main.amount) continue;
     if (list != null && alt.amount === list && /lista/i.test(alt.label)) continue;
-    lines.push(`${alt.label}: ${money(alt.amount)}`);
+    lines.push(priceOptionLine(alt, list, commercial.paymentModes, money));
   }
   return lines.join("\n");
 }
@@ -359,8 +391,8 @@ export function editablePriceLines(commercial: OfferCommercial): string[] {
 export function commercialRecap(commercial: OfferCommercial): string {
   const bits: string[] = [];
   const prices = describeOfferPrices(commercial);
-  if (prices) bits.push(prices.replace(/\n/g, ". "));
-  if (commercial.paymentModes.length) {
+  if (prices) bits.push(prices);
+  else if (commercial.paymentModes.length) {
     bits.push(commercial.paymentModes.map((row) => row.name).join(", "));
   }
   const commission = commissionSummary(commercial.commission);

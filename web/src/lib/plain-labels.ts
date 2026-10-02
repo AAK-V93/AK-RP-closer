@@ -59,6 +59,15 @@ function sentenceLabel(raw: string) {
     .join(" ");
 }
 
+/** Notes written as SHOW / NO SHOW, shown as Asistió / No asistió. */
+export function spanishAgendaInText(value: string | null | undefined) {
+  const text = String(value || "");
+  if (!text.trim()) return "";
+  return text
+    .replace(/\bNO[\s_-]*SHOW\b/gi, "No asistió")
+    .replace(/\bSHOW\b/gi, "Asistió");
+}
+
 /** Screen label for an internal status or thread type. */
 export function plainStatus(value: string | null | undefined) {
   const raw = String(value || "").trim();

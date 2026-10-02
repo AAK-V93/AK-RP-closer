@@ -18,6 +18,7 @@ import { moneyLabel } from "@/lib/crm-operacion";
 import { DINERO_EN_JUEGO_NOTE } from "@/lib/crm-followups";
 import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
+import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 
 export function HomeScreen() {
   const [snapshot, setSnapshot] = useState<HubSnapshot | null>(null);
@@ -92,6 +93,8 @@ function OnboardingA({
   const [offerBlob, setOfferBlob] = useState("");
   const [offerFiles, setOfferFiles] = useState<File[]>([]);
   const [parsing, setParsing] = useState(false);
+  const [extractProgress, setExtractProgress] = useState(OFFER_EXTRACT_PROGRESS);
+  const [canRetryExtract, setCanRetryExtract] = useState(false);
   const [review, setReview] = useState<{
     assumption: "una" | "varias";
     questions: string[];
@@ -102,8 +105,8 @@ function OnboardingA({
     if (hasCalls) setStep("offer");
   }, [hasCalls]);
 
-  const extractOffer = async (event: FormEvent) => {
-    event.preventDefault();
+  const extractOffer = async (event?: FormEvent) => {
+    event?.preventDefault();
     if (!offerFiles.length && offerBlob.trim().length < 40) {
       setError("Pega un texto o sube un documento de la oferta.");
       return;
@@ -111,37 +114,17 @@ function OnboardingA({
     setSaving(true);
     setParsing(true);
     setError(null);
+    setCanRetryExtract(false);
     try {
-      const extractBody = new FormData();
-      offerFiles.forEach((file) => extractBody.append("files", file));
-      if (offerBlob.trim()) extractBody.set("paste", offerBlob.trim());
-      const extractedRes = await fetch("/api/offer-from-doc", {
-        method: "POST",
-        body: extractBody,
+      const extracted = await runOfferExtraction({
+        files: offerFiles,
+        paste: offerBlob,
+        onProgress: setExtractProgress,
       });
-      const extracted = await extractedRes.json();
-      if (!extractedRes.ok) throw new Error(extracted.error || "No se pudo leer");
-      const offers = (extracted.offers || []).length
-        ? extracted.offers
-        : extracted.productName
-          ? [
-              {
-                productName: extracted.productName,
-                productDescription: extracted.productDescription,
-                pitchSummary: extracted.pitchSummary || "",
-                icp: extracted.icp || "",
-                commercial: extracted.commercial,
-              },
-            ]
-          : [];
-      if (!offers.length) throw new Error("No encontré una oferta en ese texto");
-      setReview({
-        assumption: extracted.assumption === "varias" || offers.length > 1 ? "varias" : "una",
-        questions: Array.isArray(extracted.questions) ? extracted.questions : [],
-        offers,
-      });
+      setReview(extracted);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setCanRetryExtract(true);
+      setError(e instanceof Error ? e.message : "No pude leer ese documento. Pulsa Reintentar.");
     } finally {
       setSaving(false);
       setParsing(false);
@@ -312,7 +295,16 @@ function OnboardingA({
               la oferta.
             </p>
           )}
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && (
+            <div className="space-y-2">
+              <p className="text-xs text-destructive">{error}</p>
+              {canRetryExtract && (
+                <Button type="button" variant="outline" size="sm" onClick={() => void extractOffer()}>
+                  Reintentar
+                </Button>
+              )}
+            </div>
+          )}
           <label className="block space-y-1">
             <span className="text-xs text-fg3">PDF / documento (varios si hay)</span>
             <Input
@@ -342,7 +334,10 @@ function OnboardingA({
           </div>
           <Button type="submit" variant="primary" disabled={saving || parsing}>
             {saving || parsing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {extractProgress}
+              </>
             ) : (
               "Extraer"
             )}

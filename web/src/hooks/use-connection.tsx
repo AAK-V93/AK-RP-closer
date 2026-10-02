@@ -11,6 +11,14 @@ import React, {
 import { useSession } from "next-auth/react";
 import { useTraining } from "./use-training-state";
 import { trainingHelpers } from "@/lib/training-helpers";
+import {
+  isPracticeQaRequest,
+  micHowToFix,
+  PRACTICE_QA_STORAGE_KEY,
+  practiceQaStorageAction,
+  type PracticeErrorKind,
+  type PracticeStageTiming,
+} from "@/lib/practice-qa";
 
 export type ConnectFn = () => Promise<void>;
 
@@ -30,6 +38,9 @@ type ConnectionContextType = {
   isConnecting: boolean;
   phase: ConnectPhase;
   errorMessage: string | null;
+  errorKind: PracticeErrorKind | null;
+  qaMode: boolean;
+  stageTimings: PracticeStageTiming[];
   cancel: () => void;
   prefetch: () => void;
   markReady: () => void;
@@ -59,6 +70,10 @@ export const ConnectionProvider = ({
   const [isConnecting, setIsConnecting] = useState(false);
   const [phase, setPhase] = useState<ConnectPhase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<PracticeErrorKind | null>(null);
+  const [qaMode, setQaMode] = useState(false);
+  const [stageTimings, setStageTimings] = useState<PracticeStageTiming[]>([]);
+  const stageRef = useRef<{ name: string; at: number } | null>(null);
   const { trainingState } = useTraining();
   const { status } = useSession();
   const abortRef = useRef<AbortController | null>(null);
@@ -134,9 +149,28 @@ export const ConnectionProvider = ({
   }, [fetchToken]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const action = practiceQaStorageAction(window.location.search);
+    if (action === "set") window.localStorage.setItem(PRACTICE_QA_STORAGE_KEY, "1");
+    if (action === "clear") window.localStorage.removeItem(PRACTICE_QA_STORAGE_KEY);
+    setQaMode(isPracticeQaRequest(window.location.search, window.localStorage.getItem(PRACTICE_QA_STORAGE_KEY)));
+  }, []);
+
+  useEffect(() => {
     if (status !== "authenticated") return;
     void fetch("/api/practice/warm").catch(() => undefined);
   }, [status]);
+
+  const noteStage = useCallback((name: string) => {
+    const now = Date.now();
+    const prev = stageRef.current;
+    if (prev) {
+      const ms = now - prev.at;
+      console.info("[práctica]", { etapa: prev.name, ms });
+      setStageTimings((rows) => [...rows, { stage: prev.name, ms }]);
+    }
+    stageRef.current = { name, at: now };
+  }, []);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -152,16 +186,19 @@ export const ConnectionProvider = ({
     setConnectionDetails((prev) => ({ ...prev, shouldConnect: false }));
     setIsConnecting(false);
     setErrorMessage(null);
+    setErrorKind(null);
     setPhase("idle");
   }, []);
 
-  const fail = useCallback((message: string) => {
+  const fail = useCallback((message: string, kind: PracticeErrorKind = "connection") => {
     abortRef.current?.abort();
     abortRef.current = null;
     cacheRef.current = null;
     setConnectionDetails({ wsUrl: "", token: "", shouldConnect: false });
     setIsConnecting(false);
     setErrorMessage(message);
+    setErrorKind(kind);
+    phaseRef.current = "error";
     setPhase("error");
   }, []);
 
@@ -173,12 +210,11 @@ export const ConnectionProvider = ({
     if (!connectStartedRef.current) connectStartedRef.current = Date.now();
     const remaining = Math.max(0, CONNECT_TIMEOUT_MS - (Date.now() - connectStartedRef.current));
     const timer = window.setTimeout(() => {
-      fail(
-        "Está tardando más de lo normal. Puedes cancelar o intentarlo otra vez en un momento.",
-      );
+      noteStage("timeout");
+      fail("No pude conectar. Revisa tu conexión e inténtalo otra vez.");
     }, remaining);
     return () => window.clearTimeout(timer);
-  }, [fail, phase]);
+  }, [fail, noteStage, phase]);
 
   const connect = async () => {
     const validationError = trainingHelpers.validateTraining(trainingRef.current.training);
@@ -189,9 +225,32 @@ export const ConnectionProvider = ({
     const ac = new AbortController();
     abortRef.current = ac;
     setErrorMessage(null);
+    setErrorKind(null);
+    setStageTimings([]);
+    stageRef.current = null;
     setPhase("preparing");
     setIsConnecting(true);
     try {
+      noteStage("mic");
+      if (!qaMode) {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          fail(micHowToFix(), "mic");
+          throw new Error(micHowToFix());
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((track) => track.stop());
+        } catch (micError) {
+          const name = micError instanceof DOMException ? micError.name : "";
+          const blocked = name === "NotAllowedError" || name === "SecurityError";
+          const message = blocked
+            ? "El navegador bloqueó el micrófono. Permítelo en el candado de la barra de direcciones y vuelve a entrar."
+            : micHowToFix();
+          fail(message, "mic");
+          throw new Error(message);
+        }
+      }
+      noteStage("preparing");
       const details = await fetchToken(ac.signal);
       if (ac.signal.aborted) return;
       setConnectionDetails({
@@ -199,11 +258,13 @@ export const ConnectionProvider = ({
         token: details.accessToken,
         shouldConnect: true,
       });
+      noteStage("audio");
       setPhase("audio");
     } catch (error) {
       if (ac.signal.aborted) return;
+      if (phaseRef.current === "error") throw error instanceof Error ? error : new Error(friendlyError(error));
       const message = friendlyError(error);
-      fail(message);
+      fail(message, "connection");
       throw error instanceof Error ? error : new Error(message);
     } finally {
       setIsConnecting(false);
@@ -211,9 +272,12 @@ export const ConnectionProvider = ({
   };
 
   const markReady = useCallback(() => {
+    noteStage("ready");
+    stageRef.current = null;
     setPhase("ready");
     setErrorMessage(null);
-  }, []);
+    setErrorKind(null);
+  }, [noteStage]);
 
   const disconnect = useCallback(async () => {
     abortRef.current?.abort();
@@ -232,6 +296,9 @@ export const ConnectionProvider = ({
         isConnecting,
         phase,
         errorMessage,
+        errorKind,
+        qaMode,
+        stageTimings,
         cancel,
         prefetch,
         markReady,

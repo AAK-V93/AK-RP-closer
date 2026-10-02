@@ -9,25 +9,6 @@ import { useTraining } from "@/hooks/use-training-state";
 import { toast } from "@/hooks/use-toast";
 import { useSession } from "next-auth/react";
 
-async function requestMicrophone() {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Este navegador no deja usar el micrófono.");
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((track) => track.stop());
-  } catch (micError) {
-    const name = micError instanceof DOMException ? micError.name : "";
-    if (name === "NotFoundError") {
-      throw new Error("No encuentro un micrófono. Conecta uno o revisa los permisos del navegador.");
-    }
-    if (name === "NotAllowedError" || name === "SecurityError") {
-      throw new Error("El navegador bloqueó el micrófono. Permítelo para entrar a la práctica.");
-    }
-    throw new Error("No pude usar el micrófono. Revisa que esté conectado y permitido.");
-  }
-}
-
 export function ConnectButton() {
   const { connect, shouldConnect, isConnecting, phase, prefetch, cancel } = useConnection();
   const { helpers, trainingState } = useTraining();
@@ -57,23 +38,9 @@ export function ConnectButton() {
     }
 
     setConnecting(true);
-    const micPromise = requestMicrophone();
-    const tokenPromise = connect();
     try {
       try {
-        await micPromise;
-      } catch (error) {
-        cancel();
-        toast({
-          title: "No pude entrar",
-          description:
-            error instanceof Error ? error.message : "No se pudo usar el micrófono",
-          variant: "destructive",
-        });
-        return;
-      }
-      try {
-        await tokenPromise;
+        await connect();
       } catch (error) {
         const code =
           error && typeof error === "object" && "code" in error

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { plainStatus } from "./plain-labels";
+import { plainStatus, spanishAgendaInText } from "./plain-labels";
 
 test("screen labels hide internal status codes", () => {
   assert.equal(plainStatus("CIERRE VENTA"), "Cerró");
@@ -23,4 +23,13 @@ test("screen labels hide internal status codes", () => {
   assert.equal(plainStatus("ZOOM"), "Zoom");
   assert.equal(plainStatus("OTROS"), "Otros");
   assert.equal(plainStatus("SI"), "Sí");
+});
+
+test("notes say Asistió instead of SHOW", () => {
+  assert.equal(
+    spanishAgendaInText("SHOW. No cerró. Se acordó segunda reunión."),
+    "Asistió. No cerró. Se acordó segunda reunión.",
+  );
+  assert.equal(spanishAgendaInText("NO SHOW. No contestó."), "No asistió. No contestó.");
+  assert.equal(spanishAgendaInText("SHOWROOM"), "SHOWROOM");
 });
