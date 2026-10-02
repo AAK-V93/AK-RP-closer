@@ -1,3 +1,5 @@
+import { emptyCommercial, type ExtractedOffer, type ExtractedOfferBatch } from "./offer-commercial";
+
 export const OFFER_READ_PROGRESS = "Leyendo el documento…";
 export const OFFER_EXTRACT_PROGRESS = "Extrayendo precios y comisión…";
 
@@ -55,17 +57,7 @@ async function readPayload(response: Response): Promise<OfferPayload> {
   }
 }
 
-export type OfferExtractResult = {
-  assumption: "una" | "varias";
-  questions: string[];
-  offers: {
-    productName: string;
-    productDescription: string;
-    pitchSummary: string;
-    icp: string;
-    commercial: unknown;
-  }[];
-};
+export type OfferExtractResult = ExtractedOfferBatch;
 
 /**
  * Reads the file first, then asks the model. Two short calls stay inside the
@@ -96,8 +88,11 @@ export async function runOfferExtraction(
   const data = await readPayload(
     await fetchImpl("/api/offer-from-doc", { method: "POST", body: extractBody }),
   );
-  const offers = Array.isArray(data.offers) && data.offers.length
-    ? (data.offers as OfferExtractResult["offers"])
+  const offers: ExtractedOffer[] = Array.isArray(data.offers) && data.offers.length
+    ? (data.offers as ExtractedOffer[]).map((offer) => ({
+        ...offer,
+        commercial: offer.commercial || emptyCommercial(),
+      }))
     : data.productName
       ? [
           {
@@ -105,7 +100,7 @@ export async function runOfferExtraction(
             productDescription: String(data.productDescription || ""),
             pitchSummary: String(data.pitchSummary || ""),
             icp: String(data.icp || ""),
-            commercial: data.commercial,
+            commercial: (data.commercial as ExtractedOffer["commercial"]) || emptyCommercial(),
           },
         ]
       : [];
