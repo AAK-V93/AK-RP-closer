@@ -5,6 +5,7 @@ import {
   answerCrmChat,
   applyChatProposal,
   asksForPendingDesk,
+  cobradoFromCalls,
   interpretCrmChat,
   loadLeadTranscript,
   looksLikeFilingAnswer,
@@ -721,8 +722,103 @@ test("a cuota payment for a named lead confirms Cobrado", () => {
   assert.equal(turn.proposal.leadId, "valeria");
   assert.equal(turn.proposal.changes[0]?.field, "cash");
   assert.equal(turn.proposal.changes[0]?.label, "Cobrado");
+  assert.equal(turn.proposal.changes[0]?.from, "0");
   assert.equal(turn.proposal.changes[0]?.to, "533");
+  assert.match(turn.reply, /1ª cuota/);
   assert.match(turn.reply, /¿Confirmo\?/);
+});
+
+test("a cuota adds to the Cobrado the CRM already shows and does not apply twice", async () => {
+  const valeria = {
+    id: "valeria",
+    name: "Valeria Ríos",
+    offerName: "Fertilidad Consciente",
+    nextStep: "",
+    lastSummary: "",
+    amountPaid: "533",
+  };
+  const sentence = "Valeria Ríos pagó la primera cuota de 533";
+  const turn = interpretCrmChat(sentence, { ...ctx, leads: [...leads, valeria] });
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.proposal.changes[0]?.from, "533");
+  assert.equal(turn.proposal.changes[0]?.to, "1066");
+  assert.match(turn.reply, /Cobrado de Valeria Ríos de 533 a 1\.066 \(2ª cuota\)/);
+  assert.ok(turn.proposal.applyKey);
+
+  const repeat = interpretCrmChat(sentence, {
+    ...ctx,
+    leads: [...leads, { ...valeria, amountPaid: "1066" }],
+    appliedCash: { leadId: "valeria", key: turn.proposal.applyKey || "", to: "1066" },
+  });
+  assert.equal(repeat.kind, "answer");
+  if (repeat.kind !== "answer") return;
+  assert.match(repeat.reply, /sigue en 1\.066/);
+  assert.match(repeat.reply, /No lo sumé otra vez/);
+
+  let paid = "533";
+  let cash = 533;
+  const prisma = {
+    lead: {
+      findFirst: async () => ({ id: "valeria", name: "Valeria Ríos", amountPaid: paid }),
+      update: async ({ data }: { data: { amountPaid?: string } }) => {
+        if (data.amountPaid != null) paid = data.amountPaid;
+      },
+    },
+    callRecord: {
+      findFirst: async () => ({
+        id: "call-valeria",
+        leadName: "Valeria Ríos",
+        cashCollected: cash,
+        filingJson: { cash_collected: cash },
+      }),
+      findMany: async () => [],
+      update: async ({ data }: { data: { cashCollected?: number } }) => {
+        if (data.cashCollected != null) cash = data.cashCollected;
+      },
+      updateMany: async () => {
+        throw new Error("updateMany");
+      },
+    },
+  };
+  const first = await applyChatProposal(prisma as unknown as PrismaClient, "user-1", turn.proposal);
+  assert.match(first.reply, /Listo/);
+  assert.equal(paid, "1066");
+  assert.equal(cash, 1066);
+  const second = await applyChatProposal(prisma as unknown as PrismaClient, "user-1", turn.proposal);
+  assert.match(second.reply, /ya está en 1\.066/);
+  assert.match(second.reply, /No lo sumé otra vez/);
+  assert.equal(paid, "1066");
+  assert.equal(cash, 1066);
+});
+
+test("chat Cobrado comes from the call when the lead field is empty", () => {
+  const shown = cobradoFromCalls("Valeria Ríos", [
+    {
+      leadName: "Valeria Ríos",
+      cashCollected: 533,
+      filingJson: { cash_collected: 533 },
+    },
+  ]);
+  assert.equal(shown, 533);
+  const turn = interpretCrmChat("Valeria Ríos pagó la cuota de 533", {
+    ...ctx,
+    leads: [
+      {
+        id: "valeria",
+        name: "Valeria Ríos",
+        offerName: "Fertilidad Consciente",
+        nextStep: "",
+        lastSummary: "",
+        amountPaid: String(shown),
+      },
+    ],
+  });
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.proposal.changes[0]?.from, "533");
+  assert.equal(turn.proposal.changes[0]?.to, "1066");
+  assert.doesNotMatch(turn.reply, /«—»/);
 });
 
 test("pending desk questions list overdue and today, not the offer paste", () => {

@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BUILTIN_FOLLOWUP_PACKS } from "./followup-catalog";
-import { DEFAULT_FOLLOWUP_SCRIPTS, fillFollowupGuion, type FollowupVars } from "./followup-scripts";
+import {
+  collectionCopy,
+  DEFAULT_FOLLOWUP_SCRIPTS,
+  fillFollowupGuion,
+  nextCuotaAmount,
+  type FollowupVars,
+} from "./followup-scripts";
 import { scriptMatchesOffer } from "./followup-library";
 
 const VARS: FollowupVars = {
@@ -61,4 +67,42 @@ test("an empty closer is removed and another offer's script is not suggested", (
   const video = BUILTIN_FOLLOWUP_PACKS.flatMap((pack) => pack.scripts).find((row) => row.key === "video");
   assert.equal(scriptMatchesOffer(video?.guion || "", "Fertilidad Consciente"), false);
   assert.equal(scriptMatchesOffer("Hola [Nombre], ¿cómo vas con [PROGRAMA]?", "Fertilidad Consciente"), true);
+});
+
+test("a future cuota uses the next installment, not the whole balance, and skips empty payment data", () => {
+  const script = DEFAULT_FOLLOWUP_SCRIPTS.find((row) => row.key === "dia_pago");
+  const money = collectionCopy({
+    saldo: 1064,
+    due: "2026-10-09",
+    today: "2026-10-02",
+    paymentDetails: "",
+    hints: [{ label: "3 cuotas de", amount: 533 }],
+  });
+  assert.equal(money.monto, "533");
+  assert.equal(money.saldo, "1064");
+  assert.equal(nextCuotaAmount(400, [{ label: "3 cuotas de", amount: 533 }]), 400);
+  const text = fillFollowupGuion(script?.guion || "", {
+    ...VARS,
+    nombre: "Valeria",
+    programa: "Fertilidad Consciente",
+    ...money,
+  });
+  assert.match(text, /el 9 de octubre te toca el pago de USD 533/);
+  assert.match(text, /Fertilidad Consciente/);
+  assert.doesNotMatch(text, /1064|hoy corresponde|Te dejo los datos/);
+  const today = collectionCopy({
+    saldo: 1064,
+    due: "2026-10-02",
+    today: "2026-10-02",
+    paymentDetails: "BCP 191-123",
+    hints: [{ label: "3 cuotas de", amount: 533 }],
+  });
+  const dueToday = fillFollowupGuion(script?.guion || "", {
+    ...VARS,
+    nombre: "Valeria",
+    programa: "Fertilidad Consciente",
+    ...today,
+  });
+  assert.match(dueToday, /hoy te toca el pago de USD 533/);
+  assert.match(dueToday, /Te dejo los datos: BCP 191-123/);
 });

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   alignFollowups,
   applyClosedSaleFollowup,
+  shownFollowupKind,
   deskLinesFromFilings,
   followupSnapshot,
   formatPendingDesk,
@@ -376,6 +377,34 @@ test("a closed sale with balance is cobro, and the repeated description is dropp
   const paid = applyClosedSaleFollowup({ ...row, enJuego: 0, tipo: "SEGUNDA REUNION", hilo: "SEGUNDA_REUNION" });
   assert.equal(paid.tipo, "ONBOARDING");
   assert.equal(paid.proximaAccion, "dar la bienvenida");
+  assert.equal(
+    shownFollowupKind(
+      {
+        tipoSeguimiento: "SEGUNDA REUNION",
+        estadoAgenda: "CIERRE VENTA",
+        leadStatus: "cerrado",
+        venta: 1597,
+        cash: 533,
+        saldo: 1064,
+      },
+      {
+        tipo: "SEGUNDA REUNION",
+        hilo: "SEGUNDA REUNION",
+        enJuego: 1064,
+        proximaAccion: "cobrar la siguiente cuota",
+      },
+    ),
+    "COBRANZA",
+  );
+  assert.equal(
+    shownFollowupKind({
+      tipoSeguimiento: "SEGUNDA REUNION",
+      estadoAgenda: "CIERRE VENTA",
+      leadStatus: "cerrado",
+      saldo: 1064,
+    }),
+    "COBRANZA",
+  );
 });
 
 test("the desk lists overdue and today with name, step and date", () => {

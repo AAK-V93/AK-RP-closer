@@ -264,6 +264,71 @@ export function applyClosedSaleFollowup<T extends Alignable>(row: T): T {
   };
 }
 
+/** The kind Operación and Seguimientos both show. Existing sales are rewritten here, not in the DB. */
+export function followupKindForCall(row: {
+  tipoSeguimiento?: string;
+  estadoAgenda?: string;
+  leadStatus?: string;
+  venta?: number | null;
+  cash?: number | null;
+  saldo?: number | null;
+}) {
+  const adjusted = applyClosedSaleFollowup({
+    id: "call",
+    cliente: "",
+    dueAt: "",
+    estado: "",
+    days: 0,
+    enJuego: moneyInPlay({ venta: row.venta, cash: row.cash, saldo: row.saldo }),
+    proximaAccion: "",
+    tipo: row.tipoSeguimiento || "",
+    hilo: row.tipoSeguimiento || "",
+    estadoAgenda: row.estadoAgenda,
+    leadStatus: row.leadStatus,
+  });
+  return adjusted.hilo || adjusted.tipo || row.tipoSeguimiento || "";
+}
+
+export function shownFollowupKind(
+  call: {
+    tipoSeguimiento?: string;
+    estadoAgenda?: string;
+    leadStatus?: string;
+    venta?: number | null;
+    cash?: number | null;
+    saldo?: number | null;
+  },
+  followup?: {
+    id?: string;
+    cliente?: string;
+    dueAt?: string;
+    estado?: string;
+    days?: number;
+    enJuego?: number;
+    proximaAccion?: string;
+    tipo?: string;
+    hilo?: string;
+    contexto?: string;
+  } | null,
+) {
+  if (!followup) return followupKindForCall(call);
+  const adjusted = applyClosedSaleFollowup({
+    id: followup.id || "followup",
+    cliente: followup.cliente || "",
+    dueAt: followup.dueAt || "",
+    estado: followup.estado || "",
+    days: followup.days || 0,
+    enJuego: followup.enJuego ?? moneyInPlay(call),
+    proximaAccion: followup.proximaAccion || "",
+    tipo: followup.tipo || call.tipoSeguimiento || "",
+    hilo: followup.hilo || followup.tipo || call.tipoSeguimiento || "",
+    contexto: followup.contexto,
+    estadoAgenda: call.estadoAgenda,
+    leadStatus: call.leadStatus,
+  });
+  return adjusted.hilo || adjusted.tipo || followupKindForCall(call);
+}
+
 export type DeskFiling = {
   name: string;
   proximo: string;
