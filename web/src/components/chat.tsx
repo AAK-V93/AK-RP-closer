@@ -34,7 +34,7 @@ import {
   isPrematurePractice,
   nextPracticeRetry,
 } from "@/lib/practice-retry";
-import { formatPracticeTimings, practiceErrorTitle, sumPracticeTimings } from "@/lib/practice-qa";
+import { formatPracticeTimings, practiceClockParts, practiceErrorTitle, sumPracticeTimings } from "@/lib/practice-qa";
 
 export function Chat() {
   const connectionState = useConnectionState();
@@ -64,6 +64,7 @@ export function Chat() {
     markRoomJoined,
     markAgentJoined,
     clockOrigin,
+    voiceStartedAt,
   } = useConnection();
   const { trainingState, dispatch } = useTraining();
   const { status: authStatus } = useSession();
@@ -208,6 +209,13 @@ export function Chat() {
     }
   }, [evalError]);
 
+  const clockParts = clockOrigin
+    ? practiceClockParts({
+        clickAt: clockOrigin,
+        now: clockOrigin + elapsedSec * 1000,
+        voiceAt: voiceStartedAt,
+      })
+    : null;
   const { training } = trainingState;
   const retry =
     evaluation && !evalLoading && !dismissedRetry
@@ -321,7 +329,7 @@ export function Chat() {
             !evaluation && (
             <PracticeConnectStatus
               phase={phase === "preparing" ? "preparing" : "audio"}
-              elapsedSec={elapsedSec}
+              elapsedSec={clockParts ? clockParts.connectMs / 1000 : elapsedSec}
               roomJoined={roomJoined}
               onCancel={cancel}
             />
@@ -330,11 +338,12 @@ export function Chat() {
           {qaMode && (
             <p className="mb-3 rounded-full border border-separator1 px-3 py-1 text-xs text-fg2">
               Modo prueba (sin micrófono)
-              {stageTimings.length || liveStage
+              {stageTimings.length || liveStage || clockParts
                 ? ` · ${formatPracticeTimings(
                     liveStage ? [...stageTimings, liveStage] : stageTimings,
-                  )} · total ${(
-                    sumPracticeTimings(liveStage ? [...stageTimings, liveStage] : stageTimings) /
+                  )} · conexión ${(
+                    (clockParts?.connectMs ??
+                      sumPracticeTimings(liveStage ? [...stageTimings, liveStage] : stageTimings)) /
                     1000
                   ).toFixed(1)}s`
                 : ""}
@@ -364,7 +373,7 @@ export function Chat() {
           {isChatRunning && (
             <div className="flex flex-wrap gap-2 justify-center mb-2">
               <Badge variant="secondary" className="font-mono tabular-nums">
-                {formatPracticeClock(elapsedSec)}
+                llamada {formatPracticeClock(clockParts ? clockParts.callMs / 1000 : elapsedSec)}
                 {hasTimeGoal(training.timeGoal) && training.timeGoal?.totalMin
                   ? ` / ${training.timeGoal.totalMin}m`
                   : ""}
@@ -465,7 +474,7 @@ export function Chat() {
                   prospectName={training.prospectProfile.name}
                   isActive={isChatRunning}
                   isConnecting={shouldConnect && !isChatRunning}
-                  elapsedSec={elapsedSec}
+                  elapsedSec={clockParts?.live ? clockParts.callMs / 1000 : elapsedSec}
                   goalMin={training.timeGoal?.totalMin || null}
                 />
               </div>
@@ -509,7 +518,9 @@ function PracticeConnectStatus({
       <div className="text-center space-y-2">
         <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
         <h2 className="text-xl font-light">{CONNECT_STEPS[step].label}</h2>
-        <p className="text-sm text-fg2 tabular-nums">{formatPracticeClock(elapsedSec)}</p>
+        <p className="text-sm text-fg2 tabular-nums">
+          conexión {formatPracticeClock(elapsedSec)}
+        </p>
       </div>
       <Progress value={progress} aria-label="Avance de la conexión" />
       <ol className="space-y-1 text-sm">

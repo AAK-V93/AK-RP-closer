@@ -255,6 +255,13 @@ export function heuristicExtract(text: string): ExtractedOffer {
   };
 }
 
+/**
+ * One Gemini attempt. The 40s budget was the slow response (and, with a cold
+ * start, the 504): PDF text is already local. Past this, heuristicBatch
+ * returns the guarded prices and bonuses.
+ */
+export const OFFER_MODEL_TIMEOUT_MS = 10_000;
+
 export function heuristicBatch(text: string): ExtractedOfferBatch {
   const offer = guardOfferContent(heuristicExtract(text), text);
   const assumption = "una" as const;
@@ -374,7 +381,7 @@ export async function extractOfferBatchFromInput(args: {
     const raw = args.complete
       ? await args.complete(parts)
       : await generateGeminiParts(parts, 0.2, 4096, {
-          timeoutMs: 40_000,
+          timeoutMs: OFFER_MODEL_TIMEOUT_MS,
           models: ["gemini-flash-latest"],
         });
     const parsed = parseGeminiJsonObject(raw);

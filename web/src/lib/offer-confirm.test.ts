@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { commercialRecap, emptyCommercial } from "./offer-commercial";
+import { commercialRecap, emptyCommercial, offerIdToUpdate, savedBonusNames, withRecoveredBonuses } from "./offer-commercial";
 import { rephraseOfferQuestion } from "./offer-extract";
 import {
   allOfferBlocksConfirmed,
@@ -163,4 +163,30 @@ test("a cuota down payment is the inicial, without the duplicated payment tail",
   assert.doesNotMatch(recap, /Contado con beneficio especial/);
   assert.doesNotMatch(recap, /Financiado en cuotas/);
   assert.doesNotMatch(recap, /Reserva con saldo inicial diferido/);
+});
+
+test("a saved offer recovers bonuses from the stored document and updates by name", () => {
+  const commercial = emptyCommercial();
+  commercial.sourceText = [
+    "Bonus incluidos",
+    "Protocolo de suplementación en pareja personalizado",
+    "Masterclass: Mi fertilidad",
+    "GARANTÍA TOTAL",
+  ].join("\n");
+  assert.deepEqual(savedBonusNames(commercial), [
+    "Protocolo de suplementación en pareja personalizado",
+    "Masterclass: Mi fertilidad",
+  ]);
+  const kept = withRecoveredBonuses({
+    ...commercial,
+    bonuses: [{ name: "Ya guardado", condition: "" }],
+  });
+  assert.equal(kept.bonuses[0]?.name, "Ya guardado");
+  const offers = [
+    { id: "a", productName: "Otra" },
+    { id: "b", productName: "Fertilidad Consciente" },
+  ];
+  assert.equal(offerIdToUpdate(offers, { productName: "Fertilidad Consciente" }), "b");
+  assert.equal(offerIdToUpdate(offers, { id: "a", productName: "Fertilidad Consciente" }), "a");
+  assert.equal(offerIdToUpdate(offers, { productName: "Nueva" }), null);
 });

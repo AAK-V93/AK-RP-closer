@@ -58,7 +58,7 @@ export function sumPracticeTimings(rows: PracticeStageTiming[]) {
 /**
  * agente is room-connected → agent participant (0 when the participant is already
  * in the room at Connected). voz is that moment → first remote audio playing.
- * The on-screen clock is voiceAt - clickAt, not a clock that starts at "live".
+ * "conexión" is click → remote audio. "llamada" starts only after that.
  */
 export function practiceConnectSpans(marks: {
   clickAt: number;
@@ -78,4 +78,16 @@ export function practiceConnectSpans(marks: {
     ],
     elapsedMs: Math.max(0, marks.voiceAt - marks.clickAt),
   };
+}
+
+/** Badge "conexión" and the connect clock share click → audio. After audio, "llamada" is the call only. */
+export function practiceClockParts(marks: {
+  clickAt: number;
+  now: number;
+  voiceAt: number | null;
+}) {
+  const live = marks.voiceAt != null;
+  const connectMs = Math.max(0, (marks.voiceAt ?? marks.now) - marks.clickAt);
+  const callMs = live ? Math.max(0, marks.now - (marks.voiceAt as number)) : 0;
+  return { connectMs, callMs, live };
 }

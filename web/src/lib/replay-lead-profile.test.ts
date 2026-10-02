@@ -118,6 +118,21 @@ test("replay instructions tell the model to improvise off-profile, not recite li
   assert.ok(!instructions.includes(call.excerpt.slice(0, 60)));
 });
 
+test("the prospect prompt receives the saved bonuses", () => {
+  const instructions = buildProspectInstructions({
+    ...defaultTrainingSession,
+    productName: "Fertilidad Consciente",
+    productDescription: "Acompañamiento de fertilidad",
+    offerBonuses: [
+      "Protocolo de suplementación en pareja personalizado",
+      "Masterclass: Mi fertilidad",
+    ],
+  });
+  assert.match(instructions, /Included bonuses/);
+  assert.match(instructions, /Protocolo de suplementación en pareja personalizado/);
+  assert.match(instructions, /Masterclass: Mi fertilidad/);
+});
+
 test("filingFromCall reads extractor CRM fields", () => {
   const filing = filingFromCall({
     filingJson: {

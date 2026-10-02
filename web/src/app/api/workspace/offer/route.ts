@@ -6,6 +6,7 @@ import { getWorkspace } from "@/lib/workspace";
 import { persistCommissionRule } from "@/lib/commission";
 import {
   parseCommercial,
+  withRecoveredBonuses,
   type OfferCommercial,
 } from "@/lib/offer-commercial";
 
@@ -46,17 +47,28 @@ export async function POST(request: Request) {
         : existingCount === 0;
 
     const commercial = body.commercial
-      ? parseCommercial(body.commercial)
+      ? withRecoveredBonuses(parseCommercial(body.commercial))
       : undefined;
 
     let offer;
-    if (body.id) {
-      const owned = await auth.prisma.userOffer.findFirst({
-        where: { id: body.id, userId: auth.userId },
-      });
-      if (!owned) {
-        return NextResponse.json({ error: "Oferta no encontrada" }, { status: 404 });
-      }
+    const ownedById = body.id
+      ? await auth.prisma.userOffer.findFirst({
+          where: { id: body.id, userId: auth.userId },
+        })
+      : null;
+    if (body.id && !ownedById) {
+      return NextResponse.json({ error: "Oferta no encontrada" }, { status: 404 });
+    }
+    const owned =
+      ownedById ||
+      (await auth.prisma.userOffer.findFirst({
+        where: {
+          userId: auth.userId,
+          productName: { equals: productName, mode: "insensitive" },
+        },
+        orderBy: { updatedAt: "desc" },
+      }));
+    if (owned) {
       if (commercial) {
         const ownedScripts = parseCommercial(owned.commercial).scripts;
         const originByKey = new Map(

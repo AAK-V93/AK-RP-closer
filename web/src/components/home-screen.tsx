@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2, Upload } from "lucide-react";
 import { CycleIntro } from "@/components/cycle-intro";
@@ -98,6 +98,7 @@ function OnboardingA({
   const [parsing, setParsing] = useState(false);
   const [extractProgress, setExtractProgress] = useState(OFFER_EXTRACT_PROGRESS);
   const [canRetryExtract, setCanRetryExtract] = useState(false);
+  const extractGen = useRef(0);
   const [review, setReview] = useState<{
     assumption: "una" | "varias";
     questions: string[];
@@ -114,6 +115,7 @@ function OnboardingA({
       setError("Pega un texto o sube un documento de la oferta.");
       return;
     }
+    const gen = ++extractGen.current;
     setSaving(true);
     setParsing(true);
     setError(null);
@@ -122,15 +124,21 @@ function OnboardingA({
       const extracted = await runOfferExtraction({
         files: offerFiles,
         paste: offerBlob,
-        onProgress: setExtractProgress,
+        onProgress: (message) => {
+          if (gen === extractGen.current) setExtractProgress(message);
+        },
       });
+      if (gen !== extractGen.current) return;
       setReview(extracted);
     } catch (e) {
+      if (gen !== extractGen.current) return;
       setCanRetryExtract(true);
       setError(e instanceof Error ? e.message : "No pude leer ese documento. Pulsa Reintentar.");
     } finally {
-      setSaving(false);
-      setParsing(false);
+      if (gen === extractGen.current) {
+        setSaving(false);
+        setParsing(false);
+      }
     }
   };
 

@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   getPrisma,
   ensureCrmTables,
@@ -21,6 +21,8 @@ import {
   isOfferCrmReady,
   parseCommercial,
   userHasReadyCrm,
+  withRecoveredBonuses,
+  type OfferCommercial,
 } from "@/lib/offer-commercial";
 
 export async function getWorkspacePrisma() {
@@ -56,6 +58,10 @@ export async function getWorkspace(
     where: { userId },
     orderBy: { updatedAt: "desc" },
   });
+  const recovered = new Map<string, OfferCommercial>();
+  for (const row of offers) {
+    recovered.set(row.id, await storeRecoveredBonuses(prisma, row.id, row.commercial));
+  }
   const oldest = [...offers].sort(
     (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
   )[0];
@@ -135,7 +141,7 @@ export async function getWorkspace(
       productDescription: row.productDescription,
       pitchSummary: row.pitchSummary,
       includeFathom: row.includeFathom,
-      commercial: parseCommercial(row.commercial),
+      commercial: recovered.get(row.id) || parseCommercial(row.commercial),
       readyCrm: isOfferCrmReady(row),
       updatedAt: row.updatedAt.toISOString(),
     })),
@@ -146,7 +152,7 @@ export async function getWorkspace(
           productDescription: active.productDescription,
           pitchSummary: active.pitchSummary,
           includeFathom: active.includeFathom,
-          commercial: parseCommercial(active.commercial),
+          commercial: recovered.get(active.id) || parseCommercial(active.commercial),
           readyCrm: isOfferCrmReady(active),
         }
       : null,
@@ -191,7 +197,25 @@ const PRACTICE_OFFER_SELECT = {
   productDescription: true,
   pitchSummary: true,
   playbook: true,
+  commercial: true,
 } as const;
+
+/** One row update. Neon HTTP cannot run updateMany, deleteMany, or a transaction. */
+async function storeRecoveredBonuses(prisma: PrismaClient, id: string, raw: unknown) {
+  const parsed = parseCommercial(raw);
+  const next = withRecoveredBonuses(parsed);
+  if (!parsed.bonuses.length && next.bonuses.length) {
+    try {
+      await prisma.userOffer.update({
+        where: { id },
+        data: { commercial: next as unknown as Prisma.InputJsonValue },
+      });
+    } catch (error) {
+      console.error("offer bonus backfill", id, error);
+    }
+  }
+  return next;
+}
 
 /**
  * Offer row for voice practice. One indexed read, no transcript bodies.
@@ -228,12 +252,14 @@ export async function loadPracticeContext(
     }));
   if (!offer) return null;
   const playbook = parsePlaybook(offer.playbook);
+  const commercial = await storeRecoveredBonuses(prisma, offer.id, offer.commercial);
   return {
     offer: {
       id: offer.id,
       productName: offer.productName,
       productDescription: offer.productDescription,
       pitchSummary: offer.pitchSummary,
+      bonuses: commercial.bonuses.map((row) => row.name.trim()).filter(Boolean),
     },
     playbook,
     liveGuide: parseLiveGuide(offer.playbook, offer.productName),

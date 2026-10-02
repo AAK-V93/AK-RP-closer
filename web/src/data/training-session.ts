@@ -64,6 +64,8 @@ export interface TrainingSessionConfig {
   language: LanguageCode;
   /** Required when practicing close-only without pitch_close */
   pitchSummary?: string;
+  /** Bonus names from the saved offer. The prospect knows they exist. */
+  offerBonuses?: string[];
   /** Coach-directed objective or real lead name */
   practiceFocus?: string;
   practiceKind?: PracticeKind;

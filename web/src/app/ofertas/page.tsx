@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState, type InputHTMLAttributes } from "react";
+import { FormEvent, useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -16,6 +16,7 @@ import {
   commercialRecap,
   offerToSavePayload,
   parseCommercial,
+  savedBonusNames,
   type ExtractedOffer,
 } from "@/lib/offer-commercial";
 import { OfferExtractReview } from "@/components/offer-extract-review";
@@ -66,6 +67,7 @@ export default function OfertasPage() {
   const [extractProgress, setExtractProgress] = useState(OFFER_EXTRACT_PROGRESS);
   const [canRetryExtract, setCanRetryExtract] = useState(false);
   const [lastExtractFiles, setLastExtractFiles] = useState<File[] | null>(null);
+  const extractGen = useRef(0);
   const [publishingPack, setPublishingPack] = useState(false);
   const [review, setReview] = useState<{
     assumption: "una" | "varias";
@@ -113,6 +115,7 @@ export default function OfertasPage() {
       setCanRetryExtract(false);
       return;
     }
+    const gen = ++extractGen.current;
     setParsingDoc(true);
     setError(null);
     setCanRetryExtract(false);
@@ -121,14 +124,18 @@ export default function OfertasPage() {
       const data = await runOfferExtraction({
         files: list || [],
         paste: blob,
-        onProgress: setExtractProgress,
+        onProgress: (message) => {
+          if (gen === extractGen.current) setExtractProgress(message);
+        },
       });
+      if (gen !== extractGen.current) return;
       setReview(data);
     } catch (e) {
+      if (gen !== extractGen.current) return;
       setCanRetryExtract(true);
       setError(e instanceof Error ? e.message : "No pude leer ese documento. Pulsa Reintentar.");
     } finally {
-      setParsingDoc(false);
+      if (gen === extractGen.current) setParsingDoc(false);
     }
   };
 
@@ -324,7 +331,9 @@ export default function OfertasPage() {
         )}
 
         <div className="flex flex-wrap gap-2">
-          {(workspace?.offers || []).map((row) => (
+          {(workspace?.offers || []).map((row) => {
+            const bonusCount = savedBonusNames(parseCommercial(row.commercial)).length;
+            return (
             <Button
               key={row.id}
               type="button"
@@ -333,9 +342,11 @@ export default function OfertasPage() {
               onClick={() => void load(row.id)}
             >
               {row.productName}
+              {bonusCount ? ` · ${bonusCount} bonos` : ""}
               {row.readyCrm ? "" : " ·"}
             </Button>
-          ))}
+            );
+          })}
           <Button
             type="button"
             size="sm"
@@ -403,10 +414,7 @@ export default function OfertasPage() {
             />
           )}
           {!review && commercial && (
-            <p className="whitespace-pre-line text-xs text-fg2 rounded-xl border border-separator1 px-3 py-2">
-              {commercialRecap(parseCommercial(commercial)) ||
-                "Extraído. Revisa nombre y descripción abajo y guarda."}
-            </p>
+            <SavedOfferCommercial commercial={commercial} />
           )}
         </div>
 
@@ -633,5 +641,28 @@ export default function OfertasPage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+function SavedOfferCommercial({ commercial }: { commercial: Record<string, unknown> }) {
+  const parsed = parseCommercial(commercial);
+  const prices = commercialRecap(parsed);
+  const bonuses = savedBonusNames(parsed);
+  return (
+    <div className="text-xs text-fg2 rounded-xl border border-separator1 px-3 py-2 space-y-2">
+      <p className="whitespace-pre-line">
+        {prices || "Extraído. Revisa nombre y descripción abajo y guarda."}
+      </p>
+      {bonuses.length > 0 && (
+        <div>
+          <p className="font-medium text-fg1">Bonos ({bonuses.length})</p>
+          <ul className="mt-1 list-disc pl-4 space-y-0.5">
+            {bonuses.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
