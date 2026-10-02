@@ -71,8 +71,15 @@ export function quickFollowupIso(
   return isoDay(nextWeekday(base, friday));
 }
 
-function clockFromText(raw: string) {
-  const folded = fold(raw);
+function withoutTranscriptStamps(raw: string) {
+  return raw
+    .replace(/\[[^\]]*?\d{1,2}:\d{2}[^\]]*?\]/g, " ")
+    .replace(/\b\d{1,2}:\d{2}:\d{2}\b/g, " ");
+}
+
+/** A clock the closer actually said. Transcript offsets like [00:47:12] are not a meeting time. */
+export function spokenFollowupClock(raw: string) {
+  const folded = fold(withoutTranscriptStamps(raw));
   const ampm = folded.match(/\b(\d{1,2})(?::(\d{2}))?\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\b/);
   if (ampm) {
     let hour = Number(ampm[1]);
@@ -87,9 +94,16 @@ function clockFromText(raw: string) {
     const hour = Number(alas[1]);
     if (hour >= 0 && hour <= 23) return `${String(hour).padStart(2, "0")}:${alas[2] || "00"}`;
   }
-  const hhmm = raw.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
-  if (hhmm) return `${hhmm[1].padStart(2, "0")}:${hhmm[2]}`;
+  const horas = folded.match(/\b(\d{1,2})(?::(\d{2}))?\s*h(?:oras|s)\b/);
+  if (horas) {
+    const hour = Number(horas[1]);
+    if (hour >= 0 && hour <= 23) return `${String(hour).padStart(2, "0")}:${horas[2] || "00"}`;
+  }
   return null;
+}
+
+function clockFromText(raw: string) {
+  return spokenFollowupClock(raw);
 }
 
 function withClock(day: string | null, raw: string) {

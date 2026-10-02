@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { shouldDropInferredSale } from "./call-normalize";
 import { emptyExtractor } from "./extractor";
 import { fillStatedDeal } from "./stated-deal";
 
@@ -50,6 +51,24 @@ test("the year in the call date is not the sale, including a comma amount", () =
   onlyDate.venta_total = 2026;
   fillStatedDeal("Llamada de venta 30/09/2026. Quedó en pensarlo.", onlyDate);
   assert.equal(onlyDate.venta_total, null);
+});
+
+test("a mentioned list price is not a sale", () => {
+  const parsed = emptyExtractor();
+  parsed.venta_total = 10000;
+  parsed.estado_agenda = "SHOW";
+  fillStatedDeal(
+    "Impromptu Google Meet Meeting. Lista USD 11800 · Contado especial USD 10000. La llamada se cortó.",
+    parsed,
+  );
+  assert.equal(parsed.venta_total, 10000);
+  assert.equal(
+    shouldDropInferredSale(
+      parsed,
+      "Impromptu Google Meet Meeting. Lista USD 11800 · Contado especial USD 10000. La llamada se cortó.",
+    ),
+    true,
+  );
 });
 
 test("fraccionado without an inicial still fills amount, mode and balance", () => {

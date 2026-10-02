@@ -13,6 +13,7 @@ import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib
 import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
 import { offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
 import { countedSale, shownMoney } from "@/lib/stated-deal";
+import { repairImportedCallFields } from "@/lib/call-normalize";
 import { catalogDisplayName, foldOffer, isInventedOfferLabel, isPriceLabel } from "@/lib/offer-name";
 
 function inRange(date: Date | null, from: Date, to: Date) {
@@ -70,6 +71,15 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     await reconcileOfferNames(prisma, offers, calls, allCalls, leads);
   } catch (error) {
     console.error("reconcile offers", error);
+  }
+  try {
+    await repairImportedCallFields(
+      prisma,
+      offers.map((offer) => offer.productName),
+      [calls, allCalls],
+    );
+  } catch (error) {
+    console.error("repair imported calls", error);
   }
 
   const rollupInput = calls.map(asRollupCall);

@@ -11,6 +11,8 @@ const STATUS_LABELS: Record<string, string> = {
   confirmed: "Confirmada",
   skipped: "Archivada",
   DECISION: "Decisión",
+  YES: "—",
+  TRUE: "—",
   COBRANZA: "Cobro",
   SEGUNDA_REUNION: "Segunda reunión",
   "SEGUNDA REUNION": "Segunda reunión",

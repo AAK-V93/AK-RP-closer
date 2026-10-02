@@ -1,5 +1,4 @@
 import type { PrismaClient } from "@prisma/client";
-import { Prisma } from "@prisma/client";
 import { CRM_TIMEZONE, calendarDaysBetween, zonedDayKey } from "@/lib/crm-time";
 
 export type CrmPrefs = {
@@ -64,6 +63,37 @@ export function parseMonthlyGoalUsd(text: string): number | null {
   return null;
 }
 
+const PREF_KEY = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+/** Writes one crmPrefs key. A full-object replace would wipe pendingChat from another request. */
+export async function patchCrmPref(
+  prisma: PrismaClient,
+  userId: string,
+  key: string,
+  value: unknown | undefined,
+) {
+  if (!PREF_KEY.test(key)) throw new Error("Clave de preferencias inválida");
+  if (value === undefined) {
+    await prisma.$executeRaw`
+      UPDATE "User"
+      SET "crmPrefs" = COALESCE("crmPrefs", '{}'::jsonb) - ${key}
+      WHERE "id" = ${userId}
+    `;
+    return;
+  }
+  const json = JSON.stringify(value);
+  await prisma.$executeRaw`
+    UPDATE "User"
+    SET "crmPrefs" = jsonb_set(
+      COALESCE("crmPrefs", '{}'::jsonb),
+      ARRAY[${key}]::text[],
+      ${json}::jsonb,
+      true
+    )
+    WHERE "id" = ${userId}
+  `;
+}
+
 export async function saveMonthlyGoal(
   prisma: PrismaClient,
   userId: string,
@@ -71,20 +101,7 @@ export async function saveMonthlyGoal(
 ) {
   const amount = Math.round(usd);
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { crmPrefs: true },
-  });
-  const prefs = {
-    ...((user?.crmPrefs && typeof user.crmPrefs === "object"
-      ? user.crmPrefs
-      : {}) as Record<string, unknown>),
-    monthlyGoalUsd: amount,
-  };
-  await prisma.user.update({
-    where: { id: userId },
-    data: { crmPrefs: prefs as Prisma.InputJsonValue },
-  });
+  await patchCrmPref(prisma, userId, "monthlyGoalUsd", amount);
   return amount;
 }
 

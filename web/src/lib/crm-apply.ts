@@ -26,7 +26,9 @@ import {
 } from "@/lib/offer-commercial";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { addDays, parseCrmPrefs, parseFollowupDate } from "@/lib/crm-prefs";
+import { canonicalTipo } from "@/lib/call-normalize";
 import { inferCallDate, inferFollowupDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
+import { zonedDayKey } from "@/lib/crm-time";
 import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
 import { recordExtractorFeedback } from "@/lib/extractor-feedback";
 
@@ -281,6 +283,14 @@ export async function upsertCommission(
   });
 }
 
+/** Noon UTC on the Bogotá day, so a follow-up does not inherit the call's UTC clock. */
+function followupInstant(from: Date, extraDays: number) {
+  const key = zonedDayKey(from);
+  const [year, month, day] = key.split("-").map(Number);
+  const noon = new Date(Date.UTC(year || 1970, (month || 1) - 1, day || 1, 12, 0, 0));
+  return addDays(noon, extraDays);
+}
+
 export async function applyExtractorToCrm(
   prisma: PrismaClient,
   userId: string,
@@ -314,7 +324,7 @@ export async function applyExtractorToCrm(
     const status = leadStatusFromAgenda(parsed.estado_agenda);
     const nextAt =
       parseFollowupDate(parsed.proximo_seguimiento, callAt) ||
-      (parsed.requiere_seguimiento ? addDays(callAt, prefs.followupGraceDays) : null);
+      (parsed.requiere_seguimiento ? followupInstant(callAt, prefs.followupGraceDays) : null);
     const data = {
       company: existing?.company || "",
       offerName: offerName || existing?.offerName || "",
@@ -497,7 +507,7 @@ export function fillExtractorField(
   if (field === "venta_total" && Number.isFinite(n)) next.venta_total = n;
   if (field === "cash_collected" && Number.isFinite(n)) next.cash_collected = n;
   if (field === "modo_pago") next.modo_pago = text;
-  if (field === "tipo_seguimiento") next.tipo_seguimiento = text.toUpperCase();
+  if (field === "tipo_seguimiento") next.tipo_seguimiento = canonicalTipo(text) || null;
   if (field === "proximo_seguimiento") {
     next.proximo_seguimiento = inferFollowupDate(text, new Date()) || text;
     next.confianza.proximo_seguimiento = 95;

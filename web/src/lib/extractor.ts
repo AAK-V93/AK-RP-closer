@@ -4,6 +4,7 @@ import { RAZONES_NO_CIERRE, ETAPAS_PERDIDAS } from "@/lib/crm-catalog";
 import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
 import { inferFollowupDate } from "@/lib/followup-date";
 import { followupIsClosed } from "@/lib/crm-followups";
+import { normalizeImportedFiling } from "@/lib/call-normalize";
 import { fillStatedDeal } from "@/lib/stated-deal";
 import { PROTOCOLO_EXTRACTOR_COMERCIAL_PAE } from "@/lib/protocolo-extractor-comercial-pae";
 
@@ -401,12 +402,15 @@ export function enrichExtractorFollowup(
   args: { transcript?: string | null; callAt?: Date | string | null },
 ) {
   if (isNonSalesCall(parsed.estado_agenda)) return parsed;
+  const transcript = String(args.transcript || "");
   const closed = followupIsClosed(parsed);
   const pinned = ["no_contesto", "no_mostro", "reprogramado"].includes(
     String(parsed.seguimiento_resultado || "").toLowerCase(),
   );
-  fillStatedDeal(String(args.transcript || ""), parsed);
-  if (closed || (pinned && parsed.proximo_seguimiento)) return parsed;
+  fillStatedDeal(transcript, parsed);
+  if (closed || (pinned && parsed.proximo_seguimiento)) {
+    return normalizeImportedFiling(parsed, transcript);
+  }
   const blobs = [
     parsed.proximo_seguimiento,
     parsed.evidencia.seguimiento,
@@ -416,12 +420,12 @@ export function enrichExtractorFollowup(
   ]
     .filter(Boolean)
     .join("\n");
-  const inferred = inferFollowupDate(blobs, args.callAt);
+  const inferred = inferFollowupDate(`${blobs}\n${transcript}`, args.callAt);
   if (!inferred) {
     if (parsed.proximo_seguimiento && parsed.requiere_seguimiento == null) {
       parsed.requiere_seguimiento = true;
     }
-    return parsed;
+    return normalizeImportedFiling(parsed, transcript);
   }
   const current = parsed.proximo_seguimiento || "";
   const sameDay = current.slice(0, 10) === inferred.slice(0, 10);
@@ -435,7 +439,7 @@ export function enrichExtractorFollowup(
     parsed.requiere_seguimiento = true;
     parsed.confianza.requiere_seguimiento = Math.max(parsed.confianza.requiere_seguimiento, 85);
   }
-  return parsed;
+  return normalizeImportedFiling(parsed, transcript);
 }
 
 export type ExtractorGap = { field: string; question: string; options?: string[] };

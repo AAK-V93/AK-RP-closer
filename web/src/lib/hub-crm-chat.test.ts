@@ -6,6 +6,7 @@ import {
   interpretCrmChat,
   loadLeadTranscript,
   looksLikeFilingAnswer,
+  readPendingChat,
   messageTargetsOtherLead,
   proposalFromLoosePatch,
   replyForNamedLead,
@@ -362,9 +363,10 @@ function fakeCrm(opts?: { failUpdate?: boolean }) {
         name: "Sofía Mamani",
         offerName: "Círculo Millonario",
       }),
-      update: async ({ data }: { data: { name?: string } }) => {
+      update: async ({ data }: { data: { name?: string; amountPaid?: string } }) => {
         if (opts?.failUpdate) throw new Error("Transactions are not supported");
         calls.push(`lead:${data.name || ""}`);
+        if (data.amountPaid != null) calls.push(`paid:${data.amountPaid}`);
         return data;
       },
     },
@@ -373,13 +375,23 @@ function fakeCrm(opts?: { failUpdate?: boolean }) {
         calls.push("updateMany");
         throw new Error("Transactions are not supported");
       },
-      findFirst: async () => ({ id: "call-1", filingJson: { notas_crm: "vieja" } }),
-      update: async () => {
+      findFirst: async () => ({ id: "call-1", filingJson: { notas_crm: "vieja" }, leadName: "Carlos Ramírez" }),
+      update: async (args?: { data?: { cashCollected?: number } }) => {
         calls.push("call");
+        if (args?.data && "cashCollected" in args.data) calls.push(`callcash:${args.data.cashCollected}`);
       },
     },
-    $executeRaw: async (strings: TemplateStringsArray) => {
-      calls.push(`raw:${strings.join(" ")}`);
+    $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = strings.join(" ");
+      calls.push(`raw:${sql}`);
+      if (sql.includes(" - ") && values.includes("pendingChat")) {
+        delete prefs.pendingChat;
+        calls.push("pending:clear");
+      } else if (sql.includes("jsonb_set") && values.includes("pendingChat")) {
+        const json = values.find((value) => typeof value === "string" && value.trim().startsWith("{"));
+        if (typeof json === "string") prefs.pendingChat = JSON.parse(json);
+        calls.push("pending:set");
+      }
       return 1;
     },
     user: {
@@ -394,6 +406,139 @@ function fakeCrm(opts?: { failUpdate?: boolean }) {
   return { prisma: prisma as unknown as PrismaClient, calls, prefs };
 }
 
+test("re-sending the same rename re-asks and writes nothing", async () => {
+  const pending: ChatProposal = {
+    leadId: "sofia",
+    leadName: "Sofía Mamani",
+    changes: [
+      { field: "name", label: "Nombre", from: "Sofía Mamani", to: "Sofia Mamani Quispe" },
+    ],
+  };
+  const again = interpretCrmChat("Sofía Mamani en realidad se llama Sofia Mamani Quispe", {
+    ...ctx,
+    pending,
+  });
+  assert.equal(again.kind, "confirm");
+  if (again.kind !== "confirm") return;
+  assert.equal(again.proposal.changes[0]?.to, "Sofia Mamani Quispe");
+  assert.match(again.reply, /¿Confirmo\?/);
+  assert.doesNotMatch(again.reply, /ya está guardado/);
+  assert.doesNotMatch(again.reply, /Dejé sin confirmar/);
+
+  const { prisma, calls } = fakeCrm();
+  const reply = await respondToCrmChat(
+    prisma,
+    "user-1",
+    "Sofía Mamani en realidad se llama Sofia Mamani Quispe",
+    { ...ctx, pending },
+  );
+  assert.match(reply || "", /¿Confirmo\?/);
+  assert.doesNotMatch(reply || "", /ya está guardado/);
+  assert.doesNotMatch(reply || "", /Dejé sin confirmar/);
+  assert.equal(calls.some((call) => call.startsWith("lead:")), false);
+  assert.equal(calls.includes("updateMany"), false);
+  assert.ok(calls.includes("pending:set"));
+  assert.equal(calls.includes("pending:clear"), false);
+});
+
+test("a stored name that already matches still re-asks while that rename is pending", () => {
+  const pending: ChatProposal = {
+    leadId: "sofia",
+    leadName: "Sofía Mamani",
+    changes: [
+      { field: "name", label: "Nombre", from: "Sofía Mamani", to: "Sofia Mamani Quispe" },
+    ],
+  };
+  const renamed = ctx.leads.map((lead) =>
+    lead.id === "sofia" ? { ...lead, name: "Sofia Mamani Quispe" } : lead,
+  );
+  const turn = interpretCrmChat("Sofía Mamani en realidad se llama Sofia Mamani Quispe", {
+    ...ctx,
+    leads: renamed,
+    pending,
+  });
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.match(turn.reply, /¿Confirmo\?/);
+  assert.doesNotMatch(turn.reply, /ya está guardado/);
+});
+
+test("a pending change from another conversation is ignored", () => {
+  const foreign = readPendingChat({
+    pendingChat: {
+      conversation: "import",
+      leadId: "alejandro",
+      leadName: "Alejandro",
+      changes: [{ field: "name", label: "Nombre", from: "Alejandro", to: "Alex" }],
+    },
+  });
+  assert.equal(foreign, null);
+  const hub = readPendingChat({
+    pendingChat: {
+      conversation: "hub",
+      leadId: "sofia",
+      leadName: "Sofía Mamani",
+      changes: [
+        { field: "name", label: "Nombre", from: "Sofía Mamani", to: "Sofia Mamani Quispe" },
+      ],
+    },
+  });
+  assert.equal(hub?.leadId, "sofia");
+  assert.equal(hub?.changes[0]?.to, "Sofia Mamani Quispe");
+});
+
+test("sí without a pending change does not touch another record", async () => {
+  const turn = interpretCrmChat("sí", ctx);
+  assert.equal(turn.kind, "answer");
+  if (turn.kind !== "answer") return;
+  assert.match(turn.reply, /No tengo ningún cambio pendiente/);
+  assert.doesNotMatch(turn.reply, /Alejandro/);
+  assert.doesNotMatch(turn.reply, /listo/);
+
+  const { prisma, calls } = fakeCrm();
+  const reply = await respondToCrmChat(prisma, "user-1", "sí", ctx);
+  assert.match(reply || "", /No tengo ningún cambio pendiente/);
+  assert.equal(calls.some((call) => call.startsWith("lead:")), false);
+  assert.equal(calls.includes("call"), false);
+});
+
+test("clearing Carlos's cash asks before writing zero", async () => {
+  const paid = {
+    ...ctx,
+    leads: ctx.leads.map((lead) => (lead.id === "carlos" ? { ...lead, amountPaid: "2000" } : lead)),
+  };
+  for (const sample of [
+    "Carlos no ha pagado nada",
+    "pon el cash de Carlos en 0",
+    "borra el pago de Carlos",
+  ]) {
+    const turn = interpretCrmChat(sample, paid);
+    assert.equal(turn.kind, "confirm", sample);
+    if (turn.kind !== "confirm") return;
+    assert.equal(turn.proposal.leadId, "carlos");
+    assert.equal(turn.proposal.changes[0]?.field, "cash");
+    assert.equal(turn.proposal.changes[0]?.to, "0");
+    assert.equal(turn.proposal.changes[0]?.label, "Cobrado");
+    assert.match(turn.reply, /Cobrado/);
+    assert.match(turn.reply, /¿Confirmo\?/);
+  }
+
+  const { prisma, calls } = fakeCrm();
+  const reply = await respondToCrmChat(prisma, "user-1", "sí", {
+    ...paid,
+    pending: {
+      leadId: "carlos",
+      leadName: "Carlos Ramírez",
+      changes: [{ field: "cash", label: "Cash cobrado", from: "2000", to: "0" }],
+    },
+  });
+  assert.match(reply || "", /Listo/);
+  assert.match(reply || "", /«0»/);
+  assert.ok(calls.includes("paid:0"));
+  assert.ok(calls.includes("callcash:0"));
+  assert.equal(calls.includes("updateMany"), false);
+});
+
 test("those messages are not answers to Edson's filing gap", () => {
   const samples = [
     "Sofía Mamani en realidad se llama Sofia Mamani Quispe",
@@ -406,6 +551,8 @@ test("those messages are not answers to Edson's filing gap", () => {
     assert.equal(looksLikeFilingAnswer(sample), false, sample);
   }
   assert.equal(looksLikeFilingAnswer("10000"), true);
+  assert.equal(looksLikeFilingAnswer("sí"), false);
+  assert.equal(looksLikeFilingAnswer("si"), false);
   assert.equal(messageTargetsOtherLead("Carlos me pagó 2000", leads, "Edson"), true);
   assert.equal(messageTargetsOtherLead("10000", leads, "Edson"), false);
 });

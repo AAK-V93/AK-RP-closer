@@ -1,3 +1,4 @@
+import { normalizeProximo } from "@/lib/call-normalize";
 import { followupIsClosed } from "@/lib/crm-followups";
 import { zonedDayKey } from "@/lib/crm-time";
 
@@ -103,7 +104,13 @@ export function operacionFromCall(
   const requiere = asSiNo(
     filing.requiere_seguimiento ?? filing.requiereSeguimiento,
   );
-  const proximo = asStr(filing.proximo_seguimiento).replace("T", " ").slice(0, 16);
+  const evidence = filing.evidencia && typeof filing.evidencia === "object"
+    ? asStr((filing.evidencia as FilingBag).seguimiento)
+    : "";
+  const proximo = normalizeProximo(
+    asStr(filing.proximo_seguimiento),
+    [asStr(filing.acuerdo_seguimiento), asStr(filing.notas_crm), evidence].join("\n"),
+  );
   const seguimientoResultado = asStr(filing.seguimiento_resultado).toLowerCase();
   const cerrado = followupIsClosed({
     seguimiento_resultado: seguimientoResultado,

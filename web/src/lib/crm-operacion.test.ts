@@ -44,6 +44,24 @@ test("operacion row prefers indexed money and ungated filing notes", () => {
   assert.equal(row.canal, "ZOOM");
 });
 
+test("an unagreed 00:47 follow-up keeps the day and drops the clock", () => {
+  const row = operacionFromCall({
+    id: "meet",
+    recordedAt: new Date("2026-10-02T05:47:00.000Z"),
+    leadName: "Alejandro",
+    estadoAgenda: "SHOW",
+    ventaTotal: 10000,
+    filingJson: {
+      producto: "Lista USD 11800 · Contado especial USD 10000",
+      tipo_seguimiento: "Sí",
+      proximo_seguimiento: "2026-10-08 00:47",
+      estado_agenda: "SHOW",
+    },
+  });
+  assert.equal(row.fechaProximo, "2026-10-08");
+  assert.equal(row.tipoSeguimiento, "SÍ");
+});
+
 test("otro o null is the same reason as otro", () => {
   assert.equal(cleanReason("Otro o null"), "Otro");
   assert.equal(cleanReason("null"), "Otro");

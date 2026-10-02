@@ -9,6 +9,7 @@ import { crmDashboard } from "@/lib/crm-metrics";
 import { nextMissingCrmField } from "@/lib/offer-commercial";
 import { getWorkspace } from "@/lib/workspace";
 import { loadCommissionProjection } from "@/lib/crm-projection";
+import { setRecordedCash } from "@/lib/crm-cash";
 import { saveMonthlyGoal } from "@/lib/crm-prefs";
 
 export async function GET() {
@@ -136,7 +137,9 @@ export async function PATCH(request: Request) {
         | "agenda"
         | "pick-script"
         | "commission-paid"
-        | "monthly-goal";
+        | "monthly-goal"
+        | "set-cash";
+      callId?: string;
       days?: number;
       resultado?: AlertOutcome;
       nextAt?: string;
@@ -162,6 +165,13 @@ export async function PATCH(request: Request) {
           estado: cobrada >= row.generada - 0.5 ? "COBRADA" : "PARCIAL",
         },
       });
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "set-cash") {
+      const out = await setRecordedCash(auth.prisma, auth.userId, String(body.callId || ""), body.amount);
+      if ("error" in out) {
+        return NextResponse.json({ error: out.error }, { status: 400 });
+      }
       return NextResponse.json({ ok: true });
     }
     if (body.action === "monthly-goal") {
