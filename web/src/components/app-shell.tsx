@@ -94,7 +94,7 @@ export function AppShell({
               <Link
                 key={item.href}
                 href={item.href}
-                className="shrink-0 rounded-full border border-separator1 px-3 py-2 text-tone-info"
+                className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-separator1 px-3 text-tone-info"
               >
                 {item.label}
               </Link>

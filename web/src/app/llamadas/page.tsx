@@ -133,6 +133,7 @@ export default function LlamadasPage() {
                   <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
+                      className="min-h-11"
                       variant="primary"
                       disabled={reviewing}
                       onClick={() => void sendReview({ action: "commercial" })}
@@ -141,6 +142,7 @@ export default function LlamadasPage() {
                     </Button>
                     <Button
                       size="sm"
+                      className="min-h-11"
                       variant="outline"
                       disabled={reviewing}
                       onClick={() => void sendReview({ action: "non_commercial" })}
@@ -157,6 +159,7 @@ export default function LlamadasPage() {
                           <Button
                             key={option}
                             size="sm"
+                            className="min-h-11"
                             variant="outline"
                             disabled={reviewing}
                             onClick={() =>
@@ -183,6 +186,7 @@ export default function LlamadasPage() {
                           <Button
                             key={choice}
                             size="sm"
+                            className="min-h-11"
                             variant="outline"
                             disabled={reviewing}
                             onClick={() =>
@@ -252,6 +256,7 @@ export default function LlamadasPage() {
               {calls.some((row) => row.interna) && (
                 <Button
                   size="sm"
+                  className="min-h-11"
                   variant={showInternas ? "primary" : "outline"}
                   onClick={() => setShowInternas((value) => !value)}
                 >

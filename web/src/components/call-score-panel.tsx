@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { X, TrendingUp, Target, Lightbulb, User, MessageSquareWarning, Link2 } from "lucide-react";
 import { DeleteAnalysisButton } from "@/components/delete-analysis-button";
-import { RUBRIC_CRITERIA } from "@/data/rubric";
+import { RUBRIC_CRITERIA, shownRubricLabel } from "@/data/rubric";
 import { CallEvaluation } from "@/data/evaluation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -206,7 +206,7 @@ export function CallScorePanel({
               >
                 <div className="flex items-center justify-between">
                   <span className="font-medium">
-                    {c.label}
+                    {shownRubricLabel(c.id, c.label)}
                     {criticalIds.has(c.id) && (
                       <Badge variant="secondary" className="ml-2 text-[10px]">
                         clave

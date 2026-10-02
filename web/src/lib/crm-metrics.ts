@@ -14,7 +14,8 @@ import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
 import { explainVentas, offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
 import { summarizePipeline } from "@/lib/crm-pipeline";
 import { countedSale, shownBalance, shownMoney } from "@/lib/stated-deal";
-import { repairImportedCallFields } from "@/lib/call-normalize";
+import { applyCallRepair, planCallRepair, repairImportedCallFields } from "@/lib/call-normalize";
+import { loadDashboardCalls } from "@/lib/crm-call-read";
 import { catalogDisplayName, foldOffer, isInventedOfferLabel, isPriceLabel } from "@/lib/offer-name";
 
 function inRange(date: Date | null, from: Date, to: Date) {
@@ -22,12 +23,26 @@ function inRange(date: Date | null, from: Date, to: Date) {
   return date >= from && date < to;
 }
 
-export async function crmDashboard(prisma: PrismaClient, userId: string) {
+export type DashboardTiming = { name: string; dur: number };
+
+function markTiming(timings: DashboardTiming[] | undefined, name: string, started: number) {
+  timings?.push({ name, dur: Math.round(performance.now() - started) });
+}
+
+export async function crmDashboard(
+  prisma: PrismaClient,
+  userId: string,
+  opts?: { scripts?: boolean; timings?: DashboardTiming[] },
+) {
+  const scripts = opts?.scripts !== false;
+  const repairStarted = performance.now();
   try {
     await repairMissingFollowups(prisma, userId);
   } catch (error) {
     console.error("repair followups", error);
   }
+  markTiming(opts?.timings, "repair", repairStarted);
+  const callsStarted = performance.now();
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
   const now = new Date();
@@ -36,15 +51,8 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const month = zonedMonthRange(now);
   const prev = shiftZonedMonth(now, -1);
 
-  const [calls, allCalls, alerts, leads, commissions] = await Promise.all([
-    prisma.callRecord.findMany({
-      where: { userId, filingStatus: "confirmed" },
-    }),
-    prisma.callRecord.findMany({
-      where: { userId, filingStatus: { not: "skipped" } },
-      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
-      take: 2000,
-    }),
+  const [{ calls, allCalls }, alerts, leads, commissions] = await Promise.all([
+    loadDashboardCalls(prisma, userId),
     prisma.leadAlert.findMany({
       where: { userId, resolvedAt: null },
       include: { lead: true },
@@ -57,12 +65,14 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       orderBy: { fecha: "desc" },
     }),
   ]);
+  markTiming(opts?.timings, "calls", callsStarted);
 
   const rollupOffers = offers.map(asRollupOffer);
   const nameHints = [...calls, ...allCalls].flatMap((row) => [
     row.offerName || "",
     filingProduct(row.filingJson),
   ]);
+  const reconcileStarted = performance.now();
   try {
     await repairCatalogNames(prisma, offers, rollupOffers, nameHints);
   } catch (error) {
@@ -74,7 +84,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     console.error("reconcile offers", error);
   }
   try {
-    await repairImportedCallFields(
+    await persistDirtyCallRepairs(
       prisma,
       offers.map((offer) => offer.productName),
       [calls, allCalls],
@@ -82,6 +92,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   } catch (error) {
     console.error("repair imported calls", error);
   }
+  markTiming(opts?.timings, "reconcile", reconcileStarted);
 
   const rollupInput = calls.map(asRollupCall);
   const prices = offerPrices(offers.map(asRollupOffer));
@@ -420,11 +431,20 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       row.estadoAgenda === "AGENDADO" && row.recordedAt && row.recordedAt >= todayBounds.to,
   ).length;
 
-  const followupsWithOptions = (await attachFollowupOptions(
-    prisma,
-    userId,
-    openFollowups.map((row) => applyClosedSaleFollowup(row)),
-  ))
+  const scriptsStarted = performance.now();
+  const withScripts = scripts
+    ? await attachFollowupOptions(
+        prisma,
+        userId,
+        openFollowups.map((row) => applyClosedSaleFollowup(row)),
+      )
+    : openFollowups.map((row) => ({
+        ...applyClosedSaleFollowup(row),
+        opciones: [] as { recomendacion?: string }[],
+        selectedId: row.libraryScriptId || "",
+      }));
+  markTiming(opts?.timings, "scripts", scriptsStarted);
+  const followupsWithOptions = withScripts
     .map((row) => ({
       ...row,
       suggestedNext: suggestNextFollowup(todayKey, row.proximo || ""),
@@ -592,6 +612,45 @@ function asRollupCall(row: {
     recordedAt: row.recordedAt,
     createdAt: row.createdAt,
   };
+}
+
+/** Apply field repairs in memory, and write back only the rows that changed. */
+async function persistDirtyCallRepairs(
+  prisma: PrismaClient,
+  offerNames: string[],
+  groups: {
+    id: string;
+    offerName?: string | null;
+    estadoAgenda?: string | null;
+    ventaTotal?: number | null;
+    saldoPendiente?: number | null;
+    cashCollected?: number | null;
+    filingJson?: unknown;
+  }[][],
+) {
+  const dirty = new Set<string>();
+  for (const group of groups) {
+    for (const row of group) {
+      const repair = planCallRepair(row, offerNames);
+      if (!repair) continue;
+      applyCallRepair(row, repair);
+      dirty.add(row.id);
+    }
+  }
+  if (!dirty.size) return;
+  const full = await prisma.callRecord.findMany({
+    where: { id: { in: [...dirty].slice(0, 40) } },
+    select: {
+      id: true,
+      offerName: true,
+      estadoAgenda: true,
+      ventaTotal: true,
+      saldoPendiente: true,
+      cashCollected: true,
+      filingJson: true,
+    },
+  });
+  await repairImportedCallFields(prisma, offerNames, [full]);
 }
 
 async function repairCatalogNames(

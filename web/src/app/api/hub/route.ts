@@ -962,7 +962,7 @@ async function hubSnapshot(
     const [workspace, dash, leads, pendingCalls, recentAuto, unclassified, analyzedThisWeek, guides] =
       await Promise.all([
         timed(timings, "workspace", () => getWorkspace(prisma, userId, null, { corpus: false })),
-        timed(timings, "dashboard", () => crmDashboard(prisma, userId)),
+        timed(timings, "dashboard", () => crmDashboard(prisma, userId, { timings })),
         timed(timings, "leads", () =>
           prisma.lead.findMany({
             where: { userId },

@@ -23,6 +23,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { countPhrase } from "@/lib/plain-labels";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -89,6 +95,7 @@ export function TrainingSetupForm() {
     }[]
   >([]);
   const [loadingReplay, setLoadingReplay] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
 
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
@@ -319,7 +326,28 @@ export function TrainingSetupForm() {
           </div>
 
           <div className="space-y-2">
-            <p className="text-base font-semibold text-fg0 text-pretty">Cómo practicar</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto min-h-11 w-full justify-start whitespace-normal px-3 py-2 text-left text-base font-semibold"
+              onClick={() => setHowOpen(true)}
+            >
+              Cómo practicar
+            </Button>
+            <Dialog open={howOpen} onOpenChange={setHowOpen}>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
+                <DialogTitle>Cómo practicar</DialogTitle>
+                <DialogDescription>
+                  Tú abres la reunión. El prospecto ya está en la llamada, en silencio.
+                </DialogDescription>
+                <ol className="list-decimal space-y-2 pl-5 text-sm text-fg2">
+                  <li>Revisa la oferta de este panel.</li>
+                  <li>Elige un prospecto nuevo, o recrea una llamada que no cerró.</li>
+                  <li>Pulsa Entrar a la reunión.</li>
+                  <li>Permite el micrófono y saluda: quién eres y por qué se reunieron.</li>
+                </ol>
+              </DialogContent>
+            </Dialog>
             <div className="grid grid-cols-1 gap-2">
               <Button
                 type="button"

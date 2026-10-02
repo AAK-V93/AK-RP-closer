@@ -289,6 +289,6 @@ test("stage timings are readable in the badge", () => {
       { stage: "agente", ms: 9000 },
       { stage: "voz", ms: 5000 },
     ]),
-    "mic 0.2s · token 0.4s · sala 0.8s · agente 9.0s · voz 5.0s",
+    "micrófono 0.2s · acceso 0.4s · sala 0.8s · agente 9.0s · voz 5.0s",
   );
 });

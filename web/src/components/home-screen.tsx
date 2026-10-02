@@ -28,6 +28,7 @@ import {
 } from "@/lib/offer-save";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
+import { invalidateHub, loadHub } from "@/lib/hub-client";
 
 export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSnapshot | null }) {
   const [snapshot, setSnapshot] = useState<HubSnapshot | null>(initialSnapshot);
@@ -35,12 +36,10 @@ export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSn
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const load = () =>
-    fetch("/api/hub")
-      .then(async (r) => {
-        const data = await r.json();
-        if (!r.ok && !data.snapshot) throw new Error(data.error || "No se pudo cargar");
-        setSnapshot(data.snapshot || null);
+  const load = (force = false) =>
+    loadHub({ force })
+      .then((data) => {
+        setSnapshot((data.snapshot as HubSnapshot | null) || null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Error"))
       .finally(() => setLoading(false));
@@ -68,10 +67,14 @@ export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSn
         <OnboardingA home={home} onDone={() => void load()} onSaved={setNotice} />
       )}
       {phase === "b" && (
-        <NoviceB snapshot={snapshot} onRefresh={() => void load()} />
+        <NoviceB snapshot={snapshot} onRefresh={() => void load(true)} />
       )}
       {phase === "c" && (
-        <ConfiguredC snapshot={snapshot} onRefresh={() => void load()} />
+        <ConfiguredC
+          snapshot={snapshot}
+          onRefresh={() => void load(true)}
+          onLiveSnapshot={(next) => setSnapshot(next)}
+        />
       )}
     </div>
   );
@@ -392,6 +395,7 @@ function NoviceB({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ monthlyGoalUsd: usd }),
       });
+      invalidateHub();
       onRefresh();
     } finally {
       setSavingGoal(false);
@@ -436,9 +440,11 @@ function NoviceB({
 function ConfiguredC({
   snapshot,
   onRefresh,
+  onLiveSnapshot,
 }: {
   snapshot: HubSnapshot | null;
   onRefresh: () => void;
+  onLiveSnapshot: (next: HubSnapshot) => void;
 }) {
   const desk = snapshot?.desk;
   const [savingGoal, setSavingGoal] = useState(false);
@@ -450,6 +456,7 @@ function ConfiguredC({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ monthlyGoalUsd: usd }),
       });
+      invalidateHub();
       toast({
         title: `Guardé tu meta: USD ${Math.round(usd)}`,
         duration: 3000,
@@ -527,7 +534,13 @@ function ConfiguredC({
           <HomeRow href="/ofertas" title="Oferta" status="Precios, pagos y comisión" />
         </div>
       </div>
-      <HubChat variant="dock" initialSnapshot={snapshot} onSnapshot={onRefresh} />
+      <HubChat
+        variant="dock"
+        initialSnapshot={snapshot}
+        onSnapshot={(next) => {
+          if (next) onLiveSnapshot(next);
+        }}
+      />
     </div>
   );
 }

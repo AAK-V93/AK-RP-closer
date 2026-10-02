@@ -53,7 +53,7 @@ export default function CoachPage() {
           <p className="text-sm text-fg3 mt-1">
             Un closer de alto valor que lee tus prácticas por voz y tus QC de
             llamadas reales. Te dice el nivel, la debilidad y el siguiente
-            drill — no un score suelto.
+            drill — no un puntaje suelto.
           </p>
           {insights?.extractorGaps && (
             <div className="text-xs text-fg3 mt-2 space-y-1">
@@ -166,7 +166,7 @@ export default function CoachPage() {
                     {drills.length > 0 && (
                       <div className="flex flex-wrap gap-2">
                         {drills.map((drill) => (
-                          <Button key={drill} asChild size="sm" variant="primary">
+                          <Button key={drill} asChild size="sm" variant="primary" className="min-h-11">
                             <Link href={`/practicar?focus=${encodeURIComponent(drill)}`}>
                               {drill}
                             </Link>
@@ -217,8 +217,8 @@ export default function CoachPage() {
                 <p className="text-3xl font-light mt-1">{insights.practiceCount}</p>
               </div>
               <div className="rounded-2xl border border-separator1 bg-bg1 p-4">
-                <p className="text-xs text-fg3 uppercase tracking-wide">
-                  Score medio
+                <p className="text-xs text-fg3">
+                  Puntaje promedio
                 </p>
                 <p className="text-3xl font-light mt-1">
                   {Math.round(insights.avgScore)}
@@ -292,7 +292,7 @@ export default function CoachPage() {
                         )}
                         {s.text}
                       </p>
-                      <Button asChild size="sm" variant="primary">
+                      <Button asChild size="sm" variant="primary" className="min-h-11">
                         <Link href={`/practicar?focus=${encodeURIComponent(s.text)}`}>
                           Practicar esto
                         </Link>
