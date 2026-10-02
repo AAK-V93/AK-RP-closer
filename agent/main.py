@@ -87,6 +87,25 @@ def _load_metadata(raw: str | None) -> Dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def choose_session_metadata(job_meta: Dict[str, Any] | None, participant_raw: str | None) -> Dict[str, Any]:
+    """Instructions for Gemini.
+
+    Dispatch-on-join (LIVEKIT_PREDISPATCH unset) puts the same JSON on the
+    participant token and, when LiveKit copies it, on the job. Prefer the job
+    only when it actually carries instructions. Otherwise use the participant,
+    which is what the worker deployed on 15 Sep read.
+    """
+    job = job_meta if isinstance(job_meta, dict) else {}
+    participant = _load_metadata(participant_raw)
+    if job.get("instructions"):
+        return job
+    if participant.get("instructions"):
+        return participant
+    if job:
+        return {**participant, **job}
+    return participant
+
+
 async def entrypoint(ctx: JobContext):
     logger.info(f"connecting to room {ctx.room.name}")
     # Join first so the closer sees "Casi listo" while Gemini is still starting.
@@ -99,9 +118,7 @@ async def entrypoint(ctx: JobContext):
         logger.info("no closer joined; leaving without starting the model")
         return
 
-    metadata = job_meta if job_meta.get("instructions") else _load_metadata(participant.metadata)
-    if not metadata.get("instructions") and job_meta:
-        metadata = {**_load_metadata(participant.metadata), **job_meta}
+    metadata = choose_session_metadata(job_meta, participant.metadata)
 
     config = parse_session_config(metadata)
     session_manager = SessionManager(config)
