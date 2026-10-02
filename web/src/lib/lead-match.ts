@@ -15,6 +15,22 @@ export function normalizePersonName(value: string) {
     .trim();
 }
 
+/** Same person, accents aside. A longer CRM name still matches the shorter record. */
+export function samePersonName(stored: string, shown: string) {
+  const left = stored.trim();
+  const right = shown.trim();
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const a = normalizePersonName(left);
+  const b = normalizePersonName(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter.split(" ").length < 2) return false;
+  return longer.startsWith(`${shorter} `);
+}
+
 function tokens(value: string) {
   return normalizePersonName(value)
     .split(" ")

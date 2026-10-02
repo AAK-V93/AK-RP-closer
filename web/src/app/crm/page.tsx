@@ -37,7 +37,7 @@ import { plainStatus } from "@/lib/plain-labels";
 import { ACTIVA_EXPLAIN, filaCountLabel, latestActiveRows, operacionCountLine } from "@/lib/crm-activa";
 import { clienteVisible } from "@/lib/crm-noise";
 import { derivedPaso, operacionGlance } from "@/lib/crm-glance";
-import { dineroEnJuegoNote, SALDO_POR_COBRAR_NOTE } from "@/lib/crm-pipeline";
+import { dineroEnJuegoNote, saldoPorCobrarNote } from "@/lib/crm-pipeline";
 import { foldLeadName, followupSnapshot, isMeetingFollowup } from "@/lib/crm-followups";
 import { LOST_REASONS, lostScopeMessage, openFollowupCount } from "@/lib/followup-desk";
 import { zonedDayKey } from "@/lib/crm-time";
@@ -974,9 +974,7 @@ function AhoraSheet({
           <QuietFact label="Vencidos" value={String(now.seguimientosVencidos || 0)} />
           <QuietFact label="Agendas de hoy" value={String(now.agendasHoy || 0)} />
           <QuietFact label="Dinero en juego" value={money(now.dineroEnJuego)} />
-          {(now.saldoPorCobrar || 0) > 0 && (
-            <QuietFact label="Saldo por cobrar" value={money(now.saldoPorCobrar)} />
-          )}
+          <QuietFact label="Saldo por cobrar" value={money(now.saldoPorCobrar || 0)} />
           <QuietFact label="Pendiente de cobro" value={money(now.cashPendiente)} />
           <QuietFact label="Comisión pendiente" value={money(now.comisionPendiente)} />
           <QuietFact label="Oportunidades activas" value={String(now.oportunidadesActivas || 0)} />
@@ -986,7 +984,7 @@ function AhoraSheet({
         <HelpNote>
           <p>Pendientes de hoy son los seguimientos que toca hacer hoy. Vencidos son los que ya debían salir.</p>
           <p>{dineroEnJuegoNote(now.pipelineLeads || 0)} Pendiente de cobro es lo ya acordado que aún no entró.</p>
-          {(now.saldoPorCobrar || 0) > 0 && <p>{SALDO_POR_COBRAR_NOTE}</p>}
+          <p>{saldoPorCobrarNote(now.saldoPorCobrar || 0)}</p>
           <p>Comisión pendiente es tu parte de lo cobrado. Agendas de hoy y llamadas agendadas son citas en el calendario, no los seguimientos abiertos.</p>
         </HelpNote>
       </div>
@@ -1326,7 +1324,7 @@ function OperacionSheet({
             </p>
           ))}
           <NameEditor
-            key={`nombre-${selected.id}`}
+            key={`nombre-${selected.id}-${clienteVisible(selected.cliente, selected.titulo)}`}
             initial={clienteVisible(selected.cliente, selected.titulo)}
             disabled={busy === "nombre"}
             onSave={(name) => onRename({ callId: selected.id, leadId: selected.leadId, name })}
@@ -1372,16 +1370,18 @@ function OperacionSheet({
               />
             </div>
           ) : null}
-          <div className="pt-3">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={Boolean(busy)}
-              onClick={() => setConfirmDelete(selected)}
-            >
-              Eliminar fila
-            </Button>
-          </div>
+          {!selected.id.startsWith("lead:") && (
+            <div className="pt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={Boolean(busy)}
+                onClick={() => setConfirmDelete(selected)}
+              >
+                Eliminar fila
+              </Button>
+            </div>
+          )}
         </div>
       )}
       <Dialog open={Boolean(confirmDelete)} onOpenChange={(open) => !open && setConfirmDelete(null)}>
@@ -1467,9 +1467,7 @@ function DashboardSheet({
           <MetricCard label="Ventas cerradas con monto" value={money(total?.ventas)} tone="brand" />
           <MetricCard label="Cobrado" value={money(total?.cash)} tone="money" />
           <MetricCard label="Dinero en juego" value={money(data.now?.dineroEnJuego)} tone="money" />
-          {(data.now?.saldoPorCobrar || 0) > 0 && (
-            <MetricCard label="Saldo por cobrar" value={money(data.now?.saldoPorCobrar)} tone="money" />
-          )}
+          <MetricCard label="Saldo por cobrar" value={money(data.now?.saldoPorCobrar || 0)} tone="money" />
           <MetricCard label="Comisión generada" value={money(data.comisionResumen?.generada)} tone="brand" />
           <MetricCard label="Comisión cobrada" value={money(data.comisionResumen?.cobrada)} tone="money" />
         </div>
@@ -1501,9 +1499,7 @@ function DashboardSheet({
           </p>
         )}
         <p className="text-[11px] text-fg3">{dineroEnJuegoNote(data.now?.pipelineLeads || 0)}</p>
-        {(data.now?.saldoPorCobrar || 0) > 0 && (
-          <p className="text-[11px] text-fg3">{SALDO_POR_COBRAR_NOTE}</p>
-        )}
+        <p className="text-[11px] text-fg3">{saldoPorCobrarNote(data.now?.saldoPorCobrar || 0)}</p>
         <button
           type="button"
           className="text-sm text-tone-info underline-offset-2 hover:underline"
@@ -1889,7 +1885,7 @@ function SeguimientosSheet({
             )
           )}
           <NameEditor
-            key={`nombre-${selected.id}`}
+            key={`nombre-${selected.id}-${selected.cliente}`}
             initial={selected.cliente}
             disabled={busy === "nombre"}
             onSave={(name) =>

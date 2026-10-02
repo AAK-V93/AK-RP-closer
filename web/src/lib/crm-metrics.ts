@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { alertBucket } from "@/lib/crm-prefs";
 import { alignFollowups, foldLeadName, followupSnapshot } from "@/lib/crm-followups";
-import { countOportunidadesActivas } from "@/lib/crm-activa";
+import { countOportunidadesActivas, withEveryActiveLead } from "@/lib/crm-activa";
 import { shiftZonedMonth, zonedDayBounds, zonedDayKey, zonedMonthRange } from "@/lib/crm-time";
 import { userHasReadyCrm, type OfferForCrm } from "@/lib/offer-commercial";
 import { loadOffersForCrm, repairMissingFollowups } from "@/lib/crm-apply";
@@ -273,7 +273,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     }
   }
   const statusByLead = new Map(leads.map((lead) => [foldLeadName(lead.name), lead.status]));
-  const operacion = allCalls.flatMap((row) => {
+  const callRows = allCalls.flatMap((row) => {
     try {
       const view = operacionFromCall(
         row,
@@ -296,6 +296,27 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       console.error("crm operacion", row.id, error);
       return [];
     }
+  });
+  const operacion = withEveryActiveLead(callRows, leads, (lead) => {
+    const full = leads.find((row) => row.id === lead.id);
+    const view = operacionFromCall(
+      {
+        id: `lead:${lead.id}`,
+        leadName: lead.name,
+        offerName: full?.offerName || "",
+        filingStatus: "confirmed",
+        filingJson: {},
+      },
+      full,
+    );
+    return {
+      ...view,
+      leadId: lead.id,
+      leadStatus: lead.status,
+      venta: null,
+      cash: null,
+      saldo: null,
+    };
   });
   const openFollowups = alignFollowups(
     followups,

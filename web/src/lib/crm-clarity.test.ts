@@ -8,6 +8,7 @@ import {
   isOportunidadActiva,
   latestActiveRows,
   operacionCountLine,
+  withEveryActiveLead,
 } from "./crm-activa";
 import { deleteOperacionRow, leadStateFromRemaining } from "./crm-delete-row";
 import { derivedPaso, operacionGlance } from "./crm-glance";
@@ -278,6 +279,69 @@ test("solo activas keeps the latest row of each active lead", () => {
     }),
     "23 filas · 23 activas",
   );
+});
+
+test("solo activas renders the active lead that has no call row", () => {
+  const rows = Array.from({ length: 22 }, (_, index) => ({
+    id: `a-${index}`,
+    cliente: `Lead ${index + 1}`,
+    fecha: "2026-10-01",
+    leadStatus: "seguimiento",
+    estadoAgenda: "SHOW",
+  }));
+  const leads = [
+    ...rows.map((row, index) => ({
+      id: `lead-${index}`,
+      name: row.cliente,
+      status: "seguimiento",
+    })),
+    { id: "sola", name: "Nuria Solís", status: "seguimiento" },
+  ];
+  const filled = withEveryActiveLead(rows, leads, (lead) => ({
+    id: `lead:${lead.id}`,
+    cliente: lead.name,
+    fecha: null,
+    leadStatus: lead.status,
+    leadId: lead.id,
+    estadoAgenda: "",
+  }));
+  const active = filled.filter((row) => row.leadStatus === "seguimiento");
+  assert.equal(active.length, 23);
+  assert.equal(active.some((row) => row.id === "lead:sola" && row.cliente === "Nuria Solís"), true);
+  assert.equal(
+    operacionCountLine({
+      shown: 23,
+      inScope: 23,
+      onlyActivas: true,
+      activeRows: 23,
+      oportunidades: 23,
+    }),
+    "23 filas · 23 activas",
+  );
+
+  const mismatched = withEveryActiveLead(
+    [
+      {
+        id: "call-quispe",
+        cliente: "Sofia Mamani Quispe",
+        fecha: "2026-09-01",
+        leadStatus: "",
+        estadoAgenda: "SHOW",
+      },
+    ],
+    [{ id: "sofia", name: "Sofía Mamani", status: "seguimiento" }],
+    (lead) => ({
+      id: `lead:${lead.id}`,
+      cliente: lead.name,
+      fecha: null,
+      leadStatus: lead.status,
+      leadId: lead.id,
+      estadoAgenda: "",
+    }),
+  );
+  assert.equal(mismatched.length, 1);
+  assert.equal(mismatched[0]?.id, "call-quispe");
+  assert.equal(mismatched[0]?.leadStatus, "seguimiento");
 });
 
 test("a follow-up type gets a step even when none is stored", () => {

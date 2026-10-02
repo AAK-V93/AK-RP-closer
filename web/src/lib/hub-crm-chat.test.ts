@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { PrismaClient } from "@prisma/client";
 import {
+  answerCrmChat,
   applyChatProposal,
   interpretCrmChat,
   loadLeadTranscript,
@@ -375,10 +376,24 @@ function fakeCrm(opts?: { failUpdate?: boolean }) {
         calls.push("updateMany");
         throw new Error("Transactions are not supported");
       },
-      findFirst: async () => ({ id: "call-1", filingJson: { notas_crm: "vieja" }, leadName: "Carlos Ramírez" }),
-      update: async (args?: { data?: { cashCollected?: number } }) => {
+      findMany: async () => {
+        calls.push("findMany");
+        return [
+          { id: "call-sofia", leadName: "Sofía Mamani", title: "", filingJson: {} },
+          {
+            id: "call-quispe",
+            leadName: "Sofia Mamani Quispe",
+            title: "Sofia Mamani Quispe",
+            filingJson: { cliente_real: "Sofia Mamani Quispe" },
+          },
+          { id: "call-1", leadName: "Carlos Ramírez", title: "", filingJson: { notas_crm: "vieja" } },
+        ];
+      },
+      findFirst: async () => ({ id: "call-1", filingJson: { notas_crm: "vieja" }, leadName: "Carlos Ramírez", title: "" }),
+      update: async (args?: { data?: { cashCollected?: number; leadName?: string } }) => {
         calls.push("call");
         if (args?.data && "cashCollected" in args.data) calls.push(`callcash:${args.data.cashCollected}`);
+        if (args?.data?.leadName) calls.push(`callname:${args.data.leadName}`);
       },
     },
     $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -601,8 +616,86 @@ test("sí renames the CRM name even when the lead record already matches", async
   assert.match(result.reply, /Listo/);
   assert.equal(calls.some((call) => call.startsWith("lead:")), false);
   assert.equal(calls.includes("updateMany"), false);
-  assert.ok(calls.some((call) => call.startsWith("raw:") && call.includes("CallRecord")));
-  const vals = calls.find((call) => call.startsWith("vals:")) || "";
-  assert.match(vals, /Sofía Mamani/);
-  assert.match(vals, /Sofia Mamani Quispe/);
+  assert.ok(calls.includes("findMany"));
+  assert.ok(calls.some((call) => call === "callname:Sofía Mamani"));
+});
+
+test("inicio chat proposes the shown CRM name and sí writes it", async () => {
+  const state = {
+    id: "call-1",
+    leadName: "",
+    title: "Sofia Mamani Quispe",
+    summary: "",
+    source: "",
+    sourceId: "",
+    filingJson: { cliente_real: "Sofia Mamani Quispe" } as { cliente_real: string },
+  };
+  const prefs: Record<string, unknown> = {};
+  const writes: string[] = [];
+  const prisma = {
+    user: {
+      findUnique: async () => ({ crmPrefs: { ...prefs } }),
+    },
+    userOffer: { findMany: async () => [] },
+    lead: {
+      findMany: async () => [
+        {
+          id: "sofia",
+          name: "Sofía Mamani",
+          offerName: "",
+          nextStep: "",
+          lastSummary: "",
+          amountPaid: "",
+        },
+      ],
+      findFirst: async () => ({ id: "sofia", name: "Sofía Mamani", offerName: "" }),
+      update: async ({ data }: { data: { name?: string } }) => {
+        writes.push(`lead:${data.name || ""}`);
+      },
+    },
+    callRecord: {
+      findMany: async () => [{ ...state }],
+      findFirst: async () => ({ ...state }),
+      update: async ({
+        data,
+      }: {
+        data: { leadName?: string; title?: string; filingJson?: { cliente_real?: string } };
+      }) => {
+        writes.push("call");
+        if (data.leadName) state.leadName = data.leadName;
+        if (data.title) state.title = data.title;
+        if (data.filingJson?.cliente_real) state.filingJson.cliente_real = data.filingJson.cliente_real;
+      },
+      updateMany: async () => {
+        writes.push("updateMany");
+        throw new Error("Transactions are not supported");
+      },
+    },
+    $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = strings.join(" ");
+      if (sql.includes(" - ")) delete prefs.pendingChat;
+      else if (sql.includes("jsonb_set")) {
+        const json = values.find((value) => typeof value === "string" && value.trim().startsWith("{"));
+        if (typeof json === "string") prefs.pendingChat = JSON.parse(json);
+      }
+      return 1;
+    },
+  };
+  const first = await answerCrmChat(
+    prisma as unknown as PrismaClient,
+    "user-1",
+    "Sofia Mamani Quispe en realidad se llama Sofía Mamani",
+  );
+  assert.equal(first, "Nombre de «Sofia Mamani Quispe» a «Sofía Mamani». ¿Confirmo?");
+  assert.equal(writes.includes("updateMany"), false);
+  assert.equal(writes.some((item) => item.startsWith("lead:")), false);
+  assert.equal(state.filingJson.cliente_real, "Sofia Mamani Quispe");
+
+  const second = await answerCrmChat(prisma as unknown as PrismaClient, "user-1", "sí");
+  assert.match(second || "", /Listo/);
+  assert.equal(state.leadName, "Sofía Mamani");
+  assert.equal(state.title, "Sofía Mamani");
+  assert.equal(state.filingJson.cliente_real, "Sofía Mamani");
+  assert.equal(writes.includes("updateMany"), false);
+  assert.equal(writes.some((item) => item.startsWith("lead:")), false);
 });

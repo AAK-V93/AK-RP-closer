@@ -1,5 +1,6 @@
 import { foldLeadName } from "@/lib/crm-followups";
 import { realClientName } from "@/lib/crm-noise";
+import { samePersonName } from "@/lib/lead-match";
 
 /** Lead statuses that still have something to close or collect. */
 const ACTIVE_STATUS = new Set(["seguimiento", "pendiente", "cobro", "nuevo"]);
@@ -93,6 +94,57 @@ export function latestActiveRows<T extends ActiveRow>(rows: T[]) {
   }
   const chosen = new Set(best.values());
   return rows.filter((row) => chosen.has(row));
+}
+
+function rowCoversLead(
+  row: { cliente?: string | null; interna?: boolean; leadStatus?: string | null; estadoAgenda?: string | null },
+  lead: { name: string; status?: string | null },
+) {
+  if (row.interna) return false;
+  const cliente = String(row.cliente || "");
+  if (!cliente) return false;
+  if (foldLeadName(cliente) !== foldLeadName(lead.name) && !samePersonName(lead.name, cliente)) {
+    return false;
+  }
+  return isOportunidadActiva({
+    status: row.leadStatus || lead.status,
+    cliente,
+    interna: row.interna,
+    estadoAgenda: row.estadoAgenda,
+  });
+}
+
+/**
+ * Every active lead gets a row. A call stored under a longer name still covers
+ * that lead. A lead with no call gets the blank row from `blank`.
+ */
+export function withEveryActiveLead<T extends ActiveRow & { leadId?: string }>(
+  rows: T[],
+  leads: { id: string; name?: string | null; status?: string | null }[],
+  blank: (lead: { id: string; name: string; status: string }) => T,
+) {
+  const linked = rows.map((row) => {
+    if (String(row.leadStatus || "").trim()) return row;
+    const lead = leads.find(
+      (item) =>
+        foldLeadName(item.name || "") === foldLeadName(row.cliente || "") ||
+        samePersonName(item.name || "", row.cliente || ""),
+    );
+    if (!lead?.status) return row;
+    return { ...row, leadStatus: lead.status, leadId: row.leadId || lead.id };
+  });
+  const missing = leads.filter((lead) => {
+    const name = String(lead.name || "").trim();
+    const status = String(lead.status || "");
+    if (!isOportunidadActiva({ status, cliente: name })) return false;
+    return !linked.some((row) => rowCoversLead(row, { name, status }));
+  });
+  return [
+    ...linked,
+    ...missing.map((lead) =>
+      blank({ id: lead.id, name: String(lead.name || "").trim(), status: String(lead.status || "") }),
+    ),
+  ];
 }
 
 /** Counts on Operación. Solo activas matches filas with activas, or says why not. */

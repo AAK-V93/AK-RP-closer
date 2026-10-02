@@ -94,7 +94,11 @@ export function labelCrmProse(value: string | null | undefined) {
   for (const key of PROSE_CODES) {
     const label = key === "CIERRE VENTA" ? "Cerró venta" : STATUS_LABELS[key];
     const body = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "[\\s_]+");
-    text = text.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])`, "giu"), label);
+    text = text.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])`, "giu"), (match) => {
+      const letters = match.replace(/[\s_]+/g, "");
+      if (letters !== letters.toUpperCase()) return match;
+      return label;
+    });
   }
   return text;
 }

@@ -7,10 +7,16 @@ import { countedSale } from "@/lib/stated-deal";
 export const SALDO_POR_COBRAR_NOTE =
   "Saldo por cobrar es lo que falta de los cierres: el monto de la venta menos lo cobrado.";
 
+/** Shown even at USD 0 so the card is findable. */
+export function saldoPorCobrarNote(amount: number) {
+  if (amount > 0) return SALDO_POR_COBRAR_NOTE;
+  return `${SALDO_POR_COBRAR_NOTE} Ahora está en USD 0: ningún cierre tiene un monto mayor a lo cobrado.`;
+}
+
 /** One line, same on Dashboard and Inicio, including how many leads the sum uses. */
 export function dineroEnJuegoNote(count: number) {
   const leads = count === 1 ? "1 lead" : `${count} leads`;
-  return `Suma el precio de cada lead abierto (ni Cerró ni Perdido), una persona una vez. Si no tiene un precio propio, usa el de lista o el de contado. Cuenta ${leads}.`;
+  return `Suma el precio de cada lead abierto (ni Cerró ni Perdido), una persona una vez. Si no tiene un precio propio y sí una oferta, usa el de lista o el de contado de esa oferta. Sin oferta no se inventa un precio. Cuenta ${leads}.`;
 }
 
 const ACTIVE_STAGES = new Set([
@@ -169,15 +175,13 @@ function cashPriceOf(offer: PipelineOffer) {
 
 function offerPricesFor(name: string, offers: PipelineOffer[]) {
   const needle = foldOffer(name);
-  const hit =
-    (needle
-      ? offers.find((offer) =>
-          [offer.productName, ...(offer.aliases || [])]
-            .map((value) => foldOffer(value))
-            .filter((value) => value && !value.startsWith("lista usd"))
-            .some((value) => value === needle),
-        )
-      : undefined) || (offers.length === 1 ? offers[0] : undefined);
+  if (!needle) return { listPrice: null as number | null, cashPrice: null as number | null };
+  const hit = offers.find((offer) =>
+    [offer.productName, ...(offer.aliases || [])]
+      .map((value) => foldOffer(value))
+      .filter((value) => value && !value.startsWith("lista usd"))
+      .some((value) => value === needle),
+  );
   if (!hit) return { listPrice: null as number | null, cashPrice: null as number | null };
   return { listPrice: hit.listPrice, cashPrice: cashPriceOf(hit) };
 }
