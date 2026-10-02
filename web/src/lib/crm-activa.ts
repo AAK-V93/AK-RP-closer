@@ -52,3 +52,73 @@ export function filaCountLabel(shown: number, total: number) {
   const right = total === 1 ? "1 fila" : `${total} filas`;
   return `${shown} de ${right}`;
 }
+
+type ActiveRow = {
+  id?: string;
+  cliente?: string | null;
+  fecha?: string | null;
+  leadStatus?: string | null;
+  interna?: boolean;
+  estadoAgenda?: string | null;
+};
+
+/**
+ * One row per active opportunity: the latest call of each lead that
+ * isOportunidadActiva still counts. A row with no lead status does not
+ * sneak in through the empty-status fallback.
+ */
+export function latestActiveRows<T extends ActiveRow>(rows: T[]) {
+  const best = new Map<string, T>();
+  for (const row of rows) {
+    const status = String(row.leadStatus || "").trim();
+    if (
+      !isOportunidadActiva({
+        status,
+        cliente: row.cliente,
+        interna: row.interna,
+        estadoAgenda: row.estadoAgenda,
+      })
+    ) {
+      continue;
+    }
+    if (!status) continue;
+    const key = foldLeadName(row.cliente || "");
+    if (!key) continue;
+    const prev = best.get(key);
+    const fecha = String(row.fecha || "");
+    const prevFecha = String(prev?.fecha || "");
+    if (!prev || fecha > prevFecha || (fecha === prevFecha && String(row.id || "") > String(prev.id || ""))) {
+      best.set(key, row);
+    }
+  }
+  const chosen = new Set(best.values());
+  return rows.filter((row) => chosen.has(row));
+}
+
+/** Counts on Operación. Solo activas matches filas with activas, or says why not. */
+export function operacionCountLine(args: {
+  shown: number;
+  inScope: number;
+  onlyActivas: boolean;
+  activeRows: number;
+  oportunidades: number;
+}) {
+  const filas = filaCountLabel(args.shown, args.inScope);
+  if (!args.onlyActivas) {
+    const activas =
+      args.oportunidades === 1 ? "1 oportunidad activa" : `${args.oportunidades} oportunidades activas`;
+    return `${filas} · ${activas}`;
+  }
+  if (args.shown === args.inScope && args.activeRows === args.oportunidades) {
+    return `${filas} · ${args.activeRows} activas`;
+  }
+  if (args.activeRows < args.oportunidades) {
+    const missing = args.oportunidades - args.activeRows;
+    const rest =
+      missing === 1
+        ? "1 activa no tiene fila en esta lista"
+        : `${missing} activas no tienen fila en esta lista`;
+    return `${filas} · ${args.oportunidades} oportunidades activas. ${rest}.`;
+  }
+  return `${filas} · ${args.activeRows} activas`;
+}

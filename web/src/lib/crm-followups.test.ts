@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   alignFollowups,
   followupSnapshot,
+  isMeetingFollowup,
   moneyInPlay,
   type OperacionFollowupSource,
 } from "./crm-followups";
@@ -339,4 +340,13 @@ test("closing the latest call does not bring back an older date", () => {
     }),
   );
   assert.equal(rows.length, 0);
+});
+
+test("meeting follow-ups are segunda reunión, not a decision call", () => {
+  assert.equal(isMeetingFollowup("SEGUNDA REUNION"), true);
+  assert.equal(isMeetingFollowup("SEGUNDA_REUNION"), true);
+  assert.equal(isMeetingFollowup("REUNION"), true);
+  assert.equal(isMeetingFollowup("DECISION"), false);
+  assert.equal(isMeetingFollowup("RETOMAR"), false);
+  assert.equal(isMeetingFollowup("PAGO PENDIENTE"), false);
 });

@@ -213,6 +213,12 @@ export function alignFollowups<T extends Alignable>(
   return aligned;
 }
 
+/** Segunda reunión and any other meeting follow-up, not a call. */
+export function isMeetingFollowup(tipo: string, hilo = "") {
+  const blob = `${hilo} ${tipo}`.toUpperCase().replace(/_/g, " ");
+  return blob.includes("SEGUNDA") || blob.includes("REUNION");
+}
+
 export function followupSnapshot(rows: { estado: string; enJuego?: number }[]) {
   return {
     seguimientosVencidos: rows.filter((row) => row.estado === "VENCIDO").length,

@@ -1,0 +1,142 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  dineroEnJuegoNote,
+  expectedDealValue,
+  isActiveOpenStage,
+  openPipeline,
+  saldoPorCobrar,
+  summarizePipeline,
+} from "./crm-pipeline";
+
+test("an open lead uses its own price, then list, then cash", () => {
+  assert.equal(expectedDealValue({ price: 8000, listPrice: 10000, cashPrice: 9000 }), 8000);
+  assert.equal(expectedDealValue({ price: null, listPrice: 10000, cashPrice: 9000 }), 10000);
+  assert.equal(expectedDealValue({ price: null, listPrice: null, cashPrice: 9000 }), 9000);
+  assert.equal(
+    expectedDealValue({ price: 2026, listPrice: 10000, at: "2026-10-02T15:00:00.000Z" }),
+    10000,
+  );
+});
+
+test("dinero en juego sums each open person once and skips Cerró and Perdido", () => {
+  const open = Array.from({ length: 23 }, (_, index) => ({
+    person: `Lead ${index + 1}`,
+    stage: index % 2 === 0 ? "DECISION" : "RETOMAR",
+    listPrice: 10_000,
+  }));
+  const out = openPipeline([
+    ...open,
+    { person: "Edson", closed: true, stage: "DECISION", price: 10_000, listPrice: 10_000 },
+    { person: "Nadie", lost: true, stage: "RETOMAR", listPrice: 10_000 },
+    { person: "Sin etapa", listPrice: 10_000 },
+    { person: "Carlos Ramírez", nextFollowup: true, price: 8000, listPrice: 10_000 },
+    { person: "Carlos Ramírez (QA)", nextFollowup: true, price: 8000, listPrice: 10_000 },
+    { person: "Sofía Mamani", nextFollowup: true, cashPrice: 9000 },
+    { person: "Solo lista", stage: "SEGUNDA_REUNION", listPrice: 10_000 },
+  ]);
+  assert.equal(out.total, 23 * 10_000 + 8000 + 9000 + 10_000);
+  assert.equal(out.count, 26);
+  assert.equal(isActiveOpenStage("DECISION"), true);
+  assert.equal(isActiveOpenStage("CIERRE VENTA"), false);
+  assert.match(dineroEnJuegoNote(out.count), /26 leads/);
+  assert.match(dineroEnJuegoNote(1), /1 lead/);
+});
+
+test("saldo por cobrar is the closed sale minus Cobrado, once per person", () => {
+  assert.equal(
+    saldoPorCobrar([
+      { person: "Edson", closed: true, sale: 10_000, collected: 2000 },
+      { person: "Edson (QA)", closed: true, sale: 10_000, collected: 2000 },
+      { person: "Ana", closed: false, sale: 10_000, collected: 0 },
+      { person: "Pago", closed: true, sale: 10_000, collected: 10_000 },
+      { person: "Sin monto", closed: true, sale: null, collected: 0 },
+    ]),
+    8000,
+  );
+});
+
+test("decision leads with only the offer price are the open pipeline", () => {
+  const offers = [
+    {
+      productName: "Círculo Millonario",
+      listPrice: 10_000,
+      altPrices: [{ label: "Contado", amount: 9000 }],
+    },
+  ];
+  const leads = [
+    {
+      id: "ana",
+      name: "Ana Pérez",
+      status: "seguimiento",
+      offerName: "Círculo Millonario",
+      amountTalked: "",
+    },
+    {
+      id: "luis",
+      name: "Luis Gómez",
+      status: "seguimiento",
+      offerName: "Círculo Millonario",
+      amountTalked: "7000",
+    },
+    {
+      id: "edson",
+      name: "Edson",
+      status: "cerrado",
+      offerName: "Círculo Millonario",
+      amountTalked: "",
+    },
+    {
+      id: "perdido",
+      name: "Mario",
+      status: "perdido",
+      offerName: "Círculo Millonario",
+      amountTalked: "",
+    },
+  ];
+  const out = summarizePipeline({
+    leads,
+    offers,
+    threads: [
+      { leadId: "ana", tipo: "DECISION", estado: "activo" },
+      { leadId: "luis", tipo: "RETOMAR", estado: "activo" },
+      { leadId: "perdido", tipo: "RETOMAR", estado: "activo" },
+    ],
+    calls: [
+      {
+        leadName: "Ana Pérez",
+        offerName: "Círculo Millonario",
+        estadoAgenda: "SHOW",
+        ventaTotal: null,
+        cashCollected: 0,
+        recordedAt: "2026-09-20T15:00:00.000Z",
+      },
+      {
+        leadName: "Luis Gómez",
+        offerName: "Círculo Millonario",
+        estadoAgenda: "SHOW",
+        ventaTotal: null,
+        cashCollected: 0,
+        recordedAt: "2026-09-21T15:00:00.000Z",
+      },
+      {
+        leadName: "Edson",
+        offerName: "Círculo Millonario",
+        estadoAgenda: "CIERRE VENTA",
+        ventaTotal: 10_000,
+        cashCollected: 2000,
+        recordedAt: "2026-09-22T15:00:00.000Z",
+      },
+      {
+        leadName: "Mario",
+        offerName: "Círculo Millonario",
+        estadoAgenda: "SHOW",
+        ventaTotal: 10_000,
+        cashCollected: 0,
+      },
+    ],
+  });
+  assert.equal(out.pipeline.total, 17_000);
+  assert.equal(out.pipeline.count, 2);
+  assert.equal(out.saldo, 8000);
+});

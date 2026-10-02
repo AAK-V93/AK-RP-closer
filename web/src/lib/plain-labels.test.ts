@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { plainStatus, spanishAgendaInText } from "./plain-labels";
+import { labelCrmProse, plainStatus, presentChatState, spanishAgendaInText } from "./plain-labels";
 
 test("screen labels hide internal status codes", () => {
   assert.equal(plainStatus("CIERRE VENTA"), "Cerró");
@@ -38,4 +38,26 @@ test("notes say Asistió instead of SHOW", () => {
   );
   assert.equal(spanishAgendaInText("NO SHOW. No contestó."), "No asistió. No contestó.");
   assert.equal(spanishAgendaInText("SHOWROOM"), "SHOWROOM");
+});
+
+test("chat state uses the Spanish stage labels", () => {
+  assert.equal(
+    labelCrmProse("Sofia · Círculo Millonario · SHOW · CIERRE VENTA"),
+    "Sofia · Círculo Millonario · Asistió · Cerró venta",
+  );
+  assert.equal(labelCrmProse("NO SHOW en la segunda"), "No asistió en la segunda");
+  const state = presentChatState({
+    leads: [{ name: "Diego", status: "seguimiento", next: "DECISION" }],
+    appliedCalls: ["Diego · SHOW"],
+    alertsDue: [{ tipo: "CIERRE VENTA", question: "¿SHOW o NO SHOW?" }],
+  }) as {
+    leads: { status: string; next: string }[];
+    appliedCalls: string[];
+    alertsDue: { tipo: string; question: string }[];
+  };
+  assert.equal(state.leads[0]?.status, "Seguimiento");
+  assert.equal(state.leads[0]?.next, "Decisión");
+  assert.equal(state.appliedCalls[0], "Diego · Asistió");
+  assert.equal(state.alertsDue[0]?.tipo, "Cerró venta");
+  assert.equal(state.alertsDue[0]?.question, "¿Asistió o No asistió?");
 });

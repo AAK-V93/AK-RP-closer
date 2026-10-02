@@ -384,6 +384,7 @@ function fakeCrm(opts?: { failUpdate?: boolean }) {
     $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const sql = strings.join(" ");
       calls.push(`raw:${sql}`);
+      calls.push(`vals:${values.map((value) => String(value)).join("|")}`);
       if (sql.includes(" - ") && values.includes("pendingChat")) {
         delete prefs.pendingChat;
         calls.push("pending:clear");
@@ -555,4 +556,53 @@ test("those messages are not answers to Edson's filing gap", () => {
   assert.equal(looksLikeFilingAnswer("si"), false);
   assert.equal(messageTargetsOtherLead("Carlos me pagó 2000", leads, "Edson"), true);
   assert.equal(messageTargetsOtherLead("10000", leads, "Edson"), false);
+});
+
+test("a rename compares the CRM name exactly, accents included", () => {
+  const withCrm = ctx.leads.map((lead) =>
+    lead.id === "sofia" ? { ...lead, crmName: "Sofia Mamani Quispe" } : lead,
+  );
+  const turn = interpretCrmChat("Sofia Mamani Quispe en realidad se llama Sofía Mamani", {
+    ...ctx,
+    leads: withCrm,
+  });
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.reply, "Nombre de «Sofia Mamani Quispe» a «Sofía Mamani». ¿Confirmo?");
+  assert.equal(turn.proposal.changes[0]?.from, "Sofia Mamani Quispe");
+  assert.equal(turn.proposal.changes[0]?.to, "Sofía Mamani");
+
+  const accent = interpretCrmChat("Sofia Mamani en realidad se llama Sofía Mamani", {
+    ...ctx,
+    leads: ctx.leads.map((lead) =>
+      lead.id === "sofia" ? { ...lead, name: "Sofia Mamani", crmName: "Sofia Mamani" } : lead,
+    ),
+  });
+  assert.equal(accent.kind, "confirm");
+  if (accent.kind !== "confirm") return;
+  assert.match(accent.reply, /Nombre de «Sofia Mamani» a «Sofía Mamani»/);
+  assert.doesNotMatch(accent.reply, /ya está guardado/);
+
+  const same = interpretCrmChat("Sofía Mamani en realidad se llama Sofía Mamani", ctx);
+  assert.equal(same.kind, "answer");
+  if (same.kind !== "answer") return;
+  assert.match(same.reply, /ya está guardado/);
+});
+
+test("sí renames the CRM name even when the lead record already matches", async () => {
+  const { prisma, calls } = fakeCrm();
+  const result = await applyChatProposal(prisma, "user-1", {
+    leadId: "sofia",
+    leadName: "Sofia Mamani Quispe",
+    changes: [
+      { field: "name", label: "Nombre", from: "Sofia Mamani Quispe", to: "Sofía Mamani" },
+    ],
+  });
+  assert.match(result.reply, /Listo/);
+  assert.equal(calls.some((call) => call.startsWith("lead:")), false);
+  assert.equal(calls.includes("updateMany"), false);
+  assert.ok(calls.some((call) => call.startsWith("raw:") && call.includes("CallRecord")));
+  const vals = calls.find((call) => call.startsWith("vals:")) || "";
+  assert.match(vals, /Sofía Mamani/);
+  assert.match(vals, /Sofia Mamani Quispe/);
 });

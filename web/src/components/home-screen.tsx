@@ -16,7 +16,7 @@ import { toast } from "@/hooks/use-toast";
 import type { HomeState } from "@/lib/home-state";
 import { moneyLabel } from "@/lib/crm-operacion";
 import { ACTIVA_EXPLAIN } from "@/lib/crm-activa";
-import { DINERO_EN_JUEGO_NOTE } from "@/lib/crm-followups";
+import { dineroEnJuegoNote, SALDO_POR_COBRAR_NOTE } from "@/lib/crm-pipeline";
 import { followupCardStatus } from "@/lib/home-desk";
 import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
@@ -474,9 +474,21 @@ function ConfiguredC({
             title="Dinero en juego"
             status={moneyLabel(snapshot?.now?.dineroEnJuego)}
           />
+          {(snapshot?.now?.saldoPorCobrar || 0) > 0 && (
+            <HomeRow
+              href="/crm#dashboard"
+              title="Saldo por cobrar"
+              status={moneyLabel(snapshot?.now?.saldoPorCobrar)}
+            />
+          )}
         </div>
         <p className="mt-2 text-xs text-fg3">{ACTIVA_EXPLAIN}</p>
-        <p className="mt-1 text-xs text-fg3">{DINERO_EN_JUEGO_NOTE}</p>
+        <p className="mt-1 text-xs text-fg3">
+          {dineroEnJuegoNote(snapshot?.now?.pipelineLeads || 0)}
+        </p>
+        {(snapshot?.now?.saldoPorCobrar || 0) > 0 && (
+          <p className="mt-1 text-xs text-fg3">{SALDO_POR_COBRAR_NOTE}</p>
+        )}
       </div>
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
       <div>

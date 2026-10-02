@@ -34,10 +34,11 @@ import {
 } from "@/lib/crm-filters";
 import type { CommissionProjection } from "@/lib/crm-projection";
 import { plainStatus } from "@/lib/plain-labels";
-import { ACTIVA_EXPLAIN, filaCountLabel, isOportunidadActiva } from "@/lib/crm-activa";
+import { ACTIVA_EXPLAIN, filaCountLabel, latestActiveRows, operacionCountLine } from "@/lib/crm-activa";
 import { clienteVisible } from "@/lib/crm-noise";
-import { operacionGlance } from "@/lib/crm-glance";
-import { DINERO_EN_JUEGO_NOTE, foldLeadName, followupSnapshot } from "@/lib/crm-followups";
+import { derivedPaso, operacionGlance } from "@/lib/crm-glance";
+import { dineroEnJuegoNote, SALDO_POR_COBRAR_NOTE } from "@/lib/crm-pipeline";
+import { foldLeadName, followupSnapshot, isMeetingFollowup } from "@/lib/crm-followups";
 import { LOST_REASONS, lostScopeMessage, openFollowupCount } from "@/lib/followup-desk";
 import { zonedDayKey } from "@/lib/crm-time";
 import {
@@ -79,6 +80,7 @@ type Followup = {
   tipo: string;
   hilo?: string;
   paso?: string;
+  intentos?: number;
   ultimoToque?: string;
   proximaAccion?: string;
   askLost?: boolean;
@@ -162,7 +164,7 @@ const MODULES: { id: ModuleId; label: string }[] = [
   { id: "ahora", label: "Ahora mismo" },
   { id: "periodo", label: "Período" },
   { id: "operacion", label: "Operación" },
-  { id: "dashboard", label: "Dashboard" },
+  { id: "dashboard", label: "Resumen" },
   { id: "seguimientos", label: "Seguimientos" },
   { id: "comisiones", label: "Comisiones" },
 ];
@@ -309,7 +311,7 @@ export default function CrmPage() {
           ...(data.now || {}),
           seguimientosHoy: counts.seguimientosHoy,
           seguimientosVencidos: counts.seguimientosVencidos,
-          dineroEnJuego: counts.dineroEnJuego,
+          dineroEnJuego: data.now?.dineroEnJuego || 0,
         },
       });
       if (projected.leaves) {
@@ -405,6 +407,25 @@ export default function CrmPage() {
     await load();
   };
 
+  const saveName = async (args: { callId?: string; leadId?: string; name: string }) => {
+    setBusy("nombre");
+    setActionError(null);
+    try {
+      const response = await fetch("/api/crm", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename-lead", ...args }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(body.error || "No pude guardar el nombre.");
+      await load();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "No pude guardar el nombre.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const saveCash = async (callId: string, amount: number) => {
     setBusy("cash");
     setActionError(null);
@@ -470,18 +491,11 @@ export default function CrmPage() {
     [data?.operacion, offer],
   );
   const internasCount = operacionBase.filter((row) => row.interna).length;
-  const operacionScoped = useMemo(() => {
-    const visible = showInternas ? operacionBase : operacionBase.filter((row) => !row.interna);
-    if (!onlyActivas) return visible;
-    return visible.filter((row) =>
-      isOportunidadActiva({
-        status: row.leadStatus,
-        cliente: row.cliente,
-        interna: row.interna,
-        estadoAgenda: row.estadoAgenda,
-      }),
-    );
-  }, [operacionBase, showInternas, onlyActivas]);
+  const operacionVisible = useMemo(() => {
+    return showInternas ? operacionBase : operacionBase.filter((row) => !row.interna);
+  }, [operacionBase, showInternas]);
+  const activeOperacion = useMemo(() => latestActiveRows(operacionVisible), [operacionVisible]);
+  const operacionScoped = onlyActivas ? activeOperacion : operacionVisible;
   const followupsBase = useMemo(
     () => (data?.followups || []).filter((row) => matchesOffer(row.oferta || "", offer)),
     [data?.followups, offer],
@@ -679,8 +693,13 @@ export default function CrmPage() {
             {module === "operacion" && (
               <div className="space-y-2">
                 <p className="text-xs text-fg3">
-                  {filaCountLabel(operacion.length, operacionScoped.length)} ·{" "}
-                  {now.oportunidadesActivas || 0} oportunidades activas
+                  {operacionCountLine({
+                    shown: operacion.length,
+                    inScope: operacionScoped.length,
+                    onlyActivas,
+                    activeRows: activeOperacion.length,
+                    oportunidades: now.oportunidadesActivas || 0,
+                  })}
                 </p>
                 <p className="text-xs text-fg3">{ACTIVA_EXPLAIN}</p>
                 <div className="flex flex-wrap gap-2">
@@ -748,6 +767,7 @@ export default function CrmPage() {
                 onPatch={patch}
                 onReopen={reopen}
                 onCash={saveCash}
+                onRename={saveName}
                 onDelete={removeRow}
                 empty={
                   operacionScoped.length > 0 && operacion.length === 0
@@ -785,6 +805,7 @@ export default function CrmPage() {
                 onSelect={(id) => setOpenAlert(openAlert === id ? null : id)}
                 onPick={pickScript}
                 onPatch={patch}
+                onRename={saveName}
                 empty={
                   followupsBase.length > 0 && followups.length === 0
                     ? "Nada con estos filtros."
@@ -953,6 +974,9 @@ function AhoraSheet({
           <QuietFact label="Vencidos" value={String(now.seguimientosVencidos || 0)} />
           <QuietFact label="Agendas de hoy" value={String(now.agendasHoy || 0)} />
           <QuietFact label="Dinero en juego" value={money(now.dineroEnJuego)} />
+          {(now.saldoPorCobrar || 0) > 0 && (
+            <QuietFact label="Saldo por cobrar" value={money(now.saldoPorCobrar)} />
+          )}
           <QuietFact label="Pendiente de cobro" value={money(now.cashPendiente)} />
           <QuietFact label="Comisión pendiente" value={money(now.comisionPendiente)} />
           <QuietFact label="Oportunidades activas" value={String(now.oportunidadesActivas || 0)} />
@@ -961,7 +985,8 @@ function AhoraSheet({
         </dl>
         <HelpNote>
           <p>Pendientes de hoy son los seguimientos que toca hacer hoy. Vencidos son los que ya debían salir.</p>
-          <p>{DINERO_EN_JUEGO_NOTE} Pendiente de cobro es lo ya acordado que aún no entró.</p>
+          <p>{dineroEnJuegoNote(now.pipelineLeads || 0)} Pendiente de cobro es lo ya acordado que aún no entró.</p>
+          {(now.saldoPorCobrar || 0) > 0 && <p>{SALDO_POR_COBRAR_NOTE}</p>}
           <p>Comisión pendiente es tu parte de lo cobrado. Agendas de hoy y llamadas agendadas son citas en el calendario, no los seguimientos abiertos.</p>
         </HelpNote>
       </div>
@@ -998,7 +1023,7 @@ function PeriodoSheet({
     <div className="space-y-2">
       {offerNote && <p className="text-[11px] text-fg3">{offerNote}</p>}
       <p className="text-[11px] text-fg3">
-        Ventas es la suma de los cierres que tienen monto, una persona una vez. Un show o un precio solo mencionado no entra, así que ventas y cierres se mueven juntos.
+        Ventas es la suma de los cierres que tienen monto, una persona una vez. Una asistencia o un precio solo mencionado no entra, así que ventas y cierres se mueven juntos.
       </p>
       <SheetTable
         columns={[
@@ -1133,6 +1158,42 @@ function glanceFollowup(call: OperacionRow, rows: Followup[]) {
   );
 }
 
+function NameEditor({
+  initial,
+  disabled,
+  onSave,
+}: {
+  initial: string;
+  disabled: boolean;
+  onSave: (name: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(initial);
+  const next = name.trim();
+  return (
+    <form
+      className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-end"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!next || next === initial.trim()) return;
+        void onSave(next);
+      }}
+    >
+      <label className="min-w-0 flex-1 space-y-1 text-xs text-fg3">
+        Nombre
+        <Input value={name} onChange={(event) => setName(event.target.value)} disabled={disabled} />
+      </label>
+      <Button
+        size="sm"
+        type="submit"
+        variant="outline"
+        disabled={disabled || !next || next === initial.trim()}
+      >
+        {disabled ? "Guardando…" : "Guardar"}
+      </Button>
+    </form>
+  );
+}
+
 function OperacionSheet({
   rows,
   scopeRows,
@@ -1146,6 +1207,7 @@ function OperacionSheet({
   onPatch,
   onReopen,
   onCash,
+  onRename,
   onDelete,
   empty = "Aún no hay llamadas en esta oferta.",
 }: {
@@ -1161,6 +1223,7 @@ function OperacionSheet({
   onPatch: (alertId: string, resultado: string, agenda?: boolean, nextAt?: string) => Promise<void>;
   onReopen: (alertId: string) => Promise<void>;
   onCash: (callId: string, amount: number) => Promise<void>;
+  onRename: (args: { callId?: string; leadId?: string; name: string }) => Promise<void>;
   onDelete: (row: OperacionRow) => Promise<void>;
   empty?: string;
 }) {
@@ -1189,6 +1252,7 @@ function OperacionSheet({
       fecha: row.fecha,
       ultimoContacto: contacts.get(foldLeadName(row.cliente)) || row.fecha,
       paso: followup?.paso,
+      intentos: followup?.intentos,
       tipoSeguimiento: followup?.hilo || followup?.tipo || row.tipoSeguimiento,
       fechaProximo: followup?.proximo || row.fechaProximo,
     });
@@ -1261,6 +1325,12 @@ function OperacionSheet({
               <span className="whitespace-pre-wrap break-words">{sheetCell(value)}</span>
             </p>
           ))}
+          <NameEditor
+            key={`nombre-${selected.id}`}
+            initial={clienteVisible(selected.cliente, selected.titulo)}
+            disabled={busy === "nombre"}
+            onSave={(name) => onRename({ callId: selected.id, leadId: selected.leadId, name })}
+          />
           <CashEditor
             key={selected.id}
             amount={selected.cash}
@@ -1397,6 +1467,9 @@ function DashboardSheet({
           <MetricCard label="Ventas cerradas con monto" value={money(total?.ventas)} tone="brand" />
           <MetricCard label="Cobrado" value={money(total?.cash)} tone="money" />
           <MetricCard label="Dinero en juego" value={money(data.now?.dineroEnJuego)} tone="money" />
+          {(data.now?.saldoPorCobrar || 0) > 0 && (
+            <MetricCard label="Saldo por cobrar" value={money(data.now?.saldoPorCobrar)} tone="money" />
+          )}
           <MetricCard label="Comisión generada" value={money(data.comisionResumen?.generada)} tone="brand" />
           <MetricCard label="Comisión cobrada" value={money(data.comisionResumen?.cobrada)} tone="money" />
         </div>
@@ -1427,7 +1500,10 @@ function DashboardSheet({
             )}
           </p>
         )}
-        <p className="text-[11px] text-fg3">{DINERO_EN_JUEGO_NOTE}</p>
+        <p className="text-[11px] text-fg3">{dineroEnJuegoNote(data.now?.pipelineLeads || 0)}</p>
+        {(data.now?.saldoPorCobrar || 0) > 0 && (
+          <p className="text-[11px] text-fg3">{SALDO_POR_COBRAR_NOTE}</p>
+        )}
         <button
           type="button"
           className="text-sm text-tone-info underline-offset-2 hover:underline"
@@ -1523,7 +1599,7 @@ function DashboardSheet({
 }
 
 function isSegunda(value: string) {
-  return value.toUpperCase().replace(/_/g, " ").includes("SEGUNDA");
+  return isMeetingFollowup(value);
 }
 
 function followupForCall(call: OperacionRow, rows: Followup[]) {
@@ -1712,7 +1788,7 @@ function FollowupActions({
             {ask === "no_contesto"
               ? "No contestó. Solo esta fila sigue pendiente. ¿Para cuándo la retomas?"
               : ask === "no_mostro"
-                ? "No mostró. Solo esta fila sigue pendiente. ¿Para cuándo?"
+                ? "No asistió. Solo esta fila sigue pendiente. ¿Para cuándo?"
                 : "¿Para cuándo reprogramas esta fila?"}
           </p>
           <Input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
@@ -1752,6 +1828,7 @@ function SeguimientosSheet({
   onSelect,
   onPick,
   onPatch,
+  onRename,
   empty = "No hay seguimientos abiertos.",
 }: {
   rows: Followup[];
@@ -1770,9 +1847,12 @@ function SeguimientosSheet({
     nextAt?: string,
     reason?: { id: string; note: string },
   ) => Promise<void>;
+  onRename: (args: { callId?: string; leadId?: string; name: string }) => Promise<void>;
   empty?: string;
 }) {
-  const [askFor, setAskFor] = useState<string | null>(null);
+  const [askFor, setAskFor] = useState<{ id: string; kind: "no_contesto" | "no_mostro" } | null>(
+    null,
+  );
   return (
     <div className="space-y-4">
       <p className="text-sm text-fg3" aria-live="polite">
@@ -1781,7 +1861,7 @@ function SeguimientosSheet({
       </p>
       <HelpNote>
         <p>Hecho cierra este seguimiento: sale de la lista y deja de contar en pendientes y en dinero en juego.</p>
-        <p>No contestó anota que no respondió y te pide otra fecha, para que el lead no se pierda. Mostró y No mostró son de la segunda reunión.</p>
+        <p>No contestó anota que no respondió y te pide otra fecha, para que el lead no se pierda. Asistió y No asistió son de la reunión.</p>
         <p>Perdido cierra el hilo. Cerró, en una decisión, lo pasa a cobro si todavía queda saldo.</p>
       </HelpNote>
       {selected && (
@@ -1808,6 +1888,14 @@ function SeguimientosSheet({
               <p className="text-xs whitespace-pre-wrap break-words">{selected.mensajeSugerido}</p>
             )
           )}
+          <NameEditor
+            key={`nombre-${selected.id}`}
+            initial={selected.cliente}
+            disabled={busy === "nombre"}
+            onSave={(name) =>
+              onRename({ callId: selected.callId, leadId: selected.leadId, name })
+            }
+          />
           <FollowupActions
             key={selected.id}
             targetId={selected.id}
@@ -1823,7 +1911,7 @@ function SeguimientosSheet({
               selected.leadId || "",
               selected.callId || "",
             )}
-            initialAsk={askFor === selected.id ? "no_contesto" : null}
+            initialAsk={askFor?.id === selected.id ? askFor.kind : null}
             onPatch={onPatch}
           />
         </div>
@@ -1832,7 +1920,12 @@ function SeguimientosSheet({
         columns={[
           { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
           { key: "hilo", label: "Tipo", width: 150, value: (row) => plainStatus(row.hilo || row.tipo) },
-          { key: "paso", label: "Paso", width: 80, value: (row) => row.paso || "—" },
+          {
+            key: "paso",
+            label: "Paso",
+            width: 80,
+            value: (row) => derivedPaso({ paso: row.paso, tipo: row.hilo || row.tipo, intentos: row.intentos }) || "—",
+          },
           { key: "toque", label: "Último toque", width: 180, value: (row) => row.ultimoToque || "sin toques" },
           { key: "accion", label: "Próxima acción", width: 240, value: (row) => row.proximaAccion || row.queHacer || row.acuerdo || row.question },
           { key: "juego", label: "En juego", width: 120, align: "right", value: (row) => (row.enJuego ? money(row.enJuego) : "—") },
@@ -1845,33 +1938,66 @@ function SeguimientosSheet({
         empty={empty}
         trailing={{
           label: "Acción",
-          width: 196,
-          render: (row) =>
-            row.tipo === "AGENDA_CHECK" ? (
-              <span className="text-xs text-fg3">Abre la fila</span>
-            ) : (
-              <div className="flex flex-wrap items-center gap-1">
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={Boolean(busy)}
-                  onClick={() => void onPatch(row.id, "hecho")}
-                >
-                  {busy === "hecho" ? "…" : "Hecho"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={Boolean(busy)}
-                  onClick={() => {
-                    if (selected?.id !== row.id) onSelect(row.id);
-                    setAskFor(row.id);
-                  }}
-                >
-                  No contestó
-                </Button>
+          width: 104,
+          render: (row) => {
+            if (row.tipo === "AGENDA_CHECK") {
+              return <span className="text-xs text-fg3">Abre la fila</span>;
+            }
+            const meeting = isMeetingFollowup(row.tipo, row.hilo || "");
+            return (
+              <div className="flex w-full flex-col gap-1">
+                {meeting ? (
+                  <>
+                    <Button
+                      className="h-8 w-full px-0.5 text-[11px]"
+                      size="sm"
+                      variant="primary"
+                      disabled={Boolean(busy)}
+                      onClick={() => void onPatch(row.id, "mostro")}
+                    >
+                      {busy === "mostro" ? "…" : "Asistió"}
+                    </Button>
+                    <Button
+                      className="h-8 w-full px-0.5 text-[11px]"
+                      size="sm"
+                      variant="outline"
+                      disabled={Boolean(busy)}
+                      onClick={() => {
+                        if (selected?.id !== row.id) onSelect(row.id);
+                        setAskFor({ id: row.id, kind: "no_mostro" });
+                      }}
+                    >
+                      No asistió
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      className="h-8 w-full px-0.5 text-[11px]"
+                      size="sm"
+                      variant="primary"
+                      disabled={Boolean(busy)}
+                      onClick={() => void onPatch(row.id, "hecho")}
+                    >
+                      {busy === "hecho" ? "…" : "Hecho"}
+                    </Button>
+                    <Button
+                      className="h-8 w-full px-0.5 text-[11px]"
+                      size="sm"
+                      variant="outline"
+                      disabled={Boolean(busy)}
+                      onClick={() => {
+                        if (selected?.id !== row.id) onSelect(row.id);
+                        setAskFor({ id: row.id, kind: "no_contesto" });
+                      }}
+                    >
+                      No contestó
+                    </Button>
+                  </>
+                )}
               </div>
-            ),
+            );
+          },
         }}
       />
     </div>
