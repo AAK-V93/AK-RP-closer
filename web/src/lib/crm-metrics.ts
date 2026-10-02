@@ -13,7 +13,7 @@ import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib
 import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
 import { explainVentas, offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
 import { summarizePipeline } from "@/lib/crm-pipeline";
-import { countedSale, shownMoney } from "@/lib/stated-deal";
+import { countedSale, shownBalance, shownMoney } from "@/lib/stated-deal";
 import { applyCallRepair, planCallRepair, repairImportedCallFields } from "@/lib/call-normalize";
 import { loadDashboardCalls } from "@/lib/crm-call-read";
 import { catalogDisplayName, foldOffer, isInventedOfferLabel, isPriceLabel } from "@/lib/offer-name";
@@ -302,7 +302,7 @@ export async function crmDashboard(
           leadStatus: statusByLead.get(foldLeadName(view.cliente)) || "",
           venta: shownMoney(view.venta, { at, prices }),
           cash: shownMoney(view.cash, { at, prices }),
-          saldo: shownMoney(view.saldo, { at, prices }),
+          saldo: shownBalance(view.venta, view.cash, view.saldo, { at, prices }),
         },
       ];
     } catch (error) {

@@ -12,7 +12,14 @@ import {
 } from "./crm-activa";
 import { deleteOperacionRow, leadStateFromRemaining } from "./crm-delete-row";
 import { derivedPaso, operacionGlance } from "./crm-glance";
-import { hiddenInternalCount, isInternalNoise, visibleCallTitle } from "./crm-noise";
+import {
+  durationMinutesFromTranscript,
+  hiddenInternalCount,
+  isInternalNoise,
+  joinDistinct,
+  linkedToCrmLead,
+  visibleCallTitle,
+} from "./crm-noise";
 
 test("activa is one definition and the same count for every lead list", () => {
   assert.match(ACTIVA_EXPLAIN, /todavía puedes cerrar o cobrar/);
@@ -80,7 +87,7 @@ test("internal and untitled rows stay in the data but are the hidden set", () =>
       leadName: "",
       date: "2026-09-30T15:00:00.000Z",
     }),
-    "Llamada sin título · 2026-09-30",
+    "Llamada del 30 sep, 10:00",
   );
   const rows = [
     { interna: isInternalNoise(feedback) },
@@ -391,6 +398,31 @@ test("llamadas list and detail replace an Impromptu title", () => {
       leadName: "Impromptu Google Meet Meeting",
       date: "2026-10-01",
     }),
-    "Llamada sin título · 2026-10-01",
+    "Llamada del 1 oct",
   );
+  assert.equal(
+    visibleCallTitle({
+      title: "Llamada sin título",
+      leadName: "",
+      date: "2026-09-30T15:00:00.000Z",
+      durationMinutes: 32,
+    }),
+    "Llamada del 30 sep, 10:00 · 32 min",
+  );
+  assert.equal(
+    visibleCallTitle({
+      title: "",
+      leadName: "",
+      summary: "Hola, revisamos el plan de pagos y la fecha de inicio del programa",
+    }),
+    "revisamos el plan de pagos y la fecha",
+  );
+  assert.equal(
+    durationMinutesFromTranscript("00:00:00 Hola\nseguimos\n00:32:10 cierre de la llamada"),
+    32,
+  );
+  assert.equal(linkedToCrmLead("Valeria Ríos", ["Valeria Rios"]), true);
+  assert.equal(linkedToCrmLead("", ["Valeria Rios"]), false);
+  assert.equal(joinDistinct(["Cerró", "Cerró"]), "Cerró");
+  assert.equal(joinDistinct(["Valeria Ríos", "Cerró", "Cerró"]), "Valeria Ríos · Cerró");
 });

@@ -9,6 +9,7 @@ import { CalendarConnectPanel } from "@/components/calendar-connect-panel";
 import { Button } from "@/components/ui/button";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
+import { joinDistinct } from "@/lib/crm-noise";
 import { plainStatus } from "@/lib/plain-labels";
 
 type CallRow = {
@@ -50,8 +51,8 @@ export default function LlamadasPage() {
     fetch("/api/llamadas")
       .then((r) => r.json())
       .then((data) => {
-        setCalls(data.calls || []);
-        setReview(data.review || null);
+        setCalls(Array.isArray(data?.calls) ? data.calls : []);
+        setReview(data?.review && typeof data.review === "object" ? data.review : null);
       })
       .catch(() => undefined);
 
@@ -152,7 +153,7 @@ export default function LlamadasPage() {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-sm">{review.question}</p>
-                    {review.options && review.options.length > 0 ? (
+                    {Array.isArray(review.options) && review.options.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {review.options.map((option) => (
                           <Button
@@ -272,14 +273,12 @@ export default function LlamadasPage() {
                   <div className="min-w-0">
                     <p className="text-sm truncate">{row.title}</p>
                     <p className="text-xs text-fg3">
-                      {[
+                      {joinDistinct([
                         row.leadName,
                         row.offerName,
                         row.callType ? plainStatus(row.callType) : "",
                         row.result ? plainStatus(row.result) : "",
-                      ]
-                        .filter((part) => part && part !== "—")
-                        .join(" · ") || row.source}
+                      ]) || row.source}
                       {row.trainsBot ? " · entra a la práctica" : ""}
                     </p>
                   </div>

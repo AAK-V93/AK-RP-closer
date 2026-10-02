@@ -8,50 +8,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Star } from "lucide-react";
-import { plainStatus } from "@/lib/plain-labels";
-
-type PackItem = {
-  id: string;
-  type: string;
-  canal: string;
-  recomendacion: string;
-  guion: string;
-  asset?: string;
-  uses: number;
-  puntaje: number;
-  tasaCierre: number;
-  tasaEnvio: number;
-};
-
-type Pack = {
-  id: string;
-  title: string;
-  description: string;
-  tags: string[];
-  publisher: string;
-  mine: boolean;
-  starred: boolean;
-  stars: number;
-  scripts: number;
-  uses: number;
-  puntaje: number;
-  tasaCierre: number;
-  tasaEnvio: number;
-  items: PackItem[];
-  builtin?: boolean;
-};
-
-type OfferOpt = { id: string; productName: string; scriptCount: number };
+import { BibliotecaPackList } from "@/app/biblioteca/pack-list";
+import {
+  normalizeLibraryPayload,
+  type LibraryOffer,
+  type LibraryPack,
+} from "@/lib/library-pack";
 
 export default function BibliotecaPage() {
   const { status } = useSession();
-  const [packs, setPacks] = useState<Pack[]>([]);
-  const [offers, setOffers] = useState<OfferOpt[]>([]);
+  const [packs, setPacks] = useState<LibraryPack[]>([]);
+  const [offers, setOffers] = useState<LibraryOffer[]>([]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"recientes" | "estrellas" | "puntaje">("puntaje");
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [installOffer, setInstallOffer] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -65,8 +34,9 @@ export default function BibliotecaPage() {
     const response = await fetch("/api/biblioteca");
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Error");
-    setPacks(data.packs || []);
-    setOffers(data.offers || []);
+    const library = normalizeLibraryPayload(data);
+    setPacks(library.packs);
+    setOffers(library.offers);
   };
 
   useEffect(() => {
@@ -76,13 +46,14 @@ export default function BibliotecaPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const rows = packs.filter((pack) => {
+    const rows = (packs ?? []).filter((pack) => {
       if (!q) return true;
+      const tags = pack.tags ?? [];
       return (
-        pack.title.toLowerCase().includes(q) ||
-        pack.publisher.toLowerCase().includes(q) ||
-        pack.tags.some((tag) => tag.toLowerCase().includes(q)) ||
-        pack.description.toLowerCase().includes(q)
+        (pack.title ?? "").toLowerCase().includes(q) ||
+        (pack.publisher ?? "").toLowerCase().includes(q) ||
+        tags.some((tag) => tag.toLowerCase().includes(q)) ||
+        (pack.description ?? "").toLowerCase().includes(q)
       );
     });
     return rows.sort((a, b) => {
@@ -236,146 +207,20 @@ export default function BibliotecaPage() {
               </Button>
             </div>
 
-            {filtered.length === 0 ? (
-              <p className="text-sm text-fg3">
-                Todavía no hay packs públicos. Publica el primero.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {filtered.map((pack) => {
-                  const offerId = installOffer[pack.id] || offers[0]?.id || "";
-                  const open = openId === pack.id;
-                  return (
-                    <div
-                      key={pack.id}
-                      className="rounded-2xl border border-separator1 bg-bg1 p-4 space-y-3"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <button
-                          type="button"
-                          className="text-left space-y-1 min-w-0"
-                          onClick={() => setOpenId(open ? null : pack.id)}
-                        >
-                          <p className="text-sm font-medium">{pack.title}</p>
-                          <p className="text-xs text-fg3">
-                            @{pack.publisher}
-                            {pack.mine ? " · tuyo" : ""}
-                            {" · "}
-                            {pack.scripts} guion{pack.scripts === 1 ? "" : "es"}
-                            {" · "}
-                            {pack.uses} usos
-                          </p>
-                        </button>
-                        {pack.builtin ? null : (
-                          <Button
-                            size="sm"
-                            variant={pack.starred ? "primary" : "outline"}
-                            onClick={() =>
-                              void post({ action: "star", packId: pack.id }).catch((e) =>
-                                setError(e instanceof Error ? e.message : "Error"),
-                              )
-                            }
-                          >
-                            <Star className={`h-3.5 w-3.5 ${pack.starred ? "fill-current" : ""}`} />
-                            {pack.stars}
-                          </Button>
-                        )}
-                      </div>
-                      {pack.description && (
-                        <p className="text-sm text-fg2">{pack.description}</p>
-                      )}
-                      <div className="flex flex-wrap gap-1">
-                        {pack.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-full border border-separator1 px-2 py-0.5 text-[11px] text-fg3"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                        {pack.puntaje > 0 && (
-                          <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
-                            puntuación {pack.puntaje}
-                          </span>
-                        )}
-                        <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
-                          envío {Math.round(pack.tasaEnvio * 100)}%
-                        </span>
-                        <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
-                          cierre {Math.round(pack.tasaCierre * 100)}%
-                        </span>
-                      </div>
-                      {open && (
-                        <div className="space-y-3 border-t border-separator1 pt-3">
-                          {pack.items.map((item) => (
-                            <div key={item.id} className="space-y-1">
-                              <p className="text-xs text-fg3">
-                                {plainStatus(item.type)} · {plainStatus(item.canal)}
-                                {item.puntaje ? ` · puntuación ${item.puntaje}` : ""} ·{" "}
-                                {item.uses} usos
-                              </p>
-                              {item.recomendacion && (
-                                <p className="text-[11px] text-fg3">{item.recomendacion}</p>
-                              )}
-                              <p className="text-xs text-fg2 whitespace-pre-wrap">{item.guion}</p>
-                              {item.asset ? (
-                                <p className="text-[11px] text-fg3 break-all">{item.asset}</p>
-                              ) : null}
-                            </div>
-                          ))}
-                          {offers.length > 0 ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <select
-                                className="rounded-md border border-separator1 bg-bg0 px-2 py-1 text-xs"
-                                value={offerId}
-                                onChange={(e) =>
-                                  setInstallOffer((prev) => ({
-                                    ...prev,
-                                    [pack.id]: e.target.value,
-                                  }))
-                                }
-                              >
-                                {offers.map((offer) => (
-                                  <option key={offer.id} value={offer.id}>
-                                    Instalar en {offer.productName}
-                                  </option>
-                                ))}
-                              </select>
-                              <Button
-                                size="sm"
-                                variant="primary"
-                                disabled={!offerId}
-                                onClick={() =>
-                                  void post({
-                                    action: "install",
-                                    packId: pack.id,
-                                    offerId,
-                                  })
-                                    .then(() =>
-                                      setNotice(
-                                        "Instalado. El CRM usará estos guiones en esa oferta.",
-                                      ),
-                                    )
-                                    .catch((e) =>
-                                      setError(e instanceof Error ? e.message : "Error"),
-                                    )
-                                }
-                              >
-                                Instalar
-                              </Button>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-fg3">
-                              Crea una oferta para instalar este pack.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <BibliotecaPackList
+              packs={filtered}
+              offers={offers ?? []}
+              onPost={async (body) => {
+                try {
+                  await post(body);
+                  if (body.action === "install") {
+                    setNotice("Instalado. El CRM usará estos guiones en esa oferta.");
+                  }
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Error");
+                }
+              }}
+            />
           </>
         )}
 

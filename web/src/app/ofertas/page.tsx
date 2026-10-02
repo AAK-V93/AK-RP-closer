@@ -20,6 +20,8 @@ import {
 } from "@/lib/offer-save";
 import {
   commercialRecap,
+  crmGaps,
+  missingOfferSetupPhrase,
   offerToSavePayload,
   parseCommercial,
   savedBonusNames,
@@ -29,6 +31,18 @@ import { WorkspaceSkeleton } from "@/components/page-skeleton";
 import { OfferExtractReview } from "@/components/offer-extract-review";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 import { partitionTranscriptUploads } from "@/lib/transcript-batch";
+import { countPhrase } from "@/lib/plain-labels";
+
+function offerSetupNote(offer?: {
+  productName?: string;
+  commercial?: unknown;
+  readyCrm?: boolean;
+}) {
+  if (!offer) return "";
+  if (offer.readyCrm) return " · CRM listo";
+  const missing = missingOfferSetupPhrase(crmGaps(offer));
+  return missing ? ` · ${missing} (pega un texto o sube el doc)` : "";
+}
 
 type OfferRow = {
   id: string;
@@ -96,7 +110,11 @@ export default function OfertasPage() {
     const response = await fetch(`/api/workspace${query}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Error");
-    setWorkspace(data);
+    setWorkspace({
+      ...data,
+      offers: Array.isArray(data.offers) ? data.offers : [],
+      transcripts: Array.isArray(data.transcripts) ? data.transcripts : [],
+    });
     if (nextOfferId === null) {
       fillOffer(null);
       return;
@@ -346,7 +364,7 @@ export default function OfertasPage() {
         )}
 
         <div className="flex flex-wrap gap-2">
-          {(workspace?.offers || []).map((row) => {
+          {(Array.isArray(workspace?.offers) ? workspace.offers : []).map((row) => {
             const bonusCount = savedBonusNames(parseCommercial(row.commercial)).length;
             return (
             <Button
@@ -633,19 +651,22 @@ export default function OfertasPage() {
             )}
           </Button>
           <p className="text-xs text-fg3">
-            {workspace?.transcriptCount || 0} llamadas en esta oferta
+            {countPhrase(
+              workspace?.transcriptCount || 0,
+              "llamada en esta oferta",
+              "llamadas en esta oferta",
+            )}
             {includeFathom && workspace?.fathomCount
-              ? ` (incluye ${workspace.fathomCount} grabaciones)`
+              ? ` (incluye ${countPhrase(workspace.fathomCount, "grabación", "grabaciones")})`
               : ""}
             {workspace?.playbookReady ? " · perfil de prospectos listo" : ""}
-            {workspace?.offers.find((r) => r.id === offerId)?.readyCrm ||
-            workspace?.readyCrm
-              ? " · CRM listo"
-              : " · falta precio, pagos o cómo te pagan comisión (pega un texto o sube el doc)"}
+            {offerSetupNote(
+              (Array.isArray(workspace?.offers) ? workspace.offers : []).find((row) => row.id === offerId),
+            )}
           </p>
-          {workspace && workspace.transcripts.length > 0 && (
+          {(workspace?.transcripts ?? []).length > 0 && (
             <ul className="text-xs text-fg2 space-y-1 max-h-40 overflow-y-auto">
-              {workspace.transcripts.map((row) => (
+              {(workspace?.transcripts ?? []).map((row) => (
                 <li key={row.id}>{row.title}</li>
               ))}
             </ul>

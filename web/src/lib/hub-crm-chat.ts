@@ -7,7 +7,10 @@ import {
   formatPendingDesk,
   type DeskLine,
 } from "@/lib/crm-followups";
-import { zonedDayKey } from "@/lib/crm-time";
+import { zonedDayBounds, zonedDayKey, zonedMonthRange, zonedWeekRange } from "@/lib/crm-time";
+import { parseCommercial, looksLikeOfferBlob } from "@/lib/offer-commercial";
+import { rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
+import { summarizePipeline } from "@/lib/crm-pipeline";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
 import { samePersonName } from "@/lib/lead-match";
 import { realClientName } from "@/lib/crm-noise";
@@ -415,6 +418,66 @@ function paidNow(raw: string) {
 
 function formatMoneyEs(amount: number) {
   return String(Math.round(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+export type MoneySlice = { cobrado: number; vendido: number };
+
+export type MoneyBrief = {
+  month: MoneySlice;
+  week: MoneySlice;
+  today: MoneySlice;
+  saldoPorCobrar: number;
+  dineroEnJuego: number;
+};
+
+/** Totals the closer asks for. A payment sentence stays a payment, not a stat. */
+export function asksForMoneyStats(text: string) {
+  const q = fold(text);
+  if (!q || looksLikeOfferBlob(text)) return false;
+  if (/\b(me pago|pago la cuota|cuota de|reserva de|abono)\b/.test(q)) return false;
+  if (/\bsaldo por cobrar\b/.test(q) || /\bdinero en juego\b/.test(q)) return true;
+  const period = /\b(cuanto|mes|semana|hoy)\b/.test(q);
+  if (/\b(cobrad\w*|cobre|he cobrado|llevo cobrado)\b/.test(q) && period) return true;
+  if (/\b(vendi|vendido|ventas)\b/.test(q) && period) return true;
+  return false;
+}
+
+export function formatMoneyStats(text: string, brief: MoneyBrief) {
+  const q = fold(text);
+  const wantsSaldo = /\bsaldo por cobrar\b/.test(q);
+  const wantsJuego = /\bdinero en juego\b/.test(q);
+  const wantsCobrado = /\b(cobrad\w*|cobre|he cobrado|llevo cobrado)\b/.test(q);
+  const wantsVendido = /\b(vendi|vendido|ventas)\b/.test(q);
+  const tail = `Saldo por cobrar USD ${formatMoneyEs(brief.saldoPorCobrar)}. Dinero en juego USD ${formatMoneyEs(brief.dineroEnJuego)}.`;
+  if (wantsSaldo && !wantsCobrado && !wantsVendido) return tail;
+  if (wantsJuego && !wantsCobrado && !wantsVendido && !wantsSaldo) return tail;
+  const periods: Array<"month" | "week" | "today"> = [];
+  if (/\bmes\b/.test(q)) periods.push("month");
+  if (/\bsemana\b/.test(q)) periods.push("week");
+  if (/\bhoy\b/.test(q)) periods.push("today");
+  if (!periods.length) periods.push("month", "week", "today");
+  const label = { month: "Este mes", week: "Esta semana", today: "Hoy" } as const;
+  const lines: string[] = [];
+  for (const period of periods) {
+    const row = brief[period];
+    if (wantsCobrado) lines.push(`${label[period]} llevas cobrado USD ${formatMoneyEs(row.cobrado)}.`);
+    if (wantsVendido) lines.push(`${label[period]} vendiste USD ${formatMoneyEs(row.vendido)}.`);
+  }
+  lines.push(tail);
+  return lines.join(" ");
+}
+
+/** Real offer setup still falls through to the paste flow. A question does not. */
+export function looksLikeOfferSetup(text: string) {
+  if (looksLikeOfferBlob(text)) return true;
+  const raw = text.trim();
+  if (raw.length < 40 || /[?¿]/.test(raw)) return false;
+  if (asksForMoneyStats(raw) || asksForPendingDesk(raw)) return false;
+  return /\b(comision|precio de lista|como te pagan|que vendes|datos de pago)\b/.test(fold(raw));
+}
+
+export function chatCapabilitiesReply() {
+  return "Puedo decirte el cobrado y lo vendido de hoy, de esta semana y de este mes, el saldo por cobrar y el dinero en juego. También los pendientes de hoy, anotar un pago o un acuerdo, y cambiar el nombre de un lead. Dime cuál.";
 }
 
 function cuotaOrdinal(current: number, payment: number) {
@@ -1070,9 +1133,129 @@ export async function respondToCrmChat(
   }
 }
 
+async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Date()): Promise<MoneyBrief> {
+  const [calls, leads, offers, threads] = await Promise.all([
+    prisma.callRecord.findMany({
+      where: { userId, filingStatus: { not: "skipped" } },
+      select: {
+        id: true,
+        leadName: true,
+        offerName: true,
+        estadoAgenda: true,
+        ventaTotal: true,
+        cashCollected: true,
+        recordedAt: true,
+        createdAt: true,
+        filingJson: true,
+        filingStatus: true,
+      },
+    }),
+    prisma.lead.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        offerName: true,
+        amountTalked: true,
+        nextStepAt: true,
+      },
+    }),
+    prisma.userOffer.findMany({
+      where: { userId },
+      select: { productName: true, productDescription: true, commercial: true },
+    }),
+    prisma.followupThread.findMany({
+      where: { userId, estado: "activo" },
+      select: { leadId: true, tipo: true, estado: true },
+    }),
+  ]);
+  const rollupOffers: RollupOffer[] = offers.map((offer) => {
+    const commercial = parseCommercial(offer.commercial);
+    return {
+      productName: offer.productName,
+      productDescription: offer.productDescription,
+      aliases: commercial.aliases,
+      prices: [commercial.listPrice || 0, ...commercial.altPrices.map((row) => row.amount || 0)].filter(
+        (price) => price > 0,
+      ),
+    };
+  });
+  const confirmed = calls.filter((row) => row.filingStatus === "confirmed");
+  const rollupInput: RollupCall[] = confirmed.map((row) => {
+    const filing = (row.filingJson || {}) as {
+      producto?: string;
+      tipo_seguimiento?: string;
+      acuerdo_seguimiento?: string;
+      notas_crm?: string;
+      evidencia?: { cierre?: string; venta_total?: string };
+      lead_id?: string;
+    };
+    return {
+      id: row.id,
+      leadId: String(filing.lead_id || ""),
+      cliente: row.leadName,
+      offerName: row.offerName,
+      producto: String(filing.producto || ""),
+      estadoAgenda: row.estadoAgenda,
+      tipoSeguimiento: String(filing.tipo_seguimiento || ""),
+      acuerdo: String(filing.acuerdo_seguimiento || ""),
+      notas: String(filing.notas_crm || ""),
+      evidenciaCierre: String(filing.evidencia?.cierre || ""),
+      evidenciaVenta: String(filing.evidencia?.venta_total || ""),
+      ventaTotal: row.ventaTotal,
+      cashCollected: row.cashCollected,
+      recordedAt: row.recordedAt,
+      createdAt: row.createdAt,
+    };
+  });
+  const period = (range: { from: Date; to: Date }) => {
+    const rolled = rollupCalls(rollupOffers, rollupInput, range);
+    return { cobrado: rolled.cash, vendido: rolled.ventas };
+  };
+  const pipeline = summarizePipeline({
+    leads,
+    calls: calls.map((row) => ({
+      leadName: row.leadName,
+      offerName: row.offerName,
+      estadoAgenda: row.estadoAgenda,
+      ventaTotal: row.ventaTotal,
+      cashCollected: row.cashCollected,
+      recordedAt: row.recordedAt,
+      createdAt: row.createdAt,
+      filingJson: row.filingJson,
+    })),
+    threads,
+    offers: offers.map((offer) => {
+      const commercial = parseCommercial(offer.commercial);
+      return {
+        productName: offer.productName,
+        aliases: commercial.aliases,
+        listPrice: commercial.listPrice,
+        altPrices: commercial.altPrices,
+      };
+    }),
+  });
+  return {
+    month: period(zonedMonthRange(now)),
+    week: period(zonedWeekRange(now)),
+    today: period(zonedDayBounds(now)),
+    saldoPorCobrar: pipeline.saldo,
+    dineroEnJuego: pipeline.pipeline.total,
+  };
+}
+
 export async function answerCrmChat(prisma: PrismaClient, userId: string, text: string) {
   const raw = text.trim();
   if (!raw) return null;
+  if (asksForMoneyStats(raw)) {
+    try {
+      return formatMoneyStats(raw, await loadChatMoney(prisma, userId));
+    } catch (error) {
+      console.error("chat money stats", error);
+      return chatFailureReply(error);
+    }
+  }
   if (
     raw.length > 280 &&
     !/\b(se llama|transcript|transcrip|quedamos|pag[oó]|oferta|producto|recuerdo|cash|borra|nada)\b/i.test(
@@ -1204,6 +1387,9 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     appliedCash: readAppliedCash(user?.crmPrefs),
   };
   const turn = interpretCrmChat(raw, ctx);
-  if (turn.kind === "none") return null;
+  if (turn.kind === "none") {
+    if (looksLikeOfferSetup(raw)) return null;
+    return chatCapabilitiesReply();
+  }
   return respondToCrmChat(prisma, userId, raw, ctx);
 }
