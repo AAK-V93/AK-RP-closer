@@ -192,11 +192,24 @@ export function parsedToBatch(
         .filter(Boolean)
         .slice(0, 6)
     : [];
+  const asked = questions.length ? questions : defaultQuestions(offers, assumption);
   return {
     offers,
     assumption: offers.length > 1 ? "varias" : assumption,
-    questions: questions.length ? questions : defaultQuestions(offers, assumption),
+    questions: ensureCommissionQuestion(
+      asked,
+      offers.some((row) => Boolean(row.commercial.commission)),
+    ),
   };
+}
+
+/** The review always asks about commission, even when the model skipped it. */
+export function ensureCommissionQuestion(questions: string[], hasRule: boolean) {
+  if (questions.some((row) => /comisi/i.test(row))) return questions.slice(0, 6);
+  const line = hasRule
+    ? "La comisión quedó como está en el documento. ¿Es así?"
+    : "No encontré un porcentaje de comisión. ¿La dejo vacía?";
+  return [line, ...questions].slice(0, 6);
 }
 
 export function heuristicExtract(text: string): ExtractedOffer {
@@ -256,55 +269,96 @@ export type OfferExtractFile = {
   buffer: Buffer;
 };
 
+export function clipOfferText(text: string, max = 18000) {
+  const raw = text.trim();
+  if (raw.length <= max) return raw;
+  return `${raw.slice(0, 12000)}\n\n…\n\n${raw.slice(-5000)}`;
+}
+
+function isPdfFile(file: OfferExtractFile) {
+  const mime = file.mime || "";
+  return mime === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
+function isPlainTextFile(file: OfferExtractFile) {
+  const mime = file.mime || "";
+  const name = file.name.toLowerCase();
+  return mime.startsWith("text/") || name.endsWith(".md") || name.endsWith(".txt");
+}
+
+async function pdfPlainText(buffer: Buffer) {
+  const { extractText, getDocumentProxy } = await import("unpdf");
+  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  const result = await extractText(pdf, { mergePages: true });
+  const text = Array.isArray(result.text) ? result.text.join("\n") : String(result.text || "");
+  return text.replace(/[ \t]+\n/g, "\n").trim();
+}
+
+/** Pulls text out of PDFs so the model call is short enough for the function limit. */
+export async function textFromOfferFiles(files: OfferExtractFile[]) {
+  const chunks: string[] = [];
+  const binaries: OfferExtractFile[] = [];
+  for (const file of files.slice(0, MAX_FILES)) {
+    if (file.buffer.length > MAX_BYTES) {
+      throw new Error(`${file.name} supera 4 MB`);
+    }
+    if (isPlainTextFile(file)) {
+      const text = file.buffer.toString("utf8").trim();
+      if (text) chunks.push(text);
+      continue;
+    }
+    if (isPdfFile(file)) {
+      try {
+        const text = await pdfPlainText(file.buffer);
+        if (text.length >= 40) {
+          chunks.push(text);
+          continue;
+        }
+      } catch (error) {
+        console.error("pdf text", file.name, error);
+      }
+    }
+    binaries.push(file);
+  }
+  return { text: clipOfferText(chunks.join("\n\n")), binaries };
+}
+
 export async function extractOfferBatchFromInput(args: {
   text?: string;
   files?: OfferExtractFile[];
 }): Promise<ExtractedOfferBatch> {
-  const text = (args.text || "").trim();
+  const pasted = (args.text || "").trim();
   const files = (args.files || []).slice(0, MAX_FILES);
-  if (!text && !files.length) {
+  if (!pasted && !files.length) {
     throw new Error("Pega un texto o sube un documento");
   }
-  for (const file of files) {
-    if (file.buffer.length > MAX_BYTES) {
-      throw new Error(`${file.name} supera 4 MB`);
-    }
-  }
+  const read = files.length ? await textFromOfferFiles(files) : { text: "", binaries: [] };
+  const text = clipOfferText([pasted, read.text].filter(Boolean).join("\n\n"));
+  const binaries = read.binaries;
 
   const parts: object[] = [{ text: OFFER_EXTRACT_PROMPT }];
-  if (text) {
-    parts.push({ text: `\n\n--- TEXTO ---\n${text.slice(0, 24000)}` });
-  }
-  for (const file of files) {
+  if (text) parts.push({ text: `\n\n--- TEXTO ---\n${text}` });
+  for (const file of binaries) {
     const mime = file.mime || "application/octet-stream";
-    const isText =
-      mime.startsWith("text/") ||
-      file.name.endsWith(".md") ||
-      file.name.endsWith(".txt");
-    if (isText) {
-      parts.push({
-        text: `\n\n--- ${file.name} ---\n${file.buffer.toString("utf8").slice(0, 20000)}`,
-      });
-    } else {
-      parts.push({
-        inlineData: {
-          mimeType:
-            mime === "application/octet-stream" ? "application/pdf" : mime,
-          data: file.buffer.toString("base64"),
-        },
-      });
-    }
+    parts.push({
+      inlineData: {
+        mimeType: mime === "application/octet-stream" || isPdfFile(file) ? "application/pdf" : mime,
+        data: file.buffer.toString("base64"),
+      },
+    });
   }
 
+  const fallbackName = files[0]?.name.replace(/\.[^.]+$/, "") || "Oferta";
   try {
-    const raw = await generateGeminiParts(parts, 0.2, 8192);
+    const raw = await generateGeminiParts(parts, 0.2, 4096, {
+      timeoutMs: 40_000,
+      models: ["gemini-flash-latest"],
+    });
     const parsed = parseGeminiJsonObject(raw);
-    const fallbackName =
-      files[0]?.name.replace(/\.[^.]+$/, "") || "Oferta";
     const batch = parsedToBatch(parsed, fallbackName, text);
     return padBatchDescriptions(batch, text);
   } catch (error) {
-    if (text.length >= 20) return heuristicBatch(text);
+    if (text.length >= 40) return heuristicBatch(text);
     throw error instanceof Error ? error : new Error("No se pudo extraer la oferta");
   }
 }

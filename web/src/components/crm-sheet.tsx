@@ -52,11 +52,15 @@ export function SheetTable<T>({
   );
   const minWidth = columns.reduce((sum, col) => sum + col.width, 0) + (trailing?.width || 0);
 
+  const wide = minWidth > 720;
   return (
-    <div className="space-y-2">
+    <div className="w-full min-w-0 max-w-full space-y-2">
+      {wide && (
+        <p className="text-xs text-fg3">Desliza a la derecha para ver el resto de columnas.</p>
+      )}
       <div
-        className="overflow-auto rounded-2xl border border-separator1 bg-bg1"
-        style={{ maxHeight: "calc(100vh - 220px)" }}
+        className="w-full min-w-0 max-w-full overflow-x-scroll overflow-y-auto rounded-2xl border border-separator1 bg-bg1"
+        style={{ maxHeight: "calc(100vh - 220px)", scrollbarWidth: "thin" }}
       >
         <table
           className="border-collapse text-[13px] leading-snug text-fg1"

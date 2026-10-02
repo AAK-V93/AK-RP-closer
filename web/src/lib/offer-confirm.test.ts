@@ -114,3 +114,35 @@ test("cash price stays in the recap and plazo is not doubled", () => {
   assert.doesNotMatch(payments?.summary || "", /Plazo Plazo/);
   assert.match(commercialRecap(commercial), /10\.000/);
 });
+
+test("a cuota down payment is the inicial, without the duplicated payment tail", () => {
+  const commercial = emptyCommercial();
+  commercial.listPrice = 11800;
+  commercial.altPrices = [
+    { label: "Precio especial contado 7 días", amount: 10000 },
+    { label: "cuotas", amount: 3000 },
+    { label: "reserva", amount: 2000 },
+  ];
+  commercial.paymentModes = [
+    { name: "Contado con beneficio especial (7 días)", details: "" },
+    { name: "Financiado en cuotas", details: "12 cuotas" },
+    { name: "Reserva con saldo inicial diferido", details: "" },
+  ];
+  const prices = offerConfirmBlocks({
+    productName: "Fertilidad",
+    productDescription: "",
+    pitchSummary: "",
+    icp: "",
+    commercial,
+  }).find((row) => row.id === "prices");
+  const summary = prices?.summary || "";
+  assert.match(summary, /Si paga de contado en 7 días: USD 10\.000/);
+  assert.match(summary, /Precio de lista: USD 11\.800/);
+  assert.match(summary, /Pago inicial en cuotas: USD 3\.000 \(12 cuotas, total USD 11\.800\)/);
+  assert.match(summary, /Si deja una reserva: USD 2\.000/);
+  assert.doesNotMatch(summary, /Si paga en cuotas: USD 3\.000/);
+  const recap = commercialRecap(commercial);
+  assert.doesNotMatch(recap, /Contado con beneficio especial/);
+  assert.doesNotMatch(recap, /Financiado en cuotas/);
+  assert.doesNotMatch(recap, /Reserva con saldo inicial diferido/);
+});

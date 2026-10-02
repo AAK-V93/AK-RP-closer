@@ -6,6 +6,7 @@ import { inferFollowupDate } from "@/lib/followup-date";
 import { followupIsClosed } from "@/lib/crm-followups";
 import { normalizeImportedFiling } from "@/lib/call-normalize";
 import { fillStatedDeal } from "@/lib/stated-deal";
+import { spanishAgendaInText } from "@/lib/plain-labels";
 import { PROTOCOLO_EXTRACTOR_COMERCIAL_PAE } from "@/lib/protocolo-extractor-comercial-pae";
 
 export type ExtractorEvidencia = {
@@ -218,7 +219,7 @@ export function buildExtractorPrompt(args: {
     "NO_COMERCIAL",
     "Personal, operativa, logística, o no se está vendiendo nada.",
     "",
-    "Si es INTERNA o NO_COMERCIAL: estado_agenda ese valor, confianza >= 95, producto, montos, pago y seguimiento en null, requiere_seguimiento = false. cliente_real puede ser con quién se practicó, o null. notas_crm = una frase de qué tipo de sesión fue.",
+    "Si es INTERNA o NO_COMERCIAL: estado_agenda ese valor, confianza >= 95, producto, montos, pago y seguimiento en null, requiere_seguimiento = false. cliente_real puede ser con quién se practicó, o null. notas_crm = una frase de qué tipo de sesión fue. En notas_crm escribe Asistió o No asistió, nunca SHOW ni NO SHOW.",
     "",
     "CAMPOS ADICIONALES",
     "calificado: true, false o null.",
@@ -308,7 +309,7 @@ export function parseExtractorJson(raw: unknown): ExtractorJson {
     tipo_seguimiento: str(row.tipo_seguimiento)?.toUpperCase() || null,
     proximo_seguimiento: str(row.proximo_seguimiento),
     acuerdo_seguimiento: str(row.acuerdo_seguimiento),
-    notas_crm: str(row.notas_crm),
+    notas_crm: spanishAgendaInText(str(row.notas_crm)) || null,
     evidencia: {
       identidad: str(evidencia.identidad),
       cierre: str(evidencia.cierre),

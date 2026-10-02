@@ -34,6 +34,7 @@ import {
   isPrematurePractice,
   nextPracticeRetry,
 } from "@/lib/practice-retry";
+import { formatPracticeTimings, practiceErrorTitle } from "@/lib/practice-qa";
 
 export function Chat() {
   const connectionState = useConnectionState();
@@ -48,8 +49,18 @@ export function Chat() {
     state === "speaking";
   const agentInRoom = Boolean(agent) || voiceReady;
   const roomJoined = remotes.length > 0 || agentInRoom;
-  const { disconnect, shouldConnect, connect, phase, errorMessage, cancel, markReady } =
-    useConnection();
+  const {
+    disconnect,
+    shouldConnect,
+    connect,
+    phase,
+    errorMessage,
+    errorKind,
+    qaMode,
+    stageTimings,
+    cancel,
+    markReady,
+  } = useConnection();
   const { trainingState, dispatch } = useTraining();
   const { status: authStatus } = useSession();
   const {
@@ -300,12 +311,21 @@ export function Chat() {
             />
           )}
 
+          {qaMode && (
+            <p className="mb-3 rounded-full border border-separator1 px-3 py-1 text-xs text-fg2">
+              Modo prueba (sin micrófono)
+              {stageTimings.length ? ` · ${formatPracticeTimings(stageTimings)}` : ""}
+            </p>
+          )}
+
           {phase === "error" && !shouldConnect && !isChatRunning && !evaluation && (
             <div className="w-full max-w-lg rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3 mb-4">
-              <h2 className="text-xl font-light">No pude conectar</h2>
+              <h2 className="text-xl font-light">
+                {practiceErrorTitle(errorKind || "connection")}
+              </h2>
               <p className="text-sm text-fg2">
                 {errorMessage ||
-                  "La práctica no arrancó. Revisa tu conexión e inténtalo otra vez."}
+                  "No pude conectar. Revisa tu conexión e inténtalo otra vez."}
               </p>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Button variant="primary" disabled={retrying} onClick={() => void startAgain()}>

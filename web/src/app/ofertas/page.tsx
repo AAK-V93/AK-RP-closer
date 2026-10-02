@@ -19,6 +19,7 @@ import {
   type ExtractedOffer,
 } from "@/lib/offer-commercial";
 import { OfferExtractReview } from "@/components/offer-extract-review";
+import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 import { partitionTranscriptUploads } from "@/lib/transcript-batch";
 
 type OfferRow = {
@@ -62,6 +63,9 @@ export default function OfertasPage() {
   const [paste, setPaste] = useState("");
   const [offerBlob, setOfferBlob] = useState("");
   const [parsingDoc, setParsingDoc] = useState(false);
+  const [extractProgress, setExtractProgress] = useState(OFFER_EXTRACT_PROGRESS);
+  const [canRetryExtract, setCanRetryExtract] = useState(false);
+  const [lastExtractFiles, setLastExtractFiles] = useState<File[] | null>(null);
   const [publishingPack, setPublishingPack] = useState(false);
   const [review, setReview] = useState<{
     assumption: "una" | "varias";
@@ -102,44 +106,27 @@ export default function OfertasPage() {
       .finally(() => setLoading(false));
   }, [status, router]);
 
-  const extractOffer = async (files?: FileList | null, blob = offerBlob) => {
-    if (!files?.length && blob.trim().length < 40) {
+  const extractOffer = async (files?: FileList | File[] | null, blob = offerBlob) => {
+    const list = files === undefined ? lastExtractFiles : files ? Array.from(files) : [];
+    if (!list?.length && blob.trim().length < 40) {
       setError("Pega un texto o sube un documento.");
+      setCanRetryExtract(false);
       return;
     }
     setParsingDoc(true);
     setError(null);
+    setCanRetryExtract(false);
+    if (list?.length) setLastExtractFiles(list);
     try {
-      const body = new FormData();
-      if (files) Array.from(files).forEach((file) => body.append("files", file));
-      if (blob.trim()) body.set("paste", blob.trim());
-      const response = await fetch("/api/offer-from-doc", {
-        method: "POST",
-        body,
+      const data = await runOfferExtraction({
+        files: list || [],
+        paste: blob,
+        onProgress: setExtractProgress,
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No se pudo leer");
-      const offers = (data.offers || []).length
-        ? data.offers
-        : data.productName
-          ? [
-              {
-                productName: data.productName,
-                productDescription: data.productDescription,
-                pitchSummary: data.pitchSummary || "",
-                icp: data.icp || "",
-                commercial: data.commercial,
-              },
-            ]
-          : [];
-      if (!offers.length) throw new Error("No encontré una oferta en ese texto");
-      setReview({
-        assumption: data.assumption === "varias" || offers.length > 1 ? "varias" : "una",
-        questions: Array.isArray(data.questions) ? data.questions : [],
-        offers,
-      });
+      setReview(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setCanRetryExtract(true);
+      setError(e instanceof Error ? e.message : "No pude leer ese documento. Pulsa Reintentar.");
     } finally {
       setParsingDoc(false);
     }
@@ -326,9 +313,14 @@ export default function OfertasPage() {
           </p>
         )}
         {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
+          <div className="space-y-2" role="alert">
+            <p className="text-sm text-destructive">{error}</p>
+            {canRetryExtract && (
+              <Button type="button" variant="outline" size="sm" onClick={() => void extractOffer()}>
+                Reintentar
+              </Button>
+            )}
+          </div>
         )}
 
         <div className="flex flex-wrap gap-2">
@@ -365,7 +357,7 @@ export default function OfertasPage() {
           </p>
           <label className="flex items-center gap-2 text-xs text-fg2 cursor-pointer">
             <Upload className="h-3.5 w-3.5" />
-            {parsingDoc ? "Extrayendo…" : "Subir PDF, TXT o imagen"}
+            {parsingDoc ? extractProgress : "Subir PDF, TXT o imagen"}
             <input
               type="file"
               className="hidden"
@@ -396,7 +388,7 @@ export default function OfertasPage() {
             {parsingDoc ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Extrayendo…
+                {extractProgress}
               </>
             ) : (
               "Extraer de este texto"
@@ -411,7 +403,7 @@ export default function OfertasPage() {
             />
           )}
           {!review && commercial && (
-            <p className="text-xs text-fg2 rounded-xl border border-separator1 px-3 py-2">
+            <p className="whitespace-pre-line text-xs text-fg2 rounded-xl border border-separator1 px-3 py-2">
               {commercialRecap(parseCommercial(commercial)) ||
                 "Extraído. Revisa nombre y descripción abajo y guarda."}
             </p>

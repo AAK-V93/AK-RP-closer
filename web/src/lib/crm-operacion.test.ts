@@ -41,6 +41,17 @@ test("operacion row prefers indexed money and ungated filing notes", () => {
   assert.equal(row.tipoSeguimiento, "PAGO PENDIENTE");
   assert.equal(row.fechaProximo, "2026-09-15");
   assert.match(row.notas, /reserva/);
+
+  const noted = operacionFromCall({
+    id: "show-note",
+    recordedAt: new Date("2026-09-10T15:00:00Z"),
+    leadName: "Ana Pérez",
+    estadoAgenda: "SHOW",
+    summary: "",
+    filingJson: { notas_crm: "SHOW. No cerró. Segunda reunión." },
+  });
+  assert.equal(noted.notas, "Asistió. No cerró. Segunda reunión.");
+  assert.equal(noted.estadoAgenda, "SHOW");
   assert.equal(row.canal, "ZOOM");
 });
 

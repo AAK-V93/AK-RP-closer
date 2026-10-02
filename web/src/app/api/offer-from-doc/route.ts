@@ -6,13 +6,15 @@ import {
   extractOfferBatchFromInput,
   fileFromBlob,
   offerBatchRecap,
+  textFromOfferFiles,
 } from "@/lib/offer-extract";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+/** Text extraction plus one 40s model call. A 60s cap was dying as an HTML page. */
+export const maxDuration = 120;
 
 async function filesFromForm(form: FormData) {
   const rows: File[] = [];
@@ -29,6 +31,7 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const paste = String(form.get("paste") || form.get("text") || "").trim();
+    const step = String(form.get("step") || "");
     const uploads = await filesFromForm(form);
     if (!paste && !uploads.length) {
       return NextResponse.json(
@@ -38,12 +41,21 @@ export async function POST(request: Request) {
     }
 
     const files = await Promise.all(
-      uploads.map(async (file) =>
-        fileFromBlob(file, Buffer.from(await file.arrayBuffer())),
-      ),
+      uploads.map(async (file) => fileFromBlob(file, Buffer.from(await file.arrayBuffer()))),
     );
+    const read = files.length ? await textFromOfferFiles(files) : { text: "", binaries: [] };
 
-    const batch = await extractOfferBatchFromInput({ text: paste, files });
+    if (step === "read") {
+      return NextResponse.json({
+        text: [paste, read.text].filter(Boolean).join("\n\n"),
+        needsModelFile: read.binaries.length > 0 && read.text.trim().length < 40 && !paste,
+      });
+    }
+
+    const batch = await extractOfferBatchFromInput({
+      text: [paste, read.text].filter(Boolean).join("\n\n"),
+      files: read.binaries,
+    });
     const first = batch.offers[0];
 
     return NextResponse.json({
@@ -59,12 +71,16 @@ export async function POST(request: Request) {
       commercialRecap: first ? commercialRecap(first.commercial) : "",
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const timedOut = /timeout|tardó|abort|deadline/i.test(message);
     return NextResponse.json(
       {
-        error: "Error al procesar la oferta",
-        details: error instanceof Error ? error.message : String(error),
+        error: timedOut
+          ? "La extracción tardó demasiado y se cortó. Pulsa Reintentar."
+          : "No pude leer ese documento. Pulsa Reintentar.",
+        details: message,
       },
-      { status: 500 },
+      { status: timedOut ? 504 : 500 },
     );
   }
 }
