@@ -7,6 +7,23 @@ export function offerSavedLabel(count: number) {
   return count > 1 ? `Guardé ${count} ofertas` : "Guardé la oferta";
 }
 
+/** The route returns 400 below these lengths. Do not send that request. */
+export function isCompleteOfferSave(body: {
+  productName?: string | null;
+  productDescription?: string | null;
+}) {
+  return (
+    (body.productName?.trim().length || 0) >= 2 &&
+    (body.productDescription?.trim().length || 0) >= 20
+  );
+}
+
+export function filterPersistableOffers<
+  T extends { productName?: string | null; productDescription?: string | null },
+>(offers: T[]) {
+  return offers.filter((offer) => isCompleteOfferSave(offer));
+}
+
 export function offerSaveFailureMessage(error: unknown, aborted = false) {
   if (aborted) return OFFER_SAVE_TIMEOUT_MESSAGE;
   if (
@@ -22,6 +39,13 @@ export function offerSaveFailureMessage(error: unknown, aborted = false) {
 export async function postWorkspaceOffer(
   body: unknown,
 ): Promise<{ id: string | null }> {
+  const record = (body || {}) as {
+    productName?: string | null;
+    productDescription?: string | null;
+  };
+  if (!isCompleteOfferSave(record)) {
+    throw new Error("Nombre y descripción de la oferta son obligatorios");
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), OFFER_SAVE_TIMEOUT_MS);
   try {

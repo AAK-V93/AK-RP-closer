@@ -3,10 +3,12 @@ import { test } from "node:test";
 import { isHardwareMicTrack } from "./practice-audio";
 import {
   guardPracticeRoom,
+  isPracticeLeaveNoise,
   isUserPracticeDisconnect,
   leavePracticeRoom,
   resetPracticeRoom,
 } from "./practice-room";
+import { practiceWarmMetadata, practiceWarmRoomName } from "./practice-dispatch";
 import {
   formatPracticeTimings,
   isPracticeQaRequest,
@@ -135,6 +137,47 @@ test("disconnect does not unpublish a track that was never published", async () 
   room.log.warn("other");
   assert.deepEqual(warnings, ["other"]);
   assert.equal(isUserPracticeDisconnect(new Error("Client initiated disconnect")), true);
+});
+
+test("cancel while connecting drops the mismatch warning and keeps a live one", async () => {
+  const warnings: string[] = [];
+  let cleared = 0;
+  const room = {
+    state: "connected",
+    clearConnectionReconcile() {
+      cleared += 1;
+    },
+    log: {
+      warn: (message: string) => warnings.push(message),
+    },
+    localParticipant: {
+      trackPublications: new Map(),
+      unpublishTrack: async () => undefined,
+    },
+    disconnect: async () => {
+      room.log.warn("detected connection state mismatch");
+      room.log.warn("websocket closed");
+      room.log.warn("WebSocket is closed before the connection is established");
+    },
+  };
+  guardPracticeRoom(room as never);
+  room.log.warn("detected connection state mismatch");
+  assert.deepEqual(warnings, ["detected connection state mismatch"]);
+  await room.disconnect(true);
+  assert.equal(cleared, 1);
+  assert.deepEqual(warnings, ["detected connection state mismatch"]);
+  room.log.warn("other");
+  assert.deepEqual(warnings, ["detected connection state mismatch", "other"]);
+  assert.equal(isPracticeLeaveNoise("detected connection state mismatch"), true);
+  resetPracticeRoom(room);
+  room.log.warn("detected connection state mismatch");
+  assert.equal(warnings.at(-1), "detected connection state mismatch");
+});
+
+test("the page-load warm room is not a practice dispatch", () => {
+  assert.equal(practiceWarmMetadata(), '{"warm":true}');
+  assert.equal(practiceWarmRoomName("user-1", 60_000), "warm-user1-1");
+  assert.match(practiceWarmRoomName("abc", 0), /^warm-abc-0$/);
 });
 
 test("the practice clock starts at the click and voz waits for audio", () => {

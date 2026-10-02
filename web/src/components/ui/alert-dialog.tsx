@@ -3,6 +3,7 @@
 import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 
+import { missingDialogLabels } from "@/lib/dialog-a11y";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -30,7 +31,7 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <AlertDialogPortal>
     <AlertDialogOverlay />
     <AlertDialogPrimitive.Content
@@ -40,7 +41,9 @@ const AlertDialogContent = React.forwardRef<
         className,
       )}
       {...props}
-    />
+    >
+      <AlertDialogFallbackLabels>{children}</AlertDialogFallbackLabels>
+    </AlertDialogPrimitive.Content>
   </AlertDialogPortal>
 ));
 AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName;
@@ -97,6 +100,19 @@ const AlertDialogDescription = React.forwardRef<
 ));
 AlertDialogDescription.displayName =
   AlertDialogPrimitive.Description.displayName;
+
+function AlertDialogFallbackLabels({ children }: { children: React.ReactNode }) {
+  const missing = missingDialogLabels(children);
+  return (
+    <>
+      {missing.title ? <AlertDialogTitle className="sr-only">Aviso</AlertDialogTitle> : null}
+      {missing.description ? (
+        <AlertDialogDescription className="sr-only">Contenido del aviso.</AlertDialogDescription>
+      ) : null}
+      {children}
+    </>
+  );
+}
 
 const AlertDialogAction = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Action>,

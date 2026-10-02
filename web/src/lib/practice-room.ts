@@ -51,10 +51,38 @@ export function abortPracticeNegotiation(room: object) {
 const leavingRooms = new WeakMap<object, Promise<void>>();
 const leaveTokens = new WeakMap<object, number>();
 
+type LeavingRoom = {
+  __practiceLeaving?: boolean;
+  clearConnectionReconcile?: () => void;
+};
+
+const PRACTICE_LEAVE_NOISE =
+  /detected connection state mismatch|websocket closed|closed before the connection is established/i;
+
+/** LiveKit logs these when we close a socket that is still connecting. */
+export function isPracticeLeaveNoise(message: string) {
+  return PRACTICE_LEAVE_NOISE.test(message);
+}
+
+/**
+ * Stop the 4s reconcile loop before the engine closes.
+ * Otherwise it warns "detected connection state mismatch" on cancel.
+ */
+export function markPracticeLeaving(room: object) {
+  const target = room as LeavingRoom;
+  target.__practiceLeaving = true;
+  try {
+    target.clearConnectionReconcile?.();
+  } catch {
+    /* not connected yet */
+  }
+}
+
 /** A new connection cancels a disconnect that is still in flight. */
 export function resetPracticeRoom(room: object) {
   leaveTokens.set(room, (leaveTokens.get(room) || 0) + 1);
   leavingRooms.delete(room);
+  (room as LeavingRoom).__practiceLeaving = false;
 }
 
 function publicationsOf<T extends { stop?: () => void }>(room: PracticeRoom<T>): TrackPublication<T>[] {
@@ -91,7 +119,7 @@ type GuardedParticipant = {
   pendingPublishPromises?: Map<unknown, Promise<unknown>>;
 };
 
-type GuardedRoom = PracticeRoom<LocalTrack> & {
+type GuardedRoom = PracticeRoom<LocalTrack> & LeavingRoom & {
   connect?: (...args: unknown[]) => Promise<unknown>;
   log?: { warn?: (...args: unknown[]) => void };
   __practiceGuarded?: boolean;
@@ -163,6 +191,7 @@ export function guardPracticeRoom(room: GuardedRoom) {
   if (room.disconnect) {
     const originalDisconnect = room.disconnect.bind(room);
     room.disconnect = async (stopTracks?: boolean) => {
+      markPracticeLeaving(room);
       scrubUnpublishedLocalTracks(room);
       return originalDisconnect(stopTracks);
     };
@@ -186,6 +215,7 @@ export function guardPracticeRoom(room: GuardedRoom) {
         .map((item) => (item instanceof Error ? `${item.name} ${item.message}` : String(item ?? "")))
         .join(" ");
       if (isUserPracticeDisconnect(blob)) return;
+      if (room.__practiceLeaving && isPracticeLeaveNoise(blob)) return;
       originalWarn(...args);
     };
   }
@@ -193,6 +223,7 @@ export function guardPracticeRoom(room: GuardedRoom) {
 
 async function leaveOnce<T extends { stop?: () => void }>(room: PracticeRoom<T>, token: number) {
   if ((leaveTokens.get(room) || 0) !== token) return;
+  markPracticeLeaving(room);
   guardPracticeRoom(room as GuardedRoom);
   abortPracticeNegotiation(room);
   if (room.state === "disconnected") return;

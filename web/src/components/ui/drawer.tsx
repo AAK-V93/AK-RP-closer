@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Drawer as DrawerPrimitive } from "vaul";
 
+import { missingDialogLabels } from "@/lib/dialog-a11y";
 import { cn } from "@/lib/utils";
 
 const Drawer = ({
@@ -49,7 +50,7 @@ const DrawerContent = React.forwardRef<
       {...props}
     >
       <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-neutral-100 dark:bg-neutral-800" />
-      {children}
+      <DrawerFallbackLabels>{children}</DrawerFallbackLabels>
     </DrawerPrimitive.Content>
   </DrawerPortal>
 ));
@@ -103,6 +104,19 @@ const DrawerDescription = React.forwardRef<
   />
 ));
 DrawerDescription.displayName = DrawerPrimitive.Description.displayName;
+
+function DrawerFallbackLabels({ children }: { children: React.ReactNode }) {
+  const missing = missingDialogLabels(children);
+  return (
+    <>
+      {missing.title ? <DrawerTitle className="sr-only">Panel</DrawerTitle> : null}
+      {missing.description ? (
+        <DrawerDescription className="sr-only">Contenido del panel.</DrawerDescription>
+      ) : null}
+      {children}
+    </>
+  );
+}
 
 export {
   Drawer,

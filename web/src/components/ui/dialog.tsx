@@ -4,6 +4,7 @@ import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 
+import { missingDialogLabels } from "@/lib/dialog-a11y";
 import { cn } from "@/lib/utils";
 
 const Dialog = DialogPrimitive.Root;
@@ -47,7 +48,7 @@ const DialogContent = React.forwardRef<
         )}
         {...props}
       >
-        {children}
+        <DialogFallbackLabels>{children}</DialogFallbackLabels>
         {!isModal && (
           <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-bg2">
             <X className="h-4 w-4 text-fg3" />
@@ -114,6 +115,19 @@ const DialogDescription = React.forwardRef<
   />
 ));
 DialogDescription.displayName = DialogPrimitive.Description.displayName;
+
+function DialogFallbackLabels({ children }: { children: React.ReactNode }) {
+  const missing = missingDialogLabels(children);
+  return (
+    <>
+      {missing.title ? <DialogTitle className="sr-only">Diálogo</DialogTitle> : null}
+      {missing.description ? (
+        <DialogDescription className="sr-only">Contenido del diálogo.</DialogDescription>
+      ) : null}
+      {children}
+    </>
+  );
+}
 
 export {
   Dialog,
