@@ -130,14 +130,15 @@ export async function POST(request: Request) {
       }
     });
 
-    const next = await getWorkspace(auth.prisma, auth.userId, offer.id, { corpus: false });
     return NextResponse.json({
-      offer: next.offer,
-      offers: next.offers,
-      ready: next.ready,
-      readyCrm: next.readyCrm,
-      playbookReady: next.playbookReady,
-      transcriptCount: next.transcriptCount,
+      ok: true,
+      offer: {
+        id: offer.id,
+        productName: offer.productName,
+        productDescription: offer.productDescription,
+        pitchSummary: offer.pitchSummary,
+        includeFathom: offer.includeFathom,
+      },
     });
   } catch (error) {
     console.error("workspace offer", error);

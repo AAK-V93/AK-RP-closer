@@ -1,3 +1,5 @@
+import { CRM_TIMEZONE, zonedDayKey } from "@/lib/crm-time";
+
 export type ThreadTipo =
   | "DECISION"
   | "COBRANZA"
@@ -172,12 +174,18 @@ export function lastTouchText(fecha: Date | null, resultado: string, now: Date) 
   return `${when} · ${TOUCH_LABEL[resultado] || "enviado"}`;
 }
 
-export function nextActionText(accion: string, due: Date, now: Date, askLost: boolean) {
+export function nextActionText(
+  accion: string,
+  due: Date,
+  now: Date,
+  askLost: boolean,
+  timeZone = CRM_TIMEZONE,
+) {
   if (askLost) return "preguntar si se perdió";
-  const dueKey = due.toISOString().slice(0, 10);
-  const todayKey = now.toISOString().slice(0, 10);
+  const dueKey = zonedDayKey(due, timeZone);
+  const todayKey = zonedDayKey(now, timeZone);
   if (dueKey < todayKey) return `${accion} · vencido`;
-  if (due.getTime() <= now.getTime()) return `${accion} · pendiente de hoy`;
+  if (dueKey === todayKey) return `${accion} · pendiente de hoy`;
   return accion;
 }
 

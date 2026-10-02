@@ -48,7 +48,21 @@ test("an overdue step is vencido and a same-day step is pendiente de hoy", () =>
   const due = new Date("2026-09-26T15:00:00.000Z");
   const now = new Date("2026-10-01T15:00:00.000Z");
   assert.match(nextActionText("Escribir", due, now, false), /vencido/);
+  assert.doesNotMatch(nextActionText("Escribir", due, now, false), /pendiente de hoy/);
   assert.match(nextActionText("Escribir", now, now, false), /pendiente de hoy/);
+});
+
+test("Ricardo's 2026-09-26 follow-up is vencido on 2 Oct Bogotá, not pendiente de hoy", () => {
+  const due = new Date("2026-09-26T12:00:00.000Z");
+  const now = new Date("2026-10-02T14:25:00.000Z");
+  const label = nextActionText("confirmar la reunión", due, now, false);
+  assert.equal(label, "confirmar la reunión · vencido");
+});
+
+test("a Bogotá evening that is already the next UTC day is still vencido the morning after", () => {
+  const due = new Date("2026-10-02T01:00:00.000Z");
+  const now = new Date("2026-10-02T07:00:00.000Z");
+  assert.match(nextActionText("confirmar la reunión", due, now, false), /vencido/);
 });
 
 test("marking done moves the decision thread to the next coded step", () => {
