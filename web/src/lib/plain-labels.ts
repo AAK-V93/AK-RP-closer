@@ -20,7 +20,7 @@ const STATUS_LABELS: Record<string, string> = {
   AGENDA_CHECK: "¿Se hizo?",
   ONBOARDING: "Bienvenida",
   HOY: "Hoy",
-  VENCIDO: "Pendiente de hoy",
+  VENCIDO: "Vencido",
   "PRÓXIMO": "Próximo",
 };
 

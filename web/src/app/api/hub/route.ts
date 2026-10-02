@@ -7,6 +7,17 @@ import { getWorkspace, getWorkspacePrisma } from "@/lib/workspace";
 import { ensureCrmTables } from "@/lib/prisma";
 import { applyCrmChatUpdate, type CrmChatPatch } from "@/lib/file-call";
 import {
+  applyChatProposal,
+  exactOfferName,
+  interpretCrmChat,
+  leadInMessage,
+  looksLikeFilingAnswer,
+  messageTargetsOtherLead,
+  readPendingChat,
+  savePendingChat,
+  type ChatLead,
+} from "@/lib/hub-crm-chat";
+import {
   confirmCallFiling,
   listPendingFilings,
   skipCallFiling,
@@ -316,6 +327,69 @@ export async function POST(request: Request) {
       select: { crmPrefs: true },
     });
     const pendingExtract = readPendingOfferExtract(prefsRow?.crmPrefs);
+    const chatLeadRows = await prisma.lead.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        name: true,
+        offerName: true,
+        nextStep: true,
+        lastSummary: true,
+        amountPaid: true,
+      },
+    });
+    const chatLeads: ChatLead[] = chatLeadRows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      offerName: row.offerName,
+      nextStep: row.nextStep,
+      lastSummary: row.lastSummary,
+      amountPaid: row.amountPaid,
+    }));
+    const chatCallRows = await prisma.callRecord.findMany({
+      where: { userId, filingStatus: { not: "skipped" } },
+      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+      take: 80,
+      select: { leadName: true, summary: true, filingJson: true },
+    });
+    const turn = interpretCrmChat(userText, {
+      leads: chatLeads,
+      calls: chatCallRows.map((row) => {
+        const filing = (row.filingJson || {}) as {
+          acuerdo_seguimiento?: string;
+          notas_crm?: string;
+          proximo_seguimiento?: string;
+        };
+        return {
+          leadName: row.leadName,
+          acuerdo: String(filing.acuerdo_seguimiento || ""),
+          notas: String(filing.notas_crm || row.summary || ""),
+          proximo: String(filing.proximo_seguimiento || "").replace("T", " ").slice(0, 16),
+        };
+      }),
+      pending: readPendingChat(prefsRow?.crmPrefs),
+      now: new Date(),
+    });
+    if (turn.kind !== "none") {
+      let reply = "";
+      if (turn.kind === "confirm") {
+        await savePendingChat(prisma, userId, turn.proposal);
+        reply = turn.reply;
+      } else if (turn.kind === "apply") {
+        reply = await applyChatProposal(prisma, userId, turn.proposal);
+        await savePendingChat(prisma, userId, null);
+      } else {
+        if (readPendingChat(prefsRow?.crmPrefs)) await savePendingChat(prisma, userId, null);
+        reply = turn.reply;
+      }
+      const coachLine = await appendHubLines(prisma, userId, userText, reply);
+      const fresh = await hubSnapshot(prisma, userId);
+      return NextResponse.json({
+        message: coachLine,
+        actions: nextHubActions(fresh),
+        snapshot: fresh,
+      });
+    }
     const offerFeedback =
       isOfferExtractConfirm(userText) ||
       looksLikeOfferBlob(userText) ||
@@ -408,18 +482,48 @@ export async function POST(request: Request) {
         snapshot: fresh,
       });
     }
-    if (live.pendingCalls[0] && !body.start) {
-      const pending = live.pendingCalls[0];
-      const done = await confirmCallFiling(prisma, userId, pending.id, {
-        field: pending.field || "revision",
-        value: userText,
-      });
-      const reply =
-        done && "applied" in done && done.applied && done.summary
-          ? done.summary
-          : done && "gap" in done && done.gap
-            ? done.gap.question
-            : "Anotado.";
+    const pendingFiling = live.pendingCalls[0];
+    if (
+      pendingFiling &&
+      !body.start &&
+      looksLikeFilingAnswer(userText) &&
+      !messageTargetsOtherLead(userText, chatLeads, pendingFiling.filing?.leadName || "")
+    ) {
+      const pending = pendingFiling;
+      const field = pending.field || "revision";
+      let value = userText;
+      if (field === "producto") {
+        const hit = exactOfferName(live.offers || [], userText);
+        if (!hit) {
+          const names = (live.offers || []).filter(Boolean).join(", ") || "ninguna";
+          const coachLine = await appendHubLines(
+            prisma,
+            userId,
+            userText,
+            `Eso no es una oferta. Las tuyas son: ${names}.`,
+          );
+          const fresh = await hubSnapshot(prisma, userId);
+          return NextResponse.json({
+            message: coachLine,
+            actions: nextHubActions(fresh),
+            snapshot: fresh,
+          });
+        }
+        value = hit;
+      }
+      let reply = "Anotado.";
+      try {
+        const done = await confirmCallFiling(prisma, userId, pending.id, { field, value });
+        reply =
+          done && "applied" in done && done.applied && done.summary
+            ? done.summary
+            : done && "gap" in done && done.gap
+              ? done.gap.question
+              : "Anotado.";
+      } catch (error) {
+        console.error("hub pending filing", error);
+        reply = "No anoté eso. Si hablas de un lead, dime su nombre.";
+      }
       const coachLine = await appendHubLines(prisma, userId, userText, reply);
       const fresh = await hubSnapshot(prisma, userId);
       return NextResponse.json({
@@ -680,6 +784,12 @@ ${userText}`;
         });
       }
     }
+    if (parsed.crm?.name) {
+      const named = leadInMessage(chatLeads, userText);
+      if (named) parsed.crm.name = named.name;
+      else if (pendingFiling) parsed.crm.name = "";
+      parsed.crm.offerName = exactOfferName(live.offers || [], parsed.crm.offerName || "");
+    }
     if (parsed.crm?.agendaAt && parsed.crm.name) {
       const when = new Date(parsed.crm.agendaAt);
       if (!Number.isNaN(when.getTime())) {
@@ -723,17 +833,15 @@ ${userText}`;
       try {
         await applyCrmChatUpdate(prisma, userId, parsed.crm);
         const pending = await listPendingFilings(prisma, userId);
-        const target =
-          pending.find(
-            (row) =>
-              row.filing.leadName.toLowerCase() ===
-              parsed.crm!.name!.trim().toLowerCase(),
-          ) || pending[0];
+        const wanted = parsed.crm.name.trim().toLowerCase();
+        const target = pending.find(
+          (row) => row.filing.leadName.trim().toLowerCase() === wanted,
+        );
         if (target) {
           await confirmCallFiling(prisma, userId, target.id, {
             leadName: parsed.crm.name,
             company: parsed.crm.company,
-            offerName: parsed.crm.offerName,
+            ...(parsed.crm.offerName ? { offerName: parsed.crm.offerName } : {}),
             nextStep: parsed.crm.nextStep,
             nextStepAt: parsed.crm.nextStepAt,
             objections: parsed.crm.objections,

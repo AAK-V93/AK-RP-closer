@@ -1,9 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
 import { alertBucket, startOfDay } from "@/lib/crm-prefs";
-import { userHasReadyCrm } from "@/lib/offer-commercial";
+import { userHasReadyCrm, type OfferForCrm } from "@/lib/offer-commercial";
 import { loadOffersForCrm, repairMissingFollowups } from "@/lib/crm-apply";
 import { attachFollowupOptions } from "@/lib/followup-library";
-import { operacionFromCall } from "@/lib/crm-operacion";
+import { cleanReason, operacionFromCall } from "@/lib/crm-operacion";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-temperature";
 import { presentThread } from "@/lib/followup-threads";
@@ -60,6 +60,8 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       orderBy: { fecha: "desc" },
     }),
   ]);
+
+  await reconcileOfferNames(prisma, offers, calls, allCalls, leads);
 
   const bucket = (from: Date, to: Date) => {
     const slice = calls.filter((row) => inRange(row.recordedAt || row.createdAt, from, to));
@@ -251,20 +253,27 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     );
 
   const byOffer = new Map<string, { cierres: number; ventas: number; cash: number }>();
+  for (const offer of offers) {
+    if (!byOffer.has(offer.productName)) {
+      byOffer.set(offer.productName, { cierres: 0, ventas: 0, cash: 0 });
+    }
+  }
   for (const row of calls.filter((item) => inRange(item.recordedAt || item.createdAt, month.from, month.to))) {
-    const key = row.offerName || "OTROS";
-    const cur = byOffer.get(key) || { cierres: 0, ventas: 0, cash: 0 };
+    const knownName = strictOfferName(offers, row.offerName);
+    if (!knownName) continue;
+    const cur = byOffer.get(knownName) || { cierres: 0, ventas: 0, cash: 0 };
     if (row.estadoAgenda === "CIERRE VENTA") cur.cierres += 1;
     cur.ventas += row.ventaTotal || 0;
     cur.cash += row.cashCollected || 0;
-    byOffer.set(key, cur);
+    byOffer.set(knownName, cur);
   }
 
   const razones = new Map<string, number>();
   const etapas = new Map<string, number>();
   for (const lead of leads) {
-    if (lead.razonNoCierre) {
-      razones.set(lead.razonNoCierre, (razones.get(lead.razonNoCierre) || 0) + 1);
+    const razon = cleanReason(lead.razonNoCierre);
+    if (razon) {
+      razones.set(razon, (razones.get(razon) || 0) + 1);
     }
     if (lead.etapaPerdida) {
       etapas.set(lead.etapaPerdida, (etapas.get(lead.etapaPerdida) || 0) + 1);
@@ -350,4 +359,74 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
         );
     })(),
   };
+}
+
+function foldOffer(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function strictOfferName(offers: OfferForCrm[], raw: string | null | undefined) {
+  const needle = foldOffer(String(raw || ""));
+  if (!needle) return "";
+  for (const offer of offers) {
+    const names = [offer.productName, ...(offer.commercial?.aliases || [])];
+    if (names.some((name) => foldOffer(name) === needle)) return offer.productName;
+  }
+  return "";
+}
+
+function resolvedOfferName(raw: string, filing: unknown, offers: OfferForCrm[]) {
+  const known = strictOfferName(offers, raw);
+  if (known) return known;
+  const producto = (filing as { producto?: string } | null)?.producto || "";
+  return strictOfferName(offers, producto);
+}
+
+/** Drop offer names that are not in the closer's list, and fold "Otro o null". */
+async function reconcileOfferNames(
+  prisma: PrismaClient,
+  offers: Awaited<ReturnType<typeof loadOffersForCrm>>,
+  calls: { id: string; offerName: string; filingJson: unknown }[],
+  allCalls: { id: string; offerName: string; filingJson: unknown }[],
+  leads: { id: string; offerName: string; razonNoCierre: string }[],
+) {
+  const jobs: Promise<unknown>[] = [];
+  const written = new Set<string>();
+  const queue = (key: string, job: Promise<unknown>) => {
+    if (written.has(key) || jobs.length >= 40) return;
+    written.add(key);
+    jobs.push(job);
+  };
+  for (const row of [...calls, ...allCalls]) {
+    const next = resolvedOfferName(row.offerName || "", row.filingJson, offers);
+    if (next === (row.offerName || "")) continue;
+    row.offerName = next;
+    queue(
+      `call:${row.id}`,
+      prisma.callRecord.update({ where: { id: row.id }, data: { offerName: next } }),
+    );
+  }
+  for (const lead of leads) {
+    const nextOffer = resolvedOfferName(lead.offerName || "", null, offers);
+    if (nextOffer !== (lead.offerName || "")) {
+      lead.offerName = nextOffer;
+      queue(
+        `lead-offer:${lead.id}`,
+        prisma.lead.update({ where: { id: lead.id }, data: { offerName: nextOffer } }),
+      );
+    }
+    const reason = cleanReason(lead.razonNoCierre);
+    if (reason && reason !== lead.razonNoCierre) {
+      lead.razonNoCierre = reason;
+      queue(
+        `lead-reason:${lead.id}`,
+        prisma.lead.update({ where: { id: lead.id }, data: { razonNoCierre: reason } }),
+      );
+    }
+  }
+  if (jobs.length) await Promise.all(jobs);
 }

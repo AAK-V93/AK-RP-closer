@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { moneyLabel, operacionFromCall, pctLabel } from "./crm-operacion";
+import { cleanReason, moneyLabel, operacionFromCall, pctLabel } from "./crm-operacion";
 
 test("operacion row prefers indexed money and ungated filing notes", () => {
   const row = operacionFromCall(
@@ -42,6 +42,14 @@ test("operacion row prefers indexed money and ungated filing notes", () => {
   assert.equal(row.fechaProximo, "2026-09-15");
   assert.match(row.notas, /reserva/);
   assert.equal(row.canal, "ZOOM");
+});
+
+test("otro o null is the same reason as otro", () => {
+  assert.equal(cleanReason("Otro o null"), "Otro");
+  assert.equal(cleanReason("null"), "Otro");
+  assert.equal(cleanReason("Otro"), "Otro");
+  assert.equal(cleanReason("Precio"), "Precio");
+  assert.equal(cleanReason(""), "");
 });
 
 test("money and pct labels", () => {

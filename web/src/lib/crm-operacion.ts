@@ -74,6 +74,20 @@ export type OperacionLead = {
   razonNoCierre?: string | null;
 };
 
+/** "Otro o null" and a bare null are the same bucket as Otro. */
+export function cleanReason(raw: string | null | undefined) {
+  const original = String(raw || "").trim();
+  const text = original
+    .replace(/\s+o\s+null\b/gi, "")
+    .replace(/\bnull\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text || /^otro$/i.test(text)) {
+    return /otro|null/i.test(original) ? "Otro" : "";
+  }
+  return text;
+}
+
 export function operacionFromCall(
   call: OperacionCall,
   lead?: OperacionLead | null,
@@ -103,7 +117,7 @@ export function operacionFromCall(
     requiereSeguimiento: requiere,
     tipoSeguimiento: asStr(filing.tipo_seguimiento).toUpperCase(),
     acuerdo: asStr(filing.acuerdo_seguimiento),
-    razonNoCierre: asStr(filing.razon_no_cierre) || asStr(lead?.razonNoCierre),
+    razonNoCierre: cleanReason(asStr(filing.razon_no_cierre) || asStr(lead?.razonNoCierre)),
     filingStatus: asStr(call.filingStatus) || "confirmed",
   };
 }

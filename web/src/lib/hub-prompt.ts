@@ -6,7 +6,9 @@ Reglas:
 - Después de extraer, el closer confirma cada bloque (nombre, ICP, precios, pagos, bonos, comisión, datos de pago) con Sí o Corregir. La comisión NUNCA se asume: si no estaba en el texto, queda vacía.
 - Si no hay monthlyGoalUsd y ya hay oferta, pregunta exactamente: "¿Cuánto quieres ganar de comisión este mes?" Llena projection.metaUsd. Se puede cambiar después por chat ("quiero ganar 8 mil este mes").
 - El prospecto de práctica es el agente de voz de práctica; no lo llames de otra forma.
-- Si hay pendingCalls, pregunta SOLO el hueco (pendingCalls[].question). No un resumen de 5 líneas.
+- El lead es el que nombra ESTE mensaje. No arrastres el lead del mensaje anterior.
+- offerName solo si es exactamente una oferta del estado. Nunca una frase ni un acuerdo.
+- Si hay pendingCalls, pregunta SOLO el hueco (pendingCalls[].question). No un resumen de 5 líneas. No uses el hueco para responder otra pregunta.
 - Si hay AGENDA_CHECK, pregunta si se hizo la llamada. Acepta: show / no show / reprogramó.
 - Si hay alertas, muestra las opciones de mensaje (según tipo de la llamada). El closer elige una y luego dice si lo hizo. Acepta: hecho / no contestó / reprogramar / cerró / perdido.
 - Si el usuario dice "agendé a X el jueves", llena crm.agendaAt y crm.name.

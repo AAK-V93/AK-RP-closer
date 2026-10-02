@@ -613,12 +613,12 @@ function AhoraSheet({
           <QuietFact label="Cash pendiente de cobro" value={money(now.cashPendiente)} />
           <QuietFact label="Comisión pendiente" value={money(now.comisionPendiente)} />
           <QuietFact label="Oportunidades activas" value={String(now.oportunidadesActivas || 0)} />
-          <QuietFact label="Agendas futuras" value={String(now.agendasFuturas || 0)} />
+          <QuietFact label="Llamadas agendadas" value={String(now.agendasFuturas || 0)} />
         </dl>
         <HelpNote>
           <p>Pendientes de hoy son los seguimientos que toca hacer hoy. Vencidos son los que ya debían salir.</p>
           <p>Dinero en juego es lo que todavía puedes cerrar o cobrar en esos seguimientos. Cash pendiente es lo ya acordado que aún no entró.</p>
-          <p>Comisión pendiente es tu parte de ese cash. Agendas de hoy y futuras son llamadas en el calendario, no seguimientos escritos.</p>
+          <p>Comisión pendiente es tu parte de ese cash. Agendas de hoy y llamadas agendadas son citas en el calendario, no los seguimientos abiertos.</p>
         </HelpNote>
       </div>
       {rendimiento && (
@@ -642,11 +642,11 @@ function PeriodoSheet({
 }) {
   const rows = [
     { id: "agendas", metrica: "Agendas", mes: String(rendimiento.mes.agendas), ant: String(rendimiento.anterior.agendas), acc: String(rendimiento.acumulado.agendas) },
-    { id: "shows", metrica: "Shows", mes: String(rendimiento.mes.shows), ant: String(rendimiento.anterior.shows), acc: String(rendimiento.acumulado.shows) },
-    { id: "noshow", metrica: "No shows", mes: String(rendimiento.mes.noShows), ant: String(rendimiento.anterior.noShows), acc: String(rendimiento.acumulado.noShows) },
+    { id: "shows", metrica: "Asistencias", mes: String(rendimiento.mes.shows), ant: String(rendimiento.anterior.shows), acc: String(rendimiento.acumulado.shows) },
+    { id: "noshow", metrica: "No asistieron", mes: String(rendimiento.mes.noShows), ant: String(rendimiento.anterior.noShows), acc: String(rendimiento.acumulado.noShows) },
     { id: "cierres", metrica: "Cierres", mes: String(rendimiento.mes.cierres), ant: String(rendimiento.anterior.cierres), acc: String(rendimiento.acumulado.cierres) },
-    { id: "showrate", metrica: "Show rate", mes: pctLabel(rendimiento.mes.showRate), ant: pctLabel(rendimiento.anterior.showRate), acc: pctLabel(rendimiento.acumulado.showRate) },
-    { id: "close", metrica: "Close rate", mes: pctLabel(rendimiento.mes.closeRate), ant: pctLabel(rendimiento.anterior.closeRate), acc: pctLabel(rendimiento.acumulado.closeRate) },
+    { id: "showrate", metrica: "Tasa de asistencia", mes: pctLabel(rendimiento.mes.showRate), ant: pctLabel(rendimiento.anterior.showRate), acc: pctLabel(rendimiento.acumulado.showRate) },
+    { id: "close", metrica: "Tasa de cierre", mes: pctLabel(rendimiento.mes.closeRate), ant: pctLabel(rendimiento.anterior.closeRate), acc: pctLabel(rendimiento.acumulado.closeRate) },
     { id: "ventas", metrica: "Ventas", mes: money(rendimiento.mes.ventas), ant: money(rendimiento.anterior.ventas), acc: money(rendimiento.acumulado.ventas) },
     { id: "cash", metrica: "Cash", mes: money(rendimiento.mes.cash), ant: money(rendimiento.anterior.cash), acc: money(rendimiento.acumulado.cash) },
   ];
@@ -752,6 +752,7 @@ function DashboardSheet({
   money: (value: number | null | undefined) => string;
 }) {
   const mes = data.rendimiento?.mes;
+  const total = data.rendimiento?.acumulado;
   const series = data.evolucion || [];
   return (
     <div className="space-y-8">
@@ -759,40 +760,42 @@ function DashboardSheet({
         <SectionHeading>Actividad</SectionHeading>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <MetricCard label="Agendas del mes" value={String(mes?.agendas || 0)} tone="brand" />
-          <MetricCard label="Shows" value={String(mes?.shows || 0)} tone="brand" />
+          <MetricCard label="Asistencias" value={String(mes?.shows || 0)} tone="brand" />
         </div>
       </div>
       <div className="space-y-4">
         <SectionHeading>Conversión</SectionHeading>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <MetricCard label="Close rate" value={pctLabel(mes?.closeRate)} tone="brand" />
-          <MetricCard label="Show rate" value={pctLabel(mes?.showRate)} tone="brand" />
-          <MetricCard label="Ticket promedio" value={money(mes?.ticket)} tone="brand" />
+          <MetricCard label="Tasa de cierre" value={pctLabel(mes?.closeRate)} tone="brand" />
+          <MetricCard label="Tasa de asistencia" value={pctLabel(mes?.showRate)} tone="brand" />
+          <MetricCard label="Ticket promedio" value={money(total?.ticket)} tone="brand" />
         </div>
       </div>
       <div className="space-y-4">
         <SectionHeading>Dinero y comisiones</SectionHeading>
+        <p className="text-[11px] text-fg3">Ventas, cash y ticket son el total, no solo el mes en curso.</p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label="Ventas" value={money(mes?.ventas)} tone="brand" />
-          <MetricCard label="Cash cobrado" value={money(mes?.cash)} tone="money" />
+          <MetricCard label="Ventas" value={money(total?.ventas)} tone="brand" />
+          <MetricCard label="Cash cobrado" value={money(total?.cash)} tone="money" />
           <MetricCard label="Comisión generada" value={money(data.comisionResumen?.generada)} tone="brand" />
           <MetricCard label="Comisión cobrada" value={money(data.comisionResumen?.cobrada)} tone="money" />
         </div>
       </div>
       <div className="space-y-4">
-        <SectionHeading>Pipeline</SectionHeading>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <MetricCard label="Agendas futuras" value={String(data.now?.agendasFuturas || 0)} tone="brand" />
+        <SectionHeading>En curso</SectionHeading>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <MetricCard label="Llamadas agendadas" value={String(data.now?.agendasFuturas || 0)} tone="brand" />
+          <MetricCard label="Seguimientos abiertos" value={String(data.followups?.length || 0)} tone="brand" />
           <MetricCard label="Cierres del mes" value={String(mes?.cierres || 0)} tone="brand" />
         </div>
       </div>
       <div className="space-y-4">
         <SectionHeading>Evolución</SectionHeading>
         <BarChart
-          title="Agendas, shows y cierres"
+          title="Agendas, asistencias y cierres"
           series={[
             { label: "Agendas", tone: "brand" },
-            { label: "Shows", tone: "muted" },
+            { label: "Asistencias", tone: "muted" },
             { label: "Cierres", tone: "neutral" },
           ]}
           rows={series.map((row) => ({

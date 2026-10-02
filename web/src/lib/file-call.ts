@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
 import { classifyAndFileCall, maybeCreateAlert } from "@/lib/call-intelligence";
+import { loadOffersForCrm } from "@/lib/crm-apply";
 import { findMatchingLead } from "@/lib/lead-match";
+import type { OfferForCrm } from "@/lib/offer-commercial";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
 import { ensureCrmTables } from "@/lib/prisma";
 import { isNonSalesCall } from "@/lib/call-kind";
@@ -89,6 +91,26 @@ function normalizeStatus(raw?: string) {
   return "";
 }
 
+function offerFromChat(raw: string | null | undefined, offers: OfferForCrm[]) {
+  const text = String(raw || "").trim();
+  if (!text || text.length > 80 || text.split(/\s+/).length > 6) return "";
+  const needle = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const hit = offers.find((offer) =>
+    [offer.productName, ...(offer.commercial?.aliases || [])].some(
+      (name) =>
+        name
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .trim() === needle,
+    ),
+  );
+  return hit?.productName || "";
+}
+
 function parseDue(raw?: string) {
   const text = String(raw || "").trim();
   if (!text) return null;
@@ -114,9 +136,12 @@ export async function applyCrmChatUpdate(
   );
   const status = normalizeStatus(patch.status);
   const nextStepAt = parseDue(patch.nextStepAt);
+  const offers = await loadOffersForCrm(prisma, userId);
+  const namedOffer = offerFromChat(patch.offerName, offers);
+  const keptOffer = offerFromChat(existing?.offerName, offers);
   const data = {
     company: patch.company?.trim() || existing?.company || "",
-    offerName: patch.offerName?.trim() || existing?.offerName || "",
+    offerName: namedOffer || keptOffer || "",
     status: status || existing?.status || "seguimiento",
     lastSummary: patch.lastSummary?.trim() || existing?.lastSummary || "",
     nextStep: patch.nextStep?.trim() || existing?.nextStep || "",
