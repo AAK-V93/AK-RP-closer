@@ -1,6 +1,6 @@
 import { parseFollowupScripts, type FollowupScript } from "@/lib/followup-scripts";
 import { bonusesFromOfferText, commissionCitedInSource } from "@/lib/offer-amounts";
-import { preferOfferName } from "@/lib/offer-name";
+import { isPriceLabel, isUnspecifiedOfferName, preferOfferName } from "@/lib/offer-name";
 
 export type CommissionTier = {
   when: string;
@@ -522,17 +522,48 @@ export function deadlineDaysForPago(offer: OfferForCrm | null, modoPago: string 
   return hit?.days || null;
 }
 
+function cleanOfferName(raw: string) {
+  const name = raw.replace(/\s+/g, " ").replace(/[.,;:]+$/g, "").trim();
+  if (name.length < 3 || name.length > 80) return "";
+  if (/^(oferta|producto|programa)$/i.test(name)) return "";
+  if (isPriceLabel(name) || isUnspecifiedOfferName(name)) return "";
+  return name;
+}
+
+/** «Mi oferta: X», «Vendo X a…», «X cuesta…». Empty when it is not that shape. */
+export function offerSentenceName(text: string) {
+  const value = String(text || "").trim();
+  if (!value || /[?¿]/.test(value)) return "";
+  if (/^(?:con\s+)?.{0,80}\s+(?:me\s+)?pag[oó]\b/i.test(value)) return "";
+  const patterns = [
+    /(?:^|\n)\s*mi oferta\s*:\s*([^.\n]+)/i,
+    /(?:^|\n)\s*vendo\s+(.+?)\s+a\b/i,
+    /(?:^|\n)\s*(.+?)\s+cuesta\b/i,
+  ];
+  for (const pattern of patterns) {
+    const name = cleanOfferName(pattern.exec(value)?.[1] || "");
+    if (name) return name;
+  }
+  return "";
+}
+
+function hasOfferPrice(text: string) {
+  return /(?:usd|\$)\s*\d|\d[\d.\s]*\s*(?:usd|\$)|\b(?:precio|contado|cuotas?)\b/i.test(text);
+}
+
 /**
  * A pasted offer or a long price sheet. A short sentence that names a lead
- * and an amount is a CRM update, not an offer.
+ * and an amount is a CRM update, not an offer. «Vendo X a USD …» is an offer.
  */
 export function looksLikeOfferBlob(text: string) {
   const value = text.trim();
-  if (!value || value.length < 80) return false;
+  if (!value) return false;
   const oneLine = value.split("\n").length < 3;
   if (oneLine && value.length < 180 && /^(?:con\s+)?.+\s+(?:me\s+)?pag[oó]\b/i.test(value)) {
     return false;
   }
+  if (offerSentenceName(value) && hasOfferPrice(value)) return true;
+  if (value.length < 80) return false;
   const cues = [
     /comisi[oó]n/i,
     /\bprecio\b/i,

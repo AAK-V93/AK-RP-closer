@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { explainVentas, mentionedPriceOnly, rollupCalls } from "./crm-rollup";
-import { zonedDayKey, zonedMonthRange } from "./crm-time";
+import { cobrosAfterCashChange, datedCashPayments, explainVentas, mentionedPriceOnly, rollupCalls } from "./crm-rollup";
+import { zonedDayBounds, zonedDayKey, zonedMonthRange } from "./crm-time";
 import { inferCallDate, pastedCallTitle, quickFollowupIso } from "./followup-date";
 import { catalogDisplayName, isPriceLabel, preferOfferName } from "./offer-name";
 import { operacionFromCall } from "./crm-operacion";
@@ -288,4 +288,43 @@ test("Edson Cerró without an amount is not a venta, and a cleared price mention
   assert.equal(explained.sinMonto.length, 1);
   assert.equal(explained.sinMonto[0]?.cliente, "Edson");
   assert.equal(explained.sinMonto[0]?.id, "edson");
+});
+
+test("a later cuota counts on the day Cobrado changed, and the sale stays on its date", () => {
+  const offers = [{ productName: "Fertilidad", prices: [1597], aliases: [] }];
+  const sale = new Date("2026-09-30T15:00:00.000Z");
+  const today = new Date("2026-10-02T18:00:00.000Z");
+  const payments = datedCashPayments({
+    cashCollected: 1066,
+    recordedAt: sale,
+    bookedCash: 533,
+    bookedAt: sale,
+    changedAt: today,
+  });
+  const call = {
+    id: "valeria",
+    cliente: "Valeria Ríos",
+    estadoAgenda: "CIERRE VENTA",
+    ventaTotal: 1597,
+    cashCollected: 1066,
+    recordedAt: sale,
+    cashPayments: payments,
+  };
+  const october = rollupCalls(offers, [call], zonedMonthRange(today));
+  const september = rollupCalls(offers, [call], zonedMonthRange(sale));
+  const day = rollupCalls(offers, [call], zonedDayBounds(today));
+  assert.equal(september.ventas, 1597);
+  assert.equal(september.cash, 533);
+  assert.equal(october.ventas, 0);
+  assert.equal(october.cash, 533);
+  assert.equal(day.cash, 533);
+  const cobros = cobrosAfterCashChange({
+    previous: 533,
+    next: 1066,
+    at: today,
+    saleAt: sale,
+  });
+  assert.equal(cobros[0]?.amount, 533);
+  assert.equal(cobros[1]?.amount, 533);
+  assert.equal(cobros[1]?.at, today.toISOString());
 });

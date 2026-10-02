@@ -13,6 +13,8 @@ export type RollupOffer = NamedOffer & {
   prices?: number[];
 };
 
+export type CashPayment = { amount: number; at: Date };
+
 export type RollupCall = {
   id?: string;
   leadId?: string | null;
@@ -27,6 +29,8 @@ export type RollupCall = {
   evidenciaVenta?: string | null;
   ventaTotal?: number | null;
   cashCollected?: number | null;
+  /** When set, cobrado follows these dates instead of the sale date. */
+  cashPayments?: CashPayment[];
   recordedAt?: Date | string | null;
   createdAt?: Date | string | null;
 };
@@ -79,6 +83,94 @@ export function offerPrices(offers: RollupOffer[]) {
 function inRange(date: Date | null, from: Date, to: Date) {
   if (!date) return false;
   return date >= from && date < to;
+}
+
+function asInstant(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Stored cuota dates. Null when the call only has a running Cobrado total. */
+export function readStoredPayments(filing: unknown): CashPayment[] | null {
+  const cobros = (filing as { cobros?: unknown } | null)?.cobros;
+  if (!Array.isArray(cobros) || !cobros.length) return null;
+  const events: CashPayment[] = [];
+  for (const row of cobros) {
+    if (!row || typeof row !== "object") continue;
+    const amount = Number((row as { amount?: unknown }).amount);
+    const at = asInstant((row as { at?: Date | string | null }).at);
+    if (!Number.isFinite(amount) || amount === 0 || !at) continue;
+    events.push({ amount: Math.round(amount), at });
+  }
+  return events.length ? events : null;
+}
+
+/**
+ * Cobrado by the day it was registered. A later cuota is not the sale date.
+ * Without stored dates, a commission that is smaller than the current total
+ * is the original payment; the rest landed when the lead's Cobrado changed.
+ */
+export function datedCashPayments(args: {
+  cashCollected?: number | null;
+  recordedAt?: Date | string | null;
+  createdAt?: Date | string | null;
+  filingJson?: unknown;
+  bookedCash?: number | null;
+  bookedAt?: Date | string | null;
+  changedAt?: Date | string | null;
+}): CashPayment[] {
+  const total = Math.round(Number(args.cashCollected) || 0);
+  const saleAt = asInstant(args.recordedAt) || asInstant(args.createdAt);
+  const stored = readStoredPayments(args.filingJson);
+  if (stored) {
+    const signed = stored.reduce((sum, row) => sum + row.amount, 0);
+    if (total > signed && saleAt) return [...stored, { amount: total - signed, at: saleAt }];
+    return stored;
+  }
+  if (total <= 0 || !saleAt) return [];
+  const booked = args.bookedCash == null ? null : Math.round(Number(args.bookedCash));
+  const changedAt = asInstant(args.changedAt);
+  if (
+    booked != null &&
+    booked > 0 &&
+    booked < total &&
+    changedAt &&
+    changedAt.getTime() > saleAt.getTime() + 60_000
+  ) {
+    return [
+      { amount: booked, at: asInstant(args.bookedAt) || saleAt },
+      { amount: total - booked, at: changedAt },
+    ];
+  }
+  return [{ amount: total, at: saleAt }];
+}
+
+/** Append the delta of a Cobrado edit. The previous total keeps the sale date. */
+export function cobrosAfterCashChange(args: {
+  filingJson?: unknown;
+  previous: number;
+  next: number;
+  at?: Date;
+  saleAt?: Date | string | null;
+}) {
+  if (args.next <= 0) return [];
+  const at = args.at || new Date();
+  const saleAt = asInstant(args.saleAt) || at;
+  const stored = readStoredPayments(args.filingJson);
+  const events = (stored || []).map((row) => ({ amount: row.amount, at: row.at.toISOString() }));
+  if (!events.length && args.previous > 0) {
+    events.push({ amount: Math.round(args.previous), at: saleAt.toISOString() });
+  }
+  const base = events.reduce((sum, row) => sum + row.amount, 0);
+  const delta = Math.round(args.next) - base;
+  if (delta !== 0) events.push({ amount: delta, at: at.toISOString() });
+  return events;
+}
+
+function paymentsOf(call: RollupCall): CashPayment[] {
+  if (call.cashPayments) return call.cashPayments;
+  return datedCashPayments(call);
 }
 
 function matchOffer(
@@ -240,14 +332,21 @@ export function rollupCalls(
     if (SHOW.has(estado)) shows += 1;
     if (estado === "NO SHOW") noShows += 1;
     if (estado === "REPROGRAMA") reprogramadas += 1;
+  }
 
-    const at = callInstant(call);
-    const collected = countedSale(call.cashCollected, { at, prices });
-    cash += collected;
-
+  for (const call of calls) {
     const name = matchOffer(call, catalog);
     const row = name ? rows.get(name) : undefined;
-    if (row) row.cash += collected;
+    for (const payment of paymentsOf(call)) {
+      if (range && !inRange(payment.at, range.from, range.to)) continue;
+      const collected =
+        payment.amount < 0
+          ? payment.amount
+          : countedSale(payment.amount, { at: payment.at, prices });
+      if (!collected) continue;
+      cash += collected;
+      if (row) row.cash += collected;
+    }
   }
 
   for (const pick of pickDeals(slice, prices)) {

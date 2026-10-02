@@ -18,7 +18,8 @@ import {
   resolveOfferAssignment,
 } from "@/lib/offer-resolve";
 import { isNonSalesCall } from "@/lib/call-kind";
-import { linkedToCrmLead, visibleCallTitle } from "@/lib/crm-noise";
+import { visibleCallTitle } from "@/lib/crm-noise";
+import { callAlreadyInCrm, type CrmLeadRef } from "@/lib/lead-match";
 import { labelCrmProse } from "@/lib/plain-labels";
 import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
 import { inferCallDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
@@ -505,31 +506,67 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
   await archiveSilentNonSalesPendings(prisma, userId);
-  const leads = await prisma.lead.findMany({
-    where: { userId },
-    select: { name: true },
-  });
-  const leadNames = leads.map((row) => row.name);
+  const [leads, threads, alerts] = await Promise.all([
+    prisma.lead.findMany({
+      where: { userId },
+      select: { id: true, name: true, company: true, telefono: true, email: true },
+    }),
+    prisma.followupThread.findMany({
+      where: { userId },
+      select: { leadId: true, creadoDesdeCallRecordId: true },
+    }),
+    prisma.leadAlert.findMany({
+      where: { userId },
+      select: { leadId: true, callRecordId: true },
+    }),
+  ]);
+  const callIds = new Map<string, string[]>();
+  const addCall = (leadId: string, callId: string) => {
+    if (!leadId || !callId) return;
+    const list = callIds.get(leadId) || [];
+    list.push(callId);
+    callIds.set(leadId, list);
+  };
+  for (const thread of threads) addCall(thread.leadId, thread.creadoDesdeCallRecordId);
+  for (const alert of alerts) addCall(alert.leadId, alert.callRecordId || "");
+  const refs: CrmLeadRef[] = leads.map((lead) => ({
+    id: lead.id,
+    name: lead.name,
+    company: lead.company,
+    telefono: lead.telefono,
+    email: lead.email,
+    callIds: callIds.get(lead.id) || [],
+  }));
   const rows = await prisma.callRecord.findMany({
     where: { userId, filingStatus: "pending" },
     orderBy: { createdAt: "desc" },
-    take: 16,
+    take: 200,
   });
   return rows
     .filter((row) => {
       if (isNonSalesCall(row.estadoAgenda) || isInternalMeetingTitle(row.title)) {
         return false;
       }
+      if (callAlreadyInCrm(row, refs)) return false;
       if (isExtractorJson(row.filingJson)) {
         const parsed = parseExtractorJson(row.filingJson);
         if (isNonSalesCall(parsed.estado_agenda)) return false;
-        if (linkedToCrmLead(parsed.cliente_real || row.leadName, leadNames)) return false;
-      } else if (linkedToCrmLead(row.leadName, leadNames)) {
-        return false;
+        if (
+          callAlreadyInCrm(
+            {
+              id: row.id,
+              leadName: parsed.cliente_real || row.leadName,
+              title: row.title,
+              filingJson: { ...parsed, lead_id: (parsed as { lead_id?: string }).lead_id },
+            },
+            refs,
+          )
+        ) {
+          return false;
+        }
       }
       return true;
     })
-    .slice(0, 8)
     .map((row) => {
     if (isExtractorJson(row.filingJson)) {
       const parsed = enrichExtractorFollowup(parseExtractorJson(row.filingJson), {

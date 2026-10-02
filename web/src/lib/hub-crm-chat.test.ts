@@ -6,6 +6,7 @@ import {
   answerCrmChat,
   applyChatProposal,
   asksForMoneyStats,
+  bareMoneyPeriod,
   asksForPendingDesk,
   chatCapabilitiesReply,
   cobradoFromCalls,
@@ -863,7 +864,12 @@ test("money questions use Resumen numbers and never the offer paste", () => {
   assert.equal(asksForMoneyStats("¿cuánto cobré hoy?"), true);
   assert.equal(asksForMoneyStats("saldo por cobrar"), true);
   assert.equal(asksForMoneyStats("dinero en juego"), true);
+  assert.equal(asksForMoneyStats("esta semana"), true);
+  assert.equal(asksForMoneyStats("hoy"), true);
+  assert.equal(asksForMoneyStats("este mes"), true);
+  assert.equal(asksForMoneyStats("¿qué tengo hoy?"), false);
   assert.equal(asksForMoneyStats("Valeria Ríos pagó la cuota de 533"), false);
+  assert.equal(bareMoneyPeriod("esta semana"), "week");
 
   const month = formatMoneyStats("¿Cuánto llevo cobrado este mes?", moneyBrief);
   assert.match(month, /Este mes llevas cobrado USD 1\.066/);
@@ -889,6 +895,15 @@ test("money questions use Resumen numbers and never the offer paste", () => {
 
   assert.match(formatMoneyStats("saldo por cobrar", moneyBrief), /^Saldo por cobrar USD 531/);
   assert.match(formatMoneyStats("dinero en juego", moneyBrief), /Dinero en juego USD 63\.600/);
+
+  const weekOnly = formatMoneyStats("esta semana", moneyBrief);
+  assert.match(weekOnly, /Esta semana llevas cobrado USD 200/);
+  assert.match(weekOnly, /Esta semana vendiste USD 400/);
+  assert.doesNotMatch(weekOnly, /Este mes/);
+  assert.doesNotMatch(weekOnly, /Pega todo junto/);
+  const todayOnly = formatMoneyStats("hoy", moneyBrief);
+  assert.match(todayOnly, /Hoy llevas cobrado USD 0/);
+  assert.match(todayOnly, /Hoy vendiste USD 0/);
 });
 
 test("an unknown question lists what the chat can do; an offer paste does not", () => {
@@ -899,6 +914,11 @@ test("an unknown question lists what the chat can do; an offer paste does not", 
   assert.doesNotMatch(help, /Pega todo junto/);
   assert.equal(looksLikeOfferSetup("¿qué hora es en Lima?"), false);
   assert.equal(looksLikeOfferSetup("¿Cuánto llevo cobrado este mes?"), false);
+  assert.equal(
+    looksLikeOfferSetup("Vendo Mentoría Prueba QA a USD 900 contado o 3 cuotas de 330."),
+    true,
+  );
+  assert.equal(asksForMoneyStats("Vendo Mentoría Prueba QA a USD 900 contado o 3 cuotas de 330."), false);
   assert.equal(
     looksLikeOfferSetup(
       "La oferta se llama Círculo Millonario. Precio de lista USD 11800, contado especial USD 10000 en 3 cuotas. Comisión 10% cuando el cliente paga, por transferencia a la cuenta de la empresa.",

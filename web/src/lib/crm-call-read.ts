@@ -40,7 +40,8 @@ const CALL_COLUMNS = Prisma.sql`
   "filingJson"->'evidencia'->>'seguimiento' AS evidencia_seguimiento,
   "filingJson"->>'venta_total' AS venta_json,
   "filingJson"->>'cash_collected' AS cash_json,
-  "filingJson"->>'saldo_pendiente' AS saldo_json
+  "filingJson"->>'saldo_pendiente' AS saldo_json,
+  "filingJson"->'cobros' AS cobros
 `;
 
 export type DashboardCallRow = {
@@ -80,6 +81,7 @@ export type DashboardCallRow = {
   venta_json: string | number | null;
   cash_json: string | number | null;
   saldo_json: string | number | null;
+  cobros?: unknown;
 };
 
 function asDate(value: Date | string | null | undefined) {
@@ -124,6 +126,7 @@ export function filingFromDashboardRow(row: DashboardCallRow) {
     venta_total: asNumber(row.venta_json),
     cash_collected: asNumber(row.cash_json),
     saldo_pendiente: asNumber(row.saldo_json),
+    cobros: parseCobros(row.cobros),
     evidencia: {
       cierre: row.evidencia_cierre,
       venta_total: row.evidencia_venta,
@@ -211,7 +214,21 @@ export function dashboardRowFromFiling(call: {
     venta_json: filing.venta_total == null ? null : String(filing.venta_total),
     cash_json: filing.cash_collected == null ? null : String(filing.cash_collected),
     saldo_json: filing.saldo_pendiente == null ? null : String(filing.saldo_pendiente),
+    cobros: parseCobros(filing.cobros),
   };
+}
+
+function parseCobros(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 async function selectCalls(prisma: PrismaClient, userId: string, confirmedOnly: boolean) {
