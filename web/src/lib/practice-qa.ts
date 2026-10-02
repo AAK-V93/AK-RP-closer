@@ -34,9 +34,9 @@ export function micHowToFix() {
 }
 
 const STAGE_LABELS: Record<string, string> = {
-  mic: "mic",
+  mic: "micrófono",
   preparing: "preparar",
-  token: "token",
+  token: "acceso",
   audio: "sala",
   sala: "sala",
   agente: "agente",

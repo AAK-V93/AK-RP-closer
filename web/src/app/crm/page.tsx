@@ -707,6 +707,7 @@ export default function CrmPage() {
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
+                    className="min-h-11"
                     variant={onlyActivas ? "primary" : "outline"}
                     onClick={() => setOnlyActivas((value) => !value)}
                   >
@@ -715,6 +716,7 @@ export default function CrmPage() {
                   {internasCount > 0 && (
                     <Button
                       size="sm"
+                      className="min-h-11"
                       variant={showInternas ? "primary" : "outline"}
                       onClick={() => setShowInternas((value) => !value)}
                     >
@@ -867,7 +869,7 @@ function CrmListFilters({
         <Input
           value={filter.q}
           placeholder="Buscar"
-          className="h-8 w-full min-w-0 sm:w-44"
+          className="h-11 min-h-11 w-full min-w-0 sm:w-44"
           onChange={(event) => onChange({ ...filter, q: event.target.value })}
         />
       </label>
@@ -894,7 +896,7 @@ function CrmListFilters({
       />
       <p className="pb-1.5 text-xs text-fg3">{filaCountLabel(shown, rows.length)}</p>
       {active && (
-        <Button size="sm" variant="ghost" onClick={() => onChange(EMPTY_CRM_FILTER)}>
+        <Button size="sm" variant="ghost" className="min-h-11" onClick={() => onChange(EMPTY_CRM_FILTER)}>
           Quitar filtros
         </Button>
       )}
@@ -921,7 +923,7 @@ function FilterSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-8 rounded border border-separator2 bg-bg1 px-2 text-sm text-fg2"
+        className="h-11 min-h-11 rounded border border-separator2 bg-bg1 px-2 text-sm text-fg2"
       >
         <option value="">{allLabel}</option>
         {options.map((option) => (

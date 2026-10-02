@@ -9,6 +9,10 @@ export interface RubricCriterion {
   critical?: boolean;
 }
 
+export function shownRubricLabel(id: string, stored?: string) {
+  return RUBRIC_CRITERIA.find((row) => row.id === id)?.label || stored || id;
+}
+
 export const RUBRIC_CRITERIA: RubricCriterion[] = [
   {
     id: "pain",
@@ -37,21 +41,21 @@ export const RUBRIC_CRITERIA: RubricCriterion[] = [
   {
     id: "aaa_acknowledge",
     phase: "objeciones",
-    label: "AAA — Acknowledge",
+    label: "Reconoce lo que dijo",
     description:
       "Ante una pregunta u objeción, reformuló lo que el prospecto dijo, validó y compró tiempo. No discutió ni invalidó.",
   },
   {
     id: "aaa_associate",
     phase: "objeciones",
-    label: "AAA — Associate",
+    label: "Asocia con quien sí compra",
     description:
       "Asoció la pregunta/objeción con el tipo de persona que obtiene buenos resultados (label positivo, cliente exitoso, autoridad). El prospecto da un paso atrás y se siente más cerca de comprar, no más lejos.",
   },
   {
     id: "aaa_ask",
     phase: "objeciones",
-    label: "AAA — Ask back",
+    label: "Devuelve la pregunta",
     description:
       "Preguntó sobre la pregunta. No respondió trampas de inmediato. Mantuvo el control. No cedió el volante con «¿tienes alguna pregunta?».",
     critical: true,

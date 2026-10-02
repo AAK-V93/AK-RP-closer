@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { ExtractedOffer } from "@/lib/offer-commercial";
 import type { CommissionProjection } from "@/lib/crm-projection";
+import { loadHub, rememberHub, type HubGet } from "@/lib/hub-client";
 
 type Line = { id: string; role: "user" | "coach"; content: string };
 type Action = { type?: string; href: string; label: string };
@@ -66,7 +67,7 @@ export function HubChat({
 }: {
   variant?: "page" | "dock";
   initialSnapshot?: HubSnapshot | null;
-  onSnapshot?: () => void;
+  onSnapshot?: (snapshot?: HubSnapshot) => void;
 }) {
   const [messages, setMessages] = useState<Line[]>([]);
   const [actions, setActions] = useState<Action[]>([]);
@@ -92,23 +93,29 @@ export function HubChat({
     }
     if (data.actions) setActions(data.actions);
     if (data.snapshot) setSnapshot(data.snapshot);
-    if (data.message || data.snapshot) onSnapshot?.();
+    if (data.snapshot || data.messages) {
+      rememberHub({
+        snapshot: data.snapshot,
+        messages: data.messages,
+      } as HubGet);
+    }
+    if (data.message || data.snapshot) onSnapshot?.(data.snapshot);
   };
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/hub?view=chat")
-      .then(async (r) => {
-        const data = await r.json();
+    loadHub()
+      .then((data) => {
         if (cancelled) return;
-        if (data.snapshot) setSnapshot(data.snapshot);
+        if (data.snapshot) setSnapshot(data.snapshot as HubSnapshot);
         if (Array.isArray(data.messages)) setMessages(data.messages);
-        if (!r.ok && !data.snapshot) {
-          throw new Error(data.error || "No se pudo cargar el inicio");
-        }
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Error"))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Error");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
