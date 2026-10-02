@@ -167,17 +167,27 @@ export async function POST(request: Request) {
       canUpdateOwnMetadata: true,
     });
 
+    // The worker that is actually running (LiveKit Cloud, last green deploy
+    // 2026-09-15) joins the room on dispatch and then waits forever for a
+    // participant before it opens Gemini. It never reads job metadata and it
+    // never leaves an empty room. Prefetch and hover call this route, so
+    // creating the room here would pin that worker until the platform kills it.
+    // Dispatch only when the closer's token is used to join.
+    // Set LIVEKIT_PREDISPATCH=1 only after a green deploy of the worker that
+    // leaves if nobody joins within 75s.
     let dispatched = false;
-    try {
-      dispatched = await dispatchPracticeAgent({
-        url: livekitUrl,
-        apiKey,
-        apiSecret,
-        roomName,
-        metadata: metadataJson,
-      });
-    } catch (error) {
-      console.error("practice dispatch", error);
+    if (process.env.LIVEKIT_PREDISPATCH === "1") {
+      try {
+        dispatched = await dispatchPracticeAgent({
+          url: livekitUrl,
+          apiKey,
+          apiSecret,
+          roomName,
+          metadata: metadataJson,
+        });
+      } catch (error) {
+        console.error("practice dispatch", error);
+      }
     }
 
     if (!dispatched) {

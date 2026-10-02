@@ -5,8 +5,10 @@ export function livekitHttpHost(url: string) {
 }
 
 /**
- * Create the room and dispatch the voice worker before the browser connects,
- * so a cold worker can boot while the token response and the mic prompt run.
+ * Create the room and dispatch the voice worker before the browser connects.
+ * Do not call this while the deployed worker waits forever in an empty room.
+ * The token route only does so when LIVEKIT_PREDISPATCH=1, after the worker
+ * that leaves if nobody joins is the one LiveKit Cloud is running.
  * Returns false when dispatch is unavailable; the caller falls back to
  * dispatch-on-join via the access token.
  */
