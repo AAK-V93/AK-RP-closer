@@ -43,7 +43,7 @@ export default function PracticePage() {
         </div>
       </main>
       <footer className="hidden md:flex md:items-center md:gap-2 md:justify-end font-mono uppercase text-right py-3 px-8 text-xs text-fg3 w-full border-t border-separator1">
-        Powered by LiveKit Agents + Gemini Live API
+        Práctica por voz
       </footer>
     </div>
   );

@@ -26,8 +26,10 @@ import { shouldShowProspectBrief } from "@/lib/prospect-prompt";
 import { ProspectBrief } from "@/components/prospect-brief";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { useSession } from "next-auth/react";
 import { formatClock, hasTimeGoal } from "@/lib/call-timing";
+import { Loader2 } from "lucide-react";
 import {
   isPrematurePractice,
   nextPracticeRetry,
@@ -39,8 +41,15 @@ export function Chat() {
   const remotes = useRemoteParticipants();
   const [isChatRunning, setIsChatRunning] = useState(false);
   const { agent, displayTranscriptions } = useAgent();
-  const agentInRoom = Boolean(agent) || remotes.length > 0;
-  const { disconnect, shouldConnect, connect } = useConnection();
+  const voiceReady =
+    state === "listening" ||
+    state === "initializing" ||
+    state === "thinking" ||
+    state === "speaking";
+  const agentInRoom = Boolean(agent) || voiceReady;
+  const roomJoined = remotes.length > 0 || agentInRoom;
+  const { disconnect, shouldConnect, connect, phase, errorMessage, cancel, markReady } =
+    useConnection();
   const { trainingState, dispatch } = useTraining();
   const { status: authStatus } = useSession();
   const {
@@ -109,7 +118,12 @@ export function Chat() {
   }, [connectionState, agentInRoom, hasSeenAgent, disconnect]);
 
   useEffect(() => {
-    if (!shouldConnect) return;
+    if (voiceReady) markReady();
+  }, [markReady, voiceReady]);
+
+  useEffect(() => {
+    const waiting = phase === "preparing" || phase === "audio" || shouldConnect;
+    if (!waiting) return;
     if (!startedAtRef.current) startedAtRef.current = Date.now();
     const tick = window.setInterval(() => {
       const next = Math.floor((Date.now() - (startedAtRef.current || Date.now())) / 1000);
@@ -117,14 +131,17 @@ export function Chat() {
       setElapsedSec(next);
     }, 250);
     return () => window.clearInterval(tick);
-  }, [shouldConnect]);
+  }, [phase, shouldConnect]);
 
   // Evaluate when call ends — skip colgadas prematuras so they don't ensucian el ciclo coach.
   useEffect(() => {
     if (wasConnectedRef.current && !shouldConnect) {
       const transcript = transcriptRef.current;
       const durationSec = elapsedRef.current;
-      if (isPrematurePractice(transcript, durationSec)) {
+      if (!hasSeenAgent) {
+        setEarlyExit(false);
+        clearEvaluation();
+      } else if (isPrematurePractice(transcript, durationSec)) {
         setEarlyExit(true);
         clearEvaluation();
       } else {
@@ -144,9 +161,11 @@ export function Chat() {
       startedAtRef.current = null;
     }
     if (!wasConnectedRef.current && shouldConnect) {
-      startedAtRef.current = Date.now();
-      elapsedRef.current = 0;
-      setElapsedSec(0);
+      if (!startedAtRef.current) {
+        startedAtRef.current = Date.now();
+        elapsedRef.current = 0;
+        setElapsedSec(0);
+      }
       setEarlyExit(false);
     }
     wasConnectedRef.current = shouldConnect;
@@ -224,7 +243,7 @@ export function Chat() {
     </AnimatePresence>
   );
 
-  const showSession = isChatRunning || shouldConnect;
+  const showSession = isChatRunning;
 
   return (
     <div className="relative flex flex-col h-full min-h-0 overflow-hidden min-w-0">
@@ -234,19 +253,24 @@ export function Chat() {
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 lg:px-4">
         <div className="flex flex-col items-center min-w-0">
-          {!isChatRunning && !evaluation && !shouldConnect && !earlyExit && (
+          {!isChatRunning &&
+            !evaluation &&
+            !shouldConnect &&
+            !earlyExit &&
+            phase !== "preparing" &&
+            phase !== "error" && (
             <div className="text-center max-w-md px-2 mb-4 space-y-3">
               <h2 className="text-xl font-light">Tú abres la reunión</h2>
               <p className="text-sm text-fg2">
                 El prospecto ya está en la llamada, en silencio. No te va a
-                saludar primero. Cuando entres, habla tú.
+                saludar primero. Cuando entres, hablas tú.
               </p>
               <ol className="text-left text-sm text-fg2 space-y-1.5 mx-auto max-w-sm list-decimal list-inside">
                 <li className="md:hidden">
                   Confirma tu oferta (la que subiste) y pulsa el botón de abajo.
                 </li>
                 <li className="hidden md:list-item">
-                  A la izquierda está tu oferta. El lead emula a tus llamadas reales.
+                  A la izquierda está tu oferta. El prospecto emula tus llamadas reales.
                 </li>
                 <li className="hidden md:list-item">
                   Pulsa{" "}
@@ -260,20 +284,37 @@ export function Chat() {
               {authStatus === "unauthenticated" && (
                 <p className="text-xs text-fg3">
                   Entra, guarda tu oferta y sube llamadas. El agente de voz
-                  practica contra <em>tus</em> leads.
+                  practica contra <em>tus</em> prospectos.
                 </p>
               )}
             </div>
           )}
 
-          {shouldConnect && !isChatRunning && !evaluation && (
-            <div className="text-center max-w-md px-4 mb-4 space-y-2">
-              <h2 className="text-xl font-light">Conectando… {formatClock(elapsedSec)}</h2>
+          {(phase === "preparing" || phase === "audio" || (shouldConnect && !isChatRunning)) &&
+            !evaluation && (
+            <PracticeConnectStatus
+              phase={phase === "preparing" ? "preparing" : "audio"}
+              elapsedSec={elapsedSec}
+              roomJoined={roomJoined}
+              onCancel={cancel}
+            />
+          )}
+
+          {phase === "error" && !shouldConnect && !isChatRunning && !evaluation && (
+            <div className="w-full max-w-lg rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3 mb-4">
+              <h2 className="text-xl font-light">No pude conectar</h2>
               <p className="text-sm text-fg2">
-                Esto puede tardar un momento. En cuanto el prospecto esté listo vas a ver{" "}
-                <span className="font-medium text-fg1">HABLA</span>. Ahí
-                hablas tú.
+                {errorMessage ||
+                  "La práctica no arrancó. Revisa tu conexión e inténtalo otra vez."}
               </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button variant="primary" disabled={retrying} onClick={() => void startAgain()}>
+                  {retrying ? "Entrando…" : "Reintentar"}
+                </Button>
+                <Button variant="outline" onClick={cancel}>
+                  Volver
+                </Button>
+              </div>
             </div>
           )}
 
@@ -291,7 +332,7 @@ export function Chat() {
               <Badge variant="secondary">
                 {training.practiceKind === "replay"
                   ? `Recreando ${training.replayCall?.leadName || training.prospectProfile.name}`
-                  : "Lead nuevo"}
+                  : "Prospecto nuevo"}
               </Badge>
               <Badge variant="outline">{training.productName}</Badge>
               <Badge variant="outline">
@@ -392,6 +433,60 @@ export function Chat() {
 
       <div className="shrink-0 border-t border-separator1 bg-bg1 px-3 py-3 md:px-4">
         {renderConnectionControl()}
+      </div>
+    </div>
+  );
+}
+
+const CONNECT_STEPS = [
+  { id: "preparing", label: "Preparando al cliente…" },
+  { id: "audio", label: "Conectando el audio…" },
+  { id: "almost", label: "Casi listo…" },
+] as const;
+
+function PracticeConnectStatus({
+  phase,
+  elapsedSec,
+  roomJoined,
+  onCancel,
+}: {
+  phase: "preparing" | "audio";
+  elapsedSec: number;
+  roomJoined: boolean;
+  onCancel: () => void;
+}) {
+  const step = phase === "preparing" ? 0 : roomJoined || elapsedSec >= 8 ? 2 : 1;
+  const progress = step === 0 ? 28 : step === 1 ? 58 : 84;
+  return (
+    <div
+      className="w-full max-w-md px-2 mb-4 space-y-4"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="text-center space-y-2">
+        <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+        <h2 className="text-xl font-light">{CONNECT_STEPS[step].label}</h2>
+        <p className="text-sm text-fg2 tabular-nums">{formatClock(elapsedSec)}</p>
+      </div>
+      <Progress value={progress} aria-label="Avance de la conexión" />
+      <ol className="space-y-1 text-sm">
+        {CONNECT_STEPS.map((item, index) => (
+          <li
+            key={item.id}
+            className={index === step ? "text-fg0 font-medium" : index < step ? "text-fg2" : "text-fg3"}
+          >
+            {index < step ? "Listo · " : index === step ? "Ahora · " : ""}
+            {item.label.replace(/…$/, "")}
+          </li>
+        ))}
+      </ol>
+      <p className="text-sm text-fg2 text-center">
+        Cuando el prospecto esté listo vas a ver HABLA. Ahí hablas tú.
+      </p>
+      <div className="flex justify-center">
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancelar
+        </Button>
       </div>
     </div>
   );

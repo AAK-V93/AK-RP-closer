@@ -196,8 +196,8 @@ function OnboardingA({
       <div className="space-y-2">
         <h1 className="font-display text-4xl text-fg0">Closer Trainer</h1>
         <p className="text-sm text-fg3">
-          Entrenás cierre high-ticket con un agente de voz de práctica que
-          habla como tus leads. El coach te corrige. El CRM te dice con quién
+          Entrenas cierre de alto valor con un agente de voz de práctica que
+          habla como tus prospectos. El coach te corrige. El CRM te dice con quién
           quedar.
         </p>
       </div>
@@ -205,16 +205,15 @@ function OnboardingA({
 
       {step === "calls" && (
         <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
-          <h2 className="font-display text-3xl text-fg0">Conecta Fathom</h2>
+          <h2 className="font-display text-3xl text-fg0">Conecta tus llamadas</h2>
           <p className="text-sm text-fg3">
-            Las llamadas nuevas entran solas cuando Fathom termina de
-            transcribir. Si aún no grabas, sube lo que tengas de los últimos
-            meses.
+            Las llamadas nuevas entran solas cuando termina la transcripción.
+            Si aún no grabas, sube lo que tengas de los últimos meses.
           </p>
           {error && <p className="text-xs text-destructive">{error}</p>}
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="primary">
-              <Link href="/llamadas#conectar-fathom">Conectar Fathom</Link>
+              <Link href="/llamadas#conectar-fathom">Conectar grabaciones</Link>
             </Button>
             <label className="inline-flex">
               <Button type="button" variant="outline" asChild disabled={uploading}>
@@ -275,7 +274,7 @@ function OnboardingA({
           </p>
           {skipCalls && (
             <p className="text-xs text-fg3">
-              Sin llamadas reales aún: vas a poder practicar con el playbook de
+              Sin llamadas reales aún: vas a poder practicar con el perfil de
               la oferta.
             </p>
           )}
@@ -304,7 +303,7 @@ function OnboardingA({
               value={offerBlob}
               onChange={(e) => setOfferBlob(e.target.value)}
               rows={8}
-              placeholder="Programa, ticket, formas de pago, plazos, y cómo te pagan comisión según cuándo y cómo pague el lead…"
+              placeholder="Programa, ticket, formas de pago, plazos, y cómo te pagan comisión según cuándo y cómo pague el cliente…"
             />
           </div>
           <Button type="submit" variant="primary" disabled={saving || parsing}>
@@ -358,8 +357,8 @@ function NoviceB({
       <div className="space-y-2">
         <h1 className="font-display text-4xl text-fg0">A practicar</h1>
         <p className="text-sm text-fg3">
-          El agente de voz de práctica ya puede armarse con el playbook de tu
-          oferta. El CRM aparece solo cuando entre la primera llamada real.
+          El agente de voz de práctica ya puede armarse con el perfil de tus
+          prospectos. El CRM aparece solo cuando entre la primera llamada real.
         </p>
       </div>
       {snapshot?.needsMonthlyGoal && (
@@ -382,7 +381,7 @@ function NoviceB({
         </Link>
       </div>
       <p className="text-xs text-fg3 rounded-xl border border-separator1 px-3 py-2">
-        Cuando tengas tu primera llamada real, conecta Fathom o súbela y se
+        Cuando tengas tu primera llamada real, conecta las grabaciones o súbela y se
         activa tu CRM.
       </p>
     </div>
@@ -426,7 +425,7 @@ function ConfiguredC({
       {snapshot?.now && (
         <p className="text-sm text-fg3">
           Dinero en juego {moneyLabel(snapshot.now.dineroEnJuego || 0)} ·{" "}
-          {snapshot.now.oportunidadesActivas || 0} leads activos
+          {snapshot.now.oportunidadesActivas || 0} clientes activos
         </p>
       )}
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />

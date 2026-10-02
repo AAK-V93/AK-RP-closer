@@ -26,7 +26,7 @@ La comisión A MENUDO NO es un % fijo. Puede depender de:
 
 Copia la regla en "notes" con las palabras del closer/documento. Si hay tramos, llénalos en "tiers". NO inventes 3% ni umbral 70,000. Si no hay comisión, commission = null. Nunca asumas comisión.
 
-Después de extraer, llena "questions" (2-4). Cada pregunta afirma lo que entendiste y termina en "¿Es así?". Prohibido preguntar en abierto o en negativo: no uses "¿se debe confirmar…?", "¿porcentaje fijo o tramos?" ni "¿cómo se maneja?". Ejemplo: "La comisión queda en 10% sobre lo cobrado. ¿Es así?"
+Después de extraer, llena "questions" (2-4). Cada pregunta afirma lo que entendiste y termina en "¿Es así?" o "¿Lo dejo vacío?". Prohibido preguntar en abierto o en negativo: no uses "¿se debe confirmar…?", "¿porcentaje fijo o tramos?", "¿cómo se maneja?" ni "¿X no está especificado?". Si un dato no venía, dilo en afirmativo. Ejemplo: "No encontré los porcentajes de comisión. ¿Los dejo vacíos?" Ejemplo con dato: "La comisión queda en 10% sobre lo cobrado. ¿Es así?"
 
 Responde SOLO JSON:
 {
@@ -119,6 +119,27 @@ export function extractedFromParsed(
   };
 }
 
+/**
+ * A negative yes/no ("¿los porcentajes no están especificados?") makes Sí mean
+ * the opposite of what a closer expects. Restate the gap and ask to leave it empty.
+ */
+export function rephraseOfferQuestion(question: string): string {
+  const text = question.replace(/\s+/g, " ").trim();
+  if (!text) return text;
+  const negated = text.match(
+    /¿?\s*((?:los|las|el|la|un|una)\s+)?(.+?)\s+no\s+(?:est[aá]n?|estaban|estaba|aparecen?|figuran?|vienen?|viene|hay|se\s+(?:especific\w*|mencion\w*|detall\w*|indic\w*|inclu\w*))/i,
+  );
+  if (!negated) return text;
+  const article = (negated[1] || "").trim().toLowerCase();
+  const subject = negated[2]
+    .replace(/[¿?]/g, "")
+    .replace(/\s+(?:en el documento|en el texto|del documento|del texto).*$/i, "")
+    .trim();
+  const phrase = [article, subject].filter(Boolean).join(" ");
+  const lower = phrase.charAt(0).toLowerCase() + phrase.slice(1);
+  return `No encontré ${lower} en el documento. ¿Lo dejo vacío?`;
+}
+
 function defaultQuestions(offers: ExtractedOffer[], assumption: "una" | "varias") {
   const names = offers.map((row) => row.productName).filter(Boolean);
   if (assumption === "varias" || offers.length > 1) {
@@ -165,7 +186,11 @@ export function parsedToBatch(
       ? "varias"
       : "una";
   const questions = Array.isArray(parsed.questions)
-    ? parsed.questions.map(String).map((row) => row.trim()).filter(Boolean).slice(0, 6)
+    ? parsed.questions
+        .map(String)
+        .map((row) => rephraseOfferQuestion(row.trim()))
+        .filter(Boolean)
+        .slice(0, 6)
     : [];
   return {
     offers,

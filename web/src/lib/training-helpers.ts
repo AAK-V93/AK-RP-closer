@@ -17,8 +17,30 @@ export const trainingHelpers = {
   },
 
   toTokenPayload(state: TrainingState): TokenRequestPayload {
+    const training = state.training;
+    const replay = training.replayCall;
     return {
-      training: state.training,
+      training: {
+        ...training,
+        productDescription: training.productDescription.slice(0, 240),
+        pitchSummary: (training.pitchSummary || "").slice(0, 240),
+        leadPlaybook: null,
+        replayCall: replay
+          ? {
+              source: replay.source,
+              sourceId: replay.sourceId,
+              title: replay.title,
+              leadName: replay.leadName,
+              offerName: replay.offerName,
+              result: replay.result,
+              callType: replay.callType,
+              objections: "",
+              summary: "",
+              leadLines: [],
+              excerpt: "",
+            }
+          : replay,
+      },
       sessionConfig: state.sessionConfig,
     };
   },

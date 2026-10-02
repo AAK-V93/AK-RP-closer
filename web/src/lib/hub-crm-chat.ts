@@ -194,7 +194,7 @@ function recall(text: string, ctx: ChatContext): ChatTurn | null {
   }
   const lead = leadInMessage(ctx.leads, text);
   if (!lead) {
-    return { kind: "answer", reply: "¿De quién? Dime el nombre del lead." };
+    return { kind: "answer", reply: "¿De quién? Dime el nombre del cliente." };
   }
   const folded = fold(lead.name);
   const same = ctx.calls.filter((row) => fold(row.leadName) === folded);
@@ -289,7 +289,7 @@ function payment(text: string, ctx: ChatContext): ChatTurn | null {
   if (!match) return null;
   const lead = leadInMessage(ctx.leads, match[1]) || leadInMessage(ctx.leads, text);
   const amount = parseMoney(match[2]);
-  if (!lead) return { kind: "answer", reply: "¿Quién pagó? Dime el nombre del lead." };
+  if (!lead) return { kind: "answer", reply: "¿Quién pagó? Dime el nombre del cliente." };
   if (!amount) return { kind: "answer", reply: `¿Cuánto pagó ${lead.name}?` };
   const proposal: ChatProposal = {
     leadId: lead.id,
@@ -297,7 +297,7 @@ function payment(text: string, ctx: ChatContext): ChatTurn | null {
     changes: [
       {
         field: "cash",
-        label: "Cash cobrado",
+        label: "Cobrado",
         from: lead.amountPaid || "—",
         to: amount,
       },
@@ -324,7 +324,7 @@ function offerEdit(text: string, ctx: ChatContext): ChatTurn | null {
       reply: `«${rawOffer}» no es una oferta. Las tuyas son: ${names}. No cambié nada.`,
     };
   }
-  if (!lead) return { kind: "answer", reply: "¿De quién es esa oferta? Dime el nombre del lead." };
+  if (!lead) return { kind: "answer", reply: "¿De quién es esa oferta? Dime el nombre del cliente." };
   if (fold(exact) === fold(lead.offerName)) {
     return { kind: "answer", reply: `${lead.name} ya está en ${exact}.` };
   }
@@ -357,7 +357,7 @@ function askFacts(text: string, ctx: ChatContext): ChatTurn | null {
     return {
       kind: "answer",
       reply: lead.amountPaid
-        ? `${lead.name} tiene ${lead.amountPaid} de cash cobrado.`
+        ? `${lead.name} tiene ${lead.amountPaid} cobrado.`
         : `No tengo un pago guardado de ${lead.name}.`,
     };
   }
@@ -425,7 +425,7 @@ export function proposalFromLoosePatch(
       };
     }
     if (patch.name || patch.nextStep || patch.amountPaid || patch.lastSummary || exactOffer) {
-      return { kind: "answer", reply: "¿De quién? Dime el nombre del lead." };
+      return { kind: "answer", reply: "¿De quién? Dime el nombre del cliente." };
     }
     return { kind: "none" };
   }
@@ -457,7 +457,7 @@ export function proposalFromLoosePatch(
   if (cash) {
     changes.push({
       field: "cash",
-      label: "Cash cobrado",
+      label: "Cobrado",
       from: lead.amountPaid || "—",
       to: cash,
     });

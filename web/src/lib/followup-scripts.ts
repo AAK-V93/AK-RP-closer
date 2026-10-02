@@ -143,7 +143,7 @@ Avísame por acá cuando lo hayas hecho, con el comprobante.`,
     type: "RETOMAR",
     intentosMin: 0,
     canal: "WHATSAPP",
-    recomendacion: "Lead en seguimiento. Mensaje corto, una pregunta.",
+    recomendacion: "Cliente en seguimiento. Mensaje corto, una pregunta.",
     guion: `Hola [Nombre], ¿seguimos con [PROGRAMA]? Dime qué te traba y lo vemos.`,
   },
   {

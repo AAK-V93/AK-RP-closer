@@ -25,7 +25,7 @@ function FathomApiKeyHelp() {
   return (
     <div className="rounded-xl border border-separator1 bg-bg0 p-3 space-y-2">
       <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-        Dónde está la API key
+        Dónde está la clave
       </p>
       <ol className="text-sm text-fg2 space-y-1.5 list-decimal pl-4">
         <li>
@@ -41,15 +41,15 @@ function FathomApiKeyHelp() {
           con la cuenta con la que grabas.
         </li>
         <li>
-          Arriba a la derecha: <span className="text-fg1">Settings</span>. Baja
-          hasta <span className="text-fg1">API Access</span> (en My Settings).
+          Arriba a la derecha: <span className="text-fg1">Settings</span> (Ajustes). Baja
+          hasta <span className="text-fg1">API Access</span> (la clave, en My Settings).
         </li>
         <li>
-          Toca <span className="text-fg1">Add</span> →{" "}
-          <span className="text-fg1">Generate API Key</span>. Ponle un nombre
-          (ej. Closer Trainer) y <span className="text-fg1">Create API Client</span>.
+          Toca <span className="text-fg1">Add</span> (Agregar) →{" "}
+          <span className="text-fg1">Generate API Key</span> (Crear clave). Ponle un nombre
+          (ej. Closer Trainer) y <span className="text-fg1">Create API Client</span> (Crear).
         </li>
-        <li>Cópiala ya: Fathom la muestra una sola vez. Pégala abajo.</li>
+        <li>Cópiala ya: la app la muestra una sola vez. Pégala abajo.</li>
       </ol>
       <a
         href={FATHOM_API_SETTINGS}
@@ -57,7 +57,7 @@ function FathomApiKeyHelp() {
         rel="noreferrer"
         className="inline-flex items-center gap-1.5 text-sm underline"
       >
-        Abrir Fathom → Settings → API
+        Abrir la app de grabación → Ajustes → clave
         <ExternalLink className="h-3.5 w-3.5" />
       </a>
     </div>
@@ -106,7 +106,7 @@ export function FathomSyncPanel({
       const connectionData = await connectionRes.json();
       const recordingsData = await recordingsRes.json();
       if (!connectionRes.ok) {
-        throw new Error(connectionData.error || "No se pudo leer Fathom");
+        throw new Error(connectionData.error || "No se pudo leer las grabaciones");
       }
       setStatus(connectionData);
       if (connectionData.importSince) {
@@ -206,7 +206,7 @@ export function FathomSyncPanel({
           cursor,
           createdAfter: importSince,
         });
-        setSyncMessage("Importando llamadas de Fathom…");
+        setSyncMessage("Trayendo llamadas grabadas…");
         cursor = data.nextCursor || null;
         meetingsDone = Boolean(data.meetingsDone);
         if (!meetingsDone && !cursor) break;
@@ -230,12 +230,12 @@ export function FathomSyncPanel({
           transcriptStalls += 1;
           setSyncMessage(
             remaining > 0
-              ? `Fathom pidió espera. Reintento en unos segundos… faltan ${remaining}`
-              : "Fathom pidió espera. Reintento en unos segundos…",
+              ? `La app de grabación pidió espera. Reintento en unos segundos… faltan ${remaining}`
+              : "La app de grabación pidió espera. Reintento en unos segundos…",
           );
           if (transcriptStalls >= 6) {
             setSyncMessage(
-              "Fathom limitó las peticiones. Sigo con las que sí bajaron; el resto se reintenta al importar de nuevo.",
+              "La app de grabación limitó las peticiones. Sigo con las que sí bajaron; el resto se reintenta al traerlas de nuevo.",
             );
             break;
           }
@@ -263,7 +263,7 @@ export function FathomSyncPanel({
         }>("/api/fathom/analyze");
         const remaining = data.remaining ?? 0;
         if (data.skipped && data.recording?.title) {
-          setSyncMessage(`Sin audio/transcript: ${data.recording.title}`);
+          setSyncMessage(`Sin audio ni transcripción: ${data.recording.title}`);
         } else if (data.recording?.title) {
           setSyncMessage(
             data.partial
@@ -333,9 +333,9 @@ export function FathomSyncPanel({
   if (!authenticated) {
     return (
       <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-2">
-        <h2 className="text-lg font-light">Conectar Fathom</h2>
+        <h2 className="text-lg font-light">Conectar tus grabaciones</h2>
         <p className="text-sm text-fg3">
-          Conecta Fathom para que las llamadas nuevas entren solas al CRM.
+          Conecta las grabaciones de tus reuniones para que las llamadas nuevas entren solas al CRM.
           Necesitas una cuenta.
         </p>
         <Button asChild variant="primary" size="sm">
@@ -349,7 +349,7 @@ export function FathomSyncPanel({
     return (
       <div className="rounded-2xl border border-separator1 bg-bg1 p-5 text-sm text-fg3 flex items-center gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Revisando conexión con Fathom…
+        Revisando la conexión…
       </div>
     );
   }
@@ -360,11 +360,11 @@ export function FathomSyncPanel({
       className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4"
     >
       <div className="space-y-1">
-        <h2 className="text-lg font-light">Conectar Fathom</h2>
+        <h2 className="text-lg font-light">Conectar tus grabaciones</h2>
         <p className="text-sm text-fg3">
           {status?.connected
-            ? "Las llamadas nuevas entran solas cuando Fathom termina de transcribir. El botón de abajo importa el historial."
-            : "Pega tu API key. Las llamadas nuevas entran solas cuando Fathom termina de transcribir."}
+            ? "Las llamadas nuevas entran solas cuando termina la transcripción. El botón de abajo trae el historial."
+            : "Pega la clave de la app que graba tus reuniones (Fathom). Las llamadas nuevas entran solas cuando termina la transcripción."}
         </p>
       </div>
 
@@ -372,7 +372,7 @@ export function FathomSyncPanel({
         <form onSubmit={onConnect} className="space-y-3">
           <FathomApiKeyHelp />
           <div className="space-y-1">
-            <Label htmlFor="fathom-api-key">API key de Fathom</Label>
+            <Label htmlFor="fathom-api-key">Clave de las grabaciones</Label>
             <Input
               id="fathom-api-key"
               type="password"
@@ -389,7 +389,7 @@ export function FathomSyncPanel({
                 Conectando…
               </>
             ) : (
-              "Conectar Fathom"
+              "Conectar grabaciones"
             )}
           </Button>
         </form>
@@ -401,14 +401,14 @@ export function FathomSyncPanel({
             </span>
             {typeof status.total === "number" && (
               <span>
-                {status.analyzed || 0} auditadas · {status.withTranscript || 0} con
-                transcript
+                {status.analyzed || 0} revisadas · {status.withTranscript || 0} con
+                transcripción
                 {status.skipped ? ` · ${status.skipped} omitidas` : ""}
               </span>
             )}
             {status.lastSyncAt && (
               <span className="text-fg3">
-                Última sync: {new Date(status.lastSyncAt).toLocaleString("es")}
+                Última actualización: {new Date(status.lastSyncAt).toLocaleString("es")}
               </span>
             )}
           </div>
@@ -424,7 +424,7 @@ export function FathomSyncPanel({
             <p className="text-xs text-fg3">
               {status.autoIngest
                 ? "Las nuevas llegan solas. El botón reintenta las omitidas de este rango y re-audita las que quedaron a medias."
-                : "En local no puede entrar sola (Fathom necesita HTTPS). En producción se activa al abrir esta pantalla. El botón importa el historial y reintenta omitidas."}
+                : "En local no puede entrar sola (la app de grabación necesita HTTPS). En producción se activa al abrir esta pantalla. El botón trae el historial y reintenta las omitidas."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -433,6 +433,7 @@ export function FathomSyncPanel({
               variant="primary"
               disabled={syncing || connecting || !importSince}
               onClick={runFullPipeline}
+              className="whitespace-normal h-auto min-h-9 text-center"
             >
               {syncing ? (
                 <>
@@ -442,7 +443,7 @@ export function FathomSyncPanel({
               ) : (
                 <>
                   <RefreshCw className="h-4 w-4" />
-                  Importar, auditar y generar estrategia
+                  Traer llamadas y preparar el coach
                 </>
               )}
             </Button>
@@ -488,7 +489,7 @@ export function FathomSyncPanel({
                         ? " · omitida"
                         : row.hasTranscript
                           ? " · pendiente de auditar"
-                          : " · sin transcript"}
+                          : " · sin transcripción"}
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0">

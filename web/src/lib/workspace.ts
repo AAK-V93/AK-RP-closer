@@ -184,3 +184,58 @@ export function playbookFromOffer(
 ): LeadPlaybook {
   return playbook && isPlaybookReady(playbook) ? playbook : emptyPlaybook();
 }
+
+const PRACTICE_OFFER_SELECT = {
+  id: true,
+  productName: true,
+  productDescription: true,
+  pitchSummary: true,
+  playbook: true,
+} as const;
+
+/**
+ * Offer row for voice practice. One indexed read, no transcript bodies.
+ * The token route used to call getWorkspace, which pulled up to 80 call
+ * transcripts and 40 Fathom transcripts before the room could open.
+ */
+export async function loadPracticeContext(
+  prisma: PrismaClient,
+  userId: string,
+  offerId?: string | null,
+  productName?: string | null,
+) {
+  const byId = offerId
+    ? await prisma.userOffer.findFirst({
+        where: { id: offerId, userId },
+        select: PRACTICE_OFFER_SELECT,
+      })
+    : null;
+  const byName =
+    byId || !productName?.trim()
+      ? null
+      : await prisma.userOffer.findFirst({
+          where: { userId, productName: productName.trim() },
+          orderBy: { updatedAt: "desc" },
+          select: PRACTICE_OFFER_SELECT,
+        });
+  const offer =
+    byId ||
+    byName ||
+    (await prisma.userOffer.findFirst({
+      where: { userId },
+      orderBy: { updatedAt: "desc" },
+      select: PRACTICE_OFFER_SELECT,
+    }));
+  if (!offer) return null;
+  const playbook = parsePlaybook(offer.playbook);
+  return {
+    offer: {
+      id: offer.id,
+      productName: offer.productName,
+      productDescription: offer.productDescription,
+      pitchSummary: offer.pitchSummary,
+    },
+    playbook,
+    liveGuide: parseLiveGuide(offer.playbook, offer.productName),
+  };
+}

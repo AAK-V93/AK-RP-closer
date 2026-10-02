@@ -34,7 +34,7 @@ export function CalendarConnectPanel({ authenticated }: { authenticated: boolean
       </p>
       <p className="text-xs text-fg3">
         Eventos con Zoom o Meet entran como AGENDADO. A las 24 h, si no hay
-        transcript, el hub pregunta si se hizo.
+        transcripción, el inicio pregunta si se hizo.
       </p>
       {state.connected ? (
         <div className="flex flex-wrap gap-2">

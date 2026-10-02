@@ -141,7 +141,7 @@ export function CloserCoachChat({
       {notes && (
         <div className="px-4 py-3 border-b border-separator1 space-y-1">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-            Coach high-ticket
+            Coach de alto valor
           </p>
           <p className="text-sm">
             Nivel {level}/10

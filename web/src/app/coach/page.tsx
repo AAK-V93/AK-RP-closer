@@ -47,7 +47,7 @@ export default function CoachPage() {
         <div>
           <h1 className="text-2xl font-light">Tu coaching</h1>
           <p className="text-sm text-fg3 mt-1">
-            Un closer high-ticket que lee tus prácticas por voz y tus QC de
+            Un closer de alto valor que lee tus prácticas por voz y tus QC de
             llamadas reales. Te dice el nivel, la debilidad y el siguiente
             drill — no un score suelto.
           </p>

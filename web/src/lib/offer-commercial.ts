@@ -277,18 +277,89 @@ export function commissionSummary(rule: CommissionRuleInput | null): string {
   return "";
 }
 
+/** es-CO thousands: USD 10.000 */
+export function formatOfferAmount(currency: string, amount: number) {
+  const digits = String(Math.round(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${(currency || "USD").toUpperCase()} ${digits}`;
+}
+
+export function plainPriceLabel(label: string) {
+  const cleaned = label.replace(/^precio\s+(especial\s+)?/i, "").trim();
+  if (/lista/i.test(cleaned)) return "Precio de lista";
+  if (/contado/i.test(cleaned) && /7/.test(cleaned)) return "Si paga de contado en 7 días";
+  if (/contado/i.test(cleaned) && /especial|beneficio|descuento/i.test(cleaned)) {
+    return "Si paga de contado, con descuento";
+  }
+  if (/contado/i.test(cleaned) && /regular|normal|lista/i.test(cleaned)) {
+    return "Si paga de contado, sin descuento";
+  }
+  if (/contado|cash|efectivo/i.test(cleaned)) return "Si paga de contado";
+  if (/reserva/i.test(cleaned)) return "Si deja una reserva";
+  if (/cuota/i.test(cleaned)) return "Si paga en cuotas";
+  if (!cleaned) return "Otra forma de pago";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+type PricedOption = { label: string; amount: number };
+
+function pricedOptions(commercial: OfferCommercial): {
+  currency: string;
+  list: number | null;
+  options: PricedOption[];
+} {
+  const currency = commercial.currency || "USD";
+  const options: PricedOption[] = [];
+  for (const alt of commercial.altPrices) {
+    if (alt.amount == null) continue;
+    options.push({ label: plainPriceLabel(alt.label), amount: alt.amount });
+  }
+  return { currency, list: commercial.listPrice, options };
+}
+
+function mainPrice(list: number | null, options: PricedOption[]) {
+  const contado = options.filter((row) => /contado/i.test(row.label));
+  const pool = contado.length ? contado : options;
+  if (!pool.length) return list == null ? null : { label: "Precio de lista", amount: list, fromList: true };
+  const main = pool.reduce((best, row) => (row.amount < best.amount ? row : best));
+  return { ...main, fromList: false };
+}
+
+/**
+ * Main price on its own line, other ways to pay named in plain words.
+ * Same amount is not repeated as if it were a second price.
+ */
+export function describeOfferPrices(commercial: OfferCommercial): string {
+  const { currency, list, options } = pricedOptions(commercial);
+  const main = mainPrice(list, options);
+  if (!main) return "";
+  const money = (amount: number) => formatOfferAmount(currency, amount);
+  const lines = [`Precio: ${money(main.amount)}`, main.label];
+  if (list != null && list === main.amount && !main.fromList) {
+    lines.push("Es el mismo que el precio de lista.");
+  } else if (list != null && list !== main.amount) {
+    lines.push(`Precio de lista: ${money(list)}`);
+  }
+  for (const alt of options) {
+    if (!main.fromList && alt.label === main.label && alt.amount === main.amount) continue;
+    if (list != null && alt.amount === list && /lista/i.test(alt.label)) continue;
+    lines.push(`${alt.label}: ${money(alt.amount)}`);
+  }
+  return lines.join("\n");
+}
+
+export function editablePriceLines(commercial: OfferCommercial): string[] {
+  const { currency, list, options } = pricedOptions(commercial);
+  const money = (amount: number) => formatOfferAmount(currency, amount);
+  const lines: string[] = [];
+  if (list != null) lines.push(`Precio de lista: ${money(list)}`);
+  for (const alt of options) lines.push(`${alt.label}: ${money(alt.amount)}`);
+  return lines;
+}
+
 export function commercialRecap(commercial: OfferCommercial): string {
   const bits: string[] = [];
-  if (commercial.listPrice) {
-    bits.push(`lista ${commercial.currency} ${commercial.listPrice}`);
-  }
-  for (const alt of commercial.altPrices) {
-    if (alt.amount == null && !alt.label) continue;
-    const label = alt.label.replace(/^precio\s+especial\s+/i, "").trim() || "precio";
-    bits.push(
-      alt.amount != null ? `${label} ${commercial.currency} ${alt.amount}` : label,
-    );
-  }
+  const prices = describeOfferPrices(commercial);
+  if (prices) bits.push(prices.replace(/\n/g, ". "));
   if (commercial.paymentModes.length) {
     bits.push(commercial.paymentModes.map((row) => row.name).join(", "));
   }

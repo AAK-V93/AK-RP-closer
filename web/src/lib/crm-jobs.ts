@@ -127,7 +127,7 @@ ${hub}
         subject,
         text,
         html: `<p>Hola${user.name ? ` ${escapeHtml(user.name)}` : ""}.</p>
-<p>Hoy tienes <strong>${count}</strong> pendiente${count === 1 ? "" : "s"}. El link de WhatsApp abre el chat con el lead y el texto listo. Después marcas el CRM en la app.</p>
+<p>Hoy tienes <strong>${count}</strong> pendiente${count === 1 ? "" : "s"}. El link de WhatsApp abre el chat con el cliente y el texto listo. Después marcas el CRM en la app.</p>
 <ol>${slice
           .map(
             (item) => `<li>

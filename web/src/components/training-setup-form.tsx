@@ -307,8 +307,8 @@ export function TrainingSetupForm() {
                   {offer.productDescription}
                 </p>
                 <p className="text-xs text-fg3">
-                  {transcriptCount} llamadas en corpus
-                  {playbookReady ? " · emulando tus leads" : ""}
+                  {transcriptCount} llamadas reales
+                  {playbookReady ? " · emulando a tus prospectos" : ""}
                 </p>
                 {trainingState.training.prospectProfile.leadTypeName && (
                   <p className="text-xs text-fg2">
@@ -370,7 +370,7 @@ export function TrainingSetupForm() {
             </div>
             {practiceKind === "compose" && (
               <p className="text-[11px] text-fg3">
-                Inventa un comprador con el comportamiento de los leads de esta
+                Inventa un comprador con el comportamiento de los prospectos de esta
                 oferta: mismas frases y situaciones, persona nueva.
               </p>
             )}
@@ -430,7 +430,7 @@ export function TrainingSetupForm() {
           {!ready && (
             <p className="text-xs text-destructive">
               Para entrar a la reunión necesitas tu oferta y al menos una
-              transcripción (archivo o Fathom).
+              transcripción (archivo o grabación).
             </p>
           )}
 

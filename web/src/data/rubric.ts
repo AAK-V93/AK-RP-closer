@@ -15,7 +15,7 @@ export const RUBRIC_CRITERIA: RubricCriterion[] = [
     phase: "descubrimiento",
     label: "Dolor a profundidad",
     description:
-      "Descubrió el dolor real del lead con preguntas curiosas, no con supuestos ni pitch. Llegó más allá de la queja superficial: impacto, historia, qué ha intentado.",
+      "Descubrió el dolor real del prospecto con preguntas curiosas, no con supuestos ni pitch. Llegó más allá de la queja superficial: impacto, historia, qué ha intentado.",
     critical: true,
   },
   {
@@ -23,7 +23,7 @@ export const RUBRIC_CRITERIA: RubricCriterion[] = [
     phase: "descubrimiento",
     label: "Deseo a profundidad",
     description:
-      "Descubrió qué quiere lograr y por qué le importa, con preguntas. El lead verbalizó el resultado deseado; el closer no se lo puso en la boca.",
+      "Descubrió qué quiere lograr y por qué le importa, con preguntas. El prospecto verbalizó el resultado deseado; el closer no se lo puso en la boca.",
     critical: true,
   },
   {
@@ -39,14 +39,14 @@ export const RUBRIC_CRITERIA: RubricCriterion[] = [
     phase: "objeciones",
     label: "AAA — Acknowledge",
     description:
-      "Ante una pregunta u objeción, reformuló lo que el lead dijo, validó y compró tiempo. No discutió ni invalidó.",
+      "Ante una pregunta u objeción, reformuló lo que el prospecto dijo, validó y compró tiempo. No discutió ni invalidó.",
   },
   {
     id: "aaa_associate",
     phase: "objeciones",
     label: "AAA — Associate",
     description:
-      "Asoció la pregunta/objeción con el tipo de persona que obtiene buenos resultados (label positivo, cliente exitoso, autoridad). El lead da un paso atrás y se siente más cerca de comprar, no más lejos.",
+      "Asoció la pregunta/objeción con el tipo de persona que obtiene buenos resultados (label positivo, cliente exitoso, autoridad). El prospecto da un paso atrás y se siente más cerca de comprar, no más lejos.",
   },
   {
     id: "aaa_ask",
@@ -61,7 +61,7 @@ export const RUBRIC_CRITERIA: RubricCriterion[] = [
     phase: "objeciones",
     label: "Usa el descubrimiento en la objeción",
     description:
-      "Cada objeción se reencuadra con dolor, deseo, urgencia y citas concretas del lead. 3A genérico no basta. No downsell prematuro. Aísla la objeción y la ancla al costo de inacción que ya salió.",
+      "Cada objeción se reencuadra con dolor, deseo, urgencia y citas concretas del prospecto. 3A genérico no basta. No downsell prematuro. Aísla la objeción y la ancla al costo de inacción que ya salió.",
     critical: true,
   },
 ];
@@ -94,11 +94,11 @@ export function getCriteriaForSection(section?: string): RubricCriterion[] {
 export function sectionEvalNotes(section?: string): string {
   switch (section) {
     case "discovery":
-      return `MODO SOLO DESCUBRIMIENTO: evalúa dolor, deseo y urgencia (con preguntas). También 3A si el lead pregunta u objeta. No penalices por no hacer pitch ni cierre.`;
+      return `MODO SOLO DESCUBRIMIENTO: evalúa dolor, deseo y urgencia (con preguntas). También 3A si el prospecto pregunta u objeta. No penalices por no hacer pitch ni cierre.`;
     case "pitch":
       return `MODO SOLO PITCH: el descubrimiento YA ocurrió (ficha del prospecto). NO penalices por no re-interrogar. Evalúa 3A Y si usó dolor/deseo/urgencia conocidos al manejar objeciones. Si reabre descubrimiento pesado, menciónalo en improvements.`;
     case "close":
-      return `MODO SOLO CIERRE: el lead ya oyó el pitch. Evalúa 3A Y si cada objeción se ancla a lo descubierto (ficha + transcripción). Un 3A genérico ("entiendo, es una gran pregunta") sin citar su dolor/urgencia es INSUFICIENTE.`;
+      return `MODO SOLO CIERRE: el prospecto ya oyó el pitch. Evalúa 3A Y si cada objeción se ancla a lo descubierto (ficha + transcripción). Un 3A genérico ("entiendo, es una gran pregunta") sin citar su dolor/urgencia es INSUFICIENTE.`;
     case "pitch_close":
       return `MODO PITCH + CIERRE: descubrimiento ya ocurrió. Evalúa 3A + uso del descubrimiento en objeciones. No penalices por no re-descubrir.`;
     case "full":
@@ -142,13 +142,13 @@ REGLAS:
 
 CÓMO SE DESCUBRE DOLOR / DESEO / URGENCIA:
 - Solo con curiosidad y preguntas. Castiga pitch prematuro, monólogos y supuestos.
-- Dolor profundo = impacto emocional/práctico, intentos previos, costo de seguir igual — dicho POR el lead.
-- Deseo profundo = resultado concreto y por qué le importa — dicho POR el lead.
-- Urgencia profunda = por qué ahora, qué pasa si espera — dicho POR el lead.
+- Dolor profundo = impacto emocional/práctico, intentos previos, costo de seguir igual — dicho POR el prospecto.
+- Deseo profundo = resultado concreto y por qué le importa — dicho POR el prospecto.
+- Urgencia profunda = por qué ahora, qué pasa si espera — dicho POR el prospecto.
 - Si el closer "adivinó" bien pero no preguntó, puntúa bajo: no detectó, declaró.
 
 USAR EL DESCUBRIMIENTO EN EL CIERRE (calidad tipo QC de llamada real):
-- Ante "está caro" / "lo hablo con mi pareja" / "no es el momento", el closer DEBE traer de vuelta lo que el lead ya dijo: tiempo con el problema, pérdida, DIY que no funcionó, "ahora es necesario", citas textuales.
+- Ante "está caro" / "lo hablo con mi pareja" / "no es el momento", el closer DEBE traer de vuelta lo que el prospecto ya dijo: tiempo con el problema, pérdida, DIY que no funcionó, "ahora es necesario", citas textuales.
 - Ejemplo de anclaje correcto: «Me comentaste que llevan 2.5 años, hubo una pérdida, y tu médico dijo que ya deberían haber quedado embarazados. Si el dinero no fuera el tema hoy, ¿hay algo más que te frene?»
 - Ejemplo insuficiente: «Entiendo, es una inversión, ¿qué te preocupa del precio?» (3A vacío, no usa el caso).
 - Extrae la RAÍZ de la objeción (flujo de caja ≠ insolvencia; "hablarlo" ≠ falta de tiempo).

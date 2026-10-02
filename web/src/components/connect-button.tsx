@@ -9,8 +9,27 @@ import { useTraining } from "@/hooks/use-training-state";
 import { toast } from "@/hooks/use-toast";
 import { useSession } from "next-auth/react";
 
+async function requestMicrophone() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Este navegador no deja usar el micrófono.");
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+  } catch (micError) {
+    const name = micError instanceof DOMException ? micError.name : "";
+    if (name === "NotFoundError") {
+      throw new Error("No encuentro un micrófono. Conecta uno o revisa los permisos del navegador.");
+    }
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      throw new Error("El navegador bloqueó el micrófono. Permítelo para entrar a la práctica.");
+    }
+    throw new Error("No pude usar el micrófono. Revisa que esté conectado y permitido.");
+  }
+}
+
 export function ConnectButton() {
-  const { connect, shouldConnect, isConnecting } = useConnection();
+  const { connect, shouldConnect, isConnecting, phase, prefetch, cancel } = useConnection();
   const { helpers, trainingState } = useTraining();
   const { status } = useSession();
   const router = useRouter();
@@ -38,72 +57,82 @@ export function ConnectButton() {
     }
 
     setConnecting(true);
+    const micPromise = requestMicrophone();
+    const tokenPromise = connect();
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Este navegador no deja usar el micrófono.");
-      }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach((track) => track.stop());
-      } catch (micError) {
-        const name = micError instanceof DOMException ? micError.name : "";
-        if (name === "NotFoundError") {
-          throw new Error("No encuentro un micrófono. Conecta uno o revisa los permisos del navegador.");
-        }
-        if (name === "NotAllowedError" || name === "SecurityError") {
-          throw new Error("El navegador bloqueó el micrófono. Permítelo para entrar a la práctica.");
-        }
-        throw new Error("No pude usar el micrófono. Revisa que esté conectado y permitido.");
-      }
-      await connect();
-    } catch (error) {
-      const code =
-        error && typeof error === "object" && "code" in error
-          ? String((error as { code?: string }).code)
-          : "";
-      if (code === "SETUP_REQUIRED") {
-        router.push("/ofertas");
+        await micPromise;
+      } catch (error) {
+        cancel();
+        toast({
+          title: "No pude entrar",
+          description:
+            error instanceof Error ? error.message : "No se pudo usar el micrófono",
+          variant: "destructive",
+        });
         return;
       }
-      toast({
-        title: "Error de conexión",
-        description:
-          error instanceof Error ? error.message : "No se pudo iniciar la práctica",
-        variant: "destructive",
-      });
+      try {
+        await tokenPromise;
+      } catch (error) {
+        const code =
+          error && typeof error === "object" && "code" in error
+            ? String((error as { code?: string }).code)
+            : "";
+        if (code === "SETUP_REQUIRED") {
+          router.push("/ofertas");
+        }
+      }
     } finally {
       setConnecting(false);
     }
   };
 
-  const busy = connecting || isConnecting || shouldConnect;
+  const busy = connecting || isConnecting || phase === "preparing" || phase === "audio" || shouldConnect;
   const needsSetup = status !== "authenticated" || !training.productName.trim();
+  const label =
+    phase === "audio" ? "Conectando el audio…" : phase === "preparing" ? "Preparando al cliente…" : "Conectando…";
+
+  if (busy && !needsSetup) {
+    return (
+      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:justify-center">
+        <Button disabled variant="primary" size="xl" className="w-full sm:w-auto text-sm font-semibold">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          {label}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="xl"
+          className="w-full sm:w-auto"
+          onClick={cancel}
+        >
+          Cancelar
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <Button
       onClick={handleConnect}
+      onPointerEnter={prefetch}
+      onFocus={prefetch}
       disabled={busy}
       variant="primary"
       size="xl"
-      className="w-full md:w-auto text-sm font-semibold"
+      className="w-full md:w-auto text-sm font-semibold whitespace-normal h-auto min-h-11 text-center"
     >
-      {busy ? (
+      {needsSetup ? (
         <>
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Conectando...
-        </>
-      ) : needsSetup ? (
-        <>
-          <PhoneCall className="h-4 w-4 mr-2" />
+          <PhoneCall className="h-4 w-4 mr-2 shrink-0" />
           Configurar mi oferta
         </>
       ) : (
         <>
-          <PhoneCall className="h-4 w-4 mr-2" />
+          <PhoneCall className="h-4 w-4 mr-2 shrink-0" />
           <span className="md:hidden">Entrar a la reunión</span>
-          <span className="hidden md:inline">
-            Entrar a la reunión — tú hablas primero
-          </span>
+          <span className="hidden md:inline">Entrar a la reunión — tú hablas primero</span>
         </>
       )}
     </Button>

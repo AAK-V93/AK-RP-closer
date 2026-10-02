@@ -85,7 +85,7 @@ export interface TrainingState {
 }
 
 export const PRACTICE_KIND_LABELS: Record<PracticeKind, string> = {
-  compose: "Lead nuevo de esta oferta",
+  compose: "Prospecto nuevo de esta oferta",
   replay: "Recrear una que no cerró",
 };
 

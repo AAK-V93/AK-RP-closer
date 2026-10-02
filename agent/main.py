@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -75,20 +76,34 @@ def parse_session_config(data: Dict[str, Any]) -> SessionConfig:
     )
 
 
+def _load_metadata(raw: str | None) -> Dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logger.warning(f"Failed to parse metadata: {exc}. Using default config.")
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 async def entrypoint(ctx: JobContext):
     logger.info(f"connecting to room {ctx.room.name}")
+    # Join first so the closer sees "Casi listo" while Gemini is still starting.
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
 
-    participant = await ctx.wait_for_participant()
-
+    job_meta = _load_metadata(getattr(getattr(ctx, "job", None), "metadata", "") or "")
     try:
-        metadata = json.loads(participant.metadata) if participant.metadata else {}
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse participant metadata: {e}. Using default config.")
-        metadata = {}
+        participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=75)
+    except asyncio.TimeoutError:
+        logger.info("no closer joined; leaving without starting the model")
+        return
+
+    metadata = job_meta if job_meta.get("instructions") else _load_metadata(participant.metadata)
+    if not metadata.get("instructions") and job_meta:
+        metadata = {**_load_metadata(participant.metadata), **job_meta}
 
     config = parse_session_config(metadata)
-
     session_manager = SessionManager(config)
     await session_manager.start_session(ctx, participant)
 

@@ -73,7 +73,7 @@ test("projection uses assumed 60/25 rates under 20 real calls and says so", () =
   assert.equal(out.usedAssumedRates, true);
   assert.equal(out.rates.showRate, ASSUMED_SHOW_RATE);
   assert.equal(out.rates.closeRate, ASSUMED_CLOSE_RATE);
-  assert.match(out.assumedRatesLabel || "", /60% \/ close 25%/);
+  assert.match(out.assumedRatesLabel || "", /tasa de asistencia 60% y tasa de cierre 25%/);
   assert.equal(out.asegurada > 200, true);
   assert.equal(out.falta, Math.max(0, 4000 - out.asegurada));
   assert.match(out.todayAction, /agendas\/día/);

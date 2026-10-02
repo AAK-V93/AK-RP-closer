@@ -102,9 +102,9 @@ export function OfferExtractReview({
       )}
 
       <div
-        className={
-          saving ? "pointer-events-none opacity-60 space-y-4" : "space-y-4"
-        }
+          className={
+            saving ? "pointer-events-none min-w-0 opacity-60 space-y-4" : "min-w-0 space-y-4"
+          }
       >
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
@@ -182,9 +182,11 @@ export function OfferExtractReview({
                       {ok ? " · listo" : ""}
                     </p>
                   </div>
-                  {!isEditing && (
-                    <p className="text-sm whitespace-pre-wrap">{block.summary}</p>
-                  )}
+                  {!isEditing && block.id === "prices" ? (
+                    <PriceSummary text={block.summary} />
+                  ) : !isEditing ? (
+                    <p className="text-sm whitespace-pre-wrap break-words">{block.summary}</p>
+                  ) : null}
                   {block.hint && !isEditing && !ok && (
                     <p className="text-[11px] text-fg3">{block.hint}</p>
                   )}
@@ -271,6 +273,7 @@ export function OfferExtractReview({
         <Button
           type="button"
           variant="primary"
+          className="h-auto whitespace-normal text-center"
           disabled={saving || !ready || !visible.some((row) => row.productName.trim())}
           onClick={() => {
             const next =
@@ -302,6 +305,22 @@ export function OfferExtractReview({
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+function PriceSummary({ text }: { text: string }) {
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const [head, ...rest] = lines;
+  if (!head) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-lg font-medium text-fg0 break-words">{head}</p>
+      {rest.map((line) => (
+        <p key={line} className="text-sm text-fg2 break-words">
+          {line}
+        </p>
+      ))}
     </div>
   );
 }
