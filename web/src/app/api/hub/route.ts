@@ -5,15 +5,16 @@ import { generateGeminiJson } from "@/lib/gemini";
 import { HUB_SYSTEM_PROMPT } from "@/lib/hub-prompt";
 import { getWorkspace, getWorkspacePrisma } from "@/lib/workspace";
 import { ensureCrmTables } from "@/lib/prisma";
-import { applyCrmChatUpdate, type CrmChatPatch } from "@/lib/file-call";
+import { type CrmChatPatch } from "@/lib/file-call";
 import {
-  applyChatProposal,
+  answerCrmChat,
+  chatFailureReply,
   exactOfferName,
-  interpretCrmChat,
   leadInMessage,
   looksLikeFilingAnswer,
   messageTargetsOtherLead,
-  readPendingChat,
+  proposalFromLoosePatch,
+  replyForNamedLead,
   savePendingChat,
   type ChatLead,
 } from "@/lib/hub-crm-chat";
@@ -280,10 +281,18 @@ export async function POST(request: Request) {
           (Array.isArray(body.confirmOffers) && body.confirmOffers.length > 0),
       ) && !body.message && !body.start;
 
-    const snapshot = await hubSnapshot(prisma, userId);
-    const userText = body.start
-      ? ""
-      : String(body.message || "").trim();
+    const userText = body.start ? "" : String(body.message || "").trim();
+
+    if (userText && !body.start) {
+      const crmReply = await answerCrmChat(prisma, userId, userText);
+      if (crmReply) {
+        const coachLine = await appendHubLines(prisma, userId, userText, crmReply);
+        return NextResponse.json({
+          message: coachLine,
+          actions: [],
+        });
+      }
+    }
 
     if (structuredOnly) {
       const snapshotAfter = await hubSnapshot(prisma, userId);
@@ -301,7 +310,7 @@ export async function POST(request: Request) {
     }
 
     if (body.start || !userText) {
-      const fresh = snapshot;
+      const fresh = await hubSnapshot(prisma, userId);
       const greeting =
         fresh.home?.phase === "c"
           ? "¿Qué pasó hoy o qué quieres hacer?"
@@ -346,50 +355,6 @@ export async function POST(request: Request) {
       lastSummary: row.lastSummary,
       amountPaid: row.amountPaid,
     }));
-    const chatCallRows = await prisma.callRecord.findMany({
-      where: { userId, filingStatus: { not: "skipped" } },
-      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
-      take: 80,
-      select: { leadName: true, summary: true, filingJson: true },
-    });
-    const turn = interpretCrmChat(userText, {
-      leads: chatLeads,
-      calls: chatCallRows.map((row) => {
-        const filing = (row.filingJson || {}) as {
-          acuerdo_seguimiento?: string;
-          notas_crm?: string;
-          proximo_seguimiento?: string;
-        };
-        return {
-          leadName: row.leadName,
-          acuerdo: String(filing.acuerdo_seguimiento || ""),
-          notas: String(filing.notas_crm || row.summary || ""),
-          proximo: String(filing.proximo_seguimiento || "").replace("T", " ").slice(0, 16),
-        };
-      }),
-      pending: readPendingChat(prefsRow?.crmPrefs),
-      now: new Date(),
-    });
-    if (turn.kind !== "none") {
-      let reply = "";
-      if (turn.kind === "confirm") {
-        await savePendingChat(prisma, userId, turn.proposal);
-        reply = turn.reply;
-      } else if (turn.kind === "apply") {
-        reply = await applyChatProposal(prisma, userId, turn.proposal);
-        await savePendingChat(prisma, userId, null);
-      } else {
-        if (readPendingChat(prefsRow?.crmPrefs)) await savePendingChat(prisma, userId, null);
-        reply = turn.reply;
-      }
-      const coachLine = await appendHubLines(prisma, userId, userText, reply);
-      const fresh = await hubSnapshot(prisma, userId);
-      return NextResponse.json({
-        message: coachLine,
-        actions: nextHubActions(fresh),
-        snapshot: fresh,
-      });
-    }
     const offerFeedback =
       isOfferExtractConfirm(userText) ||
       looksLikeOfferBlob(userText) ||
@@ -677,7 +642,7 @@ export async function POST(request: Request) {
     const prompt = `${HUB_SYSTEM_PROMPT}
 
 # ESTADO
-${JSON.stringify(snapshot)}
+${JSON.stringify(live)}
 
 # RECIENTE
 ${recent || "(sin historial)"}
@@ -695,8 +660,8 @@ ${userText}`;
     } = {};
     try {
       const raw = await generateGeminiJson(prompt, 0.3, 1024, {
-        timeoutMs: 40_000,
-        models: ["gemini-flash-latest", "gemini-flash-lite-latest"],
+        timeoutMs: 12_000,
+        models: ["gemini-flash-latest"],
       });
       const cleaned = raw
         .trim()
@@ -711,7 +676,8 @@ ${userText}`;
         prisma,
         userId,
         userText,
-        canned.join(" ") || "No pude armar la respuesta. Prueba otra vez en un momento.",
+        canned.join(" ") ||
+          "No pude armar la respuesta. Inténtalo otra vez; el chat sigue activo.",
       );
       const fresh = await hubSnapshot(prisma, userId);
       return NextResponse.json({
@@ -757,6 +723,11 @@ ${userText}`;
       }
     }
     if (parsed.commissionPaid?.name) {
+      const namedPaid = leadInMessage(chatLeads, userText);
+      if (namedPaid) parsed.commissionPaid.name = namedPaid.name;
+      else parsed.commissionPaid.name = "";
+    }
+    if (parsed.commissionPaid?.name) {
       const amount = Number(parsed.commissionPaid.amount || 0);
       const lead = await prisma.lead.findFirst({
         where: {
@@ -784,37 +755,28 @@ ${userText}`;
         });
       }
     }
-    if (parsed.crm?.name) {
+    if (parsed.crm?.agendaAt && /agend/i.test(userText)) {
       const named = leadInMessage(chatLeads, userText);
-      if (named) parsed.crm.name = named.name;
-      else if (pendingFiling) parsed.crm.name = "";
-      parsed.crm.offerName = exactOfferName(live.offers || [], parsed.crm.offerName || "");
-    }
-    if (parsed.crm?.agendaAt && parsed.crm.name) {
       const when = new Date(parsed.crm.agendaAt);
-      if (!Number.isNaN(when.getTime())) {
+      const offerName = exactOfferName(live.offers || [], parsed.crm.offerName || "");
+      if (named && !Number.isNaN(when.getTime())) {
         await prisma.callRecord.create({
           data: {
             userId,
             source: "chat",
             sourceId: `agenda-${Date.now()}`,
-            title: `Agendado: ${parsed.crm.name}`,
-            leadName: parsed.crm.name,
-            offerName: parsed.crm.offerName || "",
+            title: `Agendado: ${named.name}`,
+            leadName: named.name,
+            offerName,
             estadoAgenda: "AGENDADO",
             callType: "AGENDADO",
             recordedAt: when,
             filingStatus: "confirmed",
             confirmedAt: new Date(),
-            summary: `AGENDADO · ${parsed.crm.name}`,
+            summary: `AGENDADO · ${named.name}`,
           },
         });
-        await upsertLeadForAgenda(
-          prisma,
-          userId,
-          parsed.crm.name,
-          parsed.crm.offerName || "",
-        );
+        await upsertLeadForAgenda(prisma, userId, named.name, offerName);
       }
     }
     if (parsed.projection?.metaUsd) {
@@ -829,30 +791,20 @@ ${userText}`;
       });
       parsed.reply = proj.reply;
     }
-    if (parsed.crm?.name) {
-      try {
-        await applyCrmChatUpdate(prisma, userId, parsed.crm);
-        const pending = await listPendingFilings(prisma, userId);
-        const wanted = parsed.crm.name.trim().toLowerCase();
-        const target = pending.find(
-          (row) => row.filing.leadName.trim().toLowerCase() === wanted,
-        );
-        if (target) {
-          await confirmCallFiling(prisma, userId, target.id, {
-            leadName: parsed.crm.name,
-            company: parsed.crm.company,
-            ...(parsed.crm.offerName ? { offerName: parsed.crm.offerName } : {}),
-            nextStep: parsed.crm.nextStep,
-            nextStepAt: parsed.crm.nextStepAt,
-            objections: parsed.crm.objections,
-            summary: parsed.crm.lastSummary,
-            decider: parsed.crm.decider,
-          });
-        }
-      } catch (crmError) {
-        console.error("hub crm", crmError);
+    if (parsed.crm) {
+      const loose = proposalFromLoosePatch(
+        parsed.crm,
+        { leads: chatLeads, calls: [], pending: null, offers: live.offers || [] },
+        userText,
+      );
+      if (loose.kind === "confirm") {
+        await savePendingChat(prisma, userId, loose.proposal);
+        parsed.reply = loose.reply;
+      } else if (loose.kind === "answer") {
+        parsed.reply = loose.reply;
       }
     }
+    parsed.reply = replyForNamedLead(String(parsed.reply || ""), userText, chatLeads);
     const reply = [canned.join(" "), String(parsed.reply || "").trim()]
       .filter(Boolean)
       .join(" ") || "¿Qué quieres hacer ahora?";
@@ -866,14 +818,24 @@ ${userText}`;
       body.start ? null : userText,
       reply,
     );
-    const fresh = await hubSnapshot(prisma, userId);
+    let fresh: Awaited<ReturnType<typeof hubSnapshot>> | null = live;
+    try {
+      fresh = await hubSnapshot(prisma, userId);
+    } catch (error) {
+      console.error("hub snapshot after reply", error);
+    }
     return NextResponse.json({ message: coachLine, actions, snapshot: fresh });
   } catch (error) {
     console.error("hub POST", error);
-    return NextResponse.json(
-      { error: "No pude responder. Recarga e inténtalo otra vez." },
-      { status: 500 },
-    );
+    const content = chatFailureReply(error);
+    return NextResponse.json({
+      message: {
+        id: `err-${Date.now()}`,
+        role: "coach",
+        content,
+        createdAt: new Date().toISOString(),
+      },
+    });
   }
 }
 

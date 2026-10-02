@@ -116,7 +116,10 @@ test("closing a lead clears every próximo so Operación and Seguimientos agree"
     },
   );
   assert.equal(rows[0]?.fechaProximo, "");
-  assert.equal(rows[0]?.seguimientoCerrado, true);
+  assert.equal(
+    (rows[0] as { seguimientoCerrado?: boolean } | undefined)?.seguimientoCerrado,
+    true,
+  );
   assert.equal(rows[1]?.fechaProximo, "");
   assert.equal(rows[2]?.fechaProximo, "2026-10-04");
 });
