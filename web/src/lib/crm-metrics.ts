@@ -476,6 +476,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       oportunidadesActivas: countOportunidadesActivas(leads),
       agendasFuturas,
     },
+    pipelineDetalle: pipeline.lines,
     rendimiento: { mes: current, anterior: previous, acumulado: all },
     ventasDetalle,
     desglose: {
@@ -627,15 +628,7 @@ function resolvedOfferName(raw: string, filing: unknown, offers: OfferForCrm[]) 
   if (known) return known;
   const fromProducto = strictOfferName(offers, filingProduct(filing));
   if (fromProducto) return fromProducto;
-  if (
-    isPriceLabel(raw) &&
-    offers.length === 1 &&
-    offers[0].productName &&
-    !isPriceLabel(offers[0].productName)
-  ) {
-    return offers[0].productName;
-  }
-  if (isInventedOfferLabel(raw)) return "";
+  if (isPriceLabel(raw) || isInventedOfferLabel(raw)) return "";
   return raw;
 }
 

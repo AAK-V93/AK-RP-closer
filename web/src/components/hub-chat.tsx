@@ -50,6 +50,7 @@ export type HubSnapshot = {
     pipelineLeads?: number;
     saldoPorCobrar?: number;
   };
+  pipelineDetalle?: { name: string; amount: number; fuente: string }[];
   pendingOfferExtract?: {
     assumption: "una" | "varias";
     questions: string[];

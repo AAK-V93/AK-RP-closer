@@ -55,10 +55,10 @@ test("a field repair keeps the lead id and the lost reason while dropping an inf
 test("an interrupted Meet import is repaired to catalog fields", () => {
   const repair = planCallRepair(alejandro(), ["Círculo Millonario"]);
   assert.ok(repair);
-  assert.equal(repair.offerName, "Círculo Millonario");
+  assert.equal(repair.offerName, "");
   assert.equal(repair.ventaTotal, null);
   assert.equal(repair.saldoPendiente, null);
-  assert.equal(repair.filingJson.producto, "Círculo Millonario");
+  assert.equal(repair.filingJson.producto, null);
   assert.equal(repair.filingJson.tipo_seguimiento, null);
   assert.equal(repair.filingJson.proximo_seguimiento, "2026-10-08");
   assert.equal(repair.filingJson.venta_total, null);
@@ -173,7 +173,7 @@ test("repair writes one row at a time and skips a clean row", async () => {
     [dirty],
   ]);
   assert.deepEqual(updates, ["alejandro-meet"]);
-  assert.equal(dirty.offerName, "Círculo Millonario");
+  assert.equal(dirty.offerName, "");
   assert.equal(dirty.ventaTotal, null);
   assert.equal(clean.offerName, "Círculo Millonario");
 });
