@@ -1,12 +1,12 @@
 import type { PrismaClient } from "@prisma/client";
 import { alertBucket } from "@/lib/crm-prefs";
-import { alignFollowups, followupSnapshot } from "@/lib/crm-followups";
+import { alignFollowups, foldLeadName, followupSnapshot } from "@/lib/crm-followups";
+import { countOportunidadesActivas } from "@/lib/crm-activa";
 import { shiftZonedMonth, zonedDayBounds, zonedDayKey, zonedMonthRange } from "@/lib/crm-time";
 import { userHasReadyCrm, type OfferForCrm } from "@/lib/offer-commercial";
 import { loadOffersForCrm, repairMissingFollowups } from "@/lib/crm-apply";
 import { attachFollowupOptions } from "@/lib/followup-library";
 import { cleanReason, operacionFromCall } from "@/lib/crm-operacion";
-import { isNonSalesCall } from "@/lib/call-kind";
 import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-temperature";
 import { presentThread } from "@/lib/followup-threads";
 import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib/followup-machine";
@@ -271,8 +271,8 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       leadIdByCall.set(thread.creadoDesdeCallRecordId, thread.leadId);
     }
   }
+  const statusByLead = new Map(leads.map((lead) => [foldLeadName(lead.name), lead.status]));
   const operacion = allCalls.flatMap((row) => {
-    if (isNonSalesCall(row.estadoAgenda)) return [];
     try {
       const view = operacionFromCall(
         row,
@@ -285,6 +285,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
           leadId:
             leadIdByCall.get(row.id) ||
             String((row.filingJson as { lead_id?: string } | null)?.lead_id || ""),
+          leadStatus: statusByLead.get(foldLeadName(view.cliente)) || "",
           venta: shownMoney(view.venta, { at, prices }),
           cash: shownMoney(view.cash, { at, prices }),
           saldo: shownMoney(view.saldo, { at, prices }),
@@ -295,7 +296,11 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       return [];
     }
   });
-  const openFollowups = alignFollowups(followups, operacion, todayKey, (draft) => ({
+  const openFollowups = alignFollowups(
+    followups,
+    operacion.filter((row) => !row.interna),
+    todayKey,
+    (draft) => ({
     id: `call:${draft.source.id}`,
     leadId: draft.source.leadId || "",
     callId: draft.source.id,
@@ -413,9 +418,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       dineroEnJuego: enJuego,
       cashPendiente,
       comisionPendiente,
-      oportunidadesActivas: leads.filter((row) =>
-        ["seguimiento", "pendiente", "cobro", "nuevo"].includes(row.status),
-      ).length,
+      oportunidadesActivas: countOportunidadesActivas(leads),
       agendasFuturas,
     },
     rendimiento: { mes: current, anterior: previous, acumulado: all },

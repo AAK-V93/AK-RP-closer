@@ -12,6 +12,14 @@ import { ProjectionCard } from "@/components/projection-card";
 import { CrmAsk } from "@/components/crm-ask";
 import { SheetTable, sheetCell, type SheetColumn } from "@/components/crm-sheet";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { OperacionRow } from "@/lib/crm-operacion";
 import { moneyLabel, pctLabel } from "@/lib/crm-operacion";
 import {
@@ -26,7 +34,10 @@ import {
 } from "@/lib/crm-filters";
 import type { CommissionProjection } from "@/lib/crm-projection";
 import { plainStatus } from "@/lib/plain-labels";
-import { DINERO_EN_JUEGO_NOTE, followupSnapshot } from "@/lib/crm-followups";
+import { ACTIVA_EXPLAIN, filaCountLabel, isOportunidadActiva } from "@/lib/crm-activa";
+import { clienteVisible } from "@/lib/crm-noise";
+import { operacionGlance } from "@/lib/crm-glance";
+import { DINERO_EN_JUEGO_NOTE, foldLeadName, followupSnapshot } from "@/lib/crm-followups";
 import { LOST_REASONS, lostScopeMessage, openFollowupCount } from "@/lib/followup-desk";
 import { zonedDayKey } from "@/lib/crm-time";
 import {
@@ -176,6 +187,8 @@ export default function CrmPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [undo, setUndo] = useState<{ id: string; message: string; snapshot: Dash } | null>(null);
+  const [showInternas, setShowInternas] = useState(false);
+  const [onlyActivas, setOnlyActivas] = useState(false);
   const saving = useRef(false);
 
   const load = () =>
@@ -194,6 +207,10 @@ export default function CrmPage() {
   useEffect(() => {
     const hash = window.location.hash.replace("#", "") as ModuleId;
     if (MODULES.some((item) => item.id === hash)) setModule(hash);
+    if (new URLSearchParams(window.location.search).get("activas") === "1") {
+      setOnlyActivas(true);
+      setModule("operacion");
+    }
   }, []);
 
   useEffect(() => {
@@ -407,6 +424,26 @@ export default function CrmPage() {
     }
   };
 
+  const removeRow = async (row: OperacionRow) => {
+    setBusy("eliminar");
+    setActionError(null);
+    try {
+      const response = await fetch("/api/crm", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete-row", callId: row.id }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(body.error || "No se pudo eliminar la fila.");
+      if (openCall === row.id) setOpenCall(null);
+      await load();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "No se pudo eliminar la fila.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const saveGoal = async (usd: number) => {
     setSavingGoal(true);
     try {
@@ -432,6 +469,19 @@ export default function CrmPage() {
     () => (data?.operacion || []).filter((row) => matchesOffer(row.oferta || row.producto, offer)),
     [data?.operacion, offer],
   );
+  const internasCount = operacionBase.filter((row) => row.interna).length;
+  const operacionScoped = useMemo(() => {
+    const visible = showInternas ? operacionBase : operacionBase.filter((row) => !row.interna);
+    if (!onlyActivas) return visible;
+    return visible.filter((row) =>
+      isOportunidadActiva({
+        status: row.leadStatus,
+        cliente: row.cliente,
+        interna: row.interna,
+        estadoAgenda: row.estadoAgenda,
+      }),
+    );
+  }, [operacionBase, showInternas, onlyActivas]);
   const followupsBase = useMemo(
     () => (data?.followups || []).filter((row) => matchesOffer(row.oferta || "", offer)),
     [data?.followups, offer],
@@ -455,21 +505,25 @@ export default function CrmPage() {
         estado: row.estado,
       }));
     }
-    return operacionBase.map((row) => ({
-      name: row.cliente,
+    return operacionScoped.map((row) => ({
+      name: clienteVisible(row.cliente, row.titulo),
       date: row.fecha,
       estado: row.estadoAgenda,
     }));
-  }, [module, operacionBase, followupsBase, commissionsBase]);
+  }, [module, operacionScoped, followupsBase, commissionsBase]);
   const operacion = useMemo(
     () =>
-      operacionBase.filter((row) =>
+      operacionScoped.filter((row) =>
         matchesCrmListFilter(
-          { name: row.cliente, date: row.fecha, estado: row.estadoAgenda },
+          {
+            name: clienteVisible(row.cliente, row.titulo),
+            date: row.fecha,
+            estado: row.estadoAgenda,
+          },
           listFilter,
         ),
       ),
-    [operacionBase, listFilter],
+    [operacionScoped, listFilter],
   );
   const followups = useMemo(
     () =>
@@ -551,6 +605,21 @@ export default function CrmPage() {
               </div>
             )}
 
+            <AhoraGlance
+              now={now}
+              money={money}
+              onOpen={(target) => {
+                if (target === "activas") {
+                  setOnlyActivas(true);
+                  setModule("operacion");
+                  window.history.replaceState(null, "", "?activas=1#operacion");
+                  return;
+                }
+                setModule("seguimientos");
+                window.history.replaceState(null, "", "#seguimientos");
+              }}
+            />
+
             <div className="flex flex-wrap gap-1 border-b border-separator1 pb-2">
               {MODULES.map((item) => (
                 <Button
@@ -607,6 +676,35 @@ export default function CrmPage() {
                 onChange={setListFilter}
               />
             )}
+            {module === "operacion" && (
+              <div className="space-y-2">
+                <p className="text-xs text-fg3">
+                  {filaCountLabel(operacion.length, operacionScoped.length)} ·{" "}
+                  {now.oportunidadesActivas || 0} oportunidades activas
+                </p>
+                <p className="text-xs text-fg3">{ACTIVA_EXPLAIN}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant={onlyActivas ? "primary" : "outline"}
+                    onClick={() => setOnlyActivas((value) => !value)}
+                  >
+                    {onlyActivas ? "Ver todas las filas" : "Solo activas"}
+                  </Button>
+                  {internasCount > 0 && (
+                    <Button
+                      size="sm"
+                      variant={showInternas ? "primary" : "outline"}
+                      onClick={() => setShowInternas((value) => !value)}
+                    >
+                      {showInternas
+                        ? "Ocultar llamadas internas"
+                        : `Mostrar llamadas internas (${internasCount})`}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {module === "ahora" && (
               <AhoraSheet
@@ -650,10 +748,18 @@ export default function CrmPage() {
                 onPatch={patch}
                 onReopen={reopen}
                 onCash={saveCash}
+                onDelete={removeRow}
                 empty={
-                  operacionBase.length > 0 && operacion.length === 0
+                  operacionScoped.length > 0 && operacion.length === 0
                     ? "Nada con estos filtros."
-                    : "Aún no hay llamadas en esta oferta."
+                    : operacion.length === 0 &&
+                        internasCount > 0 &&
+                        !showInternas &&
+                        operacionBase.every((row) => row.interna)
+                      ? "No hay llamadas con cliente. Las internas están ocultas."
+                      : operacion.length === 0 && onlyActivas
+                        ? "Ninguna fila es una oportunidad activa."
+                        : "Aún no hay llamadas en esta oferta."
                 }
               />
             )}
@@ -759,9 +865,7 @@ function CrmListFilters({
         options={weeks.map((value) => ({ value, label: weekLabel(value) }))}
         onChange={(week) => onChange({ ...filter, week })}
       />
-      <p className="pb-1.5 text-xs text-fg3">
-        {shown} de {rows.length}
-      </p>
+      <p className="pb-1.5 text-xs text-fg3">{filaCountLabel(shown, rows.length)}</p>
       {active && (
         <Button size="sm" variant="ghost" onClick={() => onChange(EMPTY_CRM_FILTER)}>
           Quitar filtros
@@ -852,6 +956,7 @@ function AhoraSheet({
           <QuietFact label="Pendiente de cobro" value={money(now.cashPendiente)} />
           <QuietFact label="Comisión pendiente" value={money(now.comisionPendiente)} />
           <QuietFact label="Oportunidades activas" value={String(now.oportunidadesActivas || 0)} />
+          <p className="pt-2 text-xs text-fg3">{ACTIVA_EXPLAIN}</p>
           <QuietFact label="Llamadas agendadas" value={String(now.agendasFuturas || 0)} />
         </dl>
         <HelpNote>
@@ -966,6 +1071,68 @@ function CashEditor({
   );
 }
 
+function AhoraGlance({
+  now,
+  money,
+  onOpen,
+}: {
+  now: Record<string, number>;
+  money: (value: number | null | undefined) => string;
+  onOpen: (target: "activas" | "hoy" | "dinero") => void;
+}) {
+  const hoy = now.seguimientosHoy || 0;
+  const vencidos = now.seguimientosVencidos || 0;
+  const acciones =
+    hoy <= 0 && vencidos <= 0
+      ? "Todo al día"
+      : `${hoy} pendiente${hoy === 1 ? "" : "s"} · ${vencidos} vencido${vencidos === 1 ? "" : "s"}`;
+  const items: { id: "activas" | "hoy" | "dinero"; label: string; value: string }[] = [
+    { id: "activas", label: "Leads activos", value: String(now.oportunidadesActivas || 0) },
+    { id: "hoy", label: "Acciones de hoy", value: acciones },
+    { id: "dinero", label: "Dinero en juego", value: money(now.dineroEnJuego) },
+  ];
+  return (
+    <div className="space-y-2">
+      <h2 className="text-sm text-fg3">Ahora mismo</h2>
+      <div className="divide-y divide-separator1 border-t border-separator1">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onOpen(item.id)}
+            className="flex w-full items-baseline justify-between gap-4 py-3 text-left"
+          >
+            <span className="text-sm text-fg0">{item.label}</span>
+            <span className="text-right text-sm text-fg3">{item.value}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-fg3">{ACTIVA_EXPLAIN}</p>
+    </div>
+  );
+}
+
+function lastContactByClient(rows: OperacionRow[]) {
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (row.interna) continue;
+    const key = foldLeadName(row.cliente);
+    const day = String(row.fecha || "").slice(0, 10);
+    if (!key || !day) continue;
+    const prev = map.get(key) || "";
+    if (day > prev) map.set(key, day);
+  }
+  return map;
+}
+
+function glanceFollowup(call: OperacionRow, rows: Followup[]) {
+  return (
+    followupForCall(call, rows) ||
+    rows.find((row) => foldLeadName(row.cliente) === foldLeadName(call.cliente)) ||
+    null
+  );
+}
+
 function OperacionSheet({
   rows,
   scopeRows,
@@ -979,6 +1146,7 @@ function OperacionSheet({
   onPatch,
   onReopen,
   onCash,
+  onDelete,
   empty = "Aún no hay llamadas en esta oferta.",
 }: {
   rows: OperacionRow[];
@@ -993,18 +1161,21 @@ function OperacionSheet({
   onPatch: (alertId: string, resultado: string, agenda?: boolean, nextAt?: string) => Promise<void>;
   onReopen: (alertId: string) => Promise<void>;
   onCash: (callId: string, amount: number) => Promise<void>;
+  onDelete: (row: OperacionRow) => Promise<void>;
   empty?: string;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState<OperacionRow | null>(null);
+  const contacts = useMemo(() => lastContactByClient(scopeRows || rows), [scopeRows, rows]);
   const columns: SheetColumn<OperacionRow>[] = [
     { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha },
-    { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
+    { key: "cliente", label: "Cliente", width: 220, value: (row) => clienteVisible(row.cliente, row.titulo) },
     { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
     { key: "canal", label: "Canal", width: 110, value: (row) => plainStatus(row.canal) },
     { key: "estado", label: "Estado", width: 130, value: (row) => plainStatus(row.estadoAgenda) },
     { key: "prox", label: "Próximo seguimiento", width: 150, value: (row) => row.fechaProximo },
     { key: "producto", label: "Producto", width: 160, value: (row) => plainStatus(row.producto || row.oferta) },
     { key: "venta", label: "Venta", width: 110, align: "right", value: (row) => money(row.venta) },
-    { key: "modo", label: "Modo de pago", width: 130, value: (row) => row.modoPago },
+    { key: "modo", label: "Modo de pago", width: 130, value: (row) => plainStatus(row.modoPago) },
     { key: "cash", label: "Cobrado", width: 110, align: "right", value: (row) => money(row.cash) },
     { key: "req", label: "¿Seguimiento?", width: 130, value: (row) => plainStatus(row.requiereSeguimiento) },
     { key: "tipo", label: "Tipo de seguimiento", width: 180, value: (row) => plainStatus(row.tipoSeguimiento) },
@@ -1012,8 +1183,44 @@ function OperacionSheet({
     { key: "razon", label: "Razón no cierre", width: 140, value: (row) => row.razonNoCierre },
     { key: "notas", label: "Notas", width: 160, value: (row) => row.notas },
   ];
+  const glanceOf = (row: OperacionRow) => {
+    const followup = glanceFollowup(row, followups);
+    return operacionGlance({
+      fecha: row.fecha,
+      ultimoContacto: contacts.get(foldLeadName(row.cliente)) || row.fecha,
+      paso: followup?.paso,
+      tipoSeguimiento: followup?.hilo || followup?.tipo || row.tipoSeguimiento,
+      fechaProximo: followup?.proximo || row.fechaProximo,
+    });
+  };
+  const selectedGlance = selected ? glanceOf(selected) : null;
+  const confirmName = confirmDelete
+    ? clienteVisible(confirmDelete.cliente, confirmDelete.titulo)
+    : "";
   return (
     <div className="space-y-2">
+      <div className="space-y-2 md:hidden">
+        {rows.map((row) => {
+          const glance = glanceOf(row);
+          const active = selectedId === row.id;
+          return (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => onSelect(row.id)}
+              className={`w-full min-w-0 rounded-2xl border px-3 py-3 text-left ${
+                active ? "border-primary bg-primary/10" : "border-separator1 bg-bg1"
+              }`}
+            >
+              <span className="block break-words text-sm text-fg0">
+                {clienteVisible(row.cliente, row.titulo)}
+                {row.fecha ? ` · ${row.fecha}` : ""}
+              </span>
+              <span className="mt-1 block break-words text-xs text-fg3">{glance.line}</span>
+            </button>
+          );
+        })}
+      </div>
       <SheetTable
         columns={columns}
         rows={rows}
@@ -1028,15 +1235,18 @@ function OperacionSheet({
           {(
             [
               ["Fecha", selected.fecha],
-              ["Cliente", selected.cliente],
+              ["Cliente", clienteVisible(selected.cliente, selected.titulo)],
               ["Teléfono", selected.telefono],
               ["Email", selected.email],
               ["Canal", plainStatus(selected.canal)],
               ["Estado", plainStatus(selected.estadoAgenda)],
+              ["Paso", selectedGlance?.paso || "—"],
+              ["Último contacto", selectedGlance?.ultimoContacto || selected.fecha],
+              ["Qué sigue", selectedGlance?.siguiente || "—"],
               ["Próximo seguimiento", selected.fechaProximo],
               ["Producto", plainStatus(selected.producto || selected.oferta)],
               ["Venta", money(selected.venta)],
-              ["Modo de pago", selected.modoPago],
+              ["Modo de pago", plainStatus(selected.modoPago)],
               ["Cobrado", money(selected.cash)],
               ["Saldo", money(selected.saldo)],
               ["¿Seguimiento?", plainStatus(selected.requiereSeguimiento)],
@@ -1092,8 +1302,53 @@ function OperacionSheet({
               />
             </div>
           ) : null}
+          <div className="pt-3">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={Boolean(busy)}
+              onClick={() => setConfirmDelete(selected)}
+            >
+              Eliminar fila
+            </Button>
+          </div>
         </div>
       )}
+      <Dialog open={Boolean(confirmDelete)} onOpenChange={(open) => !open && setConfirmDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Eliminar fila</DialogTitle>
+            <DialogDescription>
+              ¿Eliminar la fila de {confirmName} del {confirmDelete?.fecha || "sin fecha"}? Sale de
+              Operación. El próximo y el estado del lead se recalculan con las filas que quedan. El
+              lead no se borra.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy === "eliminar"}
+              onClick={() => setConfirmDelete(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={busy === "eliminar" || !confirmDelete}
+              onClick={() => {
+                const row = confirmDelete;
+                if (!row) return;
+                setConfirmDelete(null);
+                void onDelete(row);
+              }}
+            >
+              {busy === "eliminar" ? "Eliminando…" : "Eliminar fila"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1136,7 +1391,7 @@ function DashboardSheet({
         <p className="text-[11px] text-fg3">
           Ventas cerradas con monto: suma de {dealCount}{" "}
           {dealCount === 1 ? "cierre con monto" : "cierres con monto"}, cada persona una vez, en todos los meses.
-          Un show, una segunda reunión o un precio solo mencionado no entra. Cobrado es el dinero que ya entró.
+          Una asistencia, una segunda reunión o un precio solo mencionado no entra. Cobrado es el dinero que ya entró.
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <MetricCard label="Ventas cerradas con monto" value={money(total?.ventas)} tone="brand" />
@@ -1206,11 +1461,13 @@ function DashboardSheet({
       </div>
       <div className="space-y-4">
         <SectionHeading>En curso</SectionHeading>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <MetricCard label="Oportunidades activas" value={String(data.now?.oportunidadesActivas || 0)} tone="brand" />
           <MetricCard label="Llamadas agendadas" value={String(data.now?.agendasFuturas || 0)} tone="brand" />
           <MetricCard label="Seguimientos abiertos" value={String(data.followups?.length || 0)} tone="brand" />
           <MetricCard label="Cierres del mes" value={String(mes?.cierres || 0)} tone="brand" />
         </div>
+        <p className="text-[11px] text-fg3">{ACTIVA_EXPLAIN}</p>
       </div>
       <div className="space-y-4">
         <SectionHeading>Evolución</SectionHeading>

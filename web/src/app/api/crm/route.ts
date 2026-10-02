@@ -11,6 +11,7 @@ import { getWorkspace } from "@/lib/workspace";
 import { loadCommissionProjection } from "@/lib/crm-projection";
 import { setRecordedCash } from "@/lib/crm-cash";
 import { saveMonthlyGoal } from "@/lib/crm-prefs";
+import { deleteOperacionRow } from "@/lib/crm-delete-row";
 
 export async function GET() {
   try {
@@ -138,7 +139,8 @@ export async function PATCH(request: Request) {
         | "pick-script"
         | "commission-paid"
         | "monthly-goal"
-        | "set-cash";
+        | "set-cash"
+        | "delete-row";
       callId?: string;
       days?: number;
       resultado?: AlertOutcome;
@@ -166,6 +168,13 @@ export async function PATCH(request: Request) {
         },
       });
       return NextResponse.json({ ok: true });
+    }
+    if (body.action === "delete-row") {
+      const out = await deleteOperacionRow(auth.prisma, auth.userId, String(body.callId || ""));
+      if ("error" in out) {
+        return NextResponse.json({ error: out.error }, { status: 404 });
+      }
+      return NextResponse.json(out);
     }
     if (body.action === "set-cash") {
       const out = await setRecordedCash(auth.prisma, auth.userId, String(body.callId || ""), body.amount);

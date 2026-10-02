@@ -30,6 +30,7 @@ import { canonicalTipo } from "@/lib/call-normalize";
 import { inferCallDate, inferFollowupDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
 import { zonedDayKey } from "@/lib/crm-time";
 import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
+import { statusFromEstadoAgenda } from "@/lib/crm-activa";
 import { recordExtractorFeedback } from "@/lib/extractor-feedback";
 
 function parseCrmReadyOffersImpl(
@@ -54,13 +55,7 @@ export async function loadOffersForCrm(prisma: PrismaClient, userId: string) {
 export { userHasReadyCrm };
 
 function leadStatusFromAgenda(estado: string | null) {
-  if (estado === "CIERRE VENTA") return "cerrado";
-  if (estado === "ACUERDO SIN PAGO") return "cobro";
-  if (estado === "NO SHOW" || estado === "REPROGRAMA" || estado === "AGENDADO") {
-    return "seguimiento";
-  }
-  if (estado === "SHOW") return "seguimiento";
-  return "seguimiento";
+  return statusFromEstadoAgenda(estado);
 }
 
 function trainsBot(estado: string | null) {

@@ -1,11 +1,15 @@
 import { normalizeProximo } from "@/lib/call-normalize";
 import { spanishAgendaInText } from "@/lib/plain-labels";
 import { followupIsClosed } from "@/lib/crm-followups";
+import { isInternalNoise, visibleCallTitle } from "@/lib/crm-noise";
 import { zonedDayKey } from "@/lib/crm-time";
 
 export type OperacionRow = {
   id: string;
   leadId?: string;
+  leadStatus?: string;
+  interna?: boolean;
+  titulo?: string;
   fecha: string | null;
   cliente: string;
   telefono: string;
@@ -65,6 +69,7 @@ export type OperacionCall = {
   recordedAt?: Date | string | null;
   createdAt?: Date | string;
   leadName?: string | null;
+  title?: string | null;
   offerName?: string | null;
   estadoAgenda?: string | null;
   ventaTotal?: number | null;
@@ -118,16 +123,30 @@ export function operacionFromCall(
     seguimiento_resultado: seguimientoResultado,
     proximo_seguimiento: proximo,
   });
+  const fecha = isoDay(call.recordedAt) || isoDay(call.createdAt);
+  const cliente = asStr(call.leadName) || asStr(filing.cliente_real) || lead?.name || "";
+  const estadoAgenda = asStr(call.estadoAgenda).toUpperCase() || asStr(filing.estado_agenda).toUpperCase();
+  const titulo = visibleCallTitle({
+    title: call.title || "",
+    leadName: cliente,
+    date: fecha,
+  });
   return {
     id: call.id,
-    fecha: isoDay(call.recordedAt) || isoDay(call.createdAt),
-    cliente: asStr(call.leadName) || asStr(filing.cliente_real) || lead?.name || "",
+    fecha,
+    titulo,
+    interna: isInternalNoise({
+      cliente,
+      estadoAgenda,
+      title: call.title,
+    }),
+    cliente,
     telefono: asStr(filing.telefono) || asStr(lead?.telefono),
     email: asStr(filing.email) || asStr(lead?.email),
     canal:
       asStr(filing.canal_contacto).toUpperCase() ||
       asStr(lead?.canalContacto).toUpperCase(),
-    estadoAgenda: asStr(call.estadoAgenda).toUpperCase() || asStr(filing.estado_agenda).toUpperCase(),
+    estadoAgenda,
     fechaProximo: proximo,
     producto: asStr(filing.producto) || asStr(call.offerName),
     oferta: asStr(call.offerName),

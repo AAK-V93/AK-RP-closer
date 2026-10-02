@@ -284,7 +284,7 @@ export async function applyAgendaCheck(
         userId,
         leadId: alert.leadId,
         type: "DECISION",
-        question: `Hoy: seguimiento con ${alert.lead.name} (show sin grabación). ¿Lo hiciste?`,
+        question: `Hoy: seguimiento con ${alert.lead.name} (asistió, sin grabación). ¿Lo hiciste?`,
         dueAt: addDays(now, 1),
         canal: "WHATSAPP",
         callRecordId: record?.id || "",

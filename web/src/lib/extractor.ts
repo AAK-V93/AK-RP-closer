@@ -464,7 +464,7 @@ export function extractorGap(
   if (!parsed.estado_agenda) {
     return {
       field: "estado_agenda",
-      question: `¿${name} hizo show, no show, reprogramó, acordó o cerró?`,
+      question: `¿${name} asistió, no asistió, reprogramó, acordó o cerró?`,
     };
   }
   const offerNames = (offers || []).map((offer) => offer.productName).filter(Boolean);

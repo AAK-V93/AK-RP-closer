@@ -42,6 +42,21 @@ const STATUS_LABELS: Record<string, string> = {
   EMAIL: "Correo",
   OTROS: "Otros",
   OTRO: "Otro",
+  INTERNA: "Interna",
+  NO_COMERCIAL: "No comercial",
+  PARCIAL: "Parcial",
+  CASH: "Contado",
+  CONTADO: "Contado",
+  seguimiento: "Seguimiento",
+  pendiente: "Pendiente",
+  cobro: "Cobro",
+  nuevo: "Nuevo",
+  cerrado: "Cerrado",
+  perdido: "Perdido",
+  cerro: "Cerró",
+  no_cerro: "No cerró",
+  sin_grabacion: "Sin grabación",
+  caido: "Cayó",
 };
 
 const SMALL_WORDS = new Set(["de", "del", "la", "el", "los", "las", "y", "en"]);

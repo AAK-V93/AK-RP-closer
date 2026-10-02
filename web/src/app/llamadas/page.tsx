@@ -9,11 +9,13 @@ import { CalendarConnectPanel } from "@/components/calendar-connect-panel";
 import { Button } from "@/components/ui/button";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
+import { plainStatus } from "@/lib/plain-labels";
 
 type CallRow = {
   id: string;
   source: string;
   title: string;
+  interna?: boolean;
   date: string | null;
   callType: string;
   result: string;
@@ -42,6 +44,7 @@ export default function LlamadasPage() {
   const [reviewing, setReviewing] = useState(false);
   const [auditingId, setAuditingId] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
+  const [showInternas, setShowInternas] = useState(false);
 
   const loadCalls = () =>
     fetch("/api/llamadas")
@@ -245,7 +248,18 @@ export default function LlamadasPage() {
               <p className="text-sm text-destructive">{auditError}</p>
             )}
             <div className="space-y-2">
-              {calls.map((row) => (
+              {calls.some((row) => row.interna) && (
+                <Button
+                  size="sm"
+                  variant={showInternas ? "primary" : "outline"}
+                  onClick={() => setShowInternas((value) => !value)}
+                >
+                  {showInternas
+                    ? "Ocultar llamadas internas"
+                    : `Mostrar llamadas internas (${calls.filter((row) => row.interna).length})`}
+                </Button>
+              )}
+              {(showInternas ? calls : calls.filter((row) => !row.interna)).map((row) => (
                 <div
                   key={`${row.source}-${row.id}`}
                   className="rounded-xl border border-separator1 bg-bg1 px-3 py-2 flex items-start justify-between gap-3"
@@ -256,14 +270,10 @@ export default function LlamadasPage() {
                       {[
                         row.leadName,
                         row.offerName,
-                        isNonSalesCall(row.callType)
-                          ? row.callType === "NO_COMERCIAL"
-                            ? "no comercial"
-                            : "interna (coach/práctica)"
-                          : row.callType,
-                        row.result,
+                        row.callType ? plainStatus(row.callType) : "",
+                        row.result ? plainStatus(row.result) : "",
                       ]
-                        .filter(Boolean)
+                        .filter((part) => part && part !== "—")
                         .join(" · ") || row.source}
                       {row.trainsBot ? " · entra a la práctica" : ""}
                     </p>
@@ -327,6 +337,11 @@ export default function LlamadasPage() {
               ))}
               {calls.length === 0 && (
                 <p className="text-sm text-fg3">Aún no hay llamadas. Conecta las grabaciones o súbelas.</p>
+              )}
+              {calls.length > 0 && !showInternas && calls.every((row) => row.interna) && (
+                <p className="text-sm text-fg3">
+                  Solo hay llamadas internas. Ábrelas con el botón de arriba.
+                </p>
               )}
             </div>
           </>

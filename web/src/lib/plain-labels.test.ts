@@ -23,6 +23,12 @@ test("screen labels hide internal status codes", () => {
   assert.equal(plainStatus("ZOOM"), "Zoom");
   assert.equal(plainStatus("OTROS"), "Otros");
   assert.equal(plainStatus("SI"), "Sí");
+  assert.equal(plainStatus("INTERNA"), "Interna");
+  assert.equal(plainStatus("NO_COMERCIAL"), "No comercial");
+  assert.equal(plainStatus("cerro"), "Cerró");
+  assert.equal(plainStatus("CASH"), "Contado");
+  assert.equal(plainStatus("seguimiento"), "Seguimiento");
+  assert.equal(plainStatus("perdido"), "Perdido");
 });
 
 test("notes say Asistió instead of SHOW", () => {
