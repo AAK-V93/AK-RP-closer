@@ -13,6 +13,10 @@ import { CloserCoachChat } from "@/components/closer-coach-chat";
 import { ChevronRight } from "lucide-react";
 import { DeleteAnalysisButton } from "@/components/delete-analysis-button";
 
+function asList<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export default function CoachPage() {
   const { status } = useSession();
   const [insights, setInsights] = useState<
@@ -89,10 +93,18 @@ export default function CoachPage() {
           <CloserCoachChat />
         )}
 
-        {insights?.liveGuides && insights.liveGuides.length > 0 && (
+        {asList<LiveGuide>(insights?.liveGuides).length > 0 && (
           <section className="space-y-3">
             <h2 className="text-lg font-light">Guía viva por oferta</h2>
-            {insights.liveGuides.map((guide) => (
+            {asList<LiveGuide>(insights?.liveGuides).map((guide) => {
+              const closingTypes = asList<LiveGuide["closingTypes"][number]>(guide.closingTypes);
+              const scriptVariations = asList<LiveGuide["scriptVariations"][number]>(
+                guide.scriptVariations,
+              );
+              const winMoments = asList<string>(guide.winMoments);
+              const missingInLosses = asList<string>(guide.missingInLosses);
+              const drills = asList<string>(guide.drills);
+              return (
               <div
                 key={guide.offerName}
                 className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3"
@@ -106,13 +118,13 @@ export default function CoachPage() {
                 <p className="text-sm text-fg2">{guide.note}</p>
                 {guide.ready && (
                   <>
-                    {guide.closingTypes.length > 0 && (
+                    {closingTypes.length > 0 && (
                       <div>
                         <p className="text-[11px] uppercase tracking-widest text-fg3">
                           Quién cierra
                         </p>
                         <ul className="mt-1 space-y-1 text-sm">
-                          {guide.closingTypes.map((row) => (
+                          {closingTypes.map((row) => (
                             <li key={row.type}>
                               {row.type}
                               {row.approach ? ` · ${row.approach}` : ""}{" "}
@@ -124,13 +136,13 @@ export default function CoachPage() {
                         </ul>
                       </div>
                     )}
-                    {guide.scriptVariations.length > 0 && (
+                    {scriptVariations.length > 0 && (
                       <div>
                         <p className="text-[11px] uppercase tracking-widest text-fg3">
                           Variación del script
                         </p>
                         <ul className="mt-1 space-y-1 text-sm">
-                          {guide.scriptVariations.map((row) => (
+                          {scriptVariations.map((row) => (
                             <li key={`${row.leadType}-${row.variation}`}>
                               {row.leadType}: {row.variation}{" "}
                               <span className="text-fg3">
@@ -141,19 +153,19 @@ export default function CoachPage() {
                         </ul>
                       </div>
                     )}
-                    {guide.winMoments.length > 0 && (
+                    {winMoments.length > 0 && (
                       <p className="text-sm">
-                        En las que cerraron: {guide.winMoments.join(" · ")}
+                        En las que cerraron: {winMoments.join(" · ")}
                       </p>
                     )}
-                    {guide.missingInLosses.length > 0 && (
+                    {missingInLosses.length > 0 && (
                       <p className="text-sm">
-                        No aparece en las perdidas: {guide.missingInLosses.join(" · ")}
+                        No aparece en las perdidas: {missingInLosses.join(" · ")}
                       </p>
                     )}
-                    {guide.drills.length > 0 && (
+                    {drills.length > 0 && (
                       <div className="flex flex-wrap gap-2">
-                        {guide.drills.map((drill) => (
+                        {drills.map((drill) => (
                           <Button key={drill} asChild size="sm" variant="primary">
                             <Link href={`/practicar?focus=${encodeURIComponent(drill)}`}>
                               {drill}
@@ -165,7 +177,8 @@ export default function CoachPage() {
                   </>
                 )}
               </div>
-            ))}
+            );
+            })}
           </section>
         )}
 
@@ -177,7 +190,7 @@ export default function CoachPage() {
           <p className="text-sm text-fg3">Cargando tu historial…</p>
         )}
 
-        {insights && insights.practiceCount === 0 && insights.recent.length === 0 && (
+        {insights && insights.practiceCount === 0 && asList(insights.recent).length === 0 && (
           <div className="rounded-2xl border border-separator1 bg-bg1 p-6 space-y-3">
             <p className="text-sm">
               El coach ya puede hablar contigo. Para que vea evidencia real,
@@ -194,7 +207,7 @@ export default function CoachPage() {
           </div>
         )}
 
-        {insights && (insights.practiceCount > 0 || insights.recent.length > 0) && (
+        {insights && (insights.practiceCount > 0 || asList(insights.recent).length > 0) && (
           <>
             <section className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-separator1 bg-bg1 p-4">
@@ -215,13 +228,13 @@ export default function CoachPage() {
 
             <section className="space-y-3">
               <h2 className="text-lg font-light">En qué más fallas</h2>
-              {insights.weakSkills.length === 0 ? (
+              {asList<CoachingInsights["weakSkills"][number]>(insights.weakSkills).length === 0 ? (
                 <p className="text-sm text-fg3">
                   Todavía no hay un patrón débil claro. Sigue practicando.
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {insights.weakSkills.map((s) => (
+                  {asList<CoachingInsights["weakSkills"][number]>(insights.weakSkills).map((s) => (
                     <div
                       key={s.id}
                       className="rounded-xl border border-separator1 bg-bg1 p-4"
@@ -243,11 +256,11 @@ export default function CoachPage() {
 
             <section className="space-y-3">
               <h2 className="text-lg font-light">Errores que más se repiten</h2>
-              {insights.commonErrors.length === 0 ? (
+              {asList<CoachingInsights["commonErrors"][number]>(insights.commonErrors).length === 0 ? (
                 <p className="text-sm text-fg3">Aún no hay repeticiones claras.</p>
               ) : (
                 <ol className="space-y-2">
-                  {insights.commonErrors.map((e, i) => (
+                  {asList<CoachingInsights["commonErrors"][number]>(insights.commonErrors).map((e, i) => (
                     <li
                       key={i}
                       className="rounded-xl border border-separator1 bg-bg1 p-4 text-sm"
@@ -262,11 +275,11 @@ export default function CoachPage() {
 
             <section className="space-y-3">
               <h2 className="text-lg font-light">Qué practicar ahora</h2>
-              {insights.suggestions.length === 0 ? (
+              {asList<CoachingInsights["suggestions"][number]>(insights.suggestions).length === 0 ? (
                 <p className="text-sm text-fg3">Sin sugerencias todavía.</p>
               ) : (
                 <ul className="space-y-2">
-                  {insights.suggestions.map((s, i) => (
+                  {asList<CoachingInsights["suggestions"][number]>(insights.suggestions).map((s, i) => (
                     <li
                       key={i}
                       className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm space-y-2"
@@ -293,7 +306,7 @@ export default function CoachPage() {
             <section className="space-y-3">
               <h2 className="text-lg font-light">Últimas prácticas</h2>
               <div className="space-y-2">
-                {insights.recent.map((r) => (
+                {asList<CoachingInsights["recent"][number]>(insights.recent).map((r) => (
                   <div
                     key={r.id}
                     className="rounded-xl border border-separator1 bg-bg1 p-4 text-sm flex justify-between gap-3 hover:border-primary/40"

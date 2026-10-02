@@ -180,7 +180,7 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
       : "- No hay comisión asegurada todavía.",
     falta <= 0
       ? "- Ya la tienes: solo cobra lo pendiente."
-      : `- Te faltan USD ${Math.round(falta)}: ${cierres} cierres, ${shows} asistencias, ${agendas} agendas.`,
+      : `- Te faltan USD ${Math.round(falta)}: ${countPhrase(cierres, "cierre", "cierres")}, ${countPhrase(shows, "asistencia", "asistencias")}, ${countPhrase(agendas, "agenda", "agendas")}.`,
     todayAction ? `- Hoy: ${todayAction}.` : "",
     assumedRatesLabel ? `- ${assumedRatesLabel}` : "",
   ].filter(Boolean);
@@ -211,7 +211,7 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
       },
       {
         id: "close_rate",
-        text: `Si subes la tasa de cierre de ${Math.round(closeRate * 100)}% a ${Math.round(mejorClose * 100)}% necesitas ${Math.max(0, agendas - agendasMejor)} agendas menos.`,
+        text: `Si subes la tasa de cierre de ${Math.round(closeRate * 100)}% a ${Math.round(mejorClose * 100)}% necesitas ${countPhrase(Math.max(0, agendas - agendasMejor), "agenda", "agendas")} menos.`,
         href: "/coach",
       },
       { id: "agendar", text: `Agendar más: ${agendasHoy} / día hábil.` },

@@ -11,6 +11,7 @@ import { collectionCopy, fillFollowupGuion, hintsFromOffer, isCreativeFollowup, 
 import { scriptTemperatureFit, type TemperatureLevel } from "@/lib/lead-temperature";
 import { leadRescheduled } from "@/lib/followup-machine";
 import { applyClosedSaleFollowup } from "@/lib/crm-followups";
+import { asStringList } from "@/lib/library-pack";
 
 export function packScore(row: {
   uses: number;
@@ -34,20 +35,20 @@ function builtinPackCards() {
     id: pack.id,
     title: pack.title,
     description: pack.description,
-    tags: pack.tags,
+    tags: asStringList(pack.tags),
     publisher: "Biblioteca",
     publisherId: "",
     mine: false,
     starred: false,
     stars: 0,
-    scripts: pack.scripts.length,
+    scripts: (pack.scripts ?? []).length,
     updatedAt: "2026-09-22T00:00:00.000Z",
     uses: 0,
     tasaEnvio: 0,
     tasaCierre: 0,
     puntaje: 0,
     builtin: true,
-    items: pack.scripts.map((row) => ({
+    items: (pack.scripts ?? []).map((row) => ({
       id: builtinScriptId(pack.id, row.key),
       type: row.type,
       canal: row.canal,
@@ -75,7 +76,8 @@ export async function listPublicPacks(prisma: PrismaClient, userId: string) {
     take: 80,
   });
   const listed = packs.map((pack) => {
-    const agg = pack.scripts.reduce(
+    const scripts = pack.scripts ?? [];
+    const agg = scripts.reduce(
       (sum, row) => ({
         uses: sum.uses + row.uses,
         hechos: sum.hechos + row.hechos,
@@ -84,23 +86,21 @@ export async function listPublicPacks(prisma: PrismaClient, userId: string) {
       }),
       { uses: 0, hechos: 0, cierres: 0, perdidos: 0 },
     );
+    const email = pack.user?.email || "";
     return {
       id: pack.id,
       title: pack.title,
       description: pack.description,
-      tags: pack.tags
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
-      publisher: pack.user.name || pack.user.email.split("@")[0],
+      tags: asStringList(pack.tags),
+      publisher: pack.user?.name || (email.includes("@") ? email.split("@")[0] : email) || "Closer",
       publisherId: pack.userId,
       mine: pack.userId === userId,
-      starred: pack.stars.length > 0,
-      stars: pack._count.stars,
-      scripts: pack.scripts.length,
+      starred: (pack.stars ?? []).length > 0,
+      stars: pack._count?.stars ?? 0,
+      scripts: scripts.length,
       updatedAt: pack.updatedAt.toISOString(),
       ...packScore(agg),
-      items: pack.scripts.map((row) => ({
+      items: scripts.map((row) => ({
         id: row.id,
         type: row.type,
         canal: row.canal,

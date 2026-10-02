@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { ensureCrmTables, ensureFathomTables } from "@/lib/prisma";
 import { EMPTY_TRANSCRIPT_MARK, isUsableTranscript } from "@/lib/fathom-import";
-import { isInternalNoise, visibleCallTitle } from "@/lib/crm-noise";
+import { durationMinutesFromTranscript, isInternalNoise, visibleCallTitle } from "@/lib/crm-noise";
 import { fileCallQuietly } from "@/lib/file-call";
 import { listPendingFilings, reviewPendingCall } from "@/lib/call-intelligence";
 
@@ -56,7 +56,13 @@ export async function GET() {
           return {
             id: row.id,
             source: "fathom" as const,
-            title: visibleCallTitle({ title: rawTitle, leadName, date }),
+            title: visibleCallTitle({
+              title: rawTitle,
+              leadName,
+              date: row.recordedAt || date,
+              durationMinutes: durationMinutesFromTranscript(row.transcriptText),
+              summary: tag?.summary,
+            }),
             interna: isInternalNoise({
               cliente: leadName,
               estadoAgenda: tag?.callType,
@@ -88,7 +94,13 @@ export async function GET() {
         return {
           id: row.id,
           source: "upload" as const,
-          title: visibleCallTitle({ title: rawTitle, leadName, date }),
+          title: visibleCallTitle({
+            title: rawTitle,
+            leadName,
+            date: row.createdAt,
+            durationMinutes: durationMinutesFromTranscript(row.transcriptText),
+            summary: tag?.summary,
+          }),
           interna: isInternalNoise({
             cliente: leadName,
             estadoAgenda: tag?.callType,

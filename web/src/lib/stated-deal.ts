@@ -79,6 +79,18 @@ export function shownMoney(
   return counted > 0 ? counted : null;
 }
 
+/** Same saldo as Inicio and Resumen: counted sale minus Cobrado. A stored saldo is only the fallback when there is no sale. */
+export function shownBalance(
+  sale: number | null | undefined,
+  collected: number | null | undefined,
+  stored: number | null | undefined,
+  opts?: { at?: Date | string | null; prices?: number[] },
+) {
+  const priced = countedSale(sale, opts);
+  if (priced > 0) return Math.max(0, priced - countedSale(collected, opts));
+  return shownMoney(stored, opts);
+}
+
 /** A deal the closer and the lead actually agreed, not a price that was only mentioned. */
 export function explicitAgreement(text: string) {
   if (

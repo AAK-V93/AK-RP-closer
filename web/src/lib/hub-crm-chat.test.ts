@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PrismaClient } from "@prisma/client";
+import { missingOfferSetupPhrase } from "./offer-commercial";
 import {
   answerCrmChat,
   applyChatProposal,
+  asksForMoneyStats,
   asksForPendingDesk,
+  chatCapabilitiesReply,
   cobradoFromCalls,
+  formatMoneyStats,
+  looksLikeOfferSetup,
   interpretCrmChat,
   loadLeadTranscript,
   looksLikeFilingAnswer,
@@ -841,6 +846,73 @@ test("pending desk questions list overdue and today, not the offer paste", () =>
   assert.match(turn.reply, /Valeria Ríos — Cobro de la siguiente cuota — 2026-10-09/);
   assert.match(turn.reply, /Carlos Ramírez — Seguimiento — 2026-09-20/);
   assert.doesNotMatch(turn.reply, /Pega todo junto/);
+});
+
+const moneyBrief = {
+  month: { cobrado: 1066, vendido: 1597 },
+  week: { cobrado: 200, vendido: 400 },
+  today: { cobrado: 0, vendido: 0 },
+  saldoPorCobrar: 531,
+  dineroEnJuego: 63600,
+};
+
+test("money questions use Resumen numbers and never the offer paste", () => {
+  assert.equal(asksForMoneyStats("¿Cuánto llevo cobrado este mes?"), true);
+  assert.equal(asksForMoneyStats("¿cuánto vendí?"), true);
+  assert.equal(asksForMoneyStats("¿cuánto cobré esta semana?"), true);
+  assert.equal(asksForMoneyStats("¿cuánto cobré hoy?"), true);
+  assert.equal(asksForMoneyStats("saldo por cobrar"), true);
+  assert.equal(asksForMoneyStats("dinero en juego"), true);
+  assert.equal(asksForMoneyStats("Valeria Ríos pagó la cuota de 533"), false);
+
+  const month = formatMoneyStats("¿Cuánto llevo cobrado este mes?", moneyBrief);
+  assert.match(month, /Este mes llevas cobrado USD 1\.066/);
+  assert.match(month, /Saldo por cobrar USD 531/);
+  assert.match(month, /Dinero en juego USD 63\.600/);
+  assert.doesNotMatch(month, /Esta semana/);
+  assert.doesNotMatch(month, /Pega todo junto/);
+
+  const sold = formatMoneyStats("¿cuánto vendí?", moneyBrief);
+  assert.match(sold, /Este mes vendiste USD 1\.597/);
+  assert.match(sold, /Esta semana vendiste USD 400/);
+  assert.match(sold, /Hoy vendiste USD 0/);
+  assert.match(sold, /Saldo por cobrar USD 531/);
+  assert.doesNotMatch(sold, /Pega todo junto/);
+
+  const week = formatMoneyStats("¿cuánto cobré esta semana?", moneyBrief);
+  assert.match(week, /Esta semana llevas cobrado USD 200/);
+  assert.doesNotMatch(week, /Este mes/);
+
+  const today = formatMoneyStats("¿cuánto cobré hoy?", moneyBrief);
+  assert.match(today, /Hoy llevas cobrado USD 0/);
+  assert.match(today, /Dinero en juego USD 63\.600/);
+
+  assert.match(formatMoneyStats("saldo por cobrar", moneyBrief), /^Saldo por cobrar USD 531/);
+  assert.match(formatMoneyStats("dinero en juego", moneyBrief), /Dinero en juego USD 63\.600/);
+});
+
+test("an unknown question lists what the chat can do; an offer paste does not", () => {
+  const help = chatCapabilitiesReply();
+  assert.match(help, /cobrado/);
+  assert.match(help, /saldo por cobrar/);
+  assert.match(help, /dinero en juego/);
+  assert.doesNotMatch(help, /Pega todo junto/);
+  assert.equal(looksLikeOfferSetup("¿qué hora es en Lima?"), false);
+  assert.equal(looksLikeOfferSetup("¿Cuánto llevo cobrado este mes?"), false);
+  assert.equal(
+    looksLikeOfferSetup(
+      "La oferta se llama Círculo Millonario. Precio de lista USD 11800, contado especial USD 10000 en 3 cuotas. Comisión 10% cuando el cliente paga, por transferencia a la cuenta de la empresa.",
+    ),
+    true,
+  );
+  assert.equal(
+    missingOfferSetupPhrase(["cómo te pagan comisión (plazo, forma de pago, %)"]),
+    "falta cómo te pagan comisión",
+  );
+  assert.equal(
+    missingOfferSetupPhrase(["precio de lista", "modos de pago"]),
+    "falta precio y pagos",
+  );
 });
 
 test("a bare no is not a filing answer", () => {

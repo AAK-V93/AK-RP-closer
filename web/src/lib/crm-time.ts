@@ -102,6 +102,26 @@ export function shiftZonedMonth(at: Date, delta: number, timeZone = CRM_TIMEZONE
   return zonedMonthRange(new Date(Date.UTC(nextYear, nextMonth, 15, 17)), timeZone);
 }
 
+/** Monday 00:00 through the next Monday, in the closer's calendar. */
+export function zonedWeekRange(at: Date, timeZone = CRM_TIMEZONE) {
+  const key = zonedDayKey(at, timeZone);
+  const [year, month, day] = key.split("-").map(Number);
+  if (![year, month, day].every((n) => Number.isFinite(n))) {
+    const from = zonedMidnight(1970, 1, 1, timeZone);
+    return { from, to: new Date(from.getTime() + 7 * 86_400_000) };
+  }
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
+  const monday = new Date(Date.UTC(year, month - 1, day + mondayOffset));
+  const from = zonedMidnight(
+    monday.getUTCFullYear(),
+    monday.getUTCMonth() + 1,
+    monday.getUTCDate(),
+    timeZone,
+  );
+  return { from, to: new Date(from.getTime() + 7 * 86_400_000) };
+}
+
 export function zonedDayBounds(at: Date, timeZone = CRM_TIMEZONE) {
   const { year, month, day } = zonedParts(at, timeZone);
   const from = zonedMidnight(year, month, day, timeZone);

@@ -255,6 +255,22 @@ export function crmGaps(offer: {
   return gaps;
 }
 
+/** Only the commercial pieces that are still empty, in the order the closer sees them. */
+export function missingOfferSetupPhrase(gaps: string[]) {
+  const items = gaps
+    .map((gap) => {
+      if (gap.startsWith("precio")) return "precio";
+      if (gap.startsWith("modos")) return "pagos";
+      if (gap.startsWith("cómo te pagan")) return "cómo te pagan comisión";
+      return "";
+    })
+    .filter(Boolean);
+  if (!items.length) return "";
+  if (items.length === 1) return `falta ${items[0]}`;
+  if (items.length === 2) return `falta ${items[0]} y ${items[1]}`;
+  return `falta ${items.slice(0, -1).join(", ")} y ${items[items.length - 1]}`;
+}
+
 export function commissionSummary(rule: CommissionRuleInput | null): string {
   if (!rule) return "";
   if (rule.tiers.length) {

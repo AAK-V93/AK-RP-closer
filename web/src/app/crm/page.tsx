@@ -38,6 +38,7 @@ import { ACTIVA_EXPLAIN, filaCountLabel, latestActiveRows, operacionCountLine } 
 import { clienteVisible } from "@/lib/crm-noise";
 import { derivedPaso, operacionGlance } from "@/lib/crm-glance";
 import { dineroEnJuegoNote, saldoPorCobrarNote, type PipelineLine } from "@/lib/crm-pipeline";
+import { followupCardStatus } from "@/lib/home-desk";
 import { PipelineDetail } from "@/components/pipeline-detail";
 import { foldLeadName, followupSnapshot, isMeetingFollowup, shownFollowupKind } from "@/lib/crm-followups";
 import { LOST_REASONS, lostScopeMessage, openFollowupCount } from "@/lib/followup-desk";
@@ -171,6 +172,10 @@ const MODULES: { id: ModuleId; label: string }[] = [
   { id: "comisiones", label: "Comisiones" },
 ];
 
+function asList<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function matchesOffer(value: string, selected: string) {
   if (selected === "todas") return true;
   const a = (value || "").toLowerCase();
@@ -254,12 +259,12 @@ export default function CrmPage() {
     const previous = data;
     const today = data?.today || zonedDayKey(new Date());
     if (data && !agenda) {
-      const followups = data.followups || [];
+      const followups = asList<NonNullable<Dash["followups"]>[number]>(data.followups);
       const target = followups.find((row) => row.id === alertId);
       const clickedCallId = alertId.startsWith("call:")
         ? alertId.slice("call:".length)
         : target?.callId || "";
-      const clickedCall = (data.operacion || []).find((row) => row.id === clickedCallId) || null;
+      const clickedCall = asList<NonNullable<Dash["operacion"]>[number]>(data.operacion).find((row) => row.id === clickedCallId) || null;
       const leadId = target?.leadId || clickedCall?.leadId || "";
       const lostIds =
         resultado === "perdido" && leadId
@@ -275,13 +280,13 @@ export default function CrmPage() {
       const cliente = target?.cliente || clickedCall?.cliente || "";
       const lostCalls =
         resultado === "perdido" && leadId
-          ? (data.operacion || [])
+          ? asList<NonNullable<Dash["operacion"]>[number]>(data.operacion)
               .filter(
                 (row) => row.leadId === leadId && (row.fechaProximo || row.id === clickedCallId),
               )
               .map((row) => row.id)
           : [];
-      const operacion = projectOperacionProximo(data.operacion || [], {
+      const operacion = projectOperacionProximo(asList<NonNullable<Dash["operacion"]>[number]>(data.operacion), {
         callId: clickedCallId || target?.callId,
         callIds: lostCalls,
         leadId,
@@ -300,7 +305,7 @@ export default function CrmPage() {
           leaves: projected.leaves,
           closedCount:
             resultado === "perdido"
-              ? openFollowupCount(data.operacion || [], leadId, clickedCallId)
+              ? openFollowupCount(asList<NonNullable<Dash["operacion"]>[number]>(data.operacion), leadId, clickedCallId)
               : 1,
         }),
         snapshot: data,
@@ -481,7 +486,7 @@ export default function CrmPage() {
     }
   };
 
-  const offers = data?.offers || [];
+  const offers = asList<NonNullable<Dash["offers"]>[number]>(data?.offers);
   const currency =
     offers.find((row) => row.productName === offer)?.currency ||
     offers[0]?.currency ||
@@ -489,7 +494,7 @@ export default function CrmPage() {
   const money = (value: number | null | undefined) => moneyLabel(value, currency);
 
   const operacionBase = useMemo(
-    () => (data?.operacion || []).filter((row) => matchesOffer(row.oferta || row.producto, offer)),
+    () => asList<NonNullable<Dash["operacion"]>[number]>(data?.operacion).filter((row) => matchesOffer(row.oferta || row.producto, offer)),
     [data?.operacion, offer],
   );
   const internasCount = operacionBase.filter((row) => row.interna).length;
@@ -499,11 +504,11 @@ export default function CrmPage() {
   const activeOperacion = useMemo(() => latestActiveRows(operacionVisible), [operacionVisible]);
   const operacionScoped = onlyActivas ? activeOperacion : operacionVisible;
   const followupsBase = useMemo(
-    () => (data?.followups || []).filter((row) => matchesOffer(row.oferta || "", offer)),
+    () => asList<NonNullable<Dash["followups"]>[number]>(data?.followups).filter((row) => matchesOffer(row.oferta || "", offer)),
     [data?.followups, offer],
   );
   const commissionsBase = useMemo(
-    () => (data?.commissions || []).filter((row) => matchesOffer(row.oferta || "", offer)),
+    () => asList<NonNullable<Dash["commissions"]>[number]>(data?.commissions).filter((row) => matchesOffer(row.oferta || "", offer)),
     [data?.commissions, offer],
   );
   const listRows = useMemo(() => {
@@ -1109,12 +1114,7 @@ function AhoraGlance({
   money: (value: number | null | undefined) => string;
   onOpen: (target: "activas" | "hoy" | "dinero") => void;
 }) {
-  const hoy = now.seguimientosHoy || 0;
-  const vencidos = now.seguimientosVencidos || 0;
-  const acciones =
-    hoy <= 0 && vencidos <= 0
-      ? "Todo al día"
-      : `${hoy} pendiente${hoy === 1 ? "" : "s"} · ${vencidos} vencido${vencidos === 1 ? "" : "s"}`;
+  const acciones = followupCardStatus(now.seguimientosHoy || 0, now.seguimientosVencidos || 0);
   const items: { id: "activas" | "hoy" | "dinero"; label: string; value: string }[] = [
     { id: "activas", label: "Leads activos", value: String(now.oportunidadesActivas || 0) },
     { id: "hoy", label: "Acciones de hoy", value: acciones },
@@ -1445,10 +1445,14 @@ function DashboardSheet({
 }) {
   const mes = data.rendimiento?.mes;
   const total = data.rendimiento?.acumulado;
-  const series = data.evolucion || [];
-  const deals = data.ventasDetalle?.leads || [];
+  const series = asList<NonNullable<Dash["evolucion"]>[number]>(data.evolucion);
+  const deals = asList<NonNullable<NonNullable<Dash["ventasDetalle"]>["leads"]>[number]>(
+    data.ventasDetalle?.leads,
+  );
   const dealCount = data.ventasDetalle?.n ?? deals.length;
-  const sinMonto = data.ventasDetalle?.sinMonto || [];
+  const sinMonto = asList<NonNullable<NonNullable<Dash["ventasDetalle"]>["sinMonto"]>[number]>(
+    data.ventasDetalle?.sinMonto,
+  );
   const [showDeals, setShowDeals] = useState(false);
   return (
     <div className="space-y-8">
@@ -1510,7 +1514,7 @@ function DashboardSheet({
           </p>
         )}
         <p className="text-[11px] text-fg3">{dineroEnJuegoNote(data.now?.pipelineLeads || 0)}</p>
-        <PipelineDetail lines={data.pipelineDetalle || []} format={money} />
+        <PipelineDetail lines={asList<PipelineLine>(data.pipelineDetalle)} format={money} />
         <p className="text-[11px] text-fg3">{saldoPorCobrarNote(data.now?.saldoPorCobrar || 0)}</p>
         <button
           type="button"
@@ -1588,7 +1592,7 @@ function DashboardSheet({
             { key: "ventas", label: "Ventas", width: 110, align: "right", value: (row) => money(row.ventas) },
             { key: "cash", label: "Cobrado", width: 120, align: "right", value: (row) => money(row.cash) },
           ]}
-          rows={data.desglose?.porOferta || []}
+          rows={asList<NonNullable<Dash["desglose"]>["porOferta"][number]>(data.desglose?.porOferta)}
           getId={(row) => row.oferta}
           empty="Sin desglose por oferta."
         />
@@ -1597,7 +1601,7 @@ function DashboardSheet({
             { key: "razon", label: "Razón de no cierre", width: 220, value: (row) => row.razon },
             { key: "count", label: "Veces", width: 70, align: "right", value: (row) => row.count },
           ]}
-          rows={data.desglose?.razonNoCierre || []}
+          rows={asList<NonNullable<Dash["desglose"]>["razonNoCierre"][number]>(data.desglose?.razonNoCierre)}
           getId={(row) => `${row.razon}-${row.count}`}
           empty="Sin datos aún."
         />
@@ -1877,7 +1881,7 @@ function SeguimientosSheet({
   return (
     <div className="space-y-4">
       <p className="text-sm text-fg3" aria-live="polite">
-        Pendientes de hoy {now.seguimientosHoy || 0} · Vencidos {now.seguimientosVencidos || 0} · Dinero en juego{" "}
+        {followupCardStatus(now.seguimientosHoy || 0, now.seguimientosVencidos || 0)} · Dinero en juego{" "}
         {money(now.dineroEnJuego)}
       </p>
       <HelpNote>
