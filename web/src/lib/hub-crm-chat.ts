@@ -9,10 +9,16 @@ import {
 } from "@/lib/crm-followups";
 import { zonedDayBounds, zonedDayKey, zonedMonthRange, zonedWeekRange } from "@/lib/crm-time";
 import { parseCommercial, looksLikeOfferBlob } from "@/lib/offer-commercial";
-import { rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
+import {
+  cobrosAfterCashChange,
+  datedCashPayments,
+  rollupCalls,
+  type RollupCall,
+  type RollupOffer,
+} from "@/lib/crm-rollup";
 import { summarizePipeline } from "@/lib/crm-pipeline";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
-import { samePersonName } from "@/lib/lead-match";
+import { findMatchingLead, samePersonName } from "@/lib/lead-match";
 import { realClientName } from "@/lib/crm-noise";
 import { renameCrmCalls } from "@/lib/crm-rename";
 
@@ -430,11 +436,21 @@ export type MoneyBrief = {
   dineroEnJuego: number;
 };
 
+/** «hoy», «esta semana» or «este mes» with nothing else. */
+export function bareMoneyPeriod(text: string): "month" | "week" | "today" | null {
+  const q = fold(text);
+  if (/^(este mes|del mes|en el mes|mes)$/.test(q)) return "month";
+  if (/^(esta semana|de esta semana|semana)$/.test(q)) return "week";
+  if (/^(hoy|el dia de hoy|de hoy)$/.test(q)) return "today";
+  return null;
+}
+
 /** Totals the closer asks for. A payment sentence stays a payment, not a stat. */
 export function asksForMoneyStats(text: string) {
   const q = fold(text);
   if (!q || looksLikeOfferBlob(text)) return false;
   if (/\b(me pago|pago la cuota|cuota de|reserva de|abono)\b/.test(q)) return false;
+  if (bareMoneyPeriod(text)) return true;
   if (/\bsaldo por cobrar\b/.test(q) || /\bdinero en juego\b/.test(q)) return true;
   const period = /\b(cuanto|mes|semana|hoy)\b/.test(q);
   if (/\b(cobrad\w*|cobre|he cobrado|llevo cobrado)\b/.test(q) && period) return true;
@@ -444,10 +460,11 @@ export function asksForMoneyStats(text: string) {
 
 export function formatMoneyStats(text: string, brief: MoneyBrief) {
   const q = fold(text);
+  const bare = bareMoneyPeriod(text);
   const wantsSaldo = /\bsaldo por cobrar\b/.test(q);
   const wantsJuego = /\bdinero en juego\b/.test(q);
-  const wantsCobrado = /\b(cobrad\w*|cobre|he cobrado|llevo cobrado)\b/.test(q);
-  const wantsVendido = /\b(vendi|vendido|ventas)\b/.test(q);
+  const wantsCobrado = Boolean(bare) || /\b(cobrad\w*|cobre|he cobrado|llevo cobrado)\b/.test(q);
+  const wantsVendido = Boolean(bare) || /\b(vendi|vendido|ventas)\b/.test(q);
   const tail = `Saldo por cobrar USD ${formatMoneyEs(brief.saldoPorCobrar)}. Dinero en juego USD ${formatMoneyEs(brief.dineroEnJuego)}.`;
   if (wantsSaldo && !wantsCobrado && !wantsVendido) return tail;
   if (wantsJuego && !wantsCobrado && !wantsVendido && !wantsSaldo) return tail;
@@ -892,6 +909,7 @@ export async function applyChatProposal(
     let cashChange: ChatChange | null = null;
     let cashSkipNote = "";
     let cashRemember = true;
+    let callCash: number | null = null;
     const nameChange = proposal.changes.find((change) => change.field === "name");
     const fromName = nameChange?.from?.trim() || lead.name;
     for (const change of proposal.changes) {
@@ -917,7 +935,6 @@ export async function applyChatProposal(
     }
     if (cashChange && cashChange.to.trim()) {
       const target = paidNow(cashChange.to);
-      let callCash: number | null = null;
       try {
         const preview = await prisma.callRecord.findFirst({
           where: { userId, leadName: nextName },
@@ -980,7 +997,16 @@ export async function applyChatProposal(
         if (when) filing.proximo_seguimiento = when.to;
         if (note) filing.notas_crm = note.to;
         const cashAmount = data.amountPaid != null ? Number(data.amountPaid) : null;
-        if (cashAmount != null && Number.isFinite(cashAmount)) filing.cash_collected = cashAmount;
+        if (cashAmount != null && Number.isFinite(cashAmount)) {
+          filing.cash_collected = cashAmount;
+          const previous = callCash != null ? callCash : paidNow(String(lead.amountPaid || ""));
+          filing.cobros = cobrosAfterCashChange({
+            filingJson: call.filingJson,
+            previous,
+            next: cashAmount,
+            saleAt: call.recordedAt || call.createdAt,
+          });
+        }
         await prisma.callRecord.update({
           where: { id: call.id },
           data: {
@@ -1134,7 +1160,7 @@ export async function respondToCrmChat(
 }
 
 async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Date()): Promise<MoneyBrief> {
-  const [calls, leads, offers, threads] = await Promise.all([
+  const [calls, leads, offers, threads, commissions] = await Promise.all([
     prisma.callRecord.findMany({
       where: { userId, filingStatus: { not: "skipped" } },
       select: {
@@ -1155,10 +1181,12 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
       select: {
         id: true,
         name: true,
+        company: true,
         status: true,
         offerName: true,
         amountTalked: true,
         nextStepAt: true,
+        updatedAt: true,
       },
     }),
     prisma.userOffer.findMany({
@@ -1168,6 +1196,10 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
     prisma.followupThread.findMany({
       where: { userId, estado: "activo" },
       select: { leadId: true, tipo: true, estado: true },
+    }),
+    prisma.commission.findMany({
+      where: { userId },
+      select: { callRecordId: true, cash: true, fecha: true },
     }),
   ]);
   const rollupOffers: RollupOffer[] = offers.map((offer) => {
@@ -1182,6 +1214,10 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
     };
   });
   const confirmed = calls.filter((row) => row.filingStatus === "confirmed");
+  const namedLeads = leads.map((lead) => ({ id: lead.id, name: lead.name, company: lead.company || "" }));
+  const commissionByCall = new Map(
+    commissions.filter((row) => row.callRecordId).map((row) => [row.callRecordId, row] as const),
+  );
   const rollupInput: RollupCall[] = confirmed.map((row) => {
     const filing = (row.filingJson || {}) as {
       producto?: string;
@@ -1190,7 +1226,13 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
       notas_crm?: string;
       evidencia?: { cierre?: string; venta_total?: string };
       lead_id?: string;
+      cliente_real?: string;
     };
+    const match =
+      namedLeads.find((lead) => lead.id === String(filing.lead_id || "")) ||
+      findMatchingLead(namedLeads, row.leadName || filing.cliente_real || "");
+    const lead = match ? leads.find((item) => item.id === match.id) : undefined;
+    const booked = commissionByCall.get(row.id);
     return {
       id: row.id,
       leadId: String(filing.lead_id || ""),
@@ -1207,6 +1249,15 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
       cashCollected: row.cashCollected,
       recordedAt: row.recordedAt,
       createdAt: row.createdAt,
+      cashPayments: datedCashPayments({
+        cashCollected: row.cashCollected,
+        recordedAt: row.recordedAt,
+        createdAt: row.createdAt,
+        filingJson: row.filingJson,
+        bookedCash: booked?.cash,
+        bookedAt: booked?.fecha,
+        changedAt: lead?.updatedAt,
+      }),
     };
   });
   const period = (range: { from: Date; to: Date }) => {

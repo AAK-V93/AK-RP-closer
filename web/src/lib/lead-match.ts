@@ -92,3 +92,58 @@ export function findMatchingLead<T extends NamedLead>(
 
   return null;
 }
+
+export function phoneDigits(value: string | null | undefined) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function phonesMatch(left: string, right: string) {
+  if (left.length < 8 || right.length < 8) return false;
+  return left === right || left.endsWith(right) || right.endsWith(left);
+}
+
+export type CrmLeadRef = {
+  id: string;
+  name: string;
+  company?: string;
+  telefono?: string | null;
+  email?: string | null;
+  /** Call ids already stored on the lead (thread, alert, or filing). */
+  callIds?: string[];
+};
+
+/** A pending call whose prospect is already a CRM lead, by id, call id, name or phone. */
+export function callAlreadyInCrm(
+  call: {
+    id?: string;
+    leadName?: string | null;
+    title?: string | null;
+    filingJson?: unknown;
+  },
+  leads: CrmLeadRef[],
+) {
+  if (!leads.length) return false;
+  const filing = (call.filingJson || {}) as {
+    lead_id?: unknown;
+    cliente_real?: unknown;
+    telefono?: unknown;
+    email?: unknown;
+  };
+  const leadId = String(filing.lead_id || "").trim();
+  if (leadId && leads.some((lead) => lead.id === leadId)) return true;
+  if (call.id && leads.some((lead) => (lead.callIds || []).includes(call.id || ""))) return true;
+  const named = leads.map((lead) => ({
+    id: lead.id,
+    name: lead.name,
+    company: lead.company || "",
+  }));
+  const names = [filing.cliente_real, call.leadName, call.title]
+    .map((value) => String(value || "").trim())
+    .filter((value) => value && !/^(impromptu|google meet|zoom|llamada sin titulo|sin titulo)/i.test(value));
+  if (names.some((name) => findMatchingLead(named, name))) return true;
+  const phone = phoneDigits(String(filing.telefono || ""));
+  if (phone && leads.some((lead) => phonesMatch(phone, phoneDigits(lead.telefono)))) return true;
+  const email = String(filing.email || "").trim().toLowerCase();
+  if (email && leads.some((lead) => String(lead.email || "").trim().toLowerCase() === email)) return true;
+  return false;
+}

@@ -12,6 +12,7 @@ import {
 } from "@/lib/offer-amounts";
 import {
   emptyCommercial,
+  offerSentenceName,
   parseCommercial,
   parseCommissionFromText,
   retainOfferSource,
@@ -113,13 +114,19 @@ export function extractedFromParsed(
   }
   const description = String(parsed.productDescription || "").trim();
   let name = String(parsed.productName || "").trim() || fallbackName;
-  if (isPriceLabel(name) || isInventedOfferLabel(name) || isUnspecifiedOfferName(name)) {
+  const fromSentence = offerSentenceName(`${sourceText}\n${description}`);
+  if (/^oferta$/i.test(name) || !name) name = fromSentence || "";
+  if (!name || isPriceLabel(name) || isInventedOfferLabel(name) || isUnspecifiedOfferName(name)) {
     const better = nameHintsFromText(`${sourceText}\n${description}`).find(
       (hint) =>
-        !isPriceLabel(hint) && !isInventedOfferLabel(hint) && !isUnspecifiedOfferName(hint),
+        !isPriceLabel(hint) &&
+        !isInventedOfferLabel(hint) &&
+        !isUnspecifiedOfferName(hint) &&
+        !/^mi oferta$/i.test(hint),
     );
-    name = better || (isUnspecifiedOfferName(name) ? "" : name);
+    name = fromSentence || better || (isUnspecifiedOfferName(name) ? "" : name);
   }
+  if (!name || /^oferta$/i.test(name)) name = fromSentence || fallbackName;
   const icp = String(parsed.icp || "").trim();
   return {
     productName: name,
@@ -252,15 +259,19 @@ export function heuristicExtract(text: string): ExtractedOffer {
   if (/reserva/i.test(source)) modes.push({ name: "Reserva", details: "" });
   if (/cuota/i.test(source)) modes.push({ name: "Cuotas", details: "" });
   commercial.paymentModes = modes;
+  const named = offerSentenceName(source);
   const firstLine =
     source
       .split("\n")
       .map((line) => line.trim())
       .find((line) => line.length > 2 && line.length <= 70 && !isPriceLabel(line)) || "Oferta";
   const description = source.slice(0, 1200);
+  const productName = named
+    || (firstLine.length <= 70 && !isUnspecifiedOfferName(firstLine) && !/^oferta$/i.test(firstLine)
+      ? firstLine
+      : "Oferta");
   return {
-    productName:
-      firstLine.length <= 70 && !isUnspecifiedOfferName(firstLine) ? firstLine : "Oferta",
+    productName,
     productDescription: description.length >= 20 ? description : `${description} — oferta`.slice(0, 80),
     pitchSummary: "",
     icp: "",

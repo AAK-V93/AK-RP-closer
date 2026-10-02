@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { findMatchingLead } from "@/lib/lead-match";
+import { cobrosAfterCashChange } from "@/lib/crm-rollup";
 
 export function parseCashInput(value: unknown): { ok: true; amount: number } | { ok: false } {
   if (value == null || value === "") return { ok: true, amount: 0 };
@@ -30,6 +31,13 @@ export async function setRecordedCash(
       ? { ...(call.filingJson as Record<string, unknown>) }
       : {};
   filing.cash_collected = amount > 0 ? amount : 0;
+  const previous = Math.round(Number(call.cashCollected) || 0);
+  filing.cobros = cobrosAfterCashChange({
+    filingJson: call.filingJson,
+    previous,
+    next: amount,
+    saleAt: call.recordedAt || call.createdAt,
+  });
   await prisma.callRecord.update({
     where: { id: call.id },
     data: {

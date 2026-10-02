@@ -272,3 +272,16 @@ test("the API extract keeps the price tail and the bonus list when the model ret
   assert.equal(failed.offers[0]?.commercial.bonuses.length, 10);
   assert.equal(failed.offers[0]?.commercial.commission, null);
 });
+
+test("a short offer sentence keeps the program name", () => {
+  const short = heuristicBatch("Vendo Mentoría Prueba QA a USD 900 contado o 3 cuotas de 330.");
+  assert.equal(short.offers[0]?.productName, "Mentoría Prueba QA");
+  const long = parsedToBatch(
+    { offers: [{ productName: "Oferta", listPrice: 1200 }] },
+    "Oferta",
+    "Mi oferta: Mentoría Prueba QA. Precio de lista USD 1.200, contado USD 900, o 3 cuotas de USD 330. Incluye 4 sesiones y 2 bonos.",
+  );
+  assert.equal(long.offers[0]?.productName, "Mentoría Prueba QA");
+  const costs = heuristicBatch("Mentoría Prueba QA cuesta USD 900 de contado.");
+  assert.equal(costs.offers[0]?.productName, "Mentoría Prueba QA");
+});

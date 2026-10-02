@@ -20,6 +20,7 @@ import {
   linkedToCrmLead,
   visibleCallTitle,
 } from "./crm-noise";
+import { callAlreadyInCrm } from "./lead-match";
 
 test("activa is one definition and the same count for every lead list", () => {
   assert.match(ACTIVA_EXPLAIN, /todavía puedes cerrar o cobrar/);
@@ -425,4 +426,28 @@ test("llamadas list and detail replace an Impromptu title", () => {
   assert.equal(linkedToCrmLead("", ["Valeria Rios"]), false);
   assert.equal(joinDistinct(["Cerró", "Cerró"]), "Cerró");
   assert.equal(joinDistinct(["Valeria Ríos", "Cerró", "Cerró"]), "Valeria Ríos · Cerró");
+});
+
+test("a call already in the CRM is not waiting to be classified", () => {
+  const leads = [
+    { id: "valeria", name: "Valeria Ríos", telefono: "+57 300 111 2233", callIds: ["call-valeria"] },
+    { id: "jubher", name: "Jubher", telefono: "573009998877", callIds: [] },
+    { id: "edson", name: "Edson", telefono: "", callIds: ["call-edson"] },
+  ];
+  assert.equal(
+    callAlreadyInCrm({ id: "pending-1", leadName: "Valeria", title: "Impromptu Google Meet Meeting" }, leads),
+    true,
+  );
+  assert.equal(
+    callAlreadyInCrm(
+      { id: "pending-2", leadName: "", title: "Víctor", filingJson: { telefono: "+57 300 999 8877" } },
+      leads,
+    ),
+    true,
+  );
+  assert.equal(callAlreadyInCrm({ id: "call-edson", leadName: "Llamada sin título" }, leads), true);
+  assert.equal(
+    callAlreadyInCrm({ id: "new", leadName: "Persona Nueva", title: "Llamada sin título" }, leads),
+    false,
+  );
 });

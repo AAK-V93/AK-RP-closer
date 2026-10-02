@@ -11,7 +11,8 @@ import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-
 import { presentThread } from "@/lib/followup-threads";
 import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib/followup-machine";
 import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
-import { explainVentas, offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
+import { explainVentas, datedCashPayments, offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
+import { findMatchingLead } from "@/lib/lead-match";
 import { summarizePipeline } from "@/lib/crm-pipeline";
 import { countedSale, shownBalance, shownMoney } from "@/lib/stated-deal";
 import { applyCallRepair, planCallRepair, repairImportedCallFields } from "@/lib/call-normalize";
@@ -94,7 +95,31 @@ export async function crmDashboard(
   }
   markTiming(opts?.timings, "reconcile", reconcileStarted);
 
-  const rollupInput = calls.map(asRollupCall);
+  const commissionByCall = new Map(
+    commissions.map((row) => [row.callRecordId, row] as const).filter((entry) => entry[0]),
+  );
+  const rollupInput = calls.map((row) => {
+    const base = asRollupCall(row);
+    const filing = (row.filingJson || {}) as { lead_id?: string; cliente_real?: string };
+    const named = leads.map((item) => ({ id: item.id, name: item.name, company: item.company || "" }));
+    const match =
+      named.find((item) => item.id === String(filing.lead_id || "")) ||
+      findMatchingLead(named, row.leadName || filing.cliente_real || "");
+    const lead = match ? leads.find((item) => item.id === match.id) : undefined;
+    const booked = commissionByCall.get(row.id);
+    return {
+      ...base,
+      cashPayments: datedCashPayments({
+        cashCollected: row.cashCollected,
+        recordedAt: row.recordedAt,
+        createdAt: row.createdAt,
+        filingJson: row.filingJson,
+        bookedCash: booked?.cash,
+        bookedAt: booked?.fecha,
+        changedAt: lead?.updatedAt,
+      }),
+    };
+  });
   const prices = offerPrices(offers.map(asRollupOffer));
   const bucket = (from: Date, to: Date) => {
     const slice = calls.filter((row) => inRange(row.recordedAt || row.createdAt, from, to));

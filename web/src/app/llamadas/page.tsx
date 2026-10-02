@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
 import { joinDistinct } from "@/lib/crm-noise";
-import { plainStatus } from "@/lib/plain-labels";
+import { countPhrase, plainStatus } from "@/lib/plain-labels";
 
 type CallRow = {
   id: string;
@@ -40,6 +40,7 @@ export default function LlamadasPage() {
   const { status } = useSession();
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [review, setReview] = useState<Review | null>(null);
+  const [unclassified, setUnclassified] = useState(0);
   const [otherDate, setOtherDate] = useState("");
   const [answer, setAnswer] = useState("");
   const [reviewing, setReviewing] = useState(false);
@@ -53,6 +54,7 @@ export default function LlamadasPage() {
       .then((data) => {
         setCalls(Array.isArray(data?.calls) ? data.calls : []);
         setReview(data?.review && typeof data.review === "object" ? data.review : null);
+        setUnclassified(Number(data?.unclassified) || 0);
       })
       .catch(() => undefined);
 
@@ -91,6 +93,7 @@ export default function LlamadasPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se pudo guardar");
       setReview(data.review || null);
+      setUnclassified(Number(data.unclassified) || 0);
       setAnswer("");
       setOtherDate("");
       await loadCalls();
@@ -123,10 +126,10 @@ export default function LlamadasPage() {
             <Button asChild variant="outline" size="sm">
               <Link href="/ofertas">Subir archivos o pegar una transcripción</Link>
             </Button>
-            {review && (
+            {review && unclassified > 0 && (
               <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
                 <p className="text-[11px] uppercase tracking-wide text-fg3">
-                  Una llamada por clasificar
+                  {countPhrase(unclassified, "llamada por clasificar", "llamadas por clasificar")}
                 </p>
                 <p className="text-sm font-medium">{review.title}</p>
                 {review.showToggle ? (
