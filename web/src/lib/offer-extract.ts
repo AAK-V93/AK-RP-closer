@@ -1,4 +1,5 @@
 import { generateGeminiJson, generateGeminiParts } from "@/lib/gemini";
+import { isInventedOfferLabel, isPriceLabel, nameHintsFromText } from "@/lib/offer-name";
 import {
   emptyCommercial,
   parseCommercial,
@@ -100,7 +101,13 @@ export function extractedFromParsed(
     if (line) commercial.commission = parseCommissionFromText(line);
   }
   const description = String(parsed.productDescription || "").trim();
-  const name = String(parsed.productName || "").trim() || fallbackName;
+  let name = String(parsed.productName || "").trim() || fallbackName;
+  if (isPriceLabel(name) || isInventedOfferLabel(name)) {
+    const better = nameHintsFromText(`${sourceText}\n${description}`).find(
+      (hint) => !isPriceLabel(hint) && !isInventedOfferLabel(hint),
+    );
+    if (better) name = better;
+  }
   const icp = String(parsed.icp || "").trim();
   return {
     productName: name,
@@ -188,7 +195,7 @@ export function heuristicExtract(text: string): ExtractedOffer {
     source
       .split("\n")
       .map((line) => line.trim())
-      .find((line) => line.length > 2 && line.length <= 70) || "Oferta";
+      .find((line) => line.length > 2 && line.length <= 70 && !isPriceLabel(line)) || "Oferta";
   const description = source.slice(0, 1200);
   return {
     productName: firstLine.length <= 70 ? firstLine : "Oferta",

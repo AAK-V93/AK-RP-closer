@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { addDays, alertBucket, parseCrmPrefs } from "@/lib/crm-prefs";
+import { zonedDayKey } from "@/lib/crm-time";
 import { RAZONES_NO_CIERRE } from "@/lib/crm-catalog";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { defaultCommissionRule, parseCommercial } from "@/lib/offer-commercial";
@@ -115,7 +116,7 @@ export async function applyAlertOutcome(
         programa: row.lead.offerName || offer?.productName || "",
         monto: row.enJuego ? String(Math.round(row.enJuego)) : "",
         saldo: row.enJuego ? String(Math.round(row.enJuego)) : "",
-        fecha: row.dueAt.toISOString().slice(0, 10),
+        fecha: zonedDayKey(row.dueAt),
         pago: commercial.paymentDetails,
         objecion: row.lead.razonNoCierre || row.lead.objections || "",
         deseo: "",

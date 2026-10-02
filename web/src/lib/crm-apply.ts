@@ -26,7 +26,7 @@ import {
 } from "@/lib/offer-commercial";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { addDays, parseCrmPrefs, parseFollowupDate } from "@/lib/crm-prefs";
-import { inferCallDate, inferFollowupDate } from "@/lib/followup-date";
+import { inferCallDate, inferFollowupDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
 import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
 import { recordExtractorFeedback } from "@/lib/extractor-feedback";
 
@@ -625,7 +625,7 @@ async function refillFromTranscript(
     parsed.venta_total > 1_000_000 ||
     !parsed.modo_pago;
   const missingClock = Boolean(parsed.proximo_seguimiento) && !/\d{2}:\d{2}/.test(parsed.proximo_seguimiento || "");
-  const pasted = /^pegado\b/i.test(call.title);
+  const pasted = isPasteHeading(call.title);
   if (!call.sourceId || (!missingMoney && !missingClock && !pasted)) return;
   const transcript = await prisma.clientTranscript.findFirst({
     where: { id: call.sourceId, userId },
@@ -637,7 +637,9 @@ async function refillFromTranscript(
   await prisma.callRecord.update({
     where: { id: call.id },
     data: {
-      title: pasted && parsed.cliente_real ? parsed.cliente_real : call.title,
+      title: pasted
+        ? pastedCallTitle(transcript.transcriptText, callAt || new Date(), parsed.cliente_real || "")
+        : call.title,
       recordedAt: callAt || undefined,
       leadName: parsed.cliente_real || undefined,
       ventaTotal: parsed.venta_total,
@@ -655,7 +657,13 @@ async function refillFromTranscript(
     if (transcriptRow) {
       await prisma.clientTranscript.update({
         where: { id: transcriptRow.id },
-        data: { title: parsed.cliente_real },
+        data: {
+          title: pastedCallTitle(
+            transcript.transcriptText,
+            callAt || new Date(),
+            parsed.cliente_real || "",
+          ),
+        },
       });
     }
   }

@@ -18,7 +18,8 @@ import {
 } from "@/lib/offer-resolve";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
-import { inferCallDate } from "@/lib/followup-date";
+import { inferCallDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
+import { zonedDayKey } from "@/lib/crm-time";
 import {
   loadExtractorPattern,
   loadOfferAmountBands,
@@ -108,10 +109,12 @@ export async function classifyAndFileCall(
 
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
-  const pasted = /^pegado\b/i.test(args.title);
+  const pasted = isPasteHeading(args.title);
   const recordedAt =
-    (pasted ? inferCallDate(args.transcript) : null) || args.recordedAt || null;
-  const fecha = recordedAt ? recordedAt.toISOString().slice(0, 10) : null;
+    (pasted ? inferCallDate(args.transcript, args.recordedAt || new Date()) : null) ||
+    args.recordedAt ||
+    null;
+  const fecha = recordedAt ? zonedDayKey(recordedAt) : null;
   const learned = await loadOfferAmountBands(prisma, userId);
   const parsed = enrichExtractorFollowup(
     await runExtractor({
@@ -141,8 +144,9 @@ export async function classifyAndFileCall(
   const auto = !gap;
   const summary = auto ? extractorOneLiner(parsed) : gap?.question || extractorOneLiner(parsed);
   const filingStatus = nonSales ? "skipped" : auto ? "confirmed" : "pending";
-  const title =
-    parsed.cliente_real && pasted ? parsed.cliente_real : args.title;
+  const title = pasted
+    ? pastedCallTitle(args.transcript, recordedAt || new Date(), parsed.cliente_real || "")
+    : args.title;
 
   const row = await prisma.callRecord.upsert({
     where: {
@@ -193,13 +197,18 @@ export async function classifyAndFileCall(
   });
 
   if (pasted && args.sourceId) {
-    const callDay = recordedAt
-      ? recordedAt.toLocaleDateString("es-CO", { timeZone: "UTC" })
-      : "";
-    const pastedTitle = parsed.cliente_real || (callDay ? `Llamada ${callDay}` : "");
-    if (pastedTitle) {
-      await prisma.clientTranscript.updateMany({
-        where: { id: args.sourceId, userId },
+    const pastedTitle = pastedCallTitle(
+      args.transcript,
+      recordedAt || new Date(),
+      parsed.cliente_real || "",
+    );
+    const transcriptRow = await prisma.clientTranscript.findFirst({
+      where: { id: args.sourceId, userId },
+      select: { id: true },
+    });
+    if (transcriptRow && pastedTitle) {
+      await prisma.clientTranscript.update({
+        where: { id: transcriptRow.id },
         data: { title: pastedTitle },
       });
     }

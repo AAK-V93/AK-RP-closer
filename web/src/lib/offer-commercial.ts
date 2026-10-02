@@ -1,4 +1,5 @@
 import { parseFollowupScripts, type FollowupScript } from "@/lib/followup-scripts";
+import { preferOfferName } from "@/lib/offer-name";
 
 export type CommissionTier = {
   when: string;
@@ -514,7 +515,7 @@ export function mergeExtractedOffer(
   extracted: ExtractedOffer,
 ): ExtractedOffer {
   return {
-    productName: extracted.productName || current.productName,
+    productName: preferOfferName(current.productName, extracted.productName),
     productDescription:
       extracted.productDescription.length >= 20 &&
       extracted.productDescription.length >= current.productDescription.length

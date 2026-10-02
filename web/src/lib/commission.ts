@@ -1,14 +1,17 @@
 import type { PrismaClient } from "@prisma/client";
 import type { CommissionRuleInput, CommissionTier } from "@/lib/offer-commercial";
 import { defaultCommissionRule } from "@/lib/offer-commercial";
+import { zonedMidnight, zonedParts } from "@/lib/crm-time";
 
 export function periodStart(
   periodo: CommissionRuleInput["periodoAcumulacion"],
   at: Date,
 ) {
   if (periodo === "total") return new Date(0);
-  if (periodo === "anual") return new Date(Date.UTC(at.getUTCFullYear(), 0, 1));
-  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
+  const { year } = zonedParts(at);
+  if (periodo === "anual") return zonedMidnight(year, 1, 1);
+  const { month } = zonedParts(at);
+  return zonedMidnight(year, month, 1);
 }
 
 function haystack(tier: CommissionTier) {

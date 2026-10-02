@@ -1,4 +1,5 @@
 import { addDays } from "@/lib/crm-prefs";
+import { formatCrmDate, zonedDayKey } from "@/lib/crm-time";
 
 const WEEKDAYS: Record<string, number> = {
   domingo: 0,
@@ -35,8 +36,14 @@ function fold(value: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+/** Noon UTC of the calendar day in America/Bogota, so "hoy" does not flip at 19:00. */
 function utcDay(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const key = zonedDayKey(date);
+  const [year, month, day] = key.split("-").map(Number);
+  if (![year, month, day].every((n) => Number.isFinite(n) && n > 0)) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12));
+  }
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
 }
 
 function isoDay(date: Date) {
@@ -94,7 +101,7 @@ function withClock(day: string | null, raw: string) {
 function parseIsoLike(raw: string) {
   const iso = raw.match(/\b(20\d{2}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?\b/);
   if (iso) return iso[2] ? `${iso[1]} ${iso[2]}` : iso[1];
-  const dmy = raw.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
+  const dmy = raw.match(/\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\b/);
   if (dmy) {
     const day = dmy[1].padStart(2, "0");
     const month = dmy[2].padStart(2, "0");
@@ -228,7 +235,7 @@ function weekdayWithClock(raw: string, base: Date) {
 /** A calendar day written in the transcript, used as the call date when the file was pasted. */
 export function inferCallDate(text: string, now = new Date()): Date | null {
   const raw = String(text || "");
-  const dmy = raw.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
+  const dmy = raw.match(/\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2})\b/);
   if (dmy) {
     const date = new Date(Date.UTC(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]), 12, 0, 0));
     if (!Number.isNaN(date.getTime()) && date.getTime() <= now.getTime() + 36 * 3_600_000) return date;
@@ -240,11 +247,42 @@ export function inferCallDate(text: string, now = new Date()): Date | null {
   const day = Number(named[1]);
   const month = MONTHS[named[2]];
   if (month == null) return null;
-  const year = named[3] ? Number(named[3]) : now.getUTCFullYear();
+  const zonedYear = Number(zonedDayKey(now).slice(0, 4));
+  const year = named[3] ? Number(named[3]) : zonedYear || now.getUTCFullYear();
   let date = new Date(Date.UTC(year, month, day, 12, 0, 0));
   if (date.getTime() > now.getTime() + 36 * 3_600_000) {
     date = new Date(Date.UTC(year - 1, month, day, 12, 0, 0));
   }
   if (Number.isNaN(date.getTime()) || date.getTime() > now.getTime() + 36 * 3_600_000) return null;
   return date;
+}
+
+export function inferLeadLabel(text: string) {
+  const labeled = String(text || "").match(/\b(?:lead|prospecto|cliente)\s*:\s*([^\n,.]{2,80})/i);
+  if (!labeled) return "";
+  const words = labeled[1]
+    .replace(/\(.*?\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((word) => /^[\p{L}][\p{L}'’.-]*$/u.test(word));
+  if (words.length < 1 || words.length > 4) return "";
+  return words.join(" ");
+}
+
+export function isPasteHeading(title: string) {
+  const value = title.trim();
+  if (/^(pegado|llamada)\b/i.test(value)) return true;
+  return /\s·\s\d{1,2}\/\d{1,2}\/\d{4}$/.test(value);
+}
+
+/** Lead and call day. The day comes from the transcript, or from the paste moment in Bogotá. */
+export function pastedCallTitle(text: string, pastedAt = new Date(), leadOverride = "") {
+  const callAt = inferCallDate(text, pastedAt);
+  const day = formatCrmDate(callAt || pastedAt);
+  const lead = (leadOverride || inferLeadLabel(text)).trim();
+  if (lead && callAt) return `${lead} · ${day}`;
+  if (lead) return `${lead} · Pegado ${day}`;
+  if (callAt) return `Llamada ${day}`;
+  return `Pegado ${day}`;
 }

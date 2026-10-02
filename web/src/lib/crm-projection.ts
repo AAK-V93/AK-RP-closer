@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { crmDashboard } from "@/lib/crm-metrics";
 import { loadOffersForCrm } from "@/lib/crm-apply";
 import { parseCrmPrefs } from "@/lib/crm-prefs";
+import { zonedDayKey, zonedMidnight, zonedParts } from "@/lib/crm-time";
 import { emptyCommercial, type CommissionRuleInput } from "@/lib/offer-commercial";
 import { commissionOnAmount, resolveCommissionPct } from "@/lib/commission";
 
@@ -9,22 +10,37 @@ export const ASSUMED_SHOW_RATE = 0.6;
 export const ASSUMED_CLOSE_RATE = 0.25;
 export const ASSUMED_RATES_MIN_CALLS = 20;
 
+function dayKeyParts(key: string) {
+  const [year, month, day] = key.split("-").map(Number);
+  return { year, month, day };
+}
+
+/** Weekdays from the Bogotá day of `from` through the Bogotá day of `until`, inclusive. */
 function businessDaysLeft(until: Date, from = new Date()) {
+  const startKey = zonedDayKey(from);
+  const endKey = zonedDayKey(until);
+  if (!startKey || !endKey || startKey > endKey) return 1;
+  const start = dayKeyParts(startKey);
+  const end = dayKeyParts(endKey);
+  const cursor = zonedMidnight(start.year, start.month, start.day);
+  const endAt = zonedMidnight(end.year, end.month, end.day);
   let count = 0;
-  const cursor = new Date(from);
-  cursor.setUTCHours(12, 0, 0, 0);
-  const end = new Date(until);
-  end.setUTCHours(12, 0, 0, 0);
-  while (cursor <= end) {
-    const day = cursor.getUTCDay();
-    if (day !== 0 && day !== 6) count += 1;
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  while (cursor.getTime() <= endAt.getTime()) {
+    const weekday = new Date(`${zonedDayKey(cursor)}T12:00:00.000Z`).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) count += 1;
+    cursor.setTime(cursor.getTime() + 86_400_000);
   }
   return Math.max(1, count);
 }
 
+/** Noon UTC of the last calendar day of the Bogotá month, so the day does not flip at 19:00. */
 export function endOfMonth(from = new Date()) {
-  return new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 0, 12));
+  const { year, month } = zonedParts(from);
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+  const last = new Date(zonedMidnight(nextYear, nextMonth, 1).getTime() - 86_400_000);
+  const parts = zonedParts(last);
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12));
 }
 
 export type ProjectionStats = {

@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
-import { alertBucket, startOfDay } from "@/lib/crm-prefs";
+import { alertBucket } from "@/lib/crm-prefs";
 import { alignFollowups, followupSnapshot } from "@/lib/crm-followups";
-import { zonedDayKey } from "@/lib/crm-time";
+import { shiftZonedMonth, zonedDayBounds, zonedDayKey, zonedMonthRange } from "@/lib/crm-time";
 import { userHasReadyCrm, type OfferForCrm } from "@/lib/offer-commercial";
 import { loadOffersForCrm, repairMissingFollowups } from "@/lib/crm-apply";
 import { attachFollowupOptions } from "@/lib/followup-library";
@@ -11,18 +11,9 @@ import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-
 import { presentThread } from "@/lib/followup-threads";
 import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib/followup-machine";
 import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
-
-function monthRange(at: Date) {
-  const from = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
-  const to = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1));
-  return { from, to };
-}
-
-function prevMonthRange(at: Date) {
-  const from = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() - 1, 1));
-  const to = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
-  return { from, to };
-}
+import { offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
+import { countedSale, shownMoney } from "@/lib/stated-deal";
+import { catalogDisplayName, foldOffer, isInventedOfferLabel, isPriceLabel } from "@/lib/offer-name";
 
 function inRange(date: Date | null, from: Date, to: Date) {
   if (!date) return false;
@@ -39,10 +30,9 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const readyCrm = userHasReadyCrm(offers);
   const now = new Date();
   const todayKey = zonedDayKey(now);
-  const today = startOfDay(now);
-  const tomorrow = new Date(today.getTime() + 86_400_000);
-  const month = monthRange(now);
-  const prev = prevMonthRange(now);
+  const todayBounds = zonedDayBounds(now);
+  const month = zonedMonthRange(now);
+  const prev = shiftZonedMonth(now, -1);
 
   const [calls, allCalls, alerts, leads, commissions] = await Promise.all([
     prisma.callRecord.findMany({
@@ -66,46 +56,40 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     }),
   ]);
 
+  const rollupOffers = offers.map(asRollupOffer);
+  const nameHints = [...calls, ...allCalls].flatMap((row) => [
+    row.offerName || "",
+    filingProduct(row.filingJson),
+  ]);
+  try {
+    await repairCatalogNames(prisma, offers, rollupOffers, nameHints);
+  } catch (error) {
+    console.error("repair offer name", error);
+  }
   try {
     await reconcileOfferNames(prisma, offers, calls, allCalls, leads);
   } catch (error) {
     console.error("reconcile offers", error);
   }
 
+  const rollupInput = calls.map(asRollupCall);
+  const prices = offerPrices(offers.map(asRollupOffer));
   const bucket = (from: Date, to: Date) => {
     const slice = calls.filter((row) => inRange(row.recordedAt || row.createdAt, from, to));
-    const agendas = slice.filter((row) =>
-      ["AGENDADO", "SHOW", "CIERRE VENTA", "ACUERDO SIN PAGO", "NO SHOW", "REPROGRAMA"].includes(
-        row.estadoAgenda,
-      ),
-    ).length;
-    const shows = slice.filter((row) =>
-      ["SHOW", "CIERRE VENTA", "ACUERDO SIN PAGO"].includes(row.estadoAgenda),
-    ).length;
-    const noShows = slice.filter((row) => row.estadoAgenda === "NO SHOW").length;
-    const reprogramadas = slice.filter((row) => row.estadoAgenda === "REPROGRAMA").length;
-    const cierres = slice.filter((row) => row.estadoAgenda === "CIERRE VENTA").length;
+    const rolled = rollupCalls(
+      offers.map(asRollupOffer),
+      rollupInput,
+      { from, to },
+    );
     const calificados = slice.filter((row) => {
       const json = row.filingJson as { calificado?: boolean };
       return json?.calificado === true;
     });
     const cierresCal = calificados.filter((row) => row.estadoAgenda === "CIERRE VENTA").length;
-    const ventas = slice.reduce((sum, row) => sum + (row.ventaTotal || 0), 0);
-    const cash = slice.reduce((sum, row) => sum + (row.cashCollected || 0), 0);
-    const ticket = cierres ? ventas / cierres : 0;
+    const { porOferta: _rows, ...stats } = rolled;
     return {
-      agendas,
-      shows,
-      noShows,
-      reprogramadas,
-      cierres,
-      showRate: agendas ? shows / agendas : 0,
-      closeRate: shows ? cierres / shows : 0,
+      ...stats,
       closeRateCalificado: calificados.length ? cierresCal / calificados.length : 0,
-      ticket,
-      ventas,
-      cash,
-      cashPct: ventas ? cash / ventas : 0,
     };
   };
 
@@ -114,12 +98,14 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const all = bucket(new Date(0), new Date(8640000000000000));
 
   const moneyByCall = new Map(
-    allCalls.map((row) => [row.id, row.saldoPendiente || row.ventaTotal || 0]),
+    allCalls.map((row) => [
+      row.id,
+      countedSale(row.saldoPendiente, { at: row.recordedAt || row.createdAt, prices }) ||
+        countedSale(row.ventaTotal, { at: row.recordedAt || row.createdAt, prices }),
+    ]),
   );
-  const sane = (amount: number | null | undefined) =>
-    amount != null && amount > 0 && amount <= 1_000_000 ? amount : 0;
   const played = (alert: { enJuego: number; callRecordId: string | null }) =>
-    sane(alert.enJuego) || sane(moneyByCall.get(alert.callRecordId || "")) || 0;
+    countedSale(alert.enJuego, { prices }) || moneyByCall.get(alert.callRecordId || "") || 0;
 
   const threads = await prisma.followupThread.findMany({
     where: { userId, estado: "activo" },
@@ -267,11 +253,18 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const operacion = allCalls.flatMap((row) => {
     if (isNonSalesCall(row.estadoAgenda)) return [];
     try {
+      const view = operacionFromCall(
+        row,
+        leadByName.get((row.leadName || "").trim().toLowerCase()) || null,
+      );
+      const at = view.fecha ? `${view.fecha}T12:00:00.000Z` : row.recordedAt || row.createdAt;
       return [
-        operacionFromCall(
-          row,
-          leadByName.get((row.leadName || "").trim().toLowerCase()) || null,
-        ),
+        {
+          ...view,
+          venta: shownMoney(view.venta, { at, prices }),
+          cash: shownMoney(view.cash, { at, prices }),
+          saldo: shownMoney(view.saldo, { at, prices }),
+        },
       ];
     } catch (error) {
       console.error("crm operacion", row.id, error);
@@ -318,7 +311,11 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const vencidos = counts.seguimientosVencidos;
   const hoy = counts.seguimientosHoy;
   const enJuego = counts.dineroEnJuego;
-  const cashPendiente = calls.reduce((sum, row) => sum + (row.saldoPendiente || 0), 0);
+  const cashPendiente = calls.reduce(
+    (sum, row) =>
+      sum + countedSale(row.saldoPendiente, { at: row.recordedAt || row.createdAt, prices }),
+    0,
+  );
   const comisionPendiente = commissions
     .filter((row) => row.estado !== "COBRADA")
     .reduce((sum, row) => sum + Math.max(0, row.generada - row.cobrada), 0);
@@ -328,11 +325,12 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     (row) =>
       row.estadoAgenda === "AGENDADO" &&
       row.recordedAt &&
-      row.recordedAt >= today &&
-      row.recordedAt < tomorrow,
+      row.recordedAt >= todayBounds.from &&
+      row.recordedAt < todayBounds.to,
   ).length;
   const agendasFuturas = calls.filter(
-    (row) => row.estadoAgenda === "AGENDADO" && row.recordedAt && row.recordedAt >= tomorrow,
+    (row) =>
+      row.estadoAgenda === "AGENDADO" && row.recordedAt && row.recordedAt >= todayBounds.to,
   ).length;
 
   const followupsWithOptions = (await attachFollowupOptions(prisma, userId, openFollowups))
@@ -348,21 +346,10 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
         String(a.dueAt).localeCompare(String(b.dueAt)),
     );
 
-  const byOffer = new Map<string, { cierres: number; ventas: number; cash: number }>();
-  for (const offer of offers) {
-    if (!byOffer.has(offer.productName)) {
-      byOffer.set(offer.productName, { cierres: 0, ventas: 0, cash: 0 });
-    }
-  }
-  for (const row of calls.filter((item) => inRange(item.recordedAt || item.createdAt, month.from, month.to))) {
-    const knownName = strictOfferName(offers, row.offerName);
-    if (!knownName) continue;
-    const cur = byOffer.get(knownName) || { cierres: 0, ventas: 0, cash: 0 };
-    if (row.estadoAgenda === "CIERRE VENTA") cur.cierres += 1;
-    cur.ventas += row.ventaTotal || 0;
-    cur.cash += row.cashCollected || 0;
-    byOffer.set(knownName, cur);
-  }
+  const allTime = rollupCalls(offers.map(asRollupOffer), rollupInput, {
+    from: new Date(0),
+    to: new Date(8640000000000000),
+  });
 
   const razones = new Map<string, number>();
   const etapas = new Map<string, number>();
@@ -378,11 +365,10 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
 
   const monthly: { mes: string; agendas: number; shows: number; cierres: number; ventas: number; cash: number }[] = [];
   for (let i = 5; i >= 0; i -= 1) {
-    const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-    const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 1));
-    const b = bucket(from, to);
+    const range = shiftZonedMonth(now, -i);
+    const b = bucket(range.from, range.to);
     monthly.push({
-      mes: from.toISOString().slice(0, 7),
+      mes: range.key,
       agendas: b.agendas,
       shows: b.shows,
       cierres: b.cierres,
@@ -408,7 +394,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     },
     rendimiento: { mes: current, anterior: previous, acumulado: all },
     desglose: {
-      porOferta: [...byOffer.entries()].map(([oferta, stats]) => ({ oferta, ...stats })),
+      porOferta: allTime.porOferta,
       embudo: {
         agendas: current.agendas,
         shows: current.shows,
@@ -458,17 +444,74 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   };
 }
 
-function foldOffer(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
+function filingProduct(filing: unknown) {
+  const producto = (filing as { producto?: string } | null)?.producto || "";
+  return String(producto || "").trim();
+}
+
+function asRollupOffer(offer: OfferForCrm): RollupOffer {
+  return {
+    id: offer.id,
+    productName: offer.productName,
+    productDescription: offer.productDescription,
+    aliases: offer.commercial.aliases,
+    prices: [
+      offer.commercial.listPrice || 0,
+      ...offer.commercial.altPrices.map((row) => row.amount || 0),
+    ].filter((price) => price > 0),
+  };
+}
+
+function asRollupCall(row: {
+  offerName?: string | null;
+  estadoAgenda?: string | null;
+  ventaTotal?: number | null;
+  cashCollected?: number | null;
+  recordedAt?: Date | null;
+  createdAt?: Date | null;
+  filingJson?: unknown;
+}): RollupCall {
+  return {
+    offerName: row.offerName,
+    producto: filingProduct(row.filingJson),
+    estadoAgenda: row.estadoAgenda,
+    ventaTotal: row.ventaTotal,
+    cashCollected: row.cashCollected,
+    recordedAt: row.recordedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+async function repairCatalogNames(
+  prisma: PrismaClient,
+  offers: OfferForCrm[],
+  rollupOffers: RollupOffer[],
+  hints: string[],
+) {
+  for (const offer of offers) {
+    if (!isPriceLabel(offer.productName)) continue;
+    const displayName = catalogDisplayName(
+      {
+        productName: offer.productName,
+        productDescription: offer.productDescription,
+        aliases: offer.commercial.aliases,
+      },
+      hints,
+    );
+    if (!displayName || foldOffer(displayName) === foldOffer(offer.productName)) continue;
+    offer.productName = displayName;
+    const shadow = rollupOffers.find((row) => row.id === offer.id);
+    if (shadow) shadow.productName = displayName;
+    await prisma.userOffer.update({
+      where: { id: offer.id },
+      data: { productName: displayName },
+    });
+  }
 }
 
 function strictOfferName(offers: OfferForCrm[], raw: string | null | undefined) {
   const needle = foldOffer(String(raw || ""));
-  if (!needle) return "";
+  if (!needle || isPriceLabel(needle) || isInventedOfferLabel(needle)) return "";
   for (const offer of offers) {
     const names = [offer.productName, ...(offer.commercial?.aliases || [])];
     if (names.some((name) => foldOffer(name) === needle)) return offer.productName;
@@ -479,8 +522,18 @@ function strictOfferName(offers: OfferForCrm[], raw: string | null | undefined) 
 function resolvedOfferName(raw: string, filing: unknown, offers: OfferForCrm[]) {
   const known = strictOfferName(offers, raw);
   if (known) return known;
-  const producto = (filing as { producto?: string } | null)?.producto || "";
-  return strictOfferName(offers, producto);
+  const fromProducto = strictOfferName(offers, filingProduct(filing));
+  if (fromProducto) return fromProducto;
+  if (
+    isPriceLabel(raw) &&
+    offers.length === 1 &&
+    offers[0].productName &&
+    !isPriceLabel(offers[0].productName)
+  ) {
+    return offers[0].productName;
+  }
+  if (isInventedOfferLabel(raw)) return "";
+  return raw;
 }
 
 /** Drop offer names that are not in the closer's list, and fold "Otro o null". */

@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { parseCommercial } from "@/lib/offer-commercial";
+import { zonedDayKey } from "@/lib/crm-time";
 import {
   BUILTIN_FOLLOWUP_PACKS,
   builtinPackById,
@@ -516,7 +517,7 @@ export async function chooseFollowupOption(
     programa: row.lead.offerName || offer?.productName || "",
     monto: row.enJuego ? String(Math.round(row.enJuego)) : "",
     saldo: row.enJuego ? String(Math.round(row.enJuego)) : "",
-    fecha: row.dueAt.toISOString().slice(0, 10),
+    fecha: zonedDayKey(row.dueAt),
     pago: commercial.paymentDetails,
     objecion: row.lead.razonNoCierre || row.lead.objections || "",
     deseo: "",
