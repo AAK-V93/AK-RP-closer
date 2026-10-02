@@ -29,7 +29,11 @@ export default function PracticePage() {
           </Badge>
           <nav className="hidden md:flex items-center gap-2 text-xs text-fg3">
             {PRACTICE_NAV.map((item) => (
-              <Link key={item.href} href={item.href} className="hover:text-fg1">
+              <Link
+                key={item.href}
+                href={item.href}
+                className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center rounded-full px-3 hover:text-fg1 lg:h-7 lg:min-h-0 lg:min-w-0 lg:px-2"
+              >
                 {item.label}
               </Link>
             ))}

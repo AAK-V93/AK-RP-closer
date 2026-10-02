@@ -273,7 +273,7 @@ export function OfferExtractReview({
         <Button
           type="button"
           variant="primary"
-          className="h-auto whitespace-normal text-center"
+          className="h-auto min-h-11 whitespace-normal text-center lg:min-h-0"
           disabled={saving || !ready || !visible.some((row) => row.productName.trim())}
           onClick={() => {
             const next =

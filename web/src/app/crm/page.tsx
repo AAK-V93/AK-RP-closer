@@ -626,7 +626,7 @@ export default function CrmPage() {
                     key={row.id}
                     size="sm"
                     variant={offer === row.productName ? "primary" : "outline"}
-                    className="h-auto max-w-full whitespace-normal text-left"
+                    className="h-auto min-h-11 max-w-full whitespace-normal text-left lg:min-h-0"
                     onClick={() => setOffer(row.productName)}
                   >
                     {row.productName}
@@ -1090,7 +1090,7 @@ function CashEditor({
           inputMode="decimal"
           value={value}
           onChange={(event) => setValue(event.target.value)}
-          className="h-8 w-28 min-w-0 max-w-full"
+          className="h-11 min-h-11 w-28 min-w-11 max-w-full lg:h-8 lg:min-h-0 lg:min-w-0"
           placeholder="0"
         />
         <Button
@@ -1705,10 +1705,10 @@ function FollowupActions({
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {agenda ? (
           <>
-            <Button className="w-full sm:w-auto whitespace-normal h-auto" size="sm" variant="primary" disabled={disabled} onClick={() => void onPatch(targetId, "SHOW", true)}>
+            <Button className="h-auto min-h-11 w-full whitespace-normal sm:w-auto lg:min-h-0" size="sm" variant="primary" disabled={disabled} onClick={() => void onPatch(targetId, "SHOW", true)}>
               {busy === "SHOW" ? "Guardando…" : "Asistió"}
             </Button>
-            <Button className="w-full sm:w-auto whitespace-normal h-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "NO SHOW", true)}>
+            <Button className="h-auto min-h-11 w-full whitespace-normal sm:w-auto lg:min-h-0" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "NO SHOW", true)}>
               No asistió
             </Button>
             <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "REPROGRAMA", true)}>
@@ -1734,7 +1734,7 @@ function FollowupActions({
             </Button>
             {segunda ? (
               <>
-                <Button className="w-full sm:w-auto whitespace-normal h-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "mostro")}>
+                <Button className="h-auto min-h-11 w-full whitespace-normal sm:w-auto lg:min-h-0" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "mostro")}>
                   {busy === "mostro" ? "Guardando…" : "Asistió"}
                 </Button>
                 <Button
@@ -2010,7 +2010,7 @@ function SeguimientosSheet({
                 {meeting ? (
                   <>
                     <Button
-                      className="h-8 w-full px-0.5 text-[11px]"
+                      className="h-11 min-h-11 w-full px-0.5 text-[11px] lg:h-8 lg:min-h-0"
                       size="sm"
                       variant="primary"
                       disabled={Boolean(busy)}
@@ -2019,7 +2019,7 @@ function SeguimientosSheet({
                       {busy === "mostro" ? "…" : "Asistió"}
                     </Button>
                     <Button
-                      className="h-8 w-full px-0.5 text-[11px]"
+                      className="h-11 min-h-11 w-full px-0.5 text-[11px] lg:h-8 lg:min-h-0"
                       size="sm"
                       variant="outline"
                       disabled={Boolean(busy)}
@@ -2034,7 +2034,7 @@ function SeguimientosSheet({
                 ) : (
                   <>
                     <Button
-                      className="h-8 w-full px-0.5 text-[11px]"
+                      className="h-11 min-h-11 w-full px-0.5 text-[11px] lg:h-8 lg:min-h-0"
                       size="sm"
                       variant="primary"
                       disabled={Boolean(busy)}
@@ -2043,7 +2043,7 @@ function SeguimientosSheet({
                       {busy === "hecho" ? "…" : "Hecho"}
                     </Button>
                     <Button
-                      className="h-8 w-full px-0.5 text-[11px]"
+                      className="h-11 min-h-11 w-full px-0.5 text-[11px] lg:h-8 lg:min-h-0"
                       size="sm"
                       variant="outline"
                       disabled={Boolean(busy)}

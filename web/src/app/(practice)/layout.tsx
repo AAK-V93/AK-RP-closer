@@ -37,19 +37,19 @@ export default function PracticeLayout({
                     Práctica con un prospecto
                   </p>
                   <div className="flex flex-wrap gap-1 text-[11px]">
-                    <Link href="/" className="text-fg3 hover:text-fg1">
+                    <Link href="/" className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center rounded-full px-3 text-fg3 hover:text-fg1 lg:h-7 lg:min-h-0 lg:min-w-0 lg:px-2">
                       Inicio
                     </Link>
                     <span className="text-fg3">·</span>
-                    <Link href="/coach" className="text-fg3 hover:text-fg1">
+                    <Link href="/coach" className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center rounded-full px-3 text-fg3 hover:text-fg1 lg:h-7 lg:min-h-0 lg:min-w-0 lg:px-2">
                       Coach
                     </Link>
                     <span className="text-fg3">·</span>
-                    <Link href="/llamadas" className="text-fg3 hover:text-fg1">
+                    <Link href="/llamadas" className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center rounded-full px-3 text-fg3 hover:text-fg1 lg:h-7 lg:min-h-0 lg:min-w-0 lg:px-2">
                       Llamadas
                     </Link>
                     <span className="text-fg3">·</span>
-                    <Link href="/crm" className="text-fg3 hover:text-fg1">
+                    <Link href="/crm" className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center rounded-full px-3 text-fg3 hover:text-fg1 lg:h-7 lg:min-h-0 lg:min-w-0 lg:px-2">
                       CRM
                     </Link>
                   </div>

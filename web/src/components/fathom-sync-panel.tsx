@@ -56,7 +56,7 @@ function FathomApiKeyHelp() {
         href={FATHOM_API_SETTINGS}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1.5 text-sm underline"
+        className="inline-flex min-h-11 min-w-11 items-center gap-1.5 text-sm underline lg:min-h-0 lg:min-w-0"
       >
         Abrir la app de grabación → Ajustes → clave
         <ExternalLink className="h-3.5 w-3.5" />

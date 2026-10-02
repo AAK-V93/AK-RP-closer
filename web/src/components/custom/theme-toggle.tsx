@@ -29,10 +29,9 @@ export function ThemeToggle() {
       <div className="relative">
         <Popover>
           <PopoverTrigger asChild>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-9 w-9"
+            <Button
+              variant="ghost"
+              size="icon"
             >
               {getThemeIcon()}
               <span className="sr-only">Cambiar tema</span>
