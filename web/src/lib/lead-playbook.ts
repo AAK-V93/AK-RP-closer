@@ -263,15 +263,20 @@ export function mergePlaybooks(
   };
 }
 
-function compactCorpus(items: { title: string; text: string }[], limit = 18) {
+function compactCorpus(
+  items: { title: string; text: string }[],
+  limit = 18,
+  perCall = 2800,
+  maxChars = 55_000,
+) {
   return items
     .filter((item) => item.text.trim().length > 80)
     .slice(0, limit)
     .map((item, index) => {
-      return `# Call ${index + 1}: ${item.title}\n${item.text.slice(0, 2800)}`;
+      return `# Call ${index + 1}: ${item.title}\n${item.text.slice(0, perCall)}`;
     })
     .join("\n\n---\n\n")
-    .slice(0, 55_000);
+    .slice(0, maxChars);
 }
 
 const PLAYBOOK_JSON_SHAPE = `{
@@ -318,7 +323,9 @@ export async function extractLeadPlaybook(args: {
 }) {
   const existing = args.existing ? parsePlaybook(args.existing) : emptyPlaybook();
   const incremental = isPlaybookReady(existing);
-  const corpus = compactCorpus(args.transcripts, incremental ? 8 : 18);
+  const corpus = incremental
+    ? compactCorpus(args.transcripts, 3, 1200, 8_000)
+    : compactCorpus(args.transcripts, 12, 2200, 28_000);
   if (!corpus.trim()) {
     return existing;
   }

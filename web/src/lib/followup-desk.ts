@@ -1,6 +1,5 @@
 import {
   dueDayFromProximo,
-  foldLeadName,
   followupEstado,
   withFollowupTiming,
 } from "@/lib/crm-followups";
@@ -97,10 +96,18 @@ export function projectDeskRows<T extends DeskRow>(
     action: DeskResultado;
     today: string;
     nextAt?: string;
+    alsoDropIds?: string[];
   },
 ): { rows: T[]; leaves: boolean; proximo: string } {
   const current = rows.find((row) => row.id === args.targetId);
-  if (!current) return { rows, leaves: false, proximo: "" };
+  if (!current) {
+    if (args.action === "perdido" && args.alsoDropIds?.length) {
+      const drop = new Set(args.alsoDropIds);
+      const next = rows.filter((row) => !drop.has(row.id));
+      return { rows: next, leaves: next.length !== rows.length, proximo: "" };
+    }
+    return { rows, leaves: false, proximo: "" };
+  }
 
   const terminal =
     args.action === "mostro" ||
@@ -110,8 +117,11 @@ export function projectDeskRows<T extends DeskRow>(
     (args.action === "pago" && !current.nextOnHecho);
 
   if (terminal) {
+    const drop = new Set(
+      args.action === "perdido" ? [args.targetId, ...(args.alsoDropIds || [])] : [args.targetId],
+    );
     return {
-      rows: rows.filter((row) => row.id !== args.targetId),
+      rows: rows.filter((row) => !drop.has(row.id)),
       leaves: true,
       proximo: "",
     };
@@ -162,37 +172,95 @@ type OperacionPatch = {
   seguimientoCerrado?: boolean;
 };
 
-export function projectOperacionProximo<T extends OperacionPatch>(
+export const LOST_REASONS = [
+  { id: "precio", label: "Precio" },
+  { id: "momento", label: "No es el momento" },
+  { id: "otra", label: "Eligió otra opción" },
+  { id: "no_responde", label: "No responde" },
+  { id: "otro", label: "Otro" },
+] as const;
+
+export function formatLostReason(id: string, note = "") {
+  const label = LOST_REASONS.find((row) => row.id === id)?.label || "";
+  const extra = note.trim();
+  if (id === "otro") return extra || "Otro";
+  if (label && extra) return `${label}: ${extra}`;
+  return label || extra;
+}
+
+export function lostScopeMessage(nombre: string, count: number) {
+  const who = nombre.trim() || "este lead";
+  const n = Math.max(1, count);
+  if (n === 1) return `Esto cierra el seguimiento abierto de ${who}.`;
+  return `Esto cierra los ${n} seguimientos abiertos de ${who}.`;
+}
+
+/** Perdido closes the lead. Every other button changes only the row you clicked. */
+export function callIdsForDeskAction(args: {
+  action: string;
+  explicitCallId: string;
+  leadId: string;
+  linked: { id: string; leadId: string; open: boolean }[];
+  /** Calls already stamped with a lead id, including ones with no alert. */
+  stamped?: { id: string; leadId: string; open: boolean }[];
+}) {
+  if (args.action !== "perdido") return args.explicitCallId ? [args.explicitCallId] : [];
+  const ids = new Set<string>();
+  if (args.explicitCallId) ids.add(args.explicitCallId);
+  if (!args.leadId) return [...ids];
+  for (const row of [...args.linked, ...(args.stamped || [])]) {
+    if (row.leadId === args.leadId && (row.open || row.id === args.explicitCallId)) ids.add(row.id);
+  }
+  return [...ids];
+}
+
+/** How many open Operación rows Perdido will close. Same lead id only. */
+export function openFollowupCount(
+  rows: { id: string; leadId?: string; fechaProximo?: string }[],
+  leadId: string,
+  explicitId = "",
+) {
+  if (!leadId) return 1;
+  const n = rows.filter(
+    (row) =>
+      row.leadId === leadId &&
+      (Boolean(String(row.fechaProximo || "").trim()) || row.id === explicitId),
+  ).length;
+  return Math.max(n, 1);
+}
+
+export function projectOperacionProximo<T extends OperacionPatch & { leadId?: string }>(
   rows: T[],
   args: {
     callId?: string;
+    callIds?: string[];
+    leadId?: string;
     cliente: string;
     proximo: string;
     resultado: string;
     closeAll: boolean;
   },
 ): T[] {
-  const key = foldLeadName(args.cliente);
-  let patchedOpen = false;
+  const explicit = new Set(
+    (args.callIds && args.callIds.length ? args.callIds : args.callId ? [args.callId] : []).filter(Boolean),
+  );
   return rows.map((row) => {
-    if (!key || foldLeadName(row.cliente) !== key) return row;
+    const open = Boolean(dueDayFromProximo(row.fechaProximo));
+    const inScope = args.closeAll
+      ? Boolean(args.leadId) &&
+        row.leadId === args.leadId &&
+        (open || explicit.has(row.id))
+      : explicit.has(row.id);
+    if (!inScope) return row;
     if (args.closeAll) {
-      if (!dueDayFromProximo(row.fechaProximo) && row.id !== args.callId) return row;
       return {
         ...row,
         fechaProximo: "",
         seguimientoResultado: args.resultado,
-        seguimientoHecho: dueDayFromProximo(row.fechaProximo)
-          ? row.fechaProximo
-          : row.seguimientoHecho || "",
+        seguimientoHecho: open ? row.fechaProximo : row.seguimientoHecho || "",
         seguimientoCerrado: true,
       };
     }
-    const isTarget = args.callId
-      ? row.id === args.callId
-      : !patchedOpen && Boolean(dueDayFromProximo(row.fechaProximo));
-    if (!isTarget) return row;
-    patchedOpen = true;
     return {
       ...row,
       fechaProximo: args.proximo,
@@ -210,6 +278,7 @@ export type FollowupUndoCall = {
   cerrado: string;
   intentos: number;
   requiere: boolean | null;
+  razonNoCierre?: string;
 };
 
 export type FollowupUndo = {
@@ -240,6 +309,7 @@ export function normalizeFollowupUndo(value: unknown): FollowupUndo | null {
       cerrado: String(item.cerrado || ""),
       intentos: Number(item.intentos) || 0,
       requiere: item.requiere === true ? true : item.requiere === false ? false : null,
+      ...(typeof item.razonNoCierre === "string" ? { razonNoCierre: item.razonNoCierre } : {}),
     }))
     .filter((item) => item.id);
   const threads = Array.isArray(row.threads)
@@ -295,6 +365,7 @@ export function restoreFollowupFiling(raw: unknown, snap?: FollowupUndoCall | nu
     filing.seguimiento_cerrado = snap.cerrado;
     filing.seguimiento_intentos = snap.intentos;
     filing.requiere_seguimiento = snap.requiere;
+    if (typeof snap.razonNoCierre === "string") filing.razon_no_cierre = snap.razonNoCierre;
   } else if (proximo) {
     filing.proximo_seguimiento = proximo;
     filing.seguimiento_resultado = "";
@@ -314,8 +385,10 @@ export function deskUndoMessage(args: {
   nombre: string;
   proximo: string;
   leaves: boolean;
+  closedCount?: number;
 }) {
   const nombre = args.nombre || "el lead";
+  if (args.action === "perdido") return lostScopeMessage(nombre, args.closedCount || 1);
   if (args.action === "hecho" && args.leaves) return `Marcaste a ${nombre} como hecho.`;
   if (args.action === "hecho") {
     return `Marcaste a ${nombre} como hecho. El siguiente queda para el ${args.proximo}.`;
@@ -326,8 +399,7 @@ export function deskUndoMessage(args: {
   if (args.action === "no_mostro") {
     return `${nombre} no mostró. Sigue pendiente para el ${args.proximo}.`;
   }
-  if (args.action === "mostro") return `Marcaste que ${nombre} mostró.`;
-  if (args.action === "perdido") return `Marcaste a ${nombre} como perdido.`;
+  if (args.action === "mostro") return `Marcaste que ${nombre} mostró. Solo esta fila.`;
   if (args.action === "cerro" && args.leaves) return `Marcaste que ${nombre} cerró.`;
   if (args.action === "cerro") return `${nombre} cerró. Queda un cobro para el ${args.proximo}.`;
   if (args.action === "reprogramado") return `Reprogramaste a ${nombre} para el ${args.proximo}.`;

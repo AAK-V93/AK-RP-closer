@@ -100,7 +100,11 @@ export async function classifyAndFileCall(
     });
   }
 
-  const pattern = await loadExtractorPattern(prisma, userId);
+  const [pattern, offers, learned] = await Promise.all([
+    loadExtractorPattern(prisma, userId),
+    loadOffersForCrm(prisma, userId),
+    loadOfferAmountBands(prisma, userId),
+  ]);
   if (matchesLearnedNonCommercial(args.title, pattern)) {
     return fileSkipped(prisma, userId, args, {
       estado: "NO_COMERCIAL",
@@ -108,7 +112,6 @@ export async function classifyAndFileCall(
     });
   }
 
-  const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
   const pasted = isPasteHeading(args.title);
   const recordedAt =
@@ -116,7 +119,6 @@ export async function classifyAndFileCall(
     args.recordedAt ||
     null;
   const fecha = recordedAt ? zonedDayKey(recordedAt) : null;
-  const learned = await loadOfferAmountBands(prisma, userId);
   const parsed = enrichExtractorFollowup(
     await runExtractor({
       offers,

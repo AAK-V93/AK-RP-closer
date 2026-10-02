@@ -216,6 +216,46 @@ test("on 2 Oct Carlos is pendiente de hoy and the test leads are in the list", (
   assert.equal(counts.dineroEnJuego, 50000);
 });
 
+test("Carlos Ramírez (QA) counts once, and a year is not money in play", () => {
+  assert.equal(moneyInPlay({ venta: 2026, cash: 0, saldo: null, at: "2026-09-30" }), 0);
+  assert.equal(moneyInPlay({ venta: 51945678123, cash: 0, saldo: null }), 0);
+  const rows = alignFollowups(
+    [],
+    [
+      source({
+        id: "qa",
+        cliente: "Carlos Ramírez (QA)",
+        fecha: "2026-09-30",
+        fechaProximo: "2026-10-02",
+        venta: 10000,
+        saldo: 10000,
+      }),
+      source({
+        id: "orig",
+        cliente: "Carlos Ramírez",
+        fecha: "2026-09-20",
+        fechaProximo: "2026-10-01",
+        venta: 10000,
+        saldo: 10000,
+      }),
+    ],
+    "2026-10-02",
+    (draft) => ({
+      id: draft.source.id,
+      cliente: draft.source.cliente,
+      dueAt: draft.dueAt,
+      estado: draft.estado,
+      days: 0,
+      enJuego: draft.enJuego,
+      proximaAccion: draft.proximaAccion,
+    }),
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.id, "qa");
+  assert.equal(rows[0]?.enJuego, 10000);
+  assert.equal(followupSnapshot(rows).dineroEnJuego, 10000);
+});
+
 test("the latest call with a date wins when the same lead has two", () => {
   const rows = alignFollowups(
     [],

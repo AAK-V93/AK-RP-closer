@@ -4,6 +4,7 @@ import { zonedDayKey } from "@/lib/crm-time";
 
 export type OperacionRow = {
   id: string;
+  leadId?: string;
   fecha: string | null;
   cliente: string;
   telefono: string;

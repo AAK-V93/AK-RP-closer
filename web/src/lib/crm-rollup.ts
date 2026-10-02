@@ -1,4 +1,5 @@
 import { countedSale } from "@/lib/stated-deal";
+import { zonedDayKey } from "@/lib/crm-time";
 import {
   foldOffer,
   isInventedOfferLabel,
@@ -12,6 +13,8 @@ export type RollupOffer = NamedOffer & {
 };
 
 export type RollupCall = {
+  id?: string;
+  cliente?: string | null;
   offerName?: string | null;
   producto?: string | null;
   estadoAgenda?: string | null;
@@ -19,6 +22,14 @@ export type RollupCall = {
   cashCollected?: number | null;
   recordedAt?: Date | string | null;
   createdAt?: Date | string | null;
+};
+
+export type ClosedDeal = {
+  id: string;
+  cliente: string;
+  fecha: string;
+  venta: number;
+  oferta: string;
 };
 
 export type OfferRow = {
@@ -88,10 +99,38 @@ function matchOffer(
   return "";
 }
 
+/** A sale is a closed deal that has an amount. A show that only talked a price is not. */
+export function bookedSale(estado: string | null | undefined, amount: number) {
+  return String(estado || "") === "CIERRE VENTA" && amount > 0 ? amount : 0;
+}
+
+export function explainVentas(calls: RollupCall[], prices: number[] = []) {
+  const leads: ClosedDeal[] = [];
+  for (const call of calls) {
+    const at = callInstant(call);
+    if (!at) continue;
+    const sale = countedSale(call.ventaTotal, { at, prices });
+    const booked = bookedSale(call.estadoAgenda, sale);
+    if (!booked) continue;
+    leads.push({
+      id: call.id || "",
+      cliente: String(call.cliente || "").trim() || "Sin nombre",
+      fecha: at ? zonedDayKey(at) : "",
+      venta: booked,
+      oferta: String(call.offerName || call.producto || "").trim(),
+    });
+  }
+  return {
+    n: leads.length,
+    total: leads.reduce((sum, row) => sum + row.venta, 0),
+    leads,
+  };
+}
+
 /**
- * Ventas and cash are the explainable amounts (a calendar year is not a sale
- * unless it is the offer price). With one catalog offer, every such amount
- * lands on that row, so the rows add up to the totals.
+ * Ventas are closed deals with an amount. Cash is money already collected.
+ * A calendar year is not an amount unless it is the offer price.
+ * With one catalog offer, every counted amount lands on that row.
  */
 export function rollupCalls(
   offers: RollupOffer[],
@@ -122,19 +161,23 @@ export function rollupCalls(
     if (SHOW.has(estado)) shows += 1;
     if (estado === "NO SHOW") noShows += 1;
     if (estado === "REPROGRAMA") reprogramadas += 1;
-    if (estado === "CIERRE VENTA") cierres += 1;
 
     const at = callInstant(call);
     const sale = countedSale(call.ventaTotal, { at, prices });
     const collected = countedSale(call.cashCollected, { at, prices });
+    const booked = bookedSale(estado, sale);
+    if (booked) cierres += 1;
+    ventas += booked;
+    cash += collected;
+
     const name = matchOffer(call, catalog);
     const row = name ? rows.get(name) : undefined;
     if (!row) continue;
-    if (estado === "CIERRE VENTA") row.cierres += 1;
-    row.ventas += sale;
+    if (booked) {
+      row.cierres += 1;
+      row.ventas += booked;
+    }
     row.cash += collected;
-    ventas += sale;
-    cash += collected;
   }
 
   return {

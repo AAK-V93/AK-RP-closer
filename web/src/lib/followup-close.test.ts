@@ -4,6 +4,10 @@ import { enrichExtractorFollowup, parseExtractorJson } from "./extractor";
 import { alignFollowups, followupIsClosed, followupSnapshot } from "./crm-followups";
 import { operacionFromCall } from "./crm-operacion";
 import {
+  callIdsForDeskAction,
+  formatLostReason,
+  lostScopeMessage,
+  openFollowupCount,
   normalizeFollowupUndo,
   normalizeFollowupWhen,
   projectDeskRows,
@@ -14,6 +18,102 @@ import {
 import { presentThread } from "./followup-threads";
 
 const today = "2026-10-02";
+
+test("perdido matches by lead id and asks with a reason the undo can restore", () => {
+  const linked = [
+    { id: "decision", leadId: "lead-carlos", open: true },
+    { id: "segunda", leadId: "lead-carlos", open: true },
+    { id: "copy", leadId: "lead-copy", open: true },
+  ];
+  assert.deepEqual(
+    callIdsForDeskAction({
+      action: "perdido",
+      explicitCallId: "segunda",
+      leadId: "lead-carlos",
+      linked,
+    }).sort(),
+    ["decision", "segunda"],
+  );
+  assert.deepEqual(
+    callIdsForDeskAction({
+      action: "mostro",
+      explicitCallId: "segunda",
+      leadId: "lead-carlos",
+      linked,
+    }),
+    ["segunda"],
+  );
+  assert.deepEqual(
+    callIdsForDeskAction({
+      action: "hecho",
+      explicitCallId: "decision",
+      leadId: "lead-carlos",
+      linked,
+    }),
+    ["decision"],
+  );
+  assert.deepEqual(
+    callIdsForDeskAction({
+      action: "perdido",
+      explicitCallId: "segunda",
+      leadId: "lead-carlos",
+      linked: [linked[0]],
+      stamped: [
+        { id: "segunda", leadId: "lead-carlos", open: true },
+        { id: "copy", leadId: "lead-copy", open: true },
+      ],
+    }).sort(),
+    ["decision", "segunda"],
+  );
+  assert.deepEqual(
+    callIdsForDeskAction({
+      action: "no_contesto",
+      explicitCallId: "segunda",
+      leadId: "lead-carlos",
+      linked,
+    }),
+    ["segunda"],
+  );
+  assert.deepEqual(
+    callIdsForDeskAction({
+      action: "no_mostro",
+      explicitCallId: "segunda",
+      leadId: "lead-carlos",
+      linked,
+    }),
+    ["segunda"],
+  );
+  assert.equal(lostScopeMessage("Carlos Ramírez", 2), "Esto cierra los 2 seguimientos abiertos de Carlos Ramírez.");
+  assert.equal(lostScopeMessage("Carlos Ramírez", 1), "Esto cierra el seguimiento abierto de Carlos Ramírez.");
+  assert.equal(
+    openFollowupCount(
+      [
+        { id: "decision", leadId: "lead-carlos", fechaProximo: "2026-10-02 10:00" },
+        { id: "segunda", leadId: "lead-carlos", fechaProximo: "2026-10-02" },
+        { id: "copy", leadId: "lead-copy", fechaProximo: "2026-10-03" },
+      ],
+      "lead-carlos",
+      "segunda",
+    ),
+    2,
+  );
+  assert.equal(formatLostReason("precio", ""), "Precio");
+  assert.equal(formatLostReason("otro", "se fue con otro mentor"), "se fue con otro mentor");
+  const restored = restoreFollowupFiling(
+    { proximo_seguimiento: "", razon_no_cierre: "Precio", seguimiento_resultado: "perdido" },
+    {
+      id: "decision",
+      proximo: "2026-10-02 10:00",
+      resultado: "",
+      cerrado: "",
+      intentos: 0,
+      requiere: true,
+      razonNoCierre: "",
+    },
+  );
+  assert.equal(restored.proximo, "2026-10-02 10:00");
+  assert.equal(restored.filing.razon_no_cierre, "");
+});
 
 test("no contestó suggests tomorrow and keeps the clock", () => {
   assert.equal(suggestNextFollowup(today, "2026-10-02 10:00"), "2026-10-03 10:00");
@@ -104,28 +204,55 @@ test("hecho with a next step stays pending on that date", () => {
   assert.equal(followupSnapshot(next.rows).dineroEnJuego, 5000);
 });
 
-test("closing a lead clears every próximo so Operación and Seguimientos agree", () => {
+test("perdido closes every open row of the same lead id and leaves a same-name duplicate", () => {
   const rows = projectOperacionProximo(
     [
-      { id: "new", cliente: "Carlos Ramírez", fechaProximo: "2026-10-02 10:00" },
-      { id: "old", cliente: "Carlos Ramirez", fechaProximo: "2026-09-02" },
-      { id: "other", cliente: "Ana", fechaProximo: "2026-10-04" },
+      { id: "decision", leadId: "lead-carlos", cliente: "Carlos Ramírez", fechaProximo: "2026-10-02 10:00" },
+      { id: "segunda", leadId: "lead-carlos", cliente: "Carlos Ramírez (QA)", fechaProximo: "2026-10-02" },
+      { id: "other-lead", leadId: "lead-copy", cliente: "Carlos Ramírez", fechaProximo: "2026-10-03" },
+      { id: "ana", leadId: "lead-ana", cliente: "Ana", fechaProximo: "2026-10-04" },
     ],
     {
-      callId: "new",
+      callId: "segunda",
+      callIds: ["decision", "segunda"],
+      leadId: "lead-carlos",
       cliente: "Carlos Ramírez",
       proximo: "",
-      resultado: "hecho",
+      resultado: "perdido",
       closeAll: true,
     },
   );
   assert.equal(rows[0]?.fechaProximo, "");
-  assert.equal(
-    (rows[0] as { seguimientoCerrado?: boolean } | undefined)?.seguimientoCerrado,
-    true,
-  );
   assert.equal(rows[1]?.fechaProximo, "");
-  assert.equal(rows[2]?.fechaProximo, "2026-10-04");
+  assert.equal(rows[2]?.fechaProximo, "2026-10-03");
+  assert.equal(rows[3]?.fechaProximo, "2026-10-04");
+});
+
+test("mostró and hecho change only the clicked row", () => {
+  const rows = [
+    { id: "decision", leadId: "lead-carlos", cliente: "Carlos Ramírez", fechaProximo: "2026-10-02 10:00" },
+    { id: "segunda", leadId: "lead-carlos", cliente: "Carlos Ramírez", fechaProximo: "2026-10-03" },
+  ];
+  const mostro = projectOperacionProximo(rows, {
+    callId: "segunda",
+    leadId: "lead-carlos",
+    cliente: "Carlos Ramírez",
+    proximo: "",
+    resultado: "mostro",
+    closeAll: false,
+  });
+  assert.equal(mostro[0]?.fechaProximo, "2026-10-02 10:00");
+  assert.equal(mostro[1]?.fechaProximo, "");
+  const hecho = projectOperacionProximo(rows, {
+    callId: "decision",
+    leadId: "lead-carlos",
+    cliente: "Carlos Ramírez",
+    proximo: "",
+    resultado: "hecho",
+    closeAll: false,
+  });
+  assert.equal(hecho[0]?.fechaProximo, "");
+  assert.equal(hecho[1]?.fechaProximo, "2026-10-03");
 });
 
 test("a closed follow-up is not reopened from the transcript", () => {

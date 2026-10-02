@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { rollupCalls } from "./crm-rollup";
+import { explainVentas, rollupCalls } from "./crm-rollup";
 import { zonedDayKey, zonedMonthRange } from "./crm-time";
 import { inferCallDate, pastedCallTitle, quickFollowupIso } from "./followup-date";
 import { catalogDisplayName, isPriceLabel, preferOfferName } from "./offer-name";
@@ -111,11 +111,12 @@ test("Ventas drops the year 2026 and the desglose uses the real offer name", () 
     recordedAt: PASTE_AT,
   });
   const rolled = rollupCalls(offers, calls);
-  assert.equal(rolled.ventas, 40000);
+  assert.equal(rolled.ventas, 0);
+  assert.equal(rolled.cierres, 0);
   assert.equal(rolled.cash, 0);
   assert.equal(rolled.porOferta.length, 1);
   assert.equal(rolled.porOferta[0]?.oferta, "Círculo Millonario");
-  assert.equal(rolled.porOferta[0]?.ventas, 40000);
+  assert.equal(rolled.porOferta[0]?.ventas, 0);
   assert.equal(
     rolled.porOferta.reduce((sum, row) => sum + row.ventas, 0),
     rolled.ventas,
@@ -128,5 +129,51 @@ test("Ventas drops the year 2026 and the desglose uses the real offer name", () 
   const october = rollupCalls(offers, calls, zonedMonthRange(PASTE_AT));
   assert.equal(october.ventas, 0);
   const september = rollupCalls(offers, calls, zonedMonthRange(new Date("2026-09-15T17:00:00.000Z")));
-  assert.equal(september.ventas, 40000);
+  assert.equal(september.ventas, 0);
+  assert.equal(september.cierres, 0);
+});
+
+test("a show with an amount is not a venta; a cierre with an amount is", () => {
+  const offers = [{ productName: "Círculo Millonario", prices: [11800, 10000], aliases: [] }];
+  const shows = ["Carlos", "Andrea", "Diego", "Sofía"].map((cliente, index) => ({
+    id: `show-${index}`,
+    cliente,
+    offerName: "Círculo Millonario",
+    estadoAgenda: "SHOW",
+    ventaTotal: 10000,
+    cashCollected: index === 0 ? 2000 : 0,
+    recordedAt: new Date(`2026-09-${26 + index}T17:00:00.000Z`),
+  }));
+  const edson = {
+    id: "edson",
+    cliente: "Edson",
+    offerName: "Círculo Millonario",
+    estadoAgenda: "CIERRE VENTA",
+    ventaTotal: null,
+    cashCollected: 0,
+    recordedAt: new Date("2026-09-20T17:00:00.000Z"),
+  };
+  const closed = {
+    id: "closed",
+    cliente: "Lucía",
+    offerName: "Círculo Millonario",
+    estadoAgenda: "CIERRE VENTA",
+    ventaTotal: 10000,
+    cashCollected: 0,
+    recordedAt: new Date("2026-09-21T17:00:00.000Z"),
+  };
+  const rolled = rollupCalls(offers, [...shows, edson, closed]);
+  const explained = explainVentas([...shows, edson, closed], [11800, 10000]);
+  assert.equal(rolled.ventas, 10000);
+  assert.equal(rolled.cierres, 1);
+  assert.equal(rolled.cash, 2000);
+  assert.equal(rolled.porOferta[0]?.ventas, 10000);
+  assert.equal(rolled.porOferta[0]?.cierres, 1);
+  assert.equal(explained.n, 1);
+  assert.equal(explained.total, rolled.ventas);
+  assert.equal(explained.leads[0]?.cliente, "Lucía");
+  const september = rollupCalls(offers, [...shows, edson, closed], zonedMonthRange(new Date("2026-09-15T17:00:00.000Z")));
+  assert.equal(september.cierres, 1);
+  assert.equal(september.ventas, 10000);
+  assert.equal(september.cash, 2000);
 });

@@ -6,6 +6,13 @@ import { getWorkspace } from "@/lib/workspace";
 import { isUsableTranscript } from "@/lib/fathom-import";
 import { fileCallQuietly } from "@/lib/file-call";
 import { pastedCallTitle } from "@/lib/followup-date";
+import {
+  duplicatePasteMessage,
+  duplicateReason,
+  fingerprintCall,
+  fingerprintPaste,
+  transcriptHash,
+} from "@/lib/paste-identity";
 import { MAX_TRANSCRIPT_BYTES, transcriptTitle } from "@/lib/transcript-batch";
 
 export const runtime = "nodejs";
@@ -41,6 +48,7 @@ export async function POST(request: Request) {
       );
     }
     const batch = form.get("batch") === "1";
+    const skipGuide = form.get("skipGuide") === "1";
     const titles = files.map((file) => transcriptTitle(file.name));
     const existing = titles.length
       ? await auth.prisma.clientTranscript.findMany({
@@ -68,6 +76,7 @@ export async function POST(request: Request) {
     let already = 0;
     let unreadable = 0;
     let tooBig = 0;
+    let message = "";
     const toFile: string[] = [];
     for (const file of files) {
       if (file.size > MAX_BYTES) {
@@ -111,6 +120,11 @@ export async function POST(request: Request) {
     }
 
     if (pasted.length >= 80) {
+      const duplicate = await findDuplicatePaste(auth.prisma, auth.userId, pasted);
+      if (duplicate) {
+        already += 1;
+        message = duplicate.message;
+      } else {
       const pastedRow = await auth.prisma.clientTranscript.create({
         data: {
           userId: auth.userId,
@@ -128,6 +142,8 @@ export async function POST(request: Request) {
         recordedAt: pastedRow.createdAt,
       });
       saved += 1;
+      message = "Guardé la llamada.";
+      }
     }
 
     if (saved === 0 && toFile.length === 0 && already === 0) {
@@ -137,12 +153,14 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!batch) await refreshPlaybook(auth.prisma, auth.userId, offerId);
+    if (!batch && !skipGuide) await refreshPlaybook(auth.prisma, auth.userId, offerId);
 
     const next = await getWorkspace(auth.prisma, auth.userId, offerId);
     return NextResponse.json({
       saved,
       already,
+      duplicate: already > 0 && saved === 0 && Boolean(message),
+      message,
       unreadable,
       tooBig,
       toFile: [...new Set(toFile)],
@@ -160,8 +178,50 @@ export async function POST(request: Request) {
   }
 }
 
+async function findDuplicatePaste(prisma: PrismaClient, userId: string, text: string) {
+  const incoming = fingerprintPaste(text);
+  const [transcripts, calls] = await Promise.all([
+    prisma.clientTranscript.findMany({
+      where: { userId },
+      select: { transcriptText: true },
+    }),
+    prisma.callRecord.findMany({
+      where: { userId },
+      select: { leadName: true, recordedAt: true, createdAt: true, filingJson: true },
+    }),
+  ]);
+  for (const row of transcripts) {
+    if (transcriptHash(row.transcriptText) === incoming.hash) {
+      return { duplicate: true, message: duplicatePasteMessage("hash", incoming) };
+    }
+  }
+  for (const call of calls) {
+    const reason = duplicateReason(incoming, fingerprintCall(call));
+    if (reason === "lead-date" || reason === "contact-date") {
+      return { duplicate: true, message: duplicatePasteMessage(reason, incoming) };
+    }
+  }
+  return null;
+}
+
 async function handleTranscriptJson(request: Request, prisma: PrismaClient, userId: string) {
-  const body = (await request.json()) as { offerId?: string; fileId?: string; finalize?: boolean };
+  const body = (await request.json()) as {
+    offerId?: string;
+    fileId?: string;
+    finalize?: boolean;
+    stage?: string;
+    paste?: string;
+  };
+  if (body.stage === "check") {
+    const text = String(body.paste || "").trim();
+    if (text.length < 80) {
+      return NextResponse.json({ error: "Pega al menos una transcripción" }, { status: 400 });
+    }
+    const duplicate = await findDuplicatePaste(prisma, userId, text);
+    return NextResponse.json(
+      duplicate || { duplicate: false, message: "No estaba. Sigo con la lectura." },
+    );
+  }
   const offerId = String(body.offerId || "").trim() || null;
   if (body.finalize) {
     await refreshPlaybook(prisma, userId, offerId);

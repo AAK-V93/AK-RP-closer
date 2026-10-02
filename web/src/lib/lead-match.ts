@@ -6,6 +6,7 @@ export type NamedLead = {
 
 export function normalizePersonName(value: string) {
   return String(value || "")
+    .replace(/\([^)]*\)/g, " ")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")

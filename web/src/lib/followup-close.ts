@@ -1,8 +1,9 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { applyAlertOutcome, resolveOpenAlertsForLead, type AlertOutcome } from "@/lib/alerts";
-import { dueDayFromProximo, foldLeadName, followupIsClosed } from "@/lib/crm-followups";
-import { findMatchingLead } from "@/lib/lead-match";
+import { dueDayFromProximo, followupIsClosed } from "@/lib/crm-followups";
 import {
+  callIdsForDeskAction,
+  formatLostReason,
   instantFromProximo,
   normalizeFollowupUndo,
   normalizeFollowupWhen,
@@ -62,6 +63,7 @@ type CallUndo = {
   cerrado: string;
   intentos: number;
   requiere: boolean | null;
+  razonNoCierre?: string;
 };
 
 type DeskUndo = {
@@ -90,17 +92,32 @@ export async function applyDeskFollowup(
   if (!resolved) return { error: "No encontré ese seguimiento." as const };
 
   const calls = await loadCalls(prisma, userId);
-  const cliente = resolved.alert?.lead.name || callName(calls.find((row) => row.id === resolved.explicitCallId) || {
-    id: "",
-    leadName: "",
-    filingJson: {},
-    recordedAt: null,
-    createdAt: new Date(0),
+  const explicit = calls.find((row) => row.id === resolved.explicitCallId) || null;
+  const cliente = resolved.alert?.lead.name || resolved.lead?.name || (explicit ? callName(explicit) : "");
+  const leadId = resolved.leadId || resolved.alert?.leadId || "";
+  const linked = await linkedCalls(prisma, userId, leadId);
+  const stamped = calls.flatMap((call) => {
+    const filing = filingBase(call.filingJson);
+    const stampedLead = String(filing.lead_id || "");
+    if (!stampedLead) return [];
+    return [
+      {
+        id: call.id,
+        leadId: stampedLead,
+        open: Boolean(dueDayFromProximo(proximoOf(filing))),
+      },
+    ];
   });
-  const key = foldLeadName(cliente);
-  const matches = calls.filter(
-    (call) => call.id === resolved.explicitCallId || (key && foldLeadName(callName(call)) === key),
+  const ids = new Set(
+    callIdsForDeskAction({
+      action: args.resultado,
+      explicitCallId: resolved.explicitCallId || "",
+      leadId,
+      linked,
+      stamped,
+    }),
   );
+  const matches = calls.filter((call) => ids.has(call.id));
   if (!matches.length) return { error: "No encontré ese seguimiento." as const };
 
   const winning = matches.find((call) => dueDayFromProximo(proximoOf(filingBase(call.filingJson)))) || matches[0];
@@ -112,8 +129,9 @@ export async function applyDeskFollowup(
     return { error: "Elige una fecha para el próximo seguimiento." as const };
   }
 
-  const lead = await resolveLead(prisma, userId, resolved.alert?.lead || null, cliente);
-  const leadId = lead?.id || resolved.alert?.leadId || "";
+  const lead = resolved.lead || resolved.alert?.lead || null;
+  const reason =
+    args.resultado === "perdido" ? formatLostReason(args.razonNoCierre || "", args.nota || "") : "";
 
   if (alreadyClosed(winning, args.resultado) && !(resolved.alert && !resolved.alert.resolvedAt)) {
     return {
@@ -139,14 +157,14 @@ export async function applyDeskFollowup(
         nextAt: scheduled ? instantFromProximo(scheduled)?.toISOString() : undefined,
         amount: args.amount,
         nota: args.nota,
-        razonNoCierre: args.razonNoCierre,
+        razonNoCierre: args.resultado === "perdido" ? reason || "perdido" : args.razonNoCierre,
       });
       if ("error" in out && out.error) return { error: "No se guardó. Inténtalo otra vez." as const };
     }
   } else if (args.resultado === "perdido" && leadId) {
     await prisma.lead.update({
       where: { id: leadId },
-      data: { status: "perdido", razonNoCierre: args.razonNoCierre || args.nota || "perdido" },
+      data: { status: "perdido", razonNoCierre: reason || "perdido" },
     });
     await resolveOpenAlertsForLead(prisma, userId, leadId);
   }
@@ -193,21 +211,27 @@ export async function applyDeskFollowup(
       .filter((id) => !openBeforeIds.has(id));
   }
 
-  await writeCalls(prisma, matches, winning.id, {
+  await writeCalls(prisma, matches, resolved.explicitCallId || winning.id, {
     proximo,
     resultado: closed ? args.resultado : RESCHEDULE.has(args.resultado) ? args.resultado : "",
     closed,
     undo,
+    razon: reason,
   });
 
-  if (leadId) {
+  if (leadId && args.resultado !== "perdido") {
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: { nextStepAt: proximo ? instantFromProximo(proximo) : null },
+    });
+  }
+  if (leadId && args.resultado === "perdido") {
     await prisma.lead.update({
       where: { id: leadId },
       data: {
-        nextStepAt: proximo ? instantFromProximo(proximo) : null,
-        ...(args.resultado === "perdido"
-          ? { status: "perdido", razonNoCierre: args.razonNoCierre || args.nota || "perdido" }
-          : {}),
+        status: "perdido",
+        razonNoCierre: reason || "perdido",
+        nextStepAt: null,
       },
     });
   }
@@ -218,6 +242,7 @@ export async function applyDeskFollowup(
     proximo,
     cliente,
     callId: winning.id,
+    closedCount: args.resultado === "perdido" ? matches.length : 1,
   };
 }
 
@@ -227,20 +252,16 @@ export async function reopenDeskFollowup(prisma: PrismaClient, userId: string, r
   const calls = await loadCalls(prisma, userId);
   const seed = calls.find((row) => row.id === resolved.explicitCallId) || null;
   const cliente = resolved.alert?.lead.name || (seed ? callName(seed) : "");
-  const key = foldLeadName(cliente);
-  const matches = calls.filter(
-    (call) => call.id === resolved.explicitCallId || (key && foldLeadName(callName(call)) === key),
-  );
   const undoOf = (call: CallRow) => normalizeFollowupUndo(filingBase(call.filingJson).seguimiento_undo);
-  const host =
-    matches.find((call) => call.id === resolved.explicitCallId && undoOf(call)) ||
-    matches.find((call) => undoOf(call)) ||
-    matches.find((call) => dueDayFromProximo(String(filingBase(call.filingJson).seguimiento_cerrado || ""))) ||
-    null;
+  const host = seed && (undoOf(seed) || dueDayFromProximo(String(filingBase(seed.filingJson).seguimiento_cerrado || "")))
+    ? seed
+    : null;
   if (!host) return { error: "No hay nada que deshacer." as const };
   const undo = undoOf(host);
+  const ids = new Set(undo?.calls.map((row) => row.id) || [host.id]);
+  const touched = calls.filter((call) => ids.has(call.id));
 
-  const restored = await restoreClosedCalls(prisma, matches.length ? matches : [host], undo);
+  const restored = await restoreClosedCalls(prisma, touched.length ? touched : [host], undo);
   if (!restored) return { error: "No hay nada que deshacer." as const };
 
   if (undo) await restoreUndoSideEffects(prisma, userId, undo);
@@ -350,23 +371,40 @@ async function restoreUndoSideEffects(prisma: PrismaClient, userId: string, undo
 async function resolveTarget(prisma: PrismaClient, userId: string, rawId: string) {
   const id = rawId.trim();
   if (!id) return null;
-  if (id.startsWith("call:")) {
-    const call = await prisma.callRecord.findFirst({
-      where: { id: id.slice("call:".length), userId },
-      select: { id: true },
-    });
-    return call ? { alert: null, explicitCallId: call.id } : null;
-  }
+  if (id.startsWith("call:")) return resolveFromCall(prisma, userId, id.slice("call:".length));
   const alert = await prisma.leadAlert.findFirst({
     where: { id, userId },
     include: { lead: true },
   });
-  if (alert) return { alert, explicitCallId: alert.callRecordId };
+  if (alert) {
+    return { alert, explicitCallId: alert.callRecordId, leadId: alert.leadId, lead: alert.lead };
+  }
+  return resolveFromCall(prisma, userId, id);
+}
+
+async function resolveFromCall(prisma: PrismaClient, userId: string, callId: string) {
   const call = await prisma.callRecord.findFirst({
-    where: { id, userId },
-    select: { id: true },
+    where: { id: callId, userId },
+    select: { id: true, filingJson: true },
   });
-  return call ? { alert: null, explicitCallId: call.id } : null;
+  if (!call) return null;
+  const alert = await prisma.leadAlert.findFirst({
+    where: { userId, callRecordId: call.id },
+    include: { lead: true },
+    orderBy: { resolvedAt: "asc" },
+  });
+  if (alert) {
+    return { alert, explicitCallId: call.id, leadId: alert.leadId, lead: alert.lead };
+  }
+  const thread = await prisma.followupThread.findFirst({
+    where: { userId, creadoDesdeCallRecordId: call.id },
+    select: { leadId: true },
+  });
+  const filing = filingBase(call.filingJson);
+  const leadId = thread?.leadId || String(filing.lead_id || "");
+  if (!leadId) return { alert: null, explicitCallId: call.id, leadId: "", lead: null };
+  const lead = await prisma.lead.findFirst({ where: { id: leadId, userId } });
+  return { alert: null, explicitCallId: call.id, leadId: lead?.id || "", lead };
 }
 
 async function loadCalls(prisma: PrismaClient, userId: string): Promise<CallRow[]> {
@@ -384,16 +422,32 @@ async function loadCalls(prisma: PrismaClient, userId: string): Promise<CallRow[
   });
 }
 
-async function resolveLead(
-  prisma: PrismaClient,
-  userId: string,
-  known: { id: string; name: string; company: string; status: string; razonNoCierre: string; nextStepAt: Date | null } | null,
-  cliente: string,
-) {
-  if (known) return known;
-  if (!foldLeadName(cliente)) return null;
-  const leads = await prisma.lead.findMany({ where: { userId } });
-  return findMatchingLead(leads, cliente);
+async function linkedCalls(prisma: PrismaClient, userId: string, leadId: string) {
+  if (!leadId) return [];
+  const [alerts, threads] = await Promise.all([
+    prisma.leadAlert.findMany({
+      where: { userId, leadId },
+      select: { callRecordId: true, resolvedAt: true },
+    }),
+    prisma.followupThread.findMany({
+      where: { userId, leadId },
+      select: { creadoDesdeCallRecordId: true, estado: true },
+    }),
+  ]);
+  const rows: { id: string; leadId: string; open: boolean }[] = [];
+  for (const alert of alerts) {
+    if (alert.callRecordId) rows.push({ id: alert.callRecordId, leadId, open: !alert.resolvedAt });
+  }
+  for (const thread of threads) {
+    if (thread.creadoDesdeCallRecordId) {
+      rows.push({
+        id: thread.creadoDesdeCallRecordId,
+        leadId,
+        open: thread.estado === "activo",
+      });
+    }
+  }
+  return rows;
 }
 
 function alreadyClosed(call: CallRow, action: string) {
@@ -430,6 +484,7 @@ async function snapshotUndo(
         cerrado: String(filing.seguimiento_cerrado || ""),
         intentos: Number(filing.seguimiento_intentos || 0) || 0,
         requiere: requiereOf(filing),
+        razonNoCierre: String(filing.razon_no_cierre || ""),
       };
     }),
     resolvedAlertIds: open.map((row) => row.id),
@@ -452,7 +507,7 @@ async function writeCalls(
   prisma: PrismaClient,
   matches: CallRow[],
   winningId: string,
-  args: { proximo: string; resultado: string; closed: boolean; undo: DeskUndo },
+  args: { proximo: string; resultado: string; closed: boolean; undo: DeskUndo; razon?: string },
 ) {
   for (const call of matches) {
     const filing = filingBase(call.filingJson);
@@ -466,6 +521,7 @@ async function writeCalls(
       filing.proximo_seguimiento = "";
       filing.requiere_seguimiento = false;
       filing.seguimiento_resultado = args.resultado;
+      if (args.razon) filing.razon_no_cierre = args.razon;
     } else {
       filing.proximo_seguimiento = args.proximo;
       filing.requiere_seguimiento = true;
@@ -473,7 +529,7 @@ async function writeCalls(
       filing.seguimiento_cerrado = "";
       if (RESCHEDULE.has(args.resultado)) filing.seguimiento_intentos = intentos + 1;
     }
-    if (isWinning) filing.seguimiento_undo = args.undo;
+    if (isWinning || args.closed) filing.seguimiento_undo = args.undo;
     else delete filing.seguimiento_undo;
     await prisma.callRecord.update({
       where: { id: call.id },
