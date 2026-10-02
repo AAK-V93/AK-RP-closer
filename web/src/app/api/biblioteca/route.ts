@@ -9,6 +9,7 @@ import {
   publishPack,
   toggleStar,
 } from "@/lib/followup-library";
+import { normalizeLibraryPayload } from "@/lib/library-pack";
 
 export async function GET() {
   try {
@@ -23,16 +24,18 @@ export async function GET() {
         orderBy: { updatedAt: "desc" },
       }),
     ]);
-    return NextResponse.json({
-      packs,
-      offers: offers.map((row) => ({
-        id: row.id,
-        productName: row.productName,
-        scriptCount: parseFollowupScripts(
-          (row.commercial as { scripts?: unknown } | null)?.scripts,
-        ).length,
-      })),
-    });
+    return NextResponse.json(
+      normalizeLibraryPayload({
+        packs,
+        offers: offers.map((row) => ({
+          id: row.id,
+          productName: row.productName,
+          scriptCount: parseFollowupScripts(
+            (row.commercial as { scripts?: unknown } | null)?.scripts,
+          ).length,
+        })),
+      }),
+    );
   } catch (error) {
     console.error("biblioteca GET", error);
     return NextResponse.json({ error: "No se pudo cargar la biblioteca" }, { status: 500 });

@@ -50,8 +50,8 @@ export default function LlamadasPage() {
     fetch("/api/llamadas")
       .then((r) => r.json())
       .then((data) => {
-        setCalls(data.calls || []);
-        setReview(data.review || null);
+        setCalls(Array.isArray(data?.calls) ? data.calls : []);
+        setReview(data?.review && typeof data.review === "object" ? data.review : null);
       })
       .catch(() => undefined);
 
@@ -150,7 +150,7 @@ export default function LlamadasPage() {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-sm">{review.question}</p>
-                    {review.options && review.options.length > 0 ? (
+                    {Array.isArray(review.options) && review.options.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {review.options.map((option) => (
                           <Button

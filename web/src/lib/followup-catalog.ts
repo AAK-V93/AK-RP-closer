@@ -1,4 +1,5 @@
 import type { FollowupScript } from "@/lib/followup-scripts";
+import { asStringList } from "@/lib/library-pack";
 import catalog from "@/lib/followup-catalog.json";
 
 export type BuiltinFollowupPack = {
@@ -13,8 +14,8 @@ export const BUILTIN_FOLLOWUP_PACKS: BuiltinFollowupPack[] = catalog.packs.map((
   id: pack.id,
   title: pack.title,
   description: pack.description,
-  tags: pack.tags,
-  scripts: pack.scripts.map((row) => ({
+  tags: asStringList(pack.tags),
+  scripts: (Array.isArray(pack.scripts) ? pack.scripts : []).map((row) => ({
     key: row.key,
     type: row.type,
     intentosMin: row.intentosMin,

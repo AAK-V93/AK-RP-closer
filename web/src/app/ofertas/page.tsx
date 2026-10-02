@@ -96,7 +96,11 @@ export default function OfertasPage() {
     const response = await fetch(`/api/workspace${query}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Error");
-    setWorkspace(data);
+    setWorkspace({
+      ...data,
+      offers: Array.isArray(data.offers) ? data.offers : [],
+      transcripts: Array.isArray(data.transcripts) ? data.transcripts : [],
+    });
     if (nextOfferId === null) {
       fillOffer(null);
       return;
@@ -346,7 +350,7 @@ export default function OfertasPage() {
         )}
 
         <div className="flex flex-wrap gap-2">
-          {(workspace?.offers || []).map((row) => {
+          {(Array.isArray(workspace?.offers) ? workspace.offers : []).map((row) => {
             const bonusCount = savedBonusNames(parseCommercial(row.commercial)).length;
             return (
             <Button
@@ -638,14 +642,14 @@ export default function OfertasPage() {
               ? ` (incluye ${workspace.fathomCount} grabaciones)`
               : ""}
             {workspace?.playbookReady ? " · perfil de prospectos listo" : ""}
-            {workspace?.offers.find((r) => r.id === offerId)?.readyCrm ||
+            {(Array.isArray(workspace?.offers) ? workspace.offers : []).find((r) => r.id === offerId)?.readyCrm ||
             workspace?.readyCrm
               ? " · CRM listo"
               : " · falta precio, pagos o cómo te pagan comisión (pega un texto o sube el doc)"}
           </p>
-          {workspace && workspace.transcripts.length > 0 && (
+          {(workspace?.transcripts ?? []).length > 0 && (
             <ul className="text-xs text-fg2 space-y-1 max-h-40 overflow-y-auto">
-              {workspace.transcripts.map((row) => (
+              {(workspace?.transcripts ?? []).map((row) => (
                 <li key={row.id}>{row.title}</li>
               ))}
             </ul>
