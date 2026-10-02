@@ -1,6 +1,13 @@
 import { generateGeminiJson, generateGeminiParts } from "@/lib/gemini";
 import { isInventedOfferLabel, isPriceLabel, nameHintsFromText } from "@/lib/offer-name";
 import {
+  explicitPriceLines,
+  guardOfferContent,
+  linesFromTextItems,
+  sanitizeCommissionQuestions,
+  separateMoneyTokens,
+} from "@/lib/offer-amounts";
+import {
   emptyCommercial,
   parseCommercial,
   parseCommissionFromText,
@@ -24,7 +31,7 @@ La comisión A MENUDO NO es un % fijo. Puede depender de:
 - si paga de contado, reserva, cuotas, transferencia, etc.
 - umbrales de volumen, si aparecen
 
-Copia la regla en "notes" con las palabras del closer/documento. Si hay tramos, llénalos en "tiers". NO inventes 3% ni umbral 70,000. Si no hay comisión, commission = null. Nunca asumas comisión.
+Copia la regla en "notes" con las palabras del closer/documento. Si hay tramos, llénalos en "tiers". NO inventes 3% ni umbral 70,000. Si no hay comisión, commission = null. Nunca asumas comisión. Un porcentaje es comisión solo si está junto a "comisión", "comisión del closer" o "pago al closer". "69% de probabilidad de éxito" o "casos de éxito" NO es comisión. Copia cada precio tal como está en su línea (USD 1.597 no se pega con el 69 de la línea siguiente).
 
 Después de extraer, llena "questions" (2-4). Cada pregunta afirma lo que entendiste y termina en "¿Es así?" o "¿Lo dejo vacío?". Prohibido preguntar en abierto o en negativo: no uses "¿se debe confirmar…?", "¿porcentaje fijo o tramos?", "¿cómo se maneja?" ni "¿X no está especificado?". Si un dato no venía, dilo en afirmativo. Ejemplo: "No encontré los porcentajes de comisión. ¿Los dejo vacíos?" Ejemplo con dato: "La comisión queda en 10% sobre lo cobrado. ¿Es así?"
 
@@ -192,14 +199,16 @@ export function parsedToBatch(
         .filter(Boolean)
         .slice(0, 6)
     : [];
-  const asked = questions.length ? questions : defaultQuestions(offers, assumption);
+  const guarded = offers.map((offer) => guardOfferContent(offer, sourceText));
+  const asked = sanitizeCommissionQuestions(
+    questions.length ? questions : defaultQuestions(guarded, assumption),
+    sourceText,
+  );
+  const hasRule = guarded.some((row) => Boolean(row.commercial.commission));
   return {
-    offers,
-    assumption: offers.length > 1 ? "varias" : assumption,
-    questions: ensureCommissionQuestion(
-      asked,
-      offers.some((row) => Boolean(row.commercial.commission)),
-    ),
+    offers: guarded,
+    assumption: guarded.length > 1 ? "varias" : assumption,
+    questions: ensureCommissionQuestion(asked, hasRule),
   };
 }
 
@@ -217,11 +226,14 @@ export function heuristicExtract(text: string): ExtractedOffer {
   const commercial = emptyCommercial();
   commercial.sourceText = source.slice(0, 8000);
   commercial.commission = parseCommissionFromText(source);
-  const priceMatch = source.match(
-    /(?:lista|precio|ticket|usd|\$)\s*:?\s*(\d[\d.\s,]{2,})/i,
+  const priceMatch = separateMoneyTokens(source).match(
+    /(?:lista|precio|ticket|usd|\$)[ \t]*:?[ \t]*(\d{1,3}(?:\.\d{3})+|\d{2,})/i,
   );
   if (priceMatch) {
-    const n = Number(priceMatch[1].replace(/[^\d]/g, ""));
+    const token = priceMatch[1] || "";
+    const n = /^\d{1,3}(\.\d{3})+$/.test(token)
+      ? Number(token.replace(/\./g, ""))
+      : Number(token);
     if (n > 50) commercial.listPrice = n;
   }
   const modes: { name: string; details: string }[] = [];
@@ -287,11 +299,19 @@ function isPlainTextFile(file: OfferExtractFile) {
 }
 
 async function pdfPlainText(buffer: Buffer) {
-  const { extractText, getDocumentProxy } = await import("unpdf");
+  const { getDocumentProxy } = await import("unpdf");
   const pdf = await getDocumentProxy(new Uint8Array(buffer));
-  const result = await extractText(pdf, { mergePages: true });
-  const text = Array.isArray(result.text) ? result.text.join("\n") : String(result.text || "");
-  return text.replace(/[ \t]+\n/g, "\n").trim();
+  const pages: string[] = [];
+  const pageCount = pdf.numPages || 0;
+  for (let number = 1; number <= pageCount; number += 1) {
+    const page = await pdf.getPage(number);
+    const content = await page.getTextContent();
+    const items = content.items as { str?: string; transform?: number[] }[];
+    const body = linesFromTextItems(items);
+    const prices = explicitPriceLines(items);
+    pages.push([body, prices.length ? prices.join("\n") : ""].filter(Boolean).join("\n"));
+  }
+  return separateMoneyTokens(pages.filter(Boolean).join("\n")).replace(/[ \t]+\n/g, "\n").trim();
 }
 
 /** Pulls text out of PDFs so the model call is short enough for the function limit. */
@@ -303,7 +323,7 @@ export async function textFromOfferFiles(files: OfferExtractFile[]) {
       throw new Error(`${file.name} supera 4 MB`);
     }
     if (isPlainTextFile(file)) {
-      const text = file.buffer.toString("utf8").trim();
+      const text = separateMoneyTokens(file.buffer.toString("utf8")).trim();
       if (text) chunks.push(text);
       continue;
     }

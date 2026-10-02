@@ -1,18 +1,41 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
   StartAudio,
   useConnectionState,
   useLocalParticipant,
+  useRoomContext,
 } from "@livekit/components-react";
 import { ConnectionState, LocalAudioTrack, Track } from "livekit-client";
 import { useConnection } from "@/hooks/use-connection";
 import { AgentProvider } from "@/hooks/use-agent";
 import { createSyntheticMicTrack } from "@/lib/practice-audio";
-import { ReactNode } from "react";
+import { leavePracticeRoom, resetPracticeRoom } from "@/lib/practice-room";
+
+function RoomTeardown() {
+  const room = useRoomContext();
+  const { shouldConnect } = useConnection();
+  const connectedOnce = useRef(false);
+  useEffect(() => {
+    if (shouldConnect) {
+      connectedOnce.current = true;
+      resetPracticeRoom(room);
+      return;
+    }
+    if (!connectedOnce.current) return;
+    void leavePracticeRoom(room);
+  }, [room, shouldConnect]);
+  useEffect(() => {
+    return () => {
+      if (!connectedOnce.current) return;
+      void leavePracticeRoom(room);
+    };
+  }, [room]);
+  return null;
+}
 
 function QaMicPublisher() {
   const { localParticipant } = useLocalParticipant();
@@ -55,6 +78,7 @@ export function RoomWrapper({ children }: { children: ReactNode }) {
       }}
     >
       <AgentProvider>
+        <RoomTeardown />
         {qaMode && <QaMicPublisher />}
         {children}
         <RoomAudioRenderer />

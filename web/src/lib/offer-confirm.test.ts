@@ -4,6 +4,7 @@ import { commercialRecap, emptyCommercial } from "./offer-commercial";
 import { rephraseOfferQuestion } from "./offer-extract";
 import {
   allOfferBlocksConfirmed,
+  visibleBlocksConfirmed,
   applyOfferBlockPatch,
   blockDraft,
   confirmKey,
@@ -19,9 +20,9 @@ test("commission block is empty and never assumed", () => {
     icp: "Dueños de agencias de 5 a 20 personas",
     commercial: emptyCommercial(),
   };
-  const commission = offerConfirmBlocks(offer).find((row) => row.id === "commission");
-  assert.equal(commission?.empty, true);
-  assert.match(commission?.summary || "", /No encontré comisión/);
+  const blocks = offerConfirmBlocks(offer);
+  assert.equal(blocks.find((row) => row.id === "commission"), undefined);
+  assert.equal(blocks.find((row) => row.id === "bonuses"), undefined);
   assert.equal(offer.commercial.commission, null);
 });
 
@@ -79,6 +80,23 @@ test("all blocks must be marked before save", () => {
     confirmed[confirmKey(0, block.id)] = true;
   }
   assert.equal(allOfferBlocksConfirmed(1, confirmed), true);
+});
+
+test("empty tramos and bonos are not required to save", () => {
+  const offer = {
+    productName: "Fertilidad Consciente",
+    productDescription: "Programa de 12 semanas.",
+    pitchSummary: "",
+    icp: "Parejas que buscan embarazo",
+    commercial: emptyCommercial(),
+  };
+  const confirmed: Record<string, boolean> = {};
+  assert.equal(visibleBlocksConfirmed([offer], confirmed), false);
+  for (const block of offerConfirmBlocks(offer)) {
+    confirmed[confirmKey(0, block.id)] = true;
+  }
+  assert.equal(visibleBlocksConfirmed([offer], confirmed), true);
+  assert.equal(offerConfirmBlocks(offer).some((row) => row.id === "commission"), false);
 });
 
 test("cash price stays in the recap and plazo is not doubled", () => {

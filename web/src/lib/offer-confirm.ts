@@ -116,8 +116,10 @@ export function offerConfirmBlocks(offer: ExtractedOffer): OfferConfirmBlock[] {
       };
     }
     if (block.id === "commission") {
+      const hasTiers = Boolean(commercial.commission?.tiers.length);
       return {
         ...block,
+        title: hasTiers ? "Comisión por tramos" : "Comisión",
         summary: commission || "No encontré comisión. No asumo un %.",
         empty: !commission,
         hint: commission
@@ -130,6 +132,16 @@ export function offerConfirmBlocks(offer: ExtractedOffer): OfferConfirmBlock[] {
       summary: paymentDetails || "Sin datos de pago en el documento.",
       empty: !paymentDetails,
     };
+  }).filter((block) => {
+    if (
+      block.id === "bonuses" ||
+      block.id === "commission" ||
+      block.id === "paymentDetails" ||
+      block.id === "payments"
+    ) {
+      return !block.empty;
+    }
+    return true;
   });
 }
 
@@ -271,14 +283,26 @@ export function confirmKey(offerIndex: number, id: OfferConfirmBlockId) {
 export function allOfferBlocksConfirmed(
   offerCount: number,
   confirmed: Record<string, boolean>,
+  blockIds: readonly OfferConfirmBlockId[] = OFFER_CONFIRM_BLOCKS.map((block) => block.id),
 ) {
   if (offerCount < 1) return false;
   for (let index = 0; index < offerCount; index += 1) {
-    for (const block of OFFER_CONFIRM_BLOCKS) {
-      if (!confirmed[confirmKey(index, block.id)]) return false;
+    for (const id of blockIds) {
+      if (!confirmed[confirmKey(index, id)]) return false;
     }
   }
   return true;
+}
+
+/** Save only asks for the blocks the review actually shows. */
+export function visibleBlocksConfirmed(
+  offers: ExtractedOffer[],
+  confirmed: Record<string, boolean>,
+) {
+  if (!offers.length) return false;
+  return offers.every((offer, index) =>
+    offerConfirmBlocks(offer).every((block) => confirmed[confirmKey(index, block.id)]),
+  );
 }
 
 export function emptyExtractedOffer(): ExtractedOffer {
