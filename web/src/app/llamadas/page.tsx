@@ -207,7 +207,7 @@ export default function LlamadasPage() {
                           type="date"
                           value={otherDate}
                           onChange={(event) => setOtherDate(event.target.value)}
-                          className="h-8 rounded-md border border-separator1 bg-bg0 px-2 text-xs"
+                          className="h-11 min-h-[44px] rounded-md border border-separator1 bg-bg0 px-2 text-xs md:h-8 md:min-h-0"
                         />
                         <Button
                           size="sm"
@@ -240,7 +240,7 @@ export default function LlamadasPage() {
                         <input
                           value={answer}
                           onChange={(event) => setAnswer(event.target.value)}
-                          className="flex-1 h-8 rounded-md border border-separator1 bg-bg0 px-2 text-sm"
+                          className="flex-1 h-11 min-h-[44px] rounded-md border border-separator1 bg-bg0 px-2 text-sm md:h-8 md:min-h-0"
                           placeholder="La respuesta"
                         />
                         <Button size="sm" variant="primary" disabled={reviewing || !answer.trim()}>

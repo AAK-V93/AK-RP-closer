@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { generateGeminiJson } from "@/lib/gemini";
 import { HUB_SYSTEM_PROMPT } from "@/lib/hub-prompt";
 import { getWorkspace, getWorkspacePrisma } from "@/lib/workspace";
+import { closerSpanish } from "@/lib/closer-spanish";
 import { ensureCrmTables } from "@/lib/prisma";
 import { type CrmChatPatch } from "@/lib/file-call";
 import {
@@ -1005,7 +1006,9 @@ async function hubSnapshot(
     } catch (error) {
       console.error("hub projection", error);
     }
-    const drill = guides.flatMap((guide) => guide.drills).find((item) => item.trim()) || "";
+    const drill = closerSpanish(
+      guides.flatMap((guide) => guide.drills).find((item) => item.trim()) || "",
+    );
     const desk = {
       unclassified,
       analyzeStatus: analyzeCardStatus(unclassified),

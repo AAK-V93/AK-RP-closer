@@ -7,7 +7,6 @@ import { applyAgendaCheck } from "@/lib/agenda";
 import { chooseFollowupOption } from "@/lib/followup-library";
 import { crmDashboard } from "@/lib/crm-metrics";
 import { nextMissingCrmField } from "@/lib/offer-commercial";
-import { getWorkspace } from "@/lib/workspace";
 import { loadCommissionProjection } from "@/lib/crm-projection";
 import { setRecordedCash } from "@/lib/crm-cash";
 import { saveMonthlyGoal } from "@/lib/crm-prefs";
@@ -60,14 +59,12 @@ export async function GET() {
         alerts: [],
       });
     }
-    const workspace = await getWorkspace(auth.prisma, auth.userId);
-    const missing = nextMissingCrmField(
-      workspace.offers.map((row) => ({
-        id: row.id,
-        productName: row.productName,
-        commercial: row.commercial,
-      })),
-    );
+    const offers = await auth.prisma.userOffer.findMany({
+      where: { userId: auth.userId },
+      select: { id: true, productName: true, commercial: true },
+      orderBy: { updatedAt: "desc" },
+    });
+    const missing = nextMissingCrmField(offers);
     const goal = await loadCommissionProjection(auth.prisma, auth.userId, dash);
     return NextResponse.json({
       ...dash,

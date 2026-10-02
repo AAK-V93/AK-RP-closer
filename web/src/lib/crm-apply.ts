@@ -26,7 +26,7 @@ import {
   userHasReadyCrm,
 } from "@/lib/offer-commercial";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
-import { addDays, parseCrmPrefs, parseFollowupDate } from "@/lib/crm-prefs";
+import { addDays, parseCrmPrefs, parseFollowupDate, patchCrmPref } from "@/lib/crm-prefs";
 import { canonicalTipo } from "@/lib/call-normalize";
 import { inferCallDate, inferFollowupDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
 import { zonedDayKey } from "@/lib/crm-time";
@@ -701,6 +701,81 @@ async function refillFromTranscript(
         },
       });
     }
+  }
+}
+
+const FOLLOWUP_REPAIR_KEY = "followupRepairAt";
+const REPAIR_INFLIGHT_MS = 60_000;
+const repairInflight = new Map<string, number>();
+
+function repairAlreadyRunning(userId: string) {
+  const started = repairInflight.get(userId);
+  if (started == null) return false;
+  if (Date.now() - started > REPAIR_INFLIGHT_MS) {
+    repairInflight.delete(userId);
+    return false;
+  }
+  return true;
+}
+
+/** True when no confirmed call is newer than the last completed repair. */
+export function followupRepairIsCurrent(
+  latest: Date | string | null | undefined,
+  watermark: string | null | undefined,
+) {
+  if (latest == null || latest === "") return true;
+  const latestMs = new Date(latest).getTime();
+  if (!Number.isFinite(latestMs)) return true;
+  if (!watermark) return false;
+  const markMs = new Date(watermark).getTime();
+  if (!Number.isFinite(markMs)) return false;
+  return markMs >= latestMs;
+}
+
+/**
+ * The read path only compares two indexed timestamps. The filing scan that
+ * opens missing threads runs after the response, and only when a call is
+ * newer than the watermark stored on crmPrefs.
+ */
+export async function scheduleMissingFollowupRepair(prisma: PrismaClient, userId: string) {
+  const rows = await prisma.$queryRaw<{ latest: Date | null; watermark: string | null }[]>`
+    SELECT
+      (
+        SELECT MAX(COALESCE("confirmedAt", "createdAt"))
+        FROM "CallRecord"
+        WHERE "userId" = ${userId}
+          AND "filingStatus" IN ('confirmed', 'pending')
+      ) AS latest,
+      (
+        SELECT "crmPrefs"->>'followupRepairAt'
+        FROM "User"
+        WHERE "id" = ${userId}
+      ) AS watermark
+  `;
+  const latest = rows[0]?.latest ?? null;
+  const watermark = rows[0]?.watermark ?? null;
+  if (followupRepairIsCurrent(latest, watermark)) return;
+  if (repairAlreadyRunning(userId)) return;
+  const stamp = new Date(latest as Date | string).toISOString();
+  repairInflight.set(userId, Date.now());
+  const run = async () => {
+    try {
+      await repairMissingFollowups(prisma, userId);
+      await patchCrmPref(prisma, userId, FOLLOWUP_REPAIR_KEY, stamp);
+    } catch (error) {
+      console.error("repair followups", error);
+    } finally {
+      repairInflight.delete(userId);
+    }
+  };
+  try {
+    const { after } = await import("next/server");
+    after(() => {
+      void run();
+    });
+  } catch (error) {
+    repairInflight.delete(userId);
+    console.error("repair followups schedule", error);
   }
 }
 

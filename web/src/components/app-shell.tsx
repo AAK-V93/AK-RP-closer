@@ -58,8 +58,8 @@ export function AppShell({
                   href={item.href}
                   className={
                     active
-                      ? "rounded-full bg-bg2 px-3 py-1 text-tone-info"
-                      : "rounded-full px-3 py-1 text-tone-info/80 hover:text-tone-info"
+                      ? "inline-flex h-11 min-h-[44px] items-center rounded-full bg-bg2 px-3 text-tone-info"
+                      : "inline-flex h-11 min-h-[44px] items-center rounded-full px-3 text-tone-info/80 hover:text-tone-info"
                   }
                 >
                   {item.label}
@@ -94,7 +94,8 @@ export function AppShell({
               <Link
                 key={item.href}
                 href={item.href}
-                className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-separator1 px-3 text-tone-info"
+                className="inline-flex h-11 min-h-[44px] shrink-0 items-center rounded-full border border-separator1 px-3 text-tone-info"
+                style={{ minHeight: 44, height: 44 }}
               >
                 {item.label}
               </Link>

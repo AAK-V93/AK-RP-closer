@@ -434,7 +434,7 @@ export function FathomSyncPanel({
               variant="primary"
               disabled={syncing || connecting || !importSince}
               onClick={runFullPipeline}
-              className="whitespace-normal h-auto min-h-9 text-center"
+              className="whitespace-normal h-auto min-h-11 text-center"
             >
               {syncing ? (
                 <>

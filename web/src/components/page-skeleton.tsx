@@ -18,6 +18,22 @@ export function HomeSkeleton() {
   );
 }
 
+export function CrmSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Cargando el CRM">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Bone className="h-24" />
+        <Bone className="h-24" />
+        <Bone className="h-24" />
+        <Bone className="h-24" />
+      </div>
+      <Bone className="h-10 w-2/3" />
+      <Bone className="h-48" />
+      <Bone className="h-40" />
+    </div>
+  );
+}
+
 export function WorkspaceSkeleton() {
   return (
     <div className="space-y-4" aria-busy="true" aria-label="Cargando tu espacio">

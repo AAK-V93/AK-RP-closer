@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Settings } from "lucide-react";
 import { ConfigurationFormDrawer } from "@/components/configuration-form-drawer";
+import { HowToPracticeButton } from "@/components/training-setup-form";
 import { useTraining } from "@/hooks/use-training-state";
 import { useConnection } from "@/hooks/use-connection";
 import { cn } from "@/lib/utils";
@@ -14,7 +15,7 @@ export function ChatControls() {
     !trainingState.training.productName.trim() && !shouldConnect;
 
   return (
-    <div className="md:hidden">
+    <div className="md:hidden flex flex-wrap items-center gap-2">
       <ConfigurationFormDrawer>
         <Button
           variant={needsOffer ? "primary" : "outline"}
@@ -31,6 +32,7 @@ export function ChatControls() {
           {needsOffer ? "Tu oferta" : "Oferta"}
         </Button>
       </ConfigurationFormDrawer>
+      <HowToPracticeButton />
     </div>
   );
 }

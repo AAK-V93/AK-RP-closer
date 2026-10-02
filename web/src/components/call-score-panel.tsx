@@ -135,7 +135,7 @@ export function CallScorePanel({
                   </span>
                 </p>
                 <p>
-                  Pitch
+                  Presentación
                   <br />
                   <span className="text-base font-light">
                     {formatMinutes(evaluation.timing.phases.pitch)}

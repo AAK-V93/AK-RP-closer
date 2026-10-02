@@ -6,6 +6,7 @@ import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { CoachNotes } from "@/lib/closer-coach";
+import { closerSpanish } from "@/lib/closer-spanish";
 
 type ChatLine = {
   id: string;
@@ -179,7 +180,7 @@ export function CloserCoachChat({
             <p className="text-[10px] uppercase tracking-wide text-fg3 mb-1">
               {line.role === "user" ? "Tú" : "Coach"}
             </p>
-            {line.content}
+            {line.role === "coach" ? closerSpanish(line.content) : line.content}
           </div>
         ))}
         {sending && !loading && (
@@ -198,7 +199,7 @@ export function CloserCoachChat({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={2}
-            placeholder="Cuéntale cómo te fue, pide el siguiente drill, o di en qué te trabas…"
+            placeholder="Cuéntale cómo te fue, pide el siguiente ejercicio, o di en qué te trabas…"
             className="min-h-[44px] text-sm"
             disabled={sending || loading}
           />

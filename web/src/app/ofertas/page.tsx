@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import { OfferExtractReview } from "@/components/offer-extract-review";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 import { partitionTranscriptUploads } from "@/lib/transcript-batch";
 import { countPhrase } from "@/lib/plain-labels";
+import { pickWorkspaceOffer } from "@/lib/offer-selection";
 
 function offerSetupNote(offer?: {
   productName?: string;
@@ -69,6 +70,9 @@ type WorkspacePayload = {
 export default function OfertasPage() {
   const { status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const offerFromUrl = searchParams.get("offerId");
+  const loadSeq = useRef(0);
   const [loading, setLoading] = useState(true);
   const [savingOffer, setSavingOffer] = useState(false);
   const [savingTranscripts, setSavingTranscripts] = useState(false);
@@ -106,20 +110,28 @@ export default function OfertasPage() {
   };
 
   const load = async (nextOfferId?: string | null) => {
-    const query = nextOfferId ? `?offerId=${encodeURIComponent(nextOfferId)}` : "";
-    const response = await fetch(`/api/workspace${query}`);
+    const seq = ++loadSeq.current;
+    const explicitNew = nextOfferId === "";
+    const id = explicitNew ? "" : String(nextOfferId || "").trim();
+    const query = id ? `?offerId=${encodeURIComponent(id)}` : "";
+    const response = await fetch(`/api/workspace${query}`, { cache: "no-store" });
     const data = await response.json();
+    if (seq !== loadSeq.current) return;
     if (!response.ok) throw new Error(data.error || "Error");
+    const offers = Array.isArray(data.offers) ? data.offers : [];
     setWorkspace({
       ...data,
-      offers: Array.isArray(data.offers) ? data.offers : [],
+      offers,
       transcripts: Array.isArray(data.transcripts) ? data.transcripts : [],
     });
-    if (nextOfferId === null) {
+    if (explicitNew) {
       fillOffer(null);
       return;
     }
-    fillOffer(data.offer);
+    const shown = id
+      ? pickWorkspaceOffer(offers, id) || (data.offer?.id === id ? data.offer : null)
+      : pickWorkspaceOffer(offers, null);
+    if (shown) fillOffer(shown);
   };
 
   useEffect(() => {
@@ -128,10 +140,25 @@ export default function OfertasPage() {
       return;
     }
     if (status !== "authenticated") return;
-    load()
+    load(offerFromUrl)
       .catch((e) => setError(e instanceof Error ? e.message : "Error"))
       .finally(() => setLoading(false));
-  }, [status, router]);
+  }, [status, offerFromUrl]);
+
+  const showOffer = (id: string | null) => {
+    const offers = Array.isArray(workspace?.offers) ? workspace.offers : [];
+    if (id) {
+      const row = pickWorkspaceOffer(offers, id);
+      if (row) fillOffer(row);
+    } else {
+      fillOffer(null);
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    if (id) params.set("offerId", id);
+    else params.set("offerId", "");
+    const query = params.toString();
+    router.replace(query ? `/ofertas?${query}` : "/ofertas", { scroll: false });
+  };
 
   const extractOffer = async (files?: FileList | File[] | null, blob = offerBlob) => {
     const list = files === undefined ? lastExtractFiles : files ? Array.from(files) : [];
@@ -372,7 +399,7 @@ export default function OfertasPage() {
               type="button"
               size="sm"
               variant={row.id === offerId ? "primary" : "outline"}
-              onClick={() => void load(row.id)}
+              onClick={() => showOffer(row.id)}
             >
               {row.productName}
               {bonusCount ? ` · ${bonusCount} bonos` : ""}
@@ -384,7 +411,7 @@ export default function OfertasPage() {
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => fillOffer(null)}
+            onClick={() => showOffer(null)}
           >
             <Plus className="h-3.5 w-3.5" />
             Nueva oferta
@@ -447,11 +474,12 @@ export default function OfertasPage() {
             />
           )}
           {!review && commercial && (
-            <SavedOfferCommercial commercial={commercial} />
+            <SavedOfferCommercial key={offerId ?? "nueva"} commercial={commercial} />
           )}
         </div>
 
         <form
+          key={offerId ?? "nueva"}
           onSubmit={onSaveOffer}
           className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4"
         >
@@ -463,6 +491,7 @@ export default function OfertasPage() {
             <Input
               id="offer-name"
               value={productName}
+              autoComplete="off"
               onChange={(e) => setProductName(e.target.value)}
               placeholder="Ej: Mentoría Scale Pro"
             />
@@ -478,7 +507,7 @@ export default function OfertasPage() {
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="offer-pitch">Resumen de pitch (opcional)</Label>
+            <Label htmlFor="offer-pitch">Resumen de la presentación (opcional)</Label>
             <Textarea
               id="offer-pitch"
               rows={3}

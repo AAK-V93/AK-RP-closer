@@ -56,7 +56,7 @@ export const trainingHelpers = {
       training.callSection === "close" &&
       !training.pitchSummary?.trim()
     ) {
-      return "Para practicar solo cierre, pega o escribe el resumen del pitch";
+      return "Para practicar solo cierre, pega o escribe el resumen de la presentación";
     }
     if (
       training.practiceKind === "replay" &&

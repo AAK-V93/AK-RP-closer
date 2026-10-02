@@ -4,7 +4,7 @@ import { alignFollowups, applyClosedSaleFollowup, foldLeadName, followupSnapshot
 import { countOportunidadesActivas, withEveryActiveLead } from "@/lib/crm-activa";
 import { shiftZonedMonth, zonedDayBounds, zonedDayKey, zonedMonthRange } from "@/lib/crm-time";
 import { userHasReadyCrm, type OfferForCrm } from "@/lib/offer-commercial";
-import { loadOffersForCrm, repairMissingFollowups } from "@/lib/crm-apply";
+import { loadOffersForCrm, scheduleMissingFollowupRepair } from "@/lib/crm-apply";
 import { attachFollowupOptions } from "@/lib/followup-library";
 import { cleanReason, operacionFromCall } from "@/lib/crm-operacion";
 import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-temperature";
@@ -37,12 +37,13 @@ export async function crmDashboard(
 ) {
   const scripts = opts?.scripts !== false;
   const repairStarted = performance.now();
-  try {
-    await repairMissingFollowups(prisma, userId);
-  } catch (error) {
-    console.error("repair followups", error);
-  }
-  markTiming(opts?.timings, "repair", repairStarted);
+  const repairGate = scheduleMissingFollowupRepair(prisma, userId)
+    .catch((error) => {
+      console.error("repair followups", error);
+    })
+    .finally(() => {
+      markTiming(opts?.timings, "repair", repairStarted);
+    });
   const callsStarted = performance.now();
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
@@ -67,6 +68,7 @@ export async function crmDashboard(
     }),
   ]);
   markTiming(opts?.timings, "calls", callsStarted);
+  await repairGate;
 
   const rollupOffers = offers.map(asRollupOffer);
   const nameHints = [...calls, ...allCalls].flatMap((row) => [
