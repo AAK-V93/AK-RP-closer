@@ -500,12 +500,26 @@ function asRollupCall(row: {
   createdAt?: Date | null;
   filingJson?: unknown;
 }): RollupCall {
+  const filing = (row.filingJson || {}) as {
+    producto?: string;
+    tipo_seguimiento?: string;
+    acuerdo_seguimiento?: string;
+    notas_crm?: string;
+    evidencia?: { cierre?: string; venta_total?: string };
+    lead_id?: string;
+  };
   return {
     id: row.id,
+    leadId: filing.lead_id || "",
     cliente: row.leadName,
     offerName: row.offerName,
     producto: filingProduct(row.filingJson),
     estadoAgenda: row.estadoAgenda,
+    tipoSeguimiento: String(filing.tipo_seguimiento || ""),
+    acuerdo: String(filing.acuerdo_seguimiento || ""),
+    notas: String(filing.notas_crm || ""),
+    evidenciaCierre: String(filing.evidencia?.cierre || ""),
+    evidenciaVenta: String(filing.evidencia?.venta_total || ""),
     ventaTotal: row.ventaTotal,
     cashCollected: row.cashCollected,
     recordedAt: row.recordedAt,

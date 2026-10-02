@@ -892,7 +892,7 @@ function PeriodoSheet({
     <div className="space-y-2">
       {offerNote && <p className="text-[11px] text-fg3">{offerNote}</p>}
       <p className="text-[11px] text-fg3">
-        Ventas es la suma de los cierres que tienen monto. Un show con monto no entra, así que ventas y cierres se mueven juntos.
+        Ventas es la suma de los cierres que tienen monto, una persona una vez. Un show o un precio solo mencionado no entra, así que ventas y cierres se mueven juntos.
       </p>
       <SheetTable
         columns={[
@@ -1133,8 +1133,8 @@ function DashboardSheet({
       <div className="space-y-4">
         <SectionHeading>Dinero y comisiones</SectionHeading>
         <p className="text-[11px] text-fg3">
-          Ventas es el total de cierres con monto, no solo el mes. Suma de {dealCount}{" "}
-          {dealCount === 1 ? "cierre con monto" : "cierres con monto"}. Un show con monto todavía no es una venta.
+          Ventas es el total de cierres con monto, una persona una vez, no solo el mes. Suma de {dealCount}{" "}
+          {dealCount === 1 ? "cierre con monto" : "cierres con monto"}. Un show, una segunda reunión o un precio solo mencionado no entra.
           Cobrado y el ticket usan ese mismo total. Un año escrito en la fecha, como 2026, no cuenta.
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -1155,7 +1155,7 @@ function DashboardSheet({
         {showDeals && (
           <ul className="divide-y divide-separator1 border-t border-separator1 text-sm">
             {deals.length === 0 ? (
-              <li className="py-3 text-fg3">Ningún cierre tiene monto.</li>
+              <li className="py-3 text-fg3">Ningún cierre con monto. Un precio solo mencionado no entra.</li>
             ) : (
               deals.map((deal) => (
                 <li key={deal.id || `${deal.cliente}-${deal.fecha}`}>
@@ -1166,7 +1166,8 @@ function DashboardSheet({
                   >
                     <span className="break-words">{deal.cliente}</span>
                     <span className="text-fg3">
-                      {deal.fecha || "sin fecha"} · {money(deal.venta)}
+                      {deal.fecha || "sin fecha"}
+                      {deal.oferta ? ` · ${deal.oferta}` : ""} · {money(deal.venta)}
                     </span>
                   </button>
                 </li>

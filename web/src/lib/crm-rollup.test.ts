@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { explainVentas, rollupCalls } from "./crm-rollup";
+import { explainVentas, mentionedPriceOnly, rollupCalls } from "./crm-rollup";
 import { zonedDayKey, zonedMonthRange } from "./crm-time";
 import { inferCallDate, pastedCallTitle, quickFollowupIso } from "./followup-date";
 import { catalogDisplayName, isPriceLabel, preferOfferName } from "./offer-name";
@@ -176,4 +176,72 @@ test("a show with an amount is not a venta; a cierre with an amount is", () => {
   assert.equal(september.cierres, 1);
   assert.equal(september.ventas, 10000);
   assert.equal(september.cash, 2000);
+});
+
+test("two rows for Carlos count once, and Alejandro's mentioned price does not", () => {
+  const offers = [{ productName: "Círculo Millonario", prices: [11800, 10000], aliases: [] }];
+  const decision = {
+    id: "carlos-decision",
+    cliente: "Carlos Ramírez",
+    leadId: "lead-carlos",
+    offerName: "Círculo Millonario",
+    estadoAgenda: "CIERRE VENTA",
+    ventaTotal: 10000,
+    cashCollected: 2000,
+    acuerdo: "Quedó en 10000 USD",
+    recordedAt: new Date("2026-09-28T17:00:00.000Z"),
+  };
+  const duplicate = {
+    id: "carlos-segunda",
+    cliente: "Carlos Ramírez (QA)",
+    leadId: "lead-copy",
+    offerName: "Círculo Millonario",
+    estadoAgenda: "CIERRE VENTA",
+    tipoSeguimiento: "SEGUNDA REUNION",
+    ventaTotal: 10000,
+    cashCollected: 0,
+    acuerdo: "",
+    notas: "Llamar el viernes 3 de octubre",
+    recordedAt: new Date("2026-09-30T17:00:00.000Z"),
+  };
+  const duplicateAgreed = {
+    ...duplicate,
+    acuerdo: "Quedó en 10000 USD",
+  };
+  const alejandro = {
+    id: "alejandro-meet",
+    cliente: "Alejandro",
+    offerName: "Lista USD 11800 · Contado especial USD 10000",
+    producto: "Lista USD 11800 · Contado especial USD 10000",
+    estadoAgenda: "SHOW",
+    ventaTotal: 10000,
+    cashCollected: 0,
+    notas: "Impromptu Google Meet Meeting",
+    recordedAt: new Date("2026-09-29T17:00:00.000Z"),
+  };
+  assert.equal(mentionedPriceOnly(alejandro), true);
+  assert.equal(mentionedPriceOnly(duplicate), true);
+
+  const pending = rollupCalls(offers, [decision, duplicate, alejandro]);
+  const pendingList = explainVentas([decision, duplicate, alejandro], [11800, 10000]);
+  assert.equal(pending.ventas, 10000);
+  assert.equal(pending.cierres, 1);
+  assert.equal(pending.cash, 2000);
+  assert.equal(pending.porOferta[0]?.oferta, "Círculo Millonario");
+  assert.equal(pending.porOferta[0]?.cierres, 1);
+  assert.equal(pending.porOferta[0]?.ventas, 10000);
+  assert.equal(pending.porOferta[0]?.cash, 2000);
+  assert.equal(pendingList.n, 1);
+  assert.equal(pendingList.total, pending.ventas);
+  assert.equal(pendingList.leads[0]?.cliente, "Carlos Ramírez");
+  assert.equal(pendingList.leads[0]?.id, "carlos-decision");
+
+  const doubled = rollupCalls(offers, [decision, duplicateAgreed, alejandro]);
+  const doubledList = explainVentas([decision, duplicateAgreed, alejandro], [11800, 10000]);
+  assert.equal(doubled.ventas, 10000);
+  assert.equal(doubled.cierres, 1);
+  assert.equal(doubledList.n, 1);
+  assert.equal(doubledList.total, 10000);
+  assert.equal(doubledList.leads[0]?.id, "carlos-segunda");
+  assert.equal(doubledList.leads[0]?.cliente, "Carlos Ramírez");
 });

@@ -1,5 +1,6 @@
-import { countedSale } from "@/lib/stated-deal";
+import { countedSale, explicitAgreement } from "@/lib/stated-deal";
 import { zonedDayKey } from "@/lib/crm-time";
+import { normalizePersonName } from "@/lib/lead-match";
 import {
   foldOffer,
   isInventedOfferLabel,
@@ -14,10 +15,16 @@ export type RollupOffer = NamedOffer & {
 
 export type RollupCall = {
   id?: string;
+  leadId?: string | null;
   cliente?: string | null;
   offerName?: string | null;
   producto?: string | null;
   estadoAgenda?: string | null;
+  tipoSeguimiento?: string | null;
+  acuerdo?: string | null;
+  notas?: string | null;
+  evidenciaCierre?: string | null;
+  evidenciaVenta?: string | null;
   ventaTotal?: number | null;
   cashCollected?: number | null;
   recordedAt?: Date | string | null;
@@ -104,22 +111,70 @@ export function bookedSale(estado: string | null | undefined, amount: number) {
   return String(estado || "") === "CIERRE VENTA" && amount > 0 ? amount : 0;
 }
 
-export function explainVentas(calls: RollupCall[], prices: number[] = []) {
-  const leads: ClosedDeal[] = [];
+function filingBlob(call: RollupCall) {
+  return [call.acuerdo, call.notas, call.evidenciaCierre, call.evidenciaVenta]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** The row only repeated a price. A segunda reunión without an agreement is the same. */
+export function mentionedPriceOnly(call: RollupCall) {
+  const blob = filingBlob(call);
+  if (explicitAgreement(blob)) return false;
+  if (isPriceLabel(String(call.producto || "")) || isPriceLabel(String(call.offerName || ""))) return true;
+  const tipo = String(call.tipoSeguimiento || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  if (tipo.includes("SEGUNDA")) return true;
+  return String(call.estadoAgenda || "") !== "CIERRE VENTA";
+}
+
+/** Same person once. "(QA)" and accents do not make a second deal. */
+export function dealLeadKey(call: RollupCall) {
+  const name = normalizePersonName(String(call.cliente || ""));
+  if (name) return name;
+  if (call.leadId) return `id:${call.leadId}`;
+  return call.id ? `call:${call.id}` : "";
+}
+
+function displayLead(call: RollupCall) {
+  const name = String(call.cliente || "")
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return name || "Sin nombre";
+}
+
+type PickedDeal = { call: RollupCall; amount: number; at: Date };
+
+/** One closed deal per lead. The newest real cierre wins. A mentioned price does not qualify. */
+export function pickDeals(calls: RollupCall[], prices: number[] = []): PickedDeal[] {
+  const best = new Map<string, PickedDeal>();
   for (const call of calls) {
     const at = callInstant(call);
     if (!at) continue;
-    const sale = countedSale(call.ventaTotal, { at, prices });
-    const booked = bookedSale(call.estadoAgenda, sale);
-    if (!booked) continue;
-    leads.push({
-      id: call.id || "",
-      cliente: String(call.cliente || "").trim() || "Sin nombre",
-      fecha: at ? zonedDayKey(at) : "",
-      venta: booked,
-      oferta: String(call.offerName || call.producto || "").trim(),
-    });
+    const amount = countedSale(call.ventaTotal, { at, prices });
+    if (!bookedSale(call.estadoAgenda, amount)) continue;
+    if (mentionedPriceOnly(call)) continue;
+    const key = dealLeadKey(call);
+    if (!key) continue;
+    const prev = best.get(key);
+    if (prev && prev.at.getTime() > at.getTime()) continue;
+    best.set(key, { call, amount, at });
   }
+  return [...best.values()];
+}
+
+export function explainVentas(calls: RollupCall[], prices: number[] = []) {
+  const leads = pickDeals(calls, prices).map((pick) => ({
+    id: pick.call.id || "",
+    cliente: displayLead(pick.call),
+    fecha: zonedDayKey(pick.at),
+    venta: pick.amount,
+    oferta: String(pick.call.offerName || pick.call.producto || "").trim(),
+  }));
   return {
     n: leads.length,
     total: leads.reduce((sum, row) => sum + row.venta, 0),
@@ -163,21 +218,22 @@ export function rollupCalls(
     if (estado === "REPROGRAMA") reprogramadas += 1;
 
     const at = callInstant(call);
-    const sale = countedSale(call.ventaTotal, { at, prices });
     const collected = countedSale(call.cashCollected, { at, prices });
-    const booked = bookedSale(estado, sale);
-    if (booked) cierres += 1;
-    ventas += booked;
     cash += collected;
 
     const name = matchOffer(call, catalog);
     const row = name ? rows.get(name) : undefined;
+    if (row) row.cash += collected;
+  }
+
+  for (const pick of pickDeals(slice, prices)) {
+    cierres += 1;
+    ventas += pick.amount;
+    const name = matchOffer(pick.call, catalog);
+    const row = name ? rows.get(name) : undefined;
     if (!row) continue;
-    if (booked) {
-      row.cierres += 1;
-      row.ventas += booked;
-    }
-    row.cash += collected;
+    row.cierres += 1;
+    row.ventas += pick.amount;
   }
 
   return {
