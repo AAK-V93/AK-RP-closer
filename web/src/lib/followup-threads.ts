@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { buildFollowupCopy, followupQuestion, type FollowupScript } from "@/lib/followup-scripts";
 import {
   advanceThread,
+  FOLLOWUP_SEQUENCES,
   lastTouchText,
   nextActionText,
   pasoLabel,
@@ -48,10 +49,16 @@ async function projectThreadAlert(
     dueAt: Date | null;
   },
 ) {
-  await prisma.leadAlert.updateMany({
+  const openAlerts = await prisma.leadAlert.findMany({
     where: { threadId: args.thread.id, resolvedAt: null },
-    data: { resolvedAt: args.now },
+    select: { id: true },
   });
+  for (const alert of openAlerts) {
+    await prisma.leadAlert.update({
+      where: { id: alert.id },
+      data: { resolvedAt: args.now },
+    });
+  }
   if (!args.dueAt) return null;
   const tipo = args.thread.tipo as ThreadTipo;
   const step = stepAt(tipo, args.thread.pasoActual);
@@ -293,20 +300,28 @@ export function presentThread(args: {
   lastTouch: { fecha: Date; resultado: string } | null;
   now: Date;
 }) {
-  const tipo = args.tipo as ThreadTipo;
-  const sequence = sequenceFor(tipo);
-  const step = stepAt(tipo, args.pasoActual);
-  const due = stepDue(step, anchorsOf(args), args.now);
-  return {
-    hilo: tipo,
-    paso: pasoLabel(args.pasoActual, sequence.steps.length),
-    ultimoToque: lastTouchText(args.lastTouch?.fecha || null, args.lastTouch?.resultado || "", args.now),
-    proximaAccion: nextActionText(step.accion, due, args.now, args.askLost),
-    scriptType: step.scriptType,
-    canal: step.canal,
-    askLost: args.askLost,
-    dueAt: due.toISOString(),
-  };
+  try {
+    const tipo = args.tipo as ThreadTipo;
+    const sequence = tipo in FOLLOWUP_SEQUENCES ? sequenceFor(tipo) : null;
+    if (!sequence?.steps.length) return null;
+    if (!(args.startedAt instanceof Date) || Number.isNaN(args.startedAt.getTime())) return null;
+    const step = stepAt(tipo, args.pasoActual);
+    const due = stepDue(step, anchorsOf(args), args.now);
+    if (!(due instanceof Date) || Number.isNaN(due.getTime())) return null;
+    return {
+      hilo: tipo,
+      paso: pasoLabel(args.pasoActual, sequence.steps.length),
+      ultimoToque: lastTouchText(args.lastTouch?.fecha || null, args.lastTouch?.resultado || "", args.now),
+      proximaAccion: nextActionText(step.accion, due, args.now, args.askLost),
+      scriptType: step.scriptType,
+      canal: step.canal,
+      askLost: args.askLost,
+      dueAt: due.toISOString(),
+    };
+  } catch (error) {
+    console.error("presentThread", args.tipo, error);
+    return null;
+  }
 }
 
 export type ThreadPresent = ReturnType<typeof presentThread>;

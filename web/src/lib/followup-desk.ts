@@ -63,6 +63,7 @@ export function instantFromProximo(value: string): Date | null {
 }
 
 export function proximoFromInstant(date: Date, timeZone = CRM_TIMEZONE) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   const day = zonedDayKey(date, timeZone);
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone,
@@ -200,6 +201,112 @@ export function projectOperacionProximo<T extends OperacionPatch>(
       seguimientoCerrado: false,
     };
   });
+}
+
+export type FollowupUndoCall = {
+  id: string;
+  proximo: string;
+  resultado: string;
+  cerrado: string;
+  intentos: number;
+  requiere: boolean | null;
+};
+
+export type FollowupUndo = {
+  calls: FollowupUndoCall[];
+  resolvedAlertIds: string[];
+  spawnedAlertIds: string[];
+  threads: { id: string; estado: string; pasoActual: number; askLost: boolean }[];
+  spawnedThreadIds: string[];
+  lead: { id: string; status: string; nextStepAt: string | null; razonNoCierre: string } | null;
+  touchedAfter: string;
+};
+
+function asStringList(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+}
+
+/** A partial or corrupt undo blob must not throw on Reabrir. */
+export function normalizeFollowupUndo(value: unknown): FollowupUndo | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Partial<FollowupUndo>;
+  if (!Array.isArray(row.calls)) return null;
+  const calls = row.calls
+    .filter((item): item is FollowupUndoCall => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      id: String(item.id || ""),
+      proximo: String(item.proximo || ""),
+      resultado: String(item.resultado || ""),
+      cerrado: String(item.cerrado || ""),
+      intentos: Number(item.intentos) || 0,
+      requiere: item.requiere === true ? true : item.requiere === false ? false : null,
+    }))
+    .filter((item) => item.id);
+  const threads = Array.isArray(row.threads)
+    ? row.threads
+        .filter((item) => item && typeof item === "object" && typeof item.id === "string")
+        .map((item) => ({
+          id: item.id,
+          estado: String(item.estado || "activo"),
+          pasoActual: Number(item.pasoActual) || 0,
+          askLost: Boolean(item.askLost),
+        }))
+    : [];
+  const lead =
+    row.lead && typeof row.lead === "object" && typeof row.lead.id === "string"
+      ? {
+          id: row.lead.id,
+          status: String(row.lead.status || ""),
+          nextStepAt: row.lead.nextStepAt ? String(row.lead.nextStepAt) : null,
+          razonNoCierre: String(row.lead.razonNoCierre || ""),
+        }
+      : null;
+  return {
+    calls,
+    resolvedAlertIds: asStringList(row.resolvedAlertIds),
+    spawnedAlertIds: asStringList(row.spawnedAlertIds),
+    threads,
+    spawnedThreadIds: asStringList(row.spawnedThreadIds),
+    lead,
+    touchedAfter: typeof row.touchedAfter === "string" ? row.touchedAfter : "",
+  };
+}
+
+/**
+ * Put back the próximo Hecho cleared. Uses the undo snapshot when it is readable,
+ * and the saved `seguimiento_cerrado` date when the snapshot is missing or empty.
+ */
+export function restoreFollowupFiling(raw: unknown, snap?: FollowupUndoCall | null) {
+  const filing =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  const fromSnap = String(snap?.proximo || "");
+  const fromClosed = String(filing.seguimiento_cerrado || "");
+  const proximo = dueDayFromProximo(fromSnap)
+    ? fromSnap
+    : dueDayFromProximo(fromClosed)
+      ? fromClosed
+      : "";
+  if (!proximo && !snap) return { filing, proximo: "", restored: false };
+  if (snap && dueDayFromProximo(fromSnap)) {
+    filing.proximo_seguimiento = snap.proximo;
+    filing.seguimiento_resultado = snap.resultado;
+    filing.seguimiento_cerrado = snap.cerrado;
+    filing.seguimiento_intentos = snap.intentos;
+    filing.requiere_seguimiento = snap.requiere;
+  } else if (proximo) {
+    filing.proximo_seguimiento = proximo;
+    filing.seguimiento_resultado = "";
+    filing.seguimiento_cerrado = "";
+    filing.requiere_seguimiento = true;
+  }
+  delete filing.seguimiento_undo;
+  return {
+    filing,
+    proximo: String(filing.proximo_seguimiento || ""),
+    restored: Boolean(dueDayFromProximo(String(filing.proximo_seguimiento || ""))),
+  };
 }
 
 export function deskUndoMessage(args: {

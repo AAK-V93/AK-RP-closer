@@ -16,7 +16,47 @@ export async function GET() {
     const auth = await requireWorkspaceUser();
     if ("error" in auth && auth.error) return auth.error;
     await ensureCrmTables(auth.prisma);
-    const dash = await crmDashboard(auth.prisma, auth.userId);
+    let dash: Awaited<ReturnType<typeof crmDashboard>>;
+    try {
+      dash = await crmDashboard(auth.prisma, auth.userId);
+    } catch (error) {
+      console.error("crm GET", error);
+      return NextResponse.json({
+        readyCrm: false,
+        today: "",
+        now: {
+          seguimientosVencidos: 0,
+          seguimientosHoy: 0,
+          agendasHoy: 0,
+          dineroEnJuego: 0,
+          cashPendiente: 0,
+          comisionPendiente: 0,
+          oportunidadesActivas: 0,
+          agendasFuturas: 0,
+        },
+        rendimiento: null,
+        desglose: {
+          porOferta: [],
+          embudo: { agendas: 0, shows: 0, cierres: 0 },
+          razonNoCierre: [],
+          etapaPerdida: [],
+        },
+        evolucion: [],
+        followups: [],
+        commissions: [],
+        comisionResumen: { generada: 0, cobrada: 0, pendiente: 0, pctCobrado: 0 },
+        leads: [],
+        offers: [],
+        operacion: [],
+        missingCrm: null,
+        monthlyGoalUsd: null,
+        needsMonthlyGoal: false,
+        projection: null,
+        warning: "No pude leer todo el CRM. Recarga en un momento.",
+        metrics: { total: 0, closed: 0, closeRate: 0, pendingAlerts: 0 },
+        alerts: [],
+      });
+    }
     const workspace = await getWorkspace(auth.prisma, auth.userId);
     const missing = nextMissingCrmField(
       workspace.offers.map((row) => ({
@@ -58,7 +98,25 @@ export async function GET() {
     });
   } catch (error) {
     console.error("crm GET", error);
-    return NextResponse.json({ error: "No se pudo cargar el CRM" }, { status: 500 });
+    return NextResponse.json({
+      readyCrm: false,
+      today: "",
+      now: {
+        seguimientosVencidos: 0,
+        seguimientosHoy: 0,
+        agendasHoy: 0,
+        dineroEnJuego: 0,
+        cashPendiente: 0,
+        comisionPendiente: 0,
+        oportunidadesActivas: 0,
+        agendasFuturas: 0,
+      },
+      followups: [],
+      operacion: [],
+      commissions: [],
+      offers: [],
+      warning: "No pude leer todo el CRM. Recarga en un momento.",
+    });
   }
 }
 

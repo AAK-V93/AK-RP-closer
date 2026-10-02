@@ -52,10 +52,17 @@ export async function resolveOpenAlertsForLead(
   userId: string,
   leadId: string,
 ) {
-  await prisma.leadAlert.updateMany({
+  const open = await prisma.leadAlert.findMany({
     where: { userId, leadId, resolvedAt: null },
-    data: { resolvedAt: new Date() },
+    select: { id: true },
   });
+  const resolvedAt = new Date();
+  for (const alert of open) {
+    await prisma.leadAlert.update({
+      where: { id: alert.id },
+      data: { resolvedAt },
+    });
+  }
 }
 
 export type AlertOutcome =
@@ -173,15 +180,21 @@ export async function applyAlertOutcome(
 
   if (args.resultado === "hecho") {
     if (row.type === "PAGO PENDIENTE" || row.type === "COBRO_VENCIDO") {
-      await prisma.leadAlert.updateMany({
+      const cobros = await prisma.leadAlert.findMany({
         where: {
           userId,
           leadId: row.leadId,
           type: { in: ["COBRO_VENCIDO", "PRE_COBRANZA"] },
           resolvedAt: null,
         },
-        data: { resolvedAt: now },
+        select: { id: true },
       });
+      for (const alert of cobros) {
+        await prisma.leadAlert.update({
+          where: { id: alert.id },
+          data: { resolvedAt: now },
+        });
+      }
       const copy = copyFor("POST_COBRANZA", 0);
       const next = await prisma.leadAlert.create({
         data: {
@@ -275,10 +288,16 @@ export async function applyAlertOutcome(
       },
     });
     if (row.callRecordId) {
-      await prisma.callRecord.updateMany({
+      const call = await prisma.callRecord.findFirst({
         where: { id: row.callRecordId, userId },
-        data: { estadoAgenda: "CIERRE VENTA", callType: "CIERRE VENTA", result: "cerro" },
+        select: { id: true },
       });
+      if (call) {
+        await prisma.callRecord.update({
+          where: { id: call.id },
+          data: { estadoAgenda: "CIERRE VENTA", callType: "CIERRE VENTA", result: "cerro" },
+        });
+      }
     }
     if (amount > 0) {
       const rule = commercial.commission || defaultCommissionRule();
