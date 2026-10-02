@@ -1,4 +1,5 @@
 import { followupIsClosed } from "@/lib/crm-followups";
+import { zonedDayKey } from "@/lib/crm-time";
 
 export type OperacionRow = {
   id: string;
@@ -50,9 +51,10 @@ function asSiNo(value: unknown) {
 
 function isoDay(value: Date | string | null | undefined) {
   if (!value) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return value.trim();
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return asStr(value).slice(0, 10) || null;
-  return date.toISOString().slice(0, 10);
+  return zonedDayKey(date) || null;
 }
 
 export type OperacionCall = {

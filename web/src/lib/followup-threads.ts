@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { zonedDayKey } from "@/lib/crm-time";
 import { buildFollowupCopy, followupQuestion, type FollowupScript } from "@/lib/followup-scripts";
 import {
   advanceThread,
@@ -70,7 +71,7 @@ async function projectThreadAlert(
       programa: args.offerName,
       monto: args.enJuego ? String(Math.round(args.enJuego)) : "",
       saldo: args.enJuego ? String(Math.round(args.enJuego)) : "",
-      fecha: args.dueAt.toISOString().slice(0, 10),
+      fecha: zonedDayKey(args.dueAt),
       pago: args.paymentDetails,
       objecion: args.objecion,
       deseo: "",

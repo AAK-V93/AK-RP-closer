@@ -5,7 +5,7 @@ import { extractLeadPlaybook } from "@/lib/lead-playbook";
 import { getWorkspace } from "@/lib/workspace";
 import { isUsableTranscript } from "@/lib/fathom-import";
 import { fileCallQuietly } from "@/lib/file-call";
-import { inferCallDate } from "@/lib/followup-date";
+import { pastedCallTitle } from "@/lib/followup-date";
 import { MAX_TRANSCRIPT_BYTES, transcriptTitle } from "@/lib/transcript-batch";
 
 export const runtime = "nodejs";
@@ -14,9 +14,7 @@ export const maxDuration = 180;
 const MAX_BYTES = MAX_TRANSCRIPT_BYTES;
 
 function pastedTitle(text: string) {
-  const callAt = inferCallDate(text);
-  if (callAt) return `Llamada ${callAt.toLocaleDateString("es-CO", { timeZone: "UTC" })}`;
-  return `Pegado ${new Date().toLocaleDateString("es-CO", { timeZone: "America/Bogota" })}`;
+  return pastedCallTitle(text, new Date());
 }
 
 export async function POST(request: Request) {
@@ -225,9 +223,13 @@ export async function DELETE(request: Request) {
     if (!body.id) {
       return NextResponse.json({ error: "Falta el id" }, { status: 400 });
     }
-    await auth.prisma.clientTranscript.deleteMany({
+    const transcriptRow = await auth.prisma.clientTranscript.findFirst({
       where: { id: body.id, userId: auth.userId },
+      select: { id: true },
     });
+    if (transcriptRow) {
+      await auth.prisma.clientTranscript.delete({ where: { id: transcriptRow.id } });
+    }
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("workspace transcript delete", error);

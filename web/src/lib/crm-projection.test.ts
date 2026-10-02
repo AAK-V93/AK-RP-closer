@@ -5,6 +5,7 @@ import {
   ASSUMED_CLOSE_RATE,
   ASSUMED_SHOW_RATE,
   computeProjection,
+  endOfMonth,
 } from "./crm-projection";
 import { parseMonthlyGoalUsd } from "./crm-prefs";
 
@@ -35,6 +36,25 @@ const stats = {
   shows: 36,
   cierres: 18,
 };
+
+test("the month still ends in Bogotá after UTC has rolled over", () => {
+  const evening = new Date("2026-10-01T02:30:00.000Z");
+  assert.equal(endOfMonth(evening).toISOString().slice(0, 10), "2026-09-30");
+  const out = computeProjection({
+    metaUsd: 4000,
+    until: endOfMonth(evening),
+    now: evening,
+    realCallCount: 8,
+    comisionPendiente: 0,
+    cashPendiente: 0,
+    mesCash: 0,
+    stats,
+    ticketFallback: 10_000,
+    commissionRule: rule,
+    followups: [],
+  });
+  assert.equal(out.days, 1);
+});
 
 test("projection uses assumed 60/25 rates under 20 real calls and says so", () => {
   const out = computeProjection({

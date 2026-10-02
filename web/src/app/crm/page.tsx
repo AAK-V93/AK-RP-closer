@@ -983,7 +983,9 @@ function DashboardSheet({
       </div>
       <div className="space-y-4">
         <SectionHeading>Dinero y comisiones</SectionHeading>
-        <p className="text-[11px] text-fg3">Ventas, cash y ticket son el total, no solo el mes en curso.</p>
+        <p className="text-[11px] text-fg3">
+          Ventas, cash y ticket son el total, no solo el mes en curso. El desglose suma ese mismo total. Un año escrito en la fecha de la llamada, como 2026, no cuenta como venta.
+        </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="Ventas" value={money(total?.ventas)} tone="brand" />
           <MetricCard label="Cash cobrado" value={money(total?.cash)} tone="money" />

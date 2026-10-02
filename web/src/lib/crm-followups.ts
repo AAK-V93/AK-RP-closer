@@ -201,7 +201,7 @@ export function alignFollowups<T extends Alignable>(
       dueAt: draft.dueAt,
       estado: draft.estado,
       days: Math.max(0, draft.days),
-      enJuego: draft.enJuego > 0 ? draft.enJuego : row.enJuego,
+      enJuego: draft.enJuego,
       proximaAccion: action,
     });
   }
