@@ -45,6 +45,8 @@ type ConnectionContextType = {
   prefetch: () => void;
   markReady: () => void;
   markRoomJoined: () => void;
+  markAgentJoined: () => void;
+  liveStage: PracticeStageTiming | null;
 };
 
 const ConnectionContext = createContext<ConnectionContextType | undefined>(
@@ -74,6 +76,8 @@ export const ConnectionProvider = ({
   const [errorKind, setErrorKind] = useState<PracticeErrorKind | null>(null);
   const [qaMode, setQaMode] = useState(false);
   const [stageTimings, setStageTimings] = useState<PracticeStageTiming[]>([]);
+  const [liveStage, setLiveStage] = useState<PracticeStageTiming | null>(null);
+  const cancelingRef = useRef(false);
   const stageRef = useRef<{ name: string; at: number } | null>(null);
   const { trainingState } = useTraining();
   const { status } = useSession();
@@ -171,7 +175,28 @@ export const ConnectionProvider = ({
       setStageTimings((rows) => [...rows, { stage: prev.name, ms }]);
     }
     stageRef.current = { name, at: now };
+    setLiveStage({ stage: name, ms: 0 });
   }, []);
+
+  const closeStage = useCallback(() => {
+    const prev = stageRef.current;
+    if (!prev) return;
+    const ms = Date.now() - prev.at;
+    console.info("[práctica]", { etapa: prev.name, ms });
+    setStageTimings((rows) => [...rows, { stage: prev.name, ms }]);
+    stageRef.current = null;
+    setLiveStage(null);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "preparing" && phase !== "audio") return;
+    const timer = window.setInterval(() => {
+      const current = stageRef.current;
+      if (!current) return;
+      setLiveStage({ stage: current.name, ms: Date.now() - current.at });
+    }, 400);
+    return () => window.clearInterval(timer);
+  }, [phase]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -181,6 +206,8 @@ export const ConnectionProvider = ({
   }, [prefetch, requestKey, status, trainingState.training]);
 
   const cancel = useCallback(() => {
+    if (cancelingRef.current) return;
+    cancelingRef.current = true;
     abortRef.current?.abort();
     abortRef.current = null;
     cacheRef.current = null;
@@ -225,16 +252,20 @@ export const ConnectionProvider = ({
 
     const ac = new AbortController();
     abortRef.current = ac;
+    cancelingRef.current = false;
     setErrorMessage(null);
     setErrorKind(null);
     setStageTimings([]);
+    setLiveStage(null);
     stageRef.current = null;
     setPhase("preparing");
     setIsConnecting(true);
     try {
       noteStage("mic");
+      const tokenPromise = fetchToken(ac.signal);
       if (!qaMode) {
         if (!navigator.mediaDevices?.getUserMedia) {
+          ac.abort();
           fail(micHowToFix(), "mic");
           throw new Error(micHowToFix());
         }
@@ -242,6 +273,7 @@ export const ConnectionProvider = ({
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           stream.getTracks().forEach((track) => track.stop());
         } catch (micError) {
+          ac.abort();
           const name = micError instanceof DOMException ? micError.name : "";
           const blocked = name === "NotAllowedError" || name === "SecurityError";
           const message = blocked
@@ -251,15 +283,16 @@ export const ConnectionProvider = ({
           throw new Error(message);
         }
       }
-      noteStage("preparing");
-      const details = await fetchToken(ac.signal);
+      if (ac.signal.aborted) return;
+      noteStage("token");
+      const details = await tokenPromise;
       if (ac.signal.aborted) return;
       setConnectionDetails({
         wsUrl: details.url,
         token: details.accessToken,
         shouldConnect: true,
       });
-      noteStage("audio");
+      noteStage("sala");
       setPhase("audio");
     } catch (error) {
       if (ac.signal.aborted) return;
@@ -273,20 +306,27 @@ export const ConnectionProvider = ({
   };
 
   const markRoomJoined = useCallback(() => {
-    if (stageRef.current?.name !== "audio") return;
+    if (stageRef.current?.name !== "sala") return;
     noteStage("agente");
   }, [noteStage]);
 
+  const markAgentJoined = useCallback(() => {
+    if (stageRef.current?.name !== "agente") return;
+    noteStage("voz");
+  }, [noteStage]);
+
   const markReady = useCallback(() => {
-    if (stageRef.current?.name === "audio") noteStage("agente");
-    noteStage("ready");
-    stageRef.current = null;
+    if (stageRef.current?.name === "sala") noteStage("agente");
+    if (stageRef.current?.name === "agente") noteStage("voz");
+    closeStage();
     setPhase("ready");
     setErrorMessage(null);
     setErrorKind(null);
-  }, [noteStage]);
+  }, [closeStage, noteStage]);
 
   const disconnect = useCallback(async () => {
+    if (cancelingRef.current) return;
+    cancelingRef.current = true;
     abortRef.current?.abort();
     abortRef.current = null;
     setConnectionDetails((prev) => ({ ...prev, shouldConnect: false }));
@@ -306,10 +346,12 @@ export const ConnectionProvider = ({
         errorKind,
         qaMode,
         stageTimings,
+        liveStage,
         cancel,
         prefetch,
         markReady,
         markRoomJoined,
+        markAgentJoined,
       }}
     >
       {children}

@@ -285,6 +285,8 @@ export function formatOfferAmount(currency: string, amount: number) {
 }
 
 export function plainPriceLabel(label: string) {
+  if (/\d{1,2}\s*cuotas?\s+de/i.test(label)) return label.replace(/:\s*$/, "").trim();
+  if (/especial|lanzamiento/i.test(label) && !/contado/i.test(label)) return "Precio especial";
   const cleaned = label.replace(/^precio\s+(especial\s+)?/i, "").trim();
   if (/lista/i.test(cleaned)) return "Precio de lista";
   if (/contado/i.test(cleaned) && /7/.test(cleaned)) return "Si paga de contado en 7 días";

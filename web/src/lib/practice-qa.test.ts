@@ -33,7 +33,7 @@ test("leaving a practice room unpublishes local tracks before disconnect", async
   const track = { stop: () => stopped.push("mic") };
   const room = {
     localParticipant: {
-      trackPublications: new Map([["mic", { track }]]),
+      trackPublications: new Map([["mic", { track, trackSid: "TR_mic" }]]),
       unpublishTrack: async (local: { stop?: () => void }) => {
         unpublished.push("mic");
         assert.equal(local, track);
@@ -55,13 +55,47 @@ test("leaving a practice room unpublishes local tracks before disconnect", async
   assert.equal(disconnects, 2);
 });
 
+test("a track without a publication is stopped and not unpublished", async () => {
+  let unpublished = 0;
+  const stopped: string[] = [];
+  const offers: string[] = [];
+  const room = {
+    state: "connecting",
+    engine: {
+      isClosed: false,
+      pcManager: {
+        publisher: {
+          _pc: { signalingState: "closed" },
+          createAndSendOffer: async () => {
+            offers.push("offer");
+          },
+        },
+      },
+    },
+    localParticipant: {
+      trackPublications: new Map([["mic", { track: { stop: () => stopped.push("mic") } }]]),
+      unpublishTrack: async () => {
+        unpublished += 1;
+      },
+    },
+    disconnect: async () => undefined,
+  };
+  await leavePracticeRoom(room);
+  assert.equal(unpublished, 0);
+  assert.deepEqual(stopped, ["mic"]);
+  await room.engine.pcManager.publisher.createAndSendOffer();
+  assert.deepEqual(offers, []);
+});
+
 test("stage timings are readable in the badge", () => {
   assert.equal(
     formatPracticeTimings([
-      { stage: "preparing", ms: 0 },
-      { stage: "audio", ms: 1200 },
-      { stage: "agente", ms: 32000 },
+      { stage: "mic", ms: 200 },
+      { stage: "token", ms: 400 },
+      { stage: "sala", ms: 800 },
+      { stage: "agente", ms: 9000 },
+      { stage: "voz", ms: 5000 },
     ]),
-    "preparar 0.0s · audio 1.2s · agente 32.0s",
+    "mic 0.2s · token 0.4s · sala 0.8s · agente 9.0s · voz 5.0s",
   );
 });

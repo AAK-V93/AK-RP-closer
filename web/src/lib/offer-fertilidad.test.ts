@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { describeOfferPrices, emptyCommercial } from "./offer-commercial";
 import { offerConfirmBlocks } from "./offer-confirm";
 import {
   linesFromTextItems,
@@ -19,6 +20,27 @@ test("thousands-dotted amounts do not absorb the next token", () => {
   assert.deepEqual(pricesFromOfferText("USD 1.997\n69% de probabilidad").altPrices.map((row) => row.amount), [1997]);
   assert.equal(pricesFromOfferText("USD 1.99769%").listPrice, null);
   assert.ok(!pricesFromOfferText("USD 1.99769%").altPrices.some((row) => row.amount === 199769));
+});
+
+test("the QA price block keeps the launch price, the list price and the plan", () => {
+  const text = [
+    "Precio especial — Solo hoy",
+    "Precio regular",
+    "USD 1.597",
+    "USD 1.997",
+    "o 3 cuotas de USD 533",
+    "69% de probabilidad de éxito",
+  ].join("\n");
+  const found = pricesFromOfferText(text);
+  const commercial = emptyCommercial();
+  commercial.listPrice = found.listPrice;
+  commercial.altPrices = found.altPrices;
+  const summary = describeOfferPrices(commercial);
+  assert.equal(found.listPrice, 1997);
+  assert.match(summary, /Precio especial: USD 1\.597/);
+  assert.match(summary, /Precio de lista: USD 1\.997/);
+  assert.match(summary, /3 cuotas de USD 533/);
+  assert.doesNotMatch(summary, /199\.769|69\s*%/);
 });
 
 test("fertilidad consciente keeps real prices and drops the success rate", async () => {
@@ -79,11 +101,18 @@ test("fertilidad consciente keeps real prices and drops the success rate", async
   assert.ok(amounts.includes(533), amounts.join(","));
   assert.equal(amounts.includes(199769), false);
   const prices = offerConfirmBlocks(offer!).find((row) => row.id === "prices");
-  assert.match(prices?.summary || "", /1\.597/);
-  assert.match(prices?.summary || "", /1\.997/);
-  assert.match(prices?.summary || "", /533/);
-  assert.doesNotMatch(prices?.summary || "", /199\.769|69\s*%/);
+  const summary = prices?.summary || "";
+  assert.match(summary, /Precio especial: USD 1\.597/);
+  assert.match(summary, /Precio de lista: USD 1\.997/);
+  assert.match(summary, /3 cuotas de USD 533/);
+  assert.doesNotMatch(summary, /199\.769|69\s*%/);
+  assert.equal(offer?.commercial.listPrice, 1997);
   const blocks = offerConfirmBlocks(offer!);
   assert.equal(blocks.some((row) => row.id === "commission"), false);
-  assert.equal(blocks.some((row) => row.id === "bonuses"), false);
+  const bonuses = blocks.find((row) => row.id === "bonuses");
+  assert.ok(bonuses);
+  assert.match(bonuses?.summary || "", /Protocolo de suplementación/);
+  assert.match(bonuses?.summary || "", /Masterclass/);
+  assert.match(bonuses?.summary || "", /E-book etiquetas/);
+  assert.doesNotMatch(bonuses?.summary || "", /3 sesiones 1:1/);
 });

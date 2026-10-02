@@ -38,7 +38,7 @@ import { formatPracticeTimings, practiceErrorTitle } from "@/lib/practice-qa";
 
 export function Chat() {
   const connectionState = useConnectionState();
-  const { state } = useVoiceAssistant();
+  const { state, audioTrack } = useVoiceAssistant();
   const remotes = useRemoteParticipants();
   const [isChatRunning, setIsChatRunning] = useState(false);
   const { agent, displayTranscriptions } = useAgent();
@@ -60,9 +60,11 @@ export function Chat() {
     errorKind,
     qaMode,
     stageTimings,
+    liveStage,
     cancel,
     markReady,
     markRoomJoined,
+    markAgentJoined,
   } = useConnection();
   const { trainingState, dispatch } = useTraining();
   const { status: authStatus } = useSession();
@@ -136,8 +138,12 @@ export function Chat() {
   }, [connectionState, markRoomJoined]);
 
   useEffect(() => {
-    if (agentLive) markReady();
-  }, [agentLive, markReady]);
+    if (agent) markAgentJoined();
+  }, [agent, markAgentJoined]);
+
+  useEffect(() => {
+    if (audioTrack || state === "speaking") markReady();
+  }, [audioTrack, markReady, state]);
 
   useEffect(() => {
     const waiting = phase === "preparing" || phase === "audio" || shouldConnect;
@@ -321,7 +327,11 @@ export function Chat() {
           {qaMode && (
             <p className="mb-3 rounded-full border border-separator1 px-3 py-1 text-xs text-fg2">
               Modo prueba (sin micrófono)
-              {stageTimings.length ? ` · ${formatPracticeTimings(stageTimings)}` : ""}
+              {stageTimings.length || liveStage
+                ? ` · ${formatPracticeTimings(
+                    liveStage ? [...stageTimings, liveStage] : stageTimings,
+                  )}`
+                : ""}
             </p>
           )}
 

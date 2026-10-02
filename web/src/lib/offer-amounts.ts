@@ -128,57 +128,149 @@ function priceLabel(line: string, previous: string, sameLine: boolean) {
   const blob = sameLine ? line : `${previous}\n${line}`;
   const cuota = blob.match(/(\d{1,2})\s*cuotas?\s+de/i);
   if (cuota && /USD|\$/i.test(line)) return { label: `${cuota[1]} cuotas de`, list: false };
-  if (/precio\s+especial|\bespecial\b/i.test(sameLine ? line : blob) && /USD|\$/i.test(line)) {
+  if (/precio\s+especial|\bespecial\b|lanzamiento/i.test(sameLine ? line : blob) && /USD|\$/i.test(line)) {
     return { label: "Precio especial", list: false };
   }
+  if (/contado/i.test(sameLine ? line : previous)) return { label: "Contado", list: false };
   if (/precio\s+regular|\bregular\b/i.test(sameLine ? line : previous)) {
-    return { label: "Precio regular", list: false };
+    return { label: "Precio regular", list: true };
   }
   if (/precio\s+de\s+lista|\blista\b/i.test(sameLine ? line : previous)) {
     return { label: "Precio de lista", list: true };
   }
-  if (/contado/i.test(sameLine ? line : previous)) return { label: "Contado", list: false };
   return { label: "Precio", list: false };
+}
+
+function rememberPrice(
+  hits: { label: string; amount: number; list: boolean; sameLine: boolean }[],
+  label: string,
+  amount: number,
+  list: boolean,
+  sameLine: boolean,
+) {
+  const existing = hits.find((row) => row.amount === amount);
+  if (!existing) {
+    hits.push({ label, amount, list, sameLine });
+    return;
+  }
+  if (sameLine && !existing.sameLine) {
+    existing.label = label;
+    existing.list = list;
+    existing.sameLine = true;
+    return;
+  }
+  if (existing.label === "Precio" && label !== "Precio") {
+    existing.label = label;
+    existing.list = list;
+  }
 }
 
 export function pricesFromOfferText(text: string): {
   listPrice: number | null;
   altPrices: { label: string; amount: number }[];
 } {
-  const lines = separateMoneyTokens(text).split(/\n/);
+  const lines = separateMoneyTokens(text)
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const hits: { label: string; amount: number; list: boolean; sameLine: boolean }[] = [];
-  const remember = (label: string, amount: number, list: boolean, sameLine: boolean) => {
-    const existing = hits.find((row) => row.amount === amount);
-    if (!existing) {
-      hits.push({ label, amount, list, sameLine });
-      return;
+  const moneyRe = /(?:USD|US\$|\$)\s*(\d{1,3}(?:\.\d{3})+|\d{1,7})(?![\d.])/i;
+  for (const line of lines) {
+    const match = line.match(moneyRe);
+    if (!match || !/precio|regular|especial|lista|cuota|contado|lanzamiento/i.test(line)) continue;
+    const amount = parseSpanishMoneyToken(match[1] || "");
+    if (amount == null) continue;
+    const named = priceLabel(line, "", true);
+    rememberPrice(hits, named.label, amount, named.list, true);
+  }
+  // Two-column PDFs often list the labels, then the amounts, in the same order.
+  let pending: string[] = [];
+  for (const line of lines) {
+    if (/^precio\s+(especial|regular|de lista)\b/i.test(line) && !moneyRe.test(line)) {
+      pending.push(line);
+      continue;
     }
-    if (sameLine && !existing.sameLine) {
-      existing.label = label;
-      existing.list = list;
-      existing.sameLine = true;
-    } else if (existing.label === "Precio" && label !== "Precio") {
-      existing.label = label;
-      existing.list = list;
+    const only = line.match(/^(?:USD|US\$|\$)\s*(\d{1,3}(?:\.\d{3})+|\d{1,7})$/i);
+    if (only && pending.length) {
+      const amount = parseSpanishMoneyToken(only[1] || "");
+      const labelLine = pending.shift() || "";
+      if (amount != null) {
+        const named = priceLabel(`${labelLine}: ${line}`, "", true);
+        rememberPrice(hits, named.label, amount, named.list, true);
+      }
+      continue;
     }
-  };
+    if (!only) pending = [];
+  }
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] || "";
-    const previous = (lines[index - 1] || "").trim();
-    const re = /(?:USD|US\$|\$)\s*(\d{1,3}(?:\.\d{3})+|\d{1,7})(?![\d.])/gi;
-    for (const match of line.matchAll(re)) {
-      const amount = parseSpanishMoneyToken(match[1] || "");
-      if (amount == null) continue;
-      const sameLine = /precio|regular|especial|lista|cuota|contado/i.test(line);
-      const named = priceLabel(line, sameLine ? "" : previous, sameLine);
-      remember(named.label, amount, named.list, sameLine);
-    }
+    const match = line.match(moneyRe);
+    if (!match) continue;
+    const amount = parseSpanishMoneyToken(match[1] || "");
+    if (amount == null || hits.some((row) => row.amount === amount)) continue;
+    const previous = lines[index - 1] || "";
+    const named = priceLabel(line, previous, false);
+    rememberPrice(hits, named.label, amount, named.list, false);
   }
   const list = hits.find((row) => row.list);
   const altPrices = hits
     .filter((row) => row.amount !== list?.amount)
     .map((row) => ({ label: row.label, amount: row.amount }));
   return { listPrice: list?.amount ?? null, altPrices };
+}
+
+/** Right-hand "Bonus incluidos" column. Wrapped lines that start lowercase stay with the bonus above. */
+export function explicitBonusLines(items: { str?: string; transform?: number[] }[]) {
+  const placed = placedItems(items);
+  const header = placed.find((item) => /^bonus incluidos$/i.test(item.str));
+  if (!header) return [];
+  const nucleus = placed.find((item) => /n[uú]cleo del programa/i.test(item.str));
+  const splitX = nucleus ? (nucleus.x + header.x) / 2 : header.x - 80;
+  const rows: { y: number; parts: { x: number; str: string }[] }[] = [];
+  for (const item of placed) {
+    if (item.y > header.y - 8) continue;
+    if (item.x < splitX) continue;
+    if (item.y < header.y - 320) continue;
+    if (/garant[ií]a|^bonus incluidos$/i.test(item.str)) continue;
+    let row = rows.find((candidate) => Math.abs(candidate.y - item.y) <= 3);
+    if (!row) {
+      row = { y: item.y, parts: [] };
+      rows.push(row);
+    }
+    row.parts.push({ x: item.x, str: item.str });
+  }
+  rows.sort((a, b) => b.y - a.y);
+  const bonuses: string[] = [];
+  for (const row of rows) {
+    const line = row.parts
+      .sort((a, b) => a.x - b.x)
+      .map((part) => part.str.trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!line) continue;
+    if (/^[a-záéíóúñ]/.test(line) && bonuses.length) {
+      bonuses[bonuses.length - 1] = `${bonuses[bonuses.length - 1]} ${line}`;
+      continue;
+    }
+    bonuses.push(line);
+  }
+  return bonuses.map((name) => `Bonus: ${name}`);
+}
+
+export function bonusesFromOfferText(text: string): { name: string; condition: string }[] {
+  const names = text
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^bonus:\s+\S/i.test(line))
+    .map((line) => line.replace(/^bonus:\s+/i, "").trim())
+    .filter((name) => name.length >= 8);
+  const unique: string[] = [];
+  for (const name of names) {
+    if (!unique.some((row) => row.toLowerCase() === name.toLowerCase())) unique.push(name);
+  }
+  return unique.map((name) => ({ name, condition: "" }));
 }
 
 /** A percent is commission only when it sits on the comisión / pago al closer line. */
@@ -224,6 +316,13 @@ export function guardOfferContent(offer: ExtractedOffer, sourceText: string): Ex
   if (fromText.altPrices.length || fromText.listPrice != null) {
     commercial.listPrice = fromText.listPrice;
     commercial.altPrices = fromText.altPrices;
+    const plan = fromText.altPrices.find((row) => /\d{1,2}\s*cuotas?\s+de/i.test(row.label));
+    if (plan?.amount) {
+      const planName = `${plan.label} USD ${String(plan.amount).replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
+      if (!commercial.paymentModes.some((row) => /cuota/i.test(`${row.name} ${row.details}`))) {
+        commercial.paymentModes = [...commercial.paymentModes, { name: planName, details: "" }];
+      }
+    }
   } else {
     if (commercial.listPrice != null && !cited.has(Math.round(commercial.listPrice))) {
       commercial.listPrice = null;
@@ -231,6 +330,16 @@ export function guardOfferContent(offer: ExtractedOffer, sourceText: string): Ex
     commercial.altPrices = commercial.altPrices.filter(
       (row) => row.amount == null || cited.has(Math.round(row.amount)),
     );
+  }
+
+  const foundBonuses = bonusesFromOfferText(source);
+  if (foundBonuses.length) {
+    commercial.bonuses = foundBonuses;
+  } else {
+    commercial.bonuses = commercial.bonuses.filter((row) => {
+      const name = row.name.trim().toLowerCase();
+      return name.length >= 8 && source.toLowerCase().includes(name.slice(0, 40));
+    });
   }
 
   const citedCommission = commissionCitedInSource(source);
