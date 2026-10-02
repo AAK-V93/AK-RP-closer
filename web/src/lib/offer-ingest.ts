@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
+import { patchCrmPref } from "@/lib/crm-prefs";
 import { persistCommissionRule } from "@/lib/commission";
 import { emptyPlaybook, parsePlaybook } from "@/lib/lead-playbook";
 import {
@@ -62,17 +63,7 @@ async function writePending(
   userId: string,
   pending: PendingOfferExtract | null,
 ) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { crmPrefs: true },
-  });
-  const prefs = prefsObject(user?.crmPrefs);
-  if (pending) prefs[PENDING_KEY] = pending;
-  else delete prefs[PENDING_KEY];
-  await prisma.user.update({
-    where: { id: userId },
-    data: { crmPrefs: prefs as Prisma.InputJsonValue },
-  });
+  await patchCrmPref(prisma, userId, PENDING_KEY, pending ?? undefined);
 }
 
 export async function clearPendingOfferExtract(prisma: PrismaClient, userId: string) {

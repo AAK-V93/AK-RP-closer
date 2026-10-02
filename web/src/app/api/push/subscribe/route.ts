@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
+import { patchCrmPref } from "@/lib/crm-prefs";
 import { ensureCrmTables } from "@/lib/prisma";
 import { vapidPublicKey } from "@/lib/web-push";
 
@@ -23,18 +23,7 @@ export async function POST(request: Request) {
       prompted?: boolean;
     };
     const markPrompted = async () => {
-      const user = await auth.prisma.user.findUnique({
-        where: { id: auth.userId },
-        select: { crmPrefs: true },
-      });
-      const prefs = {
-        ...((user?.crmPrefs || {}) as Record<string, unknown>),
-        pushPromptedAt: new Date().toISOString(),
-      };
-      await auth.prisma.user.update({
-        where: { id: auth.userId },
-        data: { crmPrefs: prefs as Prisma.InputJsonValue },
-      });
+      await patchCrmPref(auth.prisma, auth.userId, "pushPromptedAt", new Date().toISOString());
     };
     if (body.prompted && !body.endpoint) {
       await markPrompted();

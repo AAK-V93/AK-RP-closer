@@ -53,7 +53,7 @@ import {
   stageOfferBlob,
 } from "@/lib/offer-ingest";
 import { getHomeState } from "@/lib/home-state";
-import { parseCrmPrefs, parseMonthlyGoalUsd, saveMonthlyGoal } from "@/lib/crm-prefs";
+import { parseCrmPrefs, parseMonthlyGoalUsd, patchCrmPref, saveMonthlyGoal } from "@/lib/crm-prefs";
 import { applyHubUtterance, parseHubUtterance } from "@/lib/hub-utterance";
 import { vapidPublicKey } from "@/lib/web-push";
 import { Prisma } from "@prisma/client";
@@ -528,18 +528,7 @@ export async function POST(request: Request) {
     );
     if (waMatch && !body.start) {
       const phone = normalizeWhatsApp(waMatch[1]);
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { crmPrefs: true },
-      });
-      const prefs = {
-        ...((user?.crmPrefs || {}) as Record<string, unknown>),
-        whatsappE164: phone,
-      };
-      await prisma.user.update({
-        where: { id: userId },
-        data: { crmPrefs: prefs as Prisma.InputJsonValue },
-      });
+      await patchCrmPref(prisma, userId, "whatsappE164", phone);
       const coachLine = await appendHubLines(
         prisma,
         userId,

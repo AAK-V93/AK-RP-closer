@@ -11,6 +11,7 @@ import {
 } from "@/lib/crm-apply";
 import { emptyExtractor, enrichExtractorFollowup, runExtractor } from "@/lib/extractor";
 import { userHasReadyCrm } from "@/lib/offer-commercial";
+import { canonicalProducto, canonicalTipo } from "@/lib/call-normalize";
 import {
   offerLearningHint,
   offerSignals,
@@ -136,8 +137,10 @@ export async function classifyAndFileCall(
       ),
       learned,
     });
-    parsed.producto = resolution.producto;
-    parsed.confianza.producto = resolution.confidence;
+    const names = offers.map((offer) => offer.productName);
+    parsed.producto = canonicalProducto(resolution.producto, names) || null;
+    parsed.confianza.producto = parsed.producto ? resolution.confidence : 0;
+    parsed.tipo_seguimiento = canonicalTipo(parsed.tipo_seguimiento) || null;
   }
   const nonSales = isNonSalesCall(parsed.estado_agenda);
   const gap = nonSales ? null : extractorGap(parsed, readyCrm, offers);

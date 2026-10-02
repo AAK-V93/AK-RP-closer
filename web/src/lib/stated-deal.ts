@@ -79,6 +79,18 @@ export function shownMoney(
   return counted > 0 ? counted : null;
 }
 
+/** A deal the closer and the lead actually agreed, not a price that was only mentioned. */
+export function explicitAgreement(text: string) {
+  if (
+    /qued[oó]\s+en|quedamos|acord(?:amos|ó|o)\b|cerr(?:é|e|amos|ó)\b|acept[oó]\b|compr[oó]\b|se inscribi[oó]/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  return /inicial\b/i.test(text) && /cuotas?|fraccionad/i.test(text);
+}
+
 /** Fills sale, balance and payment mode only when the transcript states the numbers. */
 export function fillStatedDeal(text: string, parsed: ExtractorJson): ExtractorJson {
   const original = String(text || "");
@@ -104,7 +116,7 @@ export function fillStatedDeal(text: string, parsed: ExtractorJson): ExtractorJs
   const inicial = inicialHit ? moneyToken(inicialHit[1]) : null;
   const total = amounts.length ? Math.max(...amounts) : null;
   const cuotas = /cuotas?|fraccionad/i.test(raw);
-  if (parsed.venta_total == null && total != null && (cuotas || inicial != null || /usd|d[oó]lar/i.test(raw))) {
+  if (parsed.venta_total == null && total != null && explicitAgreement(raw)) {
     parsed.venta_total = total;
     parsed.confianza.venta_total = Math.max(parsed.confianza.venta_total, 85);
   }

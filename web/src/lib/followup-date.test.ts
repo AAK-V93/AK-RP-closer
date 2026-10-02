@@ -25,6 +25,14 @@ test("keeps the clock on a weekday and a short month", () => {
   assert.equal(inferFollowupDate("el lunes a las 4 pm", call), "2026-10-05 16:00");
 });
 
+test("a transcript offset is not the follow-up time", () => {
+  const call = new Date("2026-10-02T05:47:00.000Z");
+  const transcript = `[00:47:12] Alejandro: la lista es USD 11800.
+Closer: si quieres seguimos el 8 de octubre.
+[00:48:01] Alejandro: se cortó.`;
+  assert.equal(inferFollowupDate(transcript, call), "2026-10-08");
+});
+
 test("a pasted transcript dated 29/09 is not the paste day", () => {
   const now = new Date("2026-10-01T15:00:00.000Z");
   const date = inferCallDate("la llamada fue el 29/09/2026", now);

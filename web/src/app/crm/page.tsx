@@ -348,6 +348,25 @@ export default function CrmPage() {
     await load();
   };
 
+  const saveCash = async (callId: string, amount: number) => {
+    setBusy("cash");
+    setActionError(null);
+    try {
+      const response = await fetch("/api/crm", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set-cash", callId, amount }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(body.error || "No pude guardar el cobrado.");
+      await load();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "No pude guardar el cobrado.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const saveGoal = async (usd: number) => {
     setSavingGoal(true);
     try {
@@ -589,6 +608,7 @@ export default function CrmPage() {
                 today={data.today || zonedDayKey(new Date())}
                 onPatch={patch}
                 onReopen={reopen}
+                onCash={saveCash}
                 empty={
                   operacionBase.length > 0 && operacion.length === 0
                     ? "Nada con estos filtros."
@@ -835,6 +855,63 @@ function PeriodoSheet({
   );
 }
 
+function CashEditor({
+  amount,
+  disabled,
+  onSave,
+}: {
+  amount: number | null;
+  disabled: boolean;
+  onSave: (amount: number) => Promise<void>;
+}) {
+  const [value, setValue] = useState(amount == null ? "" : String(Math.round(amount)));
+  useEffect(() => {
+    setValue(amount == null ? "" : String(Math.round(amount)));
+  }, [amount]);
+  return (
+    <div className="min-w-0 max-w-full space-y-2 pt-2">
+      <label className="text-sm text-fg3" htmlFor="cash-cobrado">
+        Cobrado
+      </label>
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+        <Input
+          id="cash-cobrado"
+          inputMode="decimal"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          className="h-8 w-28 min-w-0 max-w-full"
+          placeholder="0"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          type="button"
+          disabled={disabled}
+          className="shrink-0"
+          onClick={() => {
+            const text = value.trim();
+            const amount = text === "" ? 0 : Number(text.replace(/\./g, "").replace(",", "."));
+            if (!Number.isFinite(amount) || amount < 0) return;
+            void onSave(Math.round(amount));
+          }}
+        >
+          Guardar
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          type="button"
+          disabled={disabled}
+          className="shrink-0"
+          onClick={() => void onSave(0)}
+        >
+          Poner en 0
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function OperacionSheet({
   rows,
   money,
@@ -846,6 +923,7 @@ function OperacionSheet({
   today,
   onPatch,
   onReopen,
+  onCash,
   empty = "Aún no hay llamadas en esta oferta.",
 }: {
   rows: OperacionRow[];
@@ -858,6 +936,7 @@ function OperacionSheet({
   today: string;
   onPatch: (alertId: string, resultado: string, agenda?: boolean, nextAt?: string) => Promise<void>;
   onReopen: (alertId: string) => Promise<void>;
+  onCash: (callId: string, amount: number) => Promise<void>;
   empty?: string;
 }) {
   const columns: SheetColumn<OperacionRow>[] = [
@@ -889,7 +968,7 @@ function OperacionSheet({
         empty={empty}
       />
       {selected && (
-        <div className="border border-separator1 bg-bg1 p-3 text-sm space-y-1">
+        <div className="min-w-0 max-w-full overflow-hidden border border-separator1 bg-bg1 p-3 text-sm space-y-1">
           <p className="text-[11px] uppercase tracking-wide text-fg3">Detalle de la fila</p>
           {(
             [
@@ -917,6 +996,12 @@ function OperacionSheet({
               <span className="whitespace-pre-wrap break-words">{sheetCell(value)}</span>
             </p>
           ))}
+          <CashEditor
+            key={selected.id}
+            amount={selected.cash}
+            disabled={Boolean(busy)}
+            onSave={(amount) => onCash(selected.id, amount)}
+          />
           {selected.seguimientoCerrado ? (
             <div className="space-y-2 pt-2">
               <p className="text-sm">

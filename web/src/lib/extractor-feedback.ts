@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { Prisma } from "@prisma/client";
+import { patchCrmPref } from "@/lib/crm-prefs";
 import { ensureCrmTables } from "@/lib/prisma";
 import { amountBandsFromFeedback } from "@/lib/offer-resolve";
 
@@ -176,20 +176,7 @@ export async function rebuildExtractorPattern(prisma: PrismaClient, userId: stri
     })),
   );
   pattern.builtAtCount = rows.length;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { crmPrefs: true },
-  });
-  const prefs = {
-    ...((user?.crmPrefs && typeof user.crmPrefs === "object"
-      ? user.crmPrefs
-      : {}) as Record<string, unknown>),
-    extractorPattern: pattern,
-  };
-  await prisma.user.update({
-    where: { id: userId },
-    data: { crmPrefs: prefs as Prisma.InputJsonValue },
-  });
+  await patchCrmPref(prisma, userId, "extractorPattern", pattern);
   return pattern;
 }
 

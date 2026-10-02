@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { patchCrmPref } from "@/lib/crm-prefs";
 import { inferFollowupDate } from "@/lib/followup-date";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
 
@@ -103,6 +104,7 @@ export function looksLikeFilingAnswer(text: string) {
   const raw = text.trim();
   if (!raw || raw.length > 80) return false;
   if (/[?]/.test(raw)) return false;
+  if (isYes(raw)) return false;
   if (
     /se llama|transcript|quedamos|pag[oó]|pagu[eé]|en realidad|revisa|recuerdo|\boferta\b/i.test(
       raw,
@@ -153,7 +155,9 @@ function parseMoney(raw: string) {
     ? digits.replace(/\./g, "")
     : digits.replace(",", ".");
   const amount = Number(normalized);
-  if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000) return null;
+  if (!Number.isFinite(amount) || amount < 0 || amount > 1_000_000) return null;
+  if (amount === 0) return "0";
+  if (amount < 1) return null;
   return String(Math.round(amount));
 }
 
@@ -227,6 +231,19 @@ function rename(text: string, ctx: ChatContext): ChatTurn | null {
   if (!match) return null;
   const lead = leadInMessage(ctx.leads, match[1]);
   const next = tidyName(match[2]);
+  const pending = ctx.pending;
+  if (
+    lead &&
+    next &&
+    pending?.leadId === lead.id &&
+    pending.changes.some((change) => change.field === "name" && fold(change.to) === fold(next))
+  ) {
+    return {
+      kind: "confirm",
+      reply: confirmReply(pending.leadName || lead.name, pending.changes),
+      proposal: pending,
+    };
+  }
   if (!lead || !next || next.length > 80 || fold(next) === fold(lead.name)) {
     if (lead && next && fold(next) === fold(lead.name)) {
       return { kind: "answer", reply: `${lead.name} ya está guardado con ese nombre.` };
@@ -306,6 +323,38 @@ function payment(text: string, ctx: ChatContext): ChatTurn | null {
   return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
 }
 
+function clearPayment(text: string, ctx: ChatContext): ChatTurn | null {
+  const match =
+    text.match(/^(.+?)\s+no ha pagado nada\b/i) ||
+    text.match(/^(.+?)\s+no pag[oó] nada\b/i) ||
+    text.match(/^(?:pon|ponle|deja|coloca)\s+el\s+cash\s+de\s+(.+?)\s+en\s+0\b/i) ||
+    text.match(/^(?:borra|elimina|quita|anula)\s+el\s+pago\s+de\s+(.+?)\s*\.?$/i);
+  if (!match) return null;
+  const lead = leadInMessage(ctx.leads, match[1] || "") || leadInMessage(ctx.leads, text);
+  if (!lead) return { kind: "answer", reply: "¿De quién es ese pago? Dime el nombre del lead." };
+  const pending = ctx.pending;
+  if (
+    pending?.leadId === lead.id &&
+    pending.changes.some((change) => change.field === "cash" && change.to === "0")
+  ) {
+    return {
+      kind: "confirm",
+      reply: confirmReply(pending.leadName || lead.name, pending.changes),
+      proposal: pending,
+    };
+  }
+  const current = lead.amountPaid || "—";
+  if (current === "0") {
+    return { kind: "answer", reply: `${lead.name} ya está en 0 de cobrado.` };
+  }
+  const proposal: ChatProposal = {
+    leadId: lead.id,
+    leadName: lead.name,
+    changes: [{ field: "cash", label: "Cobrado", from: current, to: "0" }],
+  };
+  return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
+}
+
 function offerEdit(text: string, ctx: ChatContext): ChatTurn | null {
   const match =
     text.match(
@@ -376,7 +425,15 @@ function askFacts(text: string, ctx: ChatContext): ChatTurn | null {
 export function interpretCrmChat(text: string, ctx: ChatContext): ChatTurn {
   const raw = text.trim();
   if (!raw) return { kind: "none" };
-  if (ctx.pending && isYes(raw)) return { kind: "apply", proposal: ctx.pending };
+  if (isYes(raw)) {
+    if (!ctx.pending) {
+      return {
+        kind: "answer",
+        reply: "No tengo ningún cambio pendiente. ¿Qué quieres actualizar?",
+      };
+    }
+    return { kind: "apply", proposal: ctx.pending };
+  }
   if (ctx.pending && isNo(raw)) {
     return { kind: "drop", reply: "No cambié nada." };
   }
@@ -385,6 +442,7 @@ export function interpretCrmChat(text: string, ctx: ChatContext): ChatTurn {
     offerEdit(raw, ctx) ||
     recall(raw, ctx) ||
     schedule(raw, ctx) ||
+    clearPayment(raw, ctx) ||
     payment(raw, ctx) ||
     askFacts(raw, ctx) ||
     { kind: "none" }
@@ -497,6 +555,8 @@ export function readPendingChat(prefs: unknown): ChatProposal | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as ChatProposal;
   if (typeof row.leadId !== "string" || !row.leadId.trim()) return null;
+  const conversation = (row as { conversation?: unknown }).conversation;
+  if (typeof conversation === "string" && conversation !== "hub") return null;
   if (!Array.isArray(row.changes)) return null;
   const changes = row.changes.map(asChange).filter((change): change is ChatChange => Boolean(change));
   if (!changes.length) return null;
@@ -512,21 +572,12 @@ export async function savePendingChat(
   userId: string,
   proposal: ChatProposal | null,
 ) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { crmPrefs: true },
-  });
-  const prefs = {
-    ...((user?.crmPrefs && typeof user.crmPrefs === "object"
-      ? user.crmPrefs
-      : {}) as Record<string, unknown>),
-  };
-  if (proposal) prefs.pendingChat = proposal;
-  else delete prefs.pendingChat;
-  await prisma.user.update({
-    where: { id: userId },
-    data: { crmPrefs: prefs as Prisma.InputJsonValue },
-  });
+  await patchCrmPref(
+    prisma,
+    userId,
+    "pendingChat",
+    proposal ? { ...proposal, conversation: "hub" } : undefined,
+  );
 }
 
 export function chatFailureReply(error: unknown) {
@@ -775,13 +826,10 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
   if (!raw) return null;
   if (
     raw.length > 280 &&
-    !/\b(se llama|transcript|transcrip|quedamos|pag[oó]|oferta|producto|recuerdo)\b/i.test(raw)
+    !/\b(se llama|transcript|transcrip|quedamos|pag[oó]|oferta|producto|recuerdo|cash|borra|nada)\b/i.test(
+      raw,
+    )
   ) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { crmPrefs: true },
-    });
-    if (readPendingChat(user?.crmPrefs)) await savePendingChat(prisma, userId, null);
     return null;
   }
   const [user, leadRows, callRows, offerRows] = await Promise.all([
@@ -862,11 +910,6 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     offers: offerRows.map((row) => row.productName).filter(Boolean),
   };
   const turn = interpretCrmChat(raw, ctx);
-  if (turn.kind === "none") {
-    if (ctx.pending && raw.length > 8 && !isYes(raw) && !isNo(raw)) {
-      await savePendingChat(prisma, userId, null);
-    }
-    return null;
-  }
+  if (turn.kind === "none") return null;
   return respondToCrmChat(prisma, userId, raw, ctx);
 }
