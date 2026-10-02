@@ -28,7 +28,8 @@ export function canonicalTipo(raw: string | null | undefined) {
 export function canonicalProducto(raw: string | null | undefined, offerNames: string[]) {
   const text = String(raw || "").trim();
   const real = offerNames.map((name) => name.trim()).filter((name) => name && !isPriceLabel(name));
-  if (!text || isPriceLabel(text)) return real.length === 1 ? real[0] : "";
+  // A price sentence is not an attached offer, even when the catalog has one product.
+  if (!text || isPriceLabel(text)) return "";
   const known = real.find((name) => foldTipo(name) === foldTipo(text));
   return known || text;
 }

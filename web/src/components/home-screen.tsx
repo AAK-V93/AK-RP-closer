@@ -17,6 +17,7 @@ import type { HomeState } from "@/lib/home-state";
 import { moneyLabel } from "@/lib/crm-operacion";
 import { ACTIVA_EXPLAIN } from "@/lib/crm-activa";
 import { dineroEnJuegoNote, saldoPorCobrarNote } from "@/lib/crm-pipeline";
+import { PipelineDetail } from "@/components/pipeline-detail";
 import { followupCardStatus } from "@/lib/home-desk";
 import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
@@ -484,6 +485,14 @@ function ConfiguredC({
         <p className="mt-1 text-xs text-fg3">
           {dineroEnJuegoNote(snapshot?.now?.pipelineLeads || 0)}
         </p>
+        {snapshot && (
+          <div className="mt-2 min-w-0">
+            <PipelineDetail
+              lines={snapshot.pipelineDetalle || []}
+              format={(amount) => moneyLabel(amount)}
+            />
+          </div>
+        )}
         <p className="mt-1 text-xs text-fg3">{saldoPorCobrarNote(snapshot?.now?.saldoPorCobrar || 0)}</p>
       </div>
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />

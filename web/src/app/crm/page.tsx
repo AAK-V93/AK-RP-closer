@@ -37,7 +37,8 @@ import { plainStatus } from "@/lib/plain-labels";
 import { ACTIVA_EXPLAIN, filaCountLabel, latestActiveRows, operacionCountLine } from "@/lib/crm-activa";
 import { clienteVisible } from "@/lib/crm-noise";
 import { derivedPaso, operacionGlance } from "@/lib/crm-glance";
-import { dineroEnJuegoNote, saldoPorCobrarNote } from "@/lib/crm-pipeline";
+import { dineroEnJuegoNote, saldoPorCobrarNote, type PipelineLine } from "@/lib/crm-pipeline";
+import { PipelineDetail } from "@/components/pipeline-detail";
 import { foldLeadName, followupSnapshot, isMeetingFollowup } from "@/lib/crm-followups";
 import { LOST_REASONS, lostScopeMessage, openFollowupCount } from "@/lib/followup-desk";
 import { zonedDayKey } from "@/lib/crm-time";
@@ -124,6 +125,7 @@ type Dash = {
   readyCrm?: boolean;
   missingCrm?: { question: string } | null;
   now?: Record<string, number>;
+  pipelineDetalle?: PipelineLine[];
   rendimiento?: { mes: Period; anterior: Period; acumulado: Period };
   ventasDetalle?: {
     n: number;
@@ -1499,6 +1501,7 @@ function DashboardSheet({
           </p>
         )}
         <p className="text-[11px] text-fg3">{dineroEnJuegoNote(data.now?.pipelineLeads || 0)}</p>
+        <PipelineDetail lines={data.pipelineDetalle || []} format={money} />
         <p className="text-[11px] text-fg3">{saldoPorCobrarNote(data.now?.saldoPorCobrar || 0)}</p>
         <button
           type="button"

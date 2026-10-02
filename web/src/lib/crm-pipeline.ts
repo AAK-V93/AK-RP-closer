@@ -16,7 +16,28 @@ export function saldoPorCobrarNote(amount: number) {
 /** One line, same on Dashboard and Inicio, including how many leads the sum uses. */
 export function dineroEnJuegoNote(count: number) {
   const leads = count === 1 ? "1 lead" : `${count} leads`;
-  return `Suma el precio de cada lead abierto (ni Cerró ni Perdido), una persona una vez. Si no tiene un precio propio y sí una oferta, usa el de lista o el de contado de esa oferta. Sin oferta no se inventa un precio. Cuenta ${leads}.`;
+  return `Suma el precio de cada lead abierto (ni Cerró ni Perdido), una persona una vez. Usa el precio hablado o la venta de la última llamada. Si no hay monto y el lead tiene una oferta, usa el de lista o el de contado de esa oferta. Una oferta solo mencionada, o copiada de un precio, no entra. Cuenta ${leads}.`;
+}
+
+export type PipelineFuente = "hablado" | "venta" | "lista" | "contado" | "ninguno";
+
+export type PipelineLine = {
+  name: string;
+  amount: number;
+  fuente: string;
+};
+
+export function pipelineFuente(source: PipelineFuente, offer = "") {
+  if (source === "hablado") return "precio hablado";
+  if (source === "venta") return "venta de la última llamada";
+  if (source === "lista") return `precio de lista de ${offer}`;
+  if (source === "contado") return `precio de contado de ${offer}`;
+  return "sin precio";
+}
+
+export function sinPrecioNote(count: number) {
+  if (count === 1) return "1 sin precio";
+  return `${count} sin precio`;
 }
 
 const ACTIVE_STAGES = new Set([
@@ -77,6 +98,8 @@ export type OpenLeadInput = DealValueInput & {
   lost?: boolean;
   nextFollowup?: boolean;
   stage?: string | null;
+  source?: PipelineFuente;
+  offerLabel?: string;
 };
 
 /**
@@ -90,6 +113,7 @@ export function openPipeline(rows: OpenLeadInput[]) {
   const seen = new Set<string>();
   let total = 0;
   let count = 0;
+  const lines: PipelineLine[] = [];
   for (const row of ordered) {
     const key = normalizePersonName(row.person);
     if (!key || seen.has(key)) continue;
@@ -99,10 +123,18 @@ export function openPipeline(rows: OpenLeadInput[]) {
     }
     if (!row.nextFollowup && !isActiveOpenStage(row.stage)) continue;
     seen.add(key);
+    const amount = expectedDealValue(row);
     count += 1;
-    total += expectedDealValue(row);
+    total += amount;
+    const source = row.source || (amount > 0 ? "lista" : "ninguno");
+    lines.push({
+      name: row.person,
+      amount,
+      fuente: pipelineFuente(source, row.offerLabel || ""),
+    });
   }
-  return { total, count };
+  lines.sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name, "es"));
+  return { total, count, lines };
 }
 
 export type ClosedDealInput = {
@@ -175,15 +207,39 @@ function cashPriceOf(offer: PipelineOffer) {
 
 function offerPricesFor(name: string, offers: PipelineOffer[]) {
   const needle = foldOffer(name);
-  if (!needle) return { listPrice: null as number | null, cashPrice: null as number | null };
+  const empty = { listPrice: null as number | null, cashPrice: null as number | null, productName: "" };
+  if (!needle) return empty;
   const hit = offers.find((offer) =>
     [offer.productName, ...(offer.aliases || [])]
       .map((value) => foldOffer(value))
       .filter((value) => value && !value.startsWith("lista usd"))
       .some((value) => value === needle),
   );
-  if (!hit) return { listPrice: null as number | null, cashPrice: null as number | null };
-  return { listPrice: hit.listPrice, cashPrice: cashPriceOf(hit) };
+  if (!hit) return empty;
+  return { listPrice: hit.listPrice, cashPrice: cashPriceOf(hit), productName: hit.productName };
+}
+
+function pricedDeal(args: {
+  talked: number | null;
+  sale: number | null;
+  listPrice: number | null;
+  cashPrice: number | null;
+  offerName: string;
+  at?: Date | string | null;
+}): { amount: number; source: PipelineFuente } {
+  const catalog = [args.listPrice, args.cashPrice].filter(
+    (amount): amount is number => amount != null && amount > 0,
+  );
+  const talked = countedSale(args.talked, { at: args.at, prices: catalog });
+  if (talked) return { amount: talked, source: "hablado" };
+  const sale = countedSale(args.sale, { at: args.at, prices: catalog });
+  if (sale) return { amount: sale, source: "venta" };
+  if (!args.offerName) return { amount: 0, source: "ninguno" };
+  const list = countedSale(args.listPrice, { at: args.at, prices: catalog });
+  if (list) return { amount: list, source: "lista" };
+  const cash = countedSale(args.cashPrice, { at: args.at, prices: catalog });
+  if (cash) return { amount: cash, source: "contado" };
+  return { amount: 0, source: "ninguno" };
 }
 
 function asRecord(value: unknown) {
@@ -254,32 +310,31 @@ export function summarizePipeline(args: {
         dueDayFromProximo(textOf(filing.proximo_seguimiento)) ||
         owned.some((call) => dueDayFromProximo(textOf(asRecord(call.filingJson).proximo_seguimiento))),
     );
-    const priced = offerPricesFor(
-      lead.offerName || textOf(newest?.offerName) || textOf(filing.producto),
-      args.offers,
-    );
+    // Only the offer stored on the lead. A call offer or producto can be a
+    // price sentence rewritten to the only catalog product, or a mention.
+    const priced = offerPricesFor(lead.offerName, args.offers);
     const at = newest?.recordedAt || newest?.createdAt || null;
-    const price =
-      countedSale(parseTalked(lead.amountTalked), {
-        at,
-        prices: [priced.listPrice, priced.cashPrice].filter((n): n is number => n != null && n > 0),
-      }) ||
-      countedSale(newest?.ventaTotal, {
-        at,
-        prices: [priced.listPrice, priced.cashPrice].filter((n): n is number => n != null && n > 0),
-      }) ||
-      null;
-    const person = textOf(newest?.leadName) || lead.name;
+    const deal = pricedDeal({
+      talked: parseTalked(lead.amountTalked),
+      sale: newest?.ventaTotal ?? null,
+      listPrice: priced.listPrice,
+      cashPrice: priced.cashPrice,
+      offerName: priced.productName,
+      at,
+    });
+    const person = lead.name;
     openRows.push({
       person,
       closed,
       lost,
       nextFollowup,
       stage,
-      price,
-      listPrice: priced.listPrice,
-      cashPrice: priced.cashPrice,
+      price: deal.source === "hablado" || deal.source === "venta" ? deal.amount : null,
+      listPrice: deal.source === "lista" ? priced.listPrice : null,
+      cashPrice: deal.source === "contado" ? priced.cashPrice : null,
       at,
+      source: deal.source,
+      offerLabel: priced.productName,
     });
     if (closed) {
       const closedCall =
@@ -298,5 +353,6 @@ export function summarizePipeline(args: {
   return {
     pipeline,
     saldo: saldoPorCobrar(closedRows),
+    lines: pipeline.lines,
   };
 }

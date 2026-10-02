@@ -6,6 +6,7 @@ import {
   isActiveOpenStage,
   openPipeline,
   saldoPorCobrar,
+  sinPrecioNote,
   summarizePipeline,
 } from "./crm-pipeline";
 
@@ -220,4 +221,92 @@ test("a lead with no offer does not inherit the only catalog list price", () => 
   });
   assert.equal(twoOffers.pipeline.count, 1);
   assert.equal(twoOffers.pipeline.total, 11_800);
+});
+
+test("a catalog price on the call is not the lead's offer", () => {
+  const offers = [
+    {
+      productName: "Círculo Millonario",
+      listPrice: 11_800,
+      altPrices: [{ label: "Contado", amount: 10_000 }],
+    },
+  ];
+  const fromCalls = Array.from({ length: 13 }, (_, index) => ({
+    id: `call-${index}`,
+    name: `Llamada ${index + 1}`,
+    status: "seguimiento",
+    offerName: "",
+    amountTalked: "",
+  }));
+  const talked = Array.from({ length: 4 }, (_, index) => ({
+    id: `precio-${index}`,
+    name: `Precio ${index + 1}`,
+    status: "seguimiento",
+    offerName: "",
+    amountTalked: "10000",
+  }));
+  const empty = Array.from({ length: 6 }, (_, index) => ({
+    id: `cero-${index}`,
+    name: `Cero ${index + 1}`,
+    status: "seguimiento",
+    offerName: "",
+    amountTalked: "",
+  }));
+  const leads = [...fromCalls, ...talked, ...empty];
+  const out = summarizePipeline({
+    leads,
+    offers,
+    threads: leads.map((lead) => ({ leadId: lead.id, tipo: "DECISION", estado: "activo" })),
+    calls: fromCalls.map((lead) => ({
+      leadName: lead.name,
+      offerName: "Círculo Millonario",
+      estadoAgenda: "SHOW",
+      ventaTotal: null,
+      filingJson: { producto: "Lista USD 11800 · Contado especial USD 10000" },
+    })),
+  });
+  assert.equal(out.pipeline.count, 23);
+  assert.equal(out.pipeline.total, 40_000);
+  assert.equal(
+    out.lines.reduce((sum, row) => sum + row.amount, 0),
+    out.pipeline.total,
+  );
+  assert.equal(out.lines.filter((row) => row.fuente === "precio hablado").length, 4);
+  assert.equal(out.lines.filter((row) => row.fuente === "sin precio").length, 19);
+  assert.equal(sinPrecioNote(19), "19 sin precio");
+  assert.ok(out.lines[0]!.amount >= out.lines[out.lines.length - 1]!.amount);
+
+  const attached = summarizePipeline({
+    leads: [
+      {
+        id: "ana",
+        name: "Ana Pérez",
+        status: "seguimiento",
+        offerName: "Círculo Millonario",
+        amountTalked: "",
+      },
+    ],
+    offers,
+    threads: [{ leadId: "ana", tipo: "DECISION", estado: "activo" }],
+    calls: [],
+  });
+  assert.equal(attached.pipeline.total, 11_800);
+  assert.equal(attached.lines[0]?.fuente, "precio de lista de Círculo Millonario");
+
+  const cashOnly = summarizePipeline({
+    leads: [
+      {
+        id: "luz",
+        name: "Luz Vega",
+        status: "seguimiento",
+        offerName: "Círculo Millonario",
+        amountTalked: "",
+      },
+    ],
+    offers: [{ productName: "Círculo Millonario", listPrice: null, altPrices: [{ label: "Contado", amount: 10_000 }] }],
+    threads: [{ leadId: "luz", tipo: "DECISION", estado: "activo" }],
+    calls: [{ leadName: "Luz Vega", ventaTotal: 8_000, estadoAgenda: "SHOW" }],
+  });
+  assert.equal(cashOnly.pipeline.total, 8_000);
+  assert.equal(cashOnly.lines[0]?.fuente, "venta de la última llamada");
 });

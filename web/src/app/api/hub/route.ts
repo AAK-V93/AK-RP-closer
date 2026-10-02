@@ -962,6 +962,7 @@ async function hubSnapshot(
       fathomCount: workspace.fathomCount,
       uploadCount: workspace.uploadCount,
       now: dash.now,
+      pipelineDetalle: dash.pipelineDetalle,
       comisionResumen: dash.comisionResumen,
       leads: leads.map((row) => ({
         name: row.name,
