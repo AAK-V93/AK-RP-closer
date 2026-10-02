@@ -80,6 +80,37 @@ test("marking done moves the decision thread to the next coded step", () => {
   assert.equal(next.spawn, null);
 });
 
+test("hecho on the only segunda reunión step closes that follow-up", () => {
+  const next = advanceThread({
+    tipo: "SEGUNDA_REUNION",
+    pasoActual: 0,
+    action: "hecho",
+    anchors: { ...ANCHORS, meetingAt: new Date("2026-09-25T15:00:00.000Z") },
+    now: START,
+    hasSaldo: false,
+  });
+  assert.equal(next.estado, "cerrado");
+  assert.equal(next.dueAt, null);
+  assert.equal(next.spawn, null);
+  assert.equal(next.askLost, false);
+});
+
+test("no contestó on the last step keeps the lead pending for tomorrow", () => {
+  const next = advanceThread({
+    tipo: "SEGUNDA_REUNION",
+    pasoActual: 0,
+    action: "no_contesto",
+    anchors: ANCHORS,
+    now: START,
+    hasSaldo: false,
+  });
+  assert.equal(next.estado, "activo");
+  assert.equal(next.pasoActual, 0);
+  assert.equal(next.askLost, false);
+  assert.equal(next.dueAt?.toISOString().slice(0, 10), "2026-09-23");
+  assert.equal(next.touchResultado, "no_contestó");
+});
+
 test("a missed second meeting closes that thread and opens reschedule", () => {
   const next = advanceThread({
     tipo: "SEGUNDA_REUNION",

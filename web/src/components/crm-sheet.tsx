@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
 export const SHEET_PAGE_SIZE = 100;
@@ -28,6 +28,7 @@ export function SheetTable<T>({
   onRowClick,
   pageSize = SHEET_PAGE_SIZE,
   empty = "Sin filas.",
+  trailing,
 }: {
   columns: SheetColumn<T>[];
   rows: T[];
@@ -36,6 +37,11 @@ export function SheetTable<T>({
   onRowClick?: (row: T) => void;
   pageSize?: number;
   empty?: string;
+  trailing?: {
+    label: string;
+    width: number;
+    render: (row: T) => ReactNode;
+  };
 }) {
   const [page, setPage] = useState(0);
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
@@ -44,7 +50,7 @@ export function SheetTable<T>({
     () => rows.slice(safePage * pageSize, (safePage + 1) * pageSize),
     [rows, safePage, pageSize],
   );
-  const minWidth = columns.reduce((sum, col) => sum + col.width, 0);
+  const minWidth = columns.reduce((sum, col) => sum + col.width, 0) + (trailing?.width || 0);
 
   return (
     <div className="space-y-2">
@@ -53,13 +59,14 @@ export function SheetTable<T>({
         style={{ maxHeight: "calc(100vh - 220px)" }}
       >
         <table
-          className="border-collapse text-[13px] leading-[38px] text-fg1"
+          className="border-collapse text-[13px] leading-snug text-fg1"
           style={{ tableLayout: "fixed", width: minWidth, minWidth }}
         >
           <colgroup>
             {columns.map((col) => (
               <col key={col.key} style={{ width: col.width }} />
             ))}
+            {trailing && <col style={{ width: trailing.width }} />}
           </colgroup>
           <thead className="sticky top-0 z-10">
             <tr style={{ height: SHEET_ROW_PX }}>
@@ -78,13 +85,21 @@ export function SheetTable<T>({
                   {col.label}
                 </th>
               ))}
+              {trailing && (
+                <th
+                  className="sticky right-0 z-20 border-b border-separator1 bg-bg1 px-2 text-sm text-fg3"
+                  style={{ width: trailing.width, textAlign: "left" }}
+                >
+                  {trailing.label}
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
             {slice.length === 0 ? (
               <tr style={{ height: SHEET_ROW_PX }}>
                 <td
-                  colSpan={columns.length}
+                  colSpan={columns.length + (trailing ? 1 : 0)}
                   className="border border-separator1 px-2 text-fg3"
                   style={{ height: SHEET_ROW_PX }}
                 >
@@ -106,10 +121,7 @@ export function SheetTable<T>({
                           ? "bg-bg2"
                           : "bg-bg1"
                     }
-                    style={{
-                      height: SHEET_ROW_PX,
-                      cursor: onRowClick ? "pointer" : "default",
-                    }}
+                    style={{ cursor: onRowClick ? "pointer" : "default" }}
                   >
                     {columns.map((col) => {
                       const value = sheetCell(col.value(row));
@@ -117,22 +129,29 @@ export function SheetTable<T>({
                         <td
                           key={col.key}
                           title={value === "—" ? undefined : value}
-                          className="border border-separator1 px-2"
+                          className="border border-separator1 px-2 py-1.5 align-top"
                           style={{
-                            height: SHEET_ROW_PX,
-                            maxHeight: SHEET_ROW_PX,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
                             textAlign: col.align || "left",
                             fontVariantNumeric:
                               col.align === "right" ? "tabular-nums" : undefined,
                           }}
                         >
-                          {value}
+                          <div className="line-clamp-3 break-words [overflow-wrap:anywhere]">
+                            {value}
+                          </div>
                         </td>
                       );
                     })}
+                    {trailing && (
+                      <td
+                        className={`sticky right-0 z-10 border border-separator1 px-2 py-1 align-top ${
+                          selected ? "bg-primary/10" : index % 2 === 1 ? "bg-bg2" : "bg-bg1"
+                        }`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {trailing.render(row)}
+                      </td>
+                    )}
                   </tr>
                 );
               })

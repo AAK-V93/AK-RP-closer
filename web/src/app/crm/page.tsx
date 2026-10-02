@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/app-shell";
@@ -26,6 +26,15 @@ import {
 } from "@/lib/crm-filters";
 import type { CommissionProjection } from "@/lib/crm-projection";
 import { plainStatus } from "@/lib/plain-labels";
+import { foldLeadName, followupSnapshot } from "@/lib/crm-followups";
+import { zonedDayKey } from "@/lib/crm-time";
+import {
+  addCalendarDays,
+  deskUndoMessage,
+  projectDeskRows,
+  projectOperacionProximo,
+  type DeskResultado,
+} from "@/lib/followup-desk";
 
 type ModuleId =
   | "ahora"
@@ -74,6 +83,11 @@ type Followup = {
   queHacer?: string;
   opciones?: FollowupOptionView[];
   selectedId?: string;
+  callId?: string;
+  proximo?: string;
+  closesOnHecho?: boolean;
+  nextOnHecho?: string;
+  suggestedNext?: string;
 };
 
 type Commission = {
@@ -91,6 +105,7 @@ type Commission = {
 };
 
 type Dash = {
+  today?: string;
   readyCrm?: boolean;
   missingCrm?: { question: string } | null;
   now?: Record<string, number>;
@@ -150,6 +165,10 @@ export default function CrmPage() {
   const [openCall, setOpenCall] = useState<string | null>(null);
   const [savingGoal, setSavingGoal] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [undo, setUndo] = useState<{ id: string; message: string; snapshot: Dash } | null>(null);
+  const saving = useRef(false);
 
   const load = () =>
     fetch("/api/crm")
@@ -184,17 +203,132 @@ export default function CrmPage() {
       .catch(() => void load());
   }, [status]);
 
-  const patch = async (alertId: string, resultado: string, agenda?: boolean) => {
-    await fetch("/api/crm", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        agenda
-          ? { alertId, action: "agenda", agendaEstado: resultado }
-          : { alertId, action: "outcome", resultado },
-      ),
-    });
-    await load();
+  const refresh = async () => {
+    const response = await fetch("/api/crm");
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.now) return false;
+    setLoadError(null);
+    setData(payload);
+    return true;
+  };
+
+  const patch = async (
+    alertId: string,
+    resultado: string,
+    agenda?: boolean,
+    nextAt?: string,
+  ) => {
+    if (saving.current) return;
+    saving.current = true;
+    setBusy(resultado);
+    setActionError(null);
+    const previous = data;
+    const today = data?.today || zonedDayKey(new Date());
+    if (data && !agenda) {
+      const followups = data.followups || [];
+      const target = followups.find((row) => row.id === alertId);
+      const projected = projectDeskRows(followups, {
+        targetId: alertId,
+        action: resultado as DeskResultado,
+        today,
+        nextAt,
+      });
+      const cliente = target?.cliente || "";
+      const operacion = projectOperacionProximo(data.operacion || [], {
+        callId: target?.callId,
+        cliente,
+        proximo: projected.proximo,
+        resultado,
+        closeAll: projected.leaves,
+      });
+      const counts = followupSnapshot(projected.rows);
+      setUndo({
+        id: alertId,
+        message: deskUndoMessage({
+          action: resultado as DeskResultado,
+          nombre: cliente,
+          proximo: projected.proximo,
+          leaves: projected.leaves,
+        }),
+        snapshot: data,
+      });
+      setData({
+        ...data,
+        followups: projected.rows,
+        operacion,
+        now: {
+          ...(data.now || {}),
+          seguimientosHoy: counts.seguimientosHoy,
+          seguimientosVencidos: counts.seguimientosVencidos,
+          dineroEnJuego: counts.dineroEnJuego,
+        },
+      });
+      if (projected.leaves) {
+        setOpenAlert((current) => (current === alertId ? null : current));
+      }
+    }
+    try {
+      const response = await fetch("/api/crm", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          agenda
+            ? { alertId, action: "agenda", agendaEstado: resultado }
+            : { alertId, action: "outcome", resultado, nextAt },
+        ),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error || "No se guardó. Inténtalo otra vez.");
+      }
+      await refresh();
+    } catch (error) {
+      if (previous) setData(previous);
+      setUndo(null);
+      setActionError(
+        error instanceof Error && error.message
+          ? error.message
+          : "No se guardó. Inténtalo otra vez.",
+      );
+    } finally {
+      saving.current = false;
+      setBusy(null);
+    }
+  };
+
+  const reopen = async (alertId?: string) => {
+    const id = alertId || undo?.id;
+    if (!id || saving.current) return;
+    const pending = undo;
+    const closed = data;
+    saving.current = true;
+    setBusy("reabrir");
+    setActionError(null);
+    if (pending && (!alertId || alertId === pending.id)) setData(pending.snapshot);
+    setUndo(null);
+    try {
+      const response = await fetch("/api/crm", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alertId: id, action: "reabrir" }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error || "No se pudo deshacer.");
+      }
+      await refresh();
+    } catch (error) {
+      if (closed) setData(closed);
+      if (pending) setUndo(pending);
+      setActionError(
+        error instanceof Error && error.message
+          ? error.message
+          : "No se pudo deshacer.",
+      );
+    } finally {
+      saving.current = false;
+      setBusy(null);
+    }
   };
 
   const pickScript = async (alertId: string, optionId: string) => {
@@ -374,6 +508,27 @@ export default function CrmPage() {
               ))}
             </div>
 
+            {undo && (
+              <div className="flex flex-col gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm" role="status">
+                  {undo.message}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={Boolean(busy)}
+                  onClick={() => void reopen()}
+                >
+                  {busy === "reabrir" ? "Deshaciendo…" : "Deshacer"}
+                </Button>
+              </div>
+            )}
+            {actionError && (
+              <p className="text-sm text-destructive" role="alert">
+                {actionError}
+              </p>
+            )}
+
             {showListFilters && (
               <CrmListFilters
                 rows={listRows}
@@ -424,6 +579,11 @@ export default function CrmPage() {
                 selectedId={openCall}
                 onSelect={(id) => setOpenCall(openCall === id ? null : id)}
                 selected={selectedCall}
+                followups={followupsBase}
+                busy={busy}
+                today={data.today || zonedDayKey(new Date())}
+                onPatch={patch}
+                onReopen={reopen}
                 empty={
                   operacionBase.length > 0 && operacion.length === 0
                     ? "Nada con estos filtros."
@@ -436,6 +596,9 @@ export default function CrmPage() {
               <SeguimientosSheet
                 rows={followups}
                 money={money}
+                now={now}
+                today={data.today || zonedDayKey(new Date())}
+                busy={busy}
                 selected={selectedFollowup}
                 onSelect={(id) => setOpenAlert(openAlert === id ? null : id)}
                 onPick={pickScript}
@@ -673,6 +836,11 @@ function OperacionSheet({
   selectedId,
   onSelect,
   selected,
+  followups,
+  busy,
+  today,
+  onPatch,
+  onReopen,
   empty = "Aún no hay llamadas en esta oferta.",
 }: {
   rows: OperacionRow[];
@@ -680,11 +848,16 @@ function OperacionSheet({
   selectedId: string | null;
   onSelect: (id: string) => void;
   selected: OperacionRow | null;
+  followups: Followup[];
+  busy: string | null;
+  today: string;
+  onPatch: (alertId: string, resultado: string, agenda?: boolean, nextAt?: string) => Promise<void>;
+  onReopen: (alertId: string) => Promise<void>;
   empty?: string;
 }) {
   const columns: SheetColumn<OperacionRow>[] = [
     { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha },
-    { key: "cliente", label: "Cliente", width: 160, value: (row) => row.cliente },
+    { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
     { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
     { key: "canal", label: "Canal", width: 80, value: (row) => row.canal },
     { key: "estado", label: "Estado", width: 120, value: (row) => plainStatus(row.estadoAgenda) },
@@ -733,11 +906,44 @@ function OperacionSheet({
               ["Notas", selected.notas],
             ] as [string, string][]
           ).map(([label, value]) => (
-            <p key={label} className="flex gap-3">
-              <span className="w-44 shrink-0 text-fg3">{label}</span>
+            <p key={label} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
+              <span className="w-full shrink-0 text-fg3 sm:w-44">{label}</span>
               <span className="whitespace-pre-wrap break-words">{sheetCell(value)}</span>
             </p>
           ))}
+          {selected.seguimientoCerrado ? (
+            <div className="space-y-2 pt-2">
+              <p className="text-sm">
+                Seguimiento marcado como {plainStatus(selected.seguimientoResultado) || "hecho"}
+                {selected.seguimientoHecho ? ` · era ${selected.seguimientoHecho}` : ""}.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={Boolean(busy)}
+                onClick={() => void onReopen(`call:${selected.id}`)}
+              >
+                {busy === "reabrir" ? "Abriendo…" : "Reabrir"}
+              </Button>
+            </div>
+          ) : selected.fechaProximo ? (
+            <div className="pt-2">
+              <FollowupActions
+                targetId={
+                  followupForCall(selected, followups)?.id || `call:${selected.id}`
+                }
+                tipo={followupForCall(selected, followups)?.tipo || selected.tipoSeguimiento}
+                hilo={followupForCall(selected, followups)?.hilo || selected.tipoSeguimiento}
+                askLost={Boolean(followupForCall(selected, followups)?.askLost)}
+                suggested={
+                  followupForCall(selected, followups)?.suggestedNext || selected.fechaProximo
+                }
+                today={today}
+                busy={busy}
+                onPatch={onPatch}
+              />
+            </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -842,9 +1048,185 @@ function DashboardSheet({
   );
 }
 
+function isSegunda(value: string) {
+  return value.toUpperCase().replace(/_/g, " ").includes("SEGUNDA");
+}
+
+function followupForCall(call: OperacionRow, rows: Followup[]) {
+  return (
+    rows.find((row) => row.callId === call.id || row.id === `call:${call.id}`) ||
+    rows.find((row) => foldLeadName(row.cliente) === foldLeadName(call.cliente)) ||
+    null
+  );
+}
+
+function FollowupActions({
+  targetId,
+  tipo,
+  hilo,
+  askLost,
+  suggested,
+  today,
+  busy,
+  initialAsk,
+  onPatch,
+}: {
+  targetId: string;
+  tipo: string;
+  hilo: string;
+  askLost: boolean;
+  suggested: string;
+  today: string;
+  busy: string | null;
+  initialAsk?: string | null;
+  onPatch: (alertId: string, resultado: string, agenda?: boolean, nextAt?: string) => Promise<void>;
+}) {
+  const [ask, setAsk] = useState<string | null>(initialAsk || null);
+  const [day, setDay] = useState((suggested || "").slice(0, 10));
+  const disabled = Boolean(busy);
+  const segunda = isSegunda(`${hilo} ${tipo}`);
+  const agenda = tipo === "AGENDA_CHECK";
+
+  useEffect(() => {
+    if (initialAsk) {
+      setAsk(initialAsk);
+      setDay((suggested || "").slice(0, 10));
+    }
+  }, [initialAsk, suggested, targetId]);
+
+  const saveAsk = () => {
+    if (!ask || !day) return;
+    void onPatch(targetId, ask, false, day);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        {agenda ? (
+          <>
+            <Button className="w-full sm:w-auto" size="sm" variant="primary" disabled={disabled} onClick={() => void onPatch(targetId, "SHOW", true)}>
+              {busy === "SHOW" ? "Guardando…" : "Show"}
+            </Button>
+            <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "NO SHOW", true)}>
+              No show
+            </Button>
+            <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "REPROGRAMA", true)}>
+              Reprogramó
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button className="w-full sm:w-auto" size="sm" variant="primary" disabled={disabled} onClick={() => void onPatch(targetId, "hecho")}>
+              {busy === "hecho" ? "Guardando…" : "Hecho"}
+            </Button>
+            <Button
+              className="w-full sm:w-auto"
+              size="sm"
+              variant="outline"
+              disabled={disabled}
+              onClick={() => {
+                setAsk("no_contesto");
+                setDay((suggested || addCalendarDays(today, 1)).slice(0, 10));
+              }}
+            >
+              No contestó
+            </Button>
+            {segunda ? (
+              <>
+                <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "mostro")}>
+                  {busy === "mostro" ? "Guardando…" : "Mostró"}
+                </Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  size="sm"
+                  variant="outline"
+                  disabled={disabled}
+                  onClick={() => {
+                    setAsk("no_mostro");
+                    setDay((suggested || addCalendarDays(today, 1)).slice(0, 10));
+                  }}
+                >
+                  No mostró
+                </Button>
+                <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "perdido")}>
+                  {busy === "perdido" ? "Guardando…" : "Perdido"}
+                </Button>
+              </>
+            ) : askLost ? (
+              <>
+                <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "perdido")}>
+                  Perdido
+                </Button>
+                <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "cerro")}>
+                  Cerró
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  className="w-full sm:w-auto"
+                  size="sm"
+                  variant="outline"
+                  disabled={disabled}
+                  onClick={() => {
+                    setAsk("reprogramado");
+                    setDay((suggested || addCalendarDays(today, 1)).slice(0, 10));
+                  }}
+                >
+                  Reprogramar
+                </Button>
+                <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "cerro")}>
+                  {busy === "cerro" ? "Guardando…" : "Cerró"}
+                </Button>
+                <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "perdido")}>
+                  {busy === "perdido" ? "Guardando…" : "Perdido"}
+                </Button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+      {ask && (
+        <div className="space-y-2 rounded-xl border border-separator1 p-3">
+          <p className="text-sm">
+            {ask === "no_contesto"
+              ? "No contestó. El lead sigue pendiente. ¿Para cuándo lo retomas?"
+              : ask === "no_mostro"
+                ? "No mostró. Sigue pendiente para reagendar. ¿Para cuándo?"
+                : "¿Para cuándo lo reprogramas?"}
+          </p>
+          <Input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" type="button" onClick={() => setDay(addCalendarDays(today, 1))}>
+              Mañana
+            </Button>
+            <Button size="sm" variant="outline" type="button" onClick={() => setDay(addCalendarDays(today, 2))}>
+              En 2 días
+            </Button>
+            <Button size="sm" variant="outline" type="button" onClick={() => setDay(addCalendarDays(today, 7))}>
+              En una semana
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="primary" type="button" disabled={disabled || !day} onClick={saveAsk}>
+              {busy === ask ? "Guardando…" : "Guardar fecha"}
+            </Button>
+            <Button size="sm" variant="outline" type="button" onClick={() => setAsk(null)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SeguimientosSheet({
   rows,
   money,
+  now,
+  today,
+  busy,
   selected,
   onSelect,
   onPick,
@@ -853,101 +1235,111 @@ function SeguimientosSheet({
 }: {
   rows: Followup[];
   money: (value: number | null | undefined) => string;
+  now: Record<string, number>;
+  today: string;
+  busy: string | null;
   selected: Followup | null;
   onSelect: (id: string) => void;
   onPick: (alertId: string, optionId: string) => Promise<void>;
-  onPatch: (alertId: string, resultado: string, agenda?: boolean) => Promise<void>;
+  onPatch: (alertId: string, resultado: string, agenda?: boolean, nextAt?: string) => Promise<void>;
   empty?: string;
 }) {
+  const [askFor, setAskFor] = useState<string | null>(null);
   return (
     <div className="space-y-4">
+      <p className="text-sm text-fg3" aria-live="polite">
+        Pendientes de hoy {now.seguimientosHoy || 0} · Vencidos {now.seguimientosVencidos || 0} · Dinero en juego{" "}
+        {money(now.dineroEnJuego)}
+      </p>
       <HelpNote>
-        <p>El paso dice en qué mensaje de la secuencia vas, por ejemplo 2 de 4. El último toque es cuándo escribiste y qué pasó, en palabras.</p>
-        <p>Si no responde, marcas No contestó y avanza al siguiente paso. Si ya tocaba hacerlo, la próxima acción dice pendiente de hoy.</p>
+        <p>Hecho cierra este seguimiento: sale de la lista y deja de contar en pendientes y en dinero en juego.</p>
+        <p>No contestó anota que no respondió y te pide otra fecha, para que el lead no se pierda. Mostró y No mostró son de la segunda reunión.</p>
         <p>Perdido cierra el hilo. Cerró, en una decisión, lo pasa a cobro si todavía queda saldo.</p>
       </HelpNote>
-      <SheetTable
-        columns={[
-          { key: "cliente", label: "Cliente", width: 160, value: (row) => row.cliente },
-          { key: "hilo", label: "Tipo", width: 140, value: (row) => plainStatus(row.hilo || row.tipo) },
-          { key: "paso", label: "Paso", width: 80, value: (row) => row.paso || "—" },
-          { key: "toque", label: "Último toque", width: 180, value: (row) => row.ultimoToque || "sin toques" },
-          { key: "accion", label: "Próxima acción", width: 240, value: (row) => row.proximaAccion || row.queHacer || row.acuerdo || row.question },
-          { key: "juego", label: "En juego", width: 100, align: "right", value: (row) => (row.enJuego ? money(row.enJuego) : "—") },
-          { key: "temp", label: "Temperatura", width: 110, value: (row) => row.temperatura || "—" },
-        ]}
-        rows={rows}
-        getId={(row) => row.id}
-        selectedId={selected?.id || null}
-        onRowClick={(row) => onSelect(row.id)}
-        empty={empty}
-      />
       {selected && (
-        <div className="border border-separator1 bg-bg1 p-3 space-y-3">
-          {selected.contexto && <p className="text-xs text-fg3">{selected.contexto}</p>}
+        <div className="rounded-2xl border border-separator1 bg-bg1 p-3 space-y-3">
+          <div>
+            <p className="text-sm break-words">{selected.cliente}</p>
+            <p className="text-xs text-fg3 break-words">
+              {plainStatus(selected.hilo || selected.tipo)}
+              {selected.proximaAccion ? ` · ${selected.proximaAccion}` : ""}
+            </p>
+          </div>
+          {selected.contexto && <p className="text-xs text-fg3 break-words">{selected.contexto}</p>}
           {selected.tipo !== "AGENDA_CHECK" && (selected.opciones || []).length > 0 ? (
             <FollowupPicker
               alertId={selected.id}
               options={selected.opciones || []}
               selectedId={selected.selectedId}
               phone={selected.telefono}
+              disabled={Boolean(busy)}
               onChoose={onPick}
             />
           ) : (
             selected.mensajeSugerido && (
-              <p className="text-xs whitespace-pre-wrap">{selected.mensajeSugerido}</p>
+              <p className="text-xs whitespace-pre-wrap break-words">{selected.mensajeSugerido}</p>
             )
           )}
-          <div className="flex flex-wrap gap-1">
-            {(selected.tipo === "AGENDA_CHECK"
-              ? (
-                  [
-                    ["SHOW", "Show"],
-                    ["NO SHOW", "No show"],
-                    ["REPROGRAMA", "Reprogramó"],
-                  ] as const
-                )
-              : selected.askLost
-                ? (
-                    [
-                      ["perdido", "Perdido"],
-                      ["cerro", "Cerró"],
-                    ] as const
-                  )
-                  : selected.hilo === "SEGUNDA_REUNION"
-                  ? (
-                      [
-                        ["hecho", "Hecho"],
-                        ["no_contesto", "No contestó"],
-                        ["mostro", "Mostró"],
-                        ["no_mostro", "No mostró"],
-                        ["perdido", "Perdido"],
-                      ] as const
-                    )
-                  : (
-                      [
-                        ["hecho", "Hecho"],
-                        ["no_contesto", "No contestó"],
-                        ["reprogramado", "Reprogramar"],
-                        ["cerro", "Cerró"],
-                        ["perdido", "Perdido"],
-                      ] as const
-                    )
-            ).map(([value, label]) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={value === "hecho" || value === "SHOW" || value === "mostro" ? "primary" : "outline"}
-                onClick={() =>
-                  void onPatch(selected.id, value, selected.tipo === "AGENDA_CHECK")
-                }
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
+          <FollowupActions
+            key={selected.id}
+            targetId={selected.id}
+            tipo={selected.tipo}
+            hilo={selected.hilo || ""}
+            askLost={Boolean(selected.askLost)}
+            suggested={selected.suggestedNext || selected.proximo || ""}
+            today={today}
+            busy={busy}
+            initialAsk={askFor === selected.id ? "no_contesto" : null}
+            onPatch={onPatch}
+          />
         </div>
       )}
+      <SheetTable
+        columns={[
+          { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
+          { key: "hilo", label: "Tipo", width: 150, value: (row) => plainStatus(row.hilo || row.tipo) },
+          { key: "paso", label: "Paso", width: 80, value: (row) => row.paso || "—" },
+          { key: "toque", label: "Último toque", width: 180, value: (row) => row.ultimoToque || "sin toques" },
+          { key: "accion", label: "Próxima acción", width: 240, value: (row) => row.proximaAccion || row.queHacer || row.acuerdo || row.question },
+          { key: "juego", label: "En juego", width: 120, align: "right", value: (row) => (row.enJuego ? money(row.enJuego) : "—") },
+          { key: "temp", label: "Temperatura", width: 120, value: (row) => row.temperatura || "—" },
+        ]}
+        rows={rows}
+        getId={(row) => row.id}
+        selectedId={selected?.id || null}
+        onRowClick={(row) => onSelect(row.id)}
+        empty={empty}
+        trailing={{
+          label: "Acción",
+          width: 196,
+          render: (row) =>
+            row.tipo === "AGENDA_CHECK" ? (
+              <span className="text-xs text-fg3">Abre la fila</span>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={Boolean(busy)}
+                  onClick={() => void onPatch(row.id, "hecho")}
+                >
+                  {busy === "hecho" ? "…" : "Hecho"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={Boolean(busy)}
+                  onClick={() => {
+                    if (selected?.id !== row.id) onSelect(row.id);
+                    setAskFor(row.id);
+                  }}
+                >
+                  No contestó
+                </Button>
+              </div>
+            ),
+        }}
+      />
     </div>
   );
 }
@@ -978,7 +1370,7 @@ function ComisionesSheet({
       <SheetTable
         columns={[
           { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha.slice(0, 10) },
-          { key: "cliente", label: "Cliente", width: 160, value: (row) => row.cliente },
+          { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
           { key: "oferta", label: "Oferta", width: 140, value: (row) => row.oferta },
           { key: "venta", label: "Venta", width: 90, align: "right", value: (row) => money(row.venta) },
           { key: "cash", label: "Cash", width: 90, align: "right", value: (row) => money(row.cash) },

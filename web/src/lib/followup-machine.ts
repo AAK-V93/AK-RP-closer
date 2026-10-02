@@ -289,6 +289,26 @@ export function advanceThread(args: {
       touchResultado: "enviado",
     };
   }
+  if (args.action === "hecho" && args.pasoActual + 1 >= steps.length) {
+    return {
+      estado: "cerrado",
+      pasoActual: args.pasoActual,
+      askLost: false,
+      dueAt: null,
+      spawn: null,
+      touchResultado: "enviado",
+    };
+  }
+  if (args.action === "no_contesto" && args.pasoActual + 1 >= steps.length) {
+    return {
+      estado: "activo",
+      pasoActual: args.pasoActual,
+      askLost: false,
+      dueAt: shift(args.now, 1),
+      spawn: null,
+      touchResultado: "no_contestó",
+    };
+  }
   const resultado = args.action === "no_contesto" ? "no_contestó" : "enviado";
   const next = land(args.pasoActual + 1);
   next.touchResultado = resultado;

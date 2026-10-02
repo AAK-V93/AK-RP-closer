@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { ensureCrmTables } from "@/lib/prisma";
 import { applyAlertOutcome, resolveAlert, snoozeAlert, type AlertOutcome } from "@/lib/alerts";
+import { applyDeskFollowup, reopenDeskFollowup, type DeskResultado } from "@/lib/followup-close";
 import { applyAgendaCheck } from "@/lib/agenda";
 import { chooseFollowupOption } from "@/lib/followup-library";
 import { crmDashboard } from "@/lib/crm-metrics";
@@ -73,12 +74,14 @@ export async function PATCH(request: Request) {
         | "resolve"
         | "snooze"
         | "outcome"
+        | "reabrir"
         | "agenda"
         | "pick-script"
         | "commission-paid"
         | "monthly-goal";
       days?: number;
       resultado?: AlertOutcome;
+      nextAt?: string;
       amount?: number;
       nota?: string;
       razonNoCierre?: string;
@@ -124,6 +127,37 @@ export async function PATCH(request: Request) {
       const out = await applyAgendaCheck(auth.prisma, auth.userId, body.alertId, body.agendaEstado);
       if ("error" in out) {
         return NextResponse.json({ error: out.error }, { status: 404 });
+      }
+      return NextResponse.json({ ...out });
+    }
+    if (body.action === "reabrir") {
+      const out = await reopenDeskFollowup(auth.prisma, auth.userId, body.alertId);
+      if ("error" in out) {
+        return NextResponse.json({ error: out.error }, { status: 404 });
+      }
+      return NextResponse.json({ ...out });
+    }
+    const deskActions = new Set<DeskResultado>([
+      "hecho",
+      "no_contesto",
+      "mostro",
+      "no_mostro",
+      "perdido",
+      "cerro",
+      "reprogramado",
+      "pago",
+    ]);
+    if (body.action === "outcome" && body.resultado && deskActions.has(body.resultado as DeskResultado)) {
+      const out = await applyDeskFollowup(auth.prisma, auth.userId, {
+        alertId: body.alertId,
+        resultado: body.resultado as DeskResultado,
+        nextAt: body.nextAt,
+        amount: body.amount,
+        nota: body.nota,
+        razonNoCierre: body.razonNoCierre,
+      });
+      if ("error" in out) {
+        return NextResponse.json({ error: out.error }, { status: 400 });
       }
       return NextResponse.json({ ...out });
     }

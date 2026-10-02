@@ -9,6 +9,8 @@ import { cleanReason, operacionFromCall } from "@/lib/crm-operacion";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-temperature";
 import { presentThread } from "@/lib/followup-threads";
+import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib/followup-machine";
+import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
 
 function monthRange(at: Date) {
   const from = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
@@ -36,6 +38,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
   const now = new Date();
+  const todayKey = zonedDayKey(now);
   const today = startOfDay(now);
   const tomorrow = new Date(today.getTime() + 86_400_000);
   const month = monthRange(now);
@@ -150,9 +153,25 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       intentos: thread.pasoActual,
     }).level;
     const presented = alertBucket(new Date(view.dueAt), now);
+    const tipo = thread.tipo as ThreadTipo;
+    const steps = tipo in FOLLOWUP_SEQUENCES ? sequenceFor(tipo).steps : [];
+    const nextStep = steps[thread.pasoActual + 1];
+    const nextOnHecho = nextStep
+      ? proximoFromInstant(
+          stepDue(
+            nextStep,
+            { start: thread.startedAt, pagoAt: thread.pagoAt, meetingAt: thread.meetingAt },
+            now,
+          ),
+        )
+      : "";
     return [
       {
         id: alert.id,
+        callId: alert.callRecordId || thread.creadoDesdeCallRecordId || "",
+        proximo: "",
+        closesOnHecho: !nextOnHecho,
+        nextOnHecho,
         estado: presented.estado,
         days: Math.max(0, presented.days),
         dueAt: view.dueAt,
@@ -195,8 +214,13 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
           intentos: row.intentos,
         }).level;
         const ultimoToque = days < 0 ? "vencido" : days === 0 ? "hoy" : `en ${days} días`;
+        const keepsGoing = row.type === "PAGO PENDIENTE" || row.type === "COBRO_VENCIDO";
         return {
           id: row.id,
+          callId: row.callRecordId || "",
+          proximo: "",
+          closesOnHecho: !keepsGoing,
+          nextOnHecho: keepsGoing ? todayKey : "",
           estado,
           days: Math.max(0, days),
           dueAt: row.dueAt.toISOString(),
@@ -232,9 +256,12 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
         leadByName.get((row.leadName || "").trim().toLowerCase()) || null,
       ),
     );
-  const todayKey = zonedDayKey(now);
   const openFollowups = alignFollowups(followups, operacion, todayKey, (draft) => ({
     id: `call:${draft.source.id}`,
+    callId: draft.source.id,
+    proximo: draft.source.fechaProximo,
+    closesOnHecho: true,
+    nextOnHecho: "",
     estado: draft.estado,
     days: Math.max(0, draft.days),
     dueAt: draft.dueAt,
@@ -289,6 +316,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const followupsWithOptions = (await attachFollowupOptions(prisma, userId, openFollowups))
     .map((row) => ({
       ...row,
+      suggestedNext: suggestNextFollowup(todayKey, row.proximo || ""),
       queHacer: row.proximaAccion || temperatureAction(row.temperatura, row.opciones?.[0]?.recomendacion || ""),
     }))
     .sort(
@@ -343,6 +371,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
 
   return {
     readyCrm,
+    today: todayKey,
     now: {
       seguimientosVencidos: vencidos,
       seguimientosHoy: hoy,
