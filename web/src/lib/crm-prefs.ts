@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
+import { CRM_TIMEZONE, calendarDaysBetween, zonedDayKey } from "@/lib/crm-time";
 
 export type CrmPrefs = {
   followupGraceDays: number;
@@ -105,10 +106,8 @@ export function startOfDay(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-export function alertBucket(dueAt: Date, now = new Date()) {
-  const due = startOfDay(dueAt).getTime();
-  const today = startOfDay(now).getTime();
-  const days = Math.round((due - today) / 86_400_000);
+export function alertBucket(dueAt: Date, now = new Date(), timeZone = CRM_TIMEZONE) {
+  const days = calendarDaysBetween(zonedDayKey(dueAt, timeZone), zonedDayKey(now, timeZone));
   if (days < 0) return { estado: "VENCIDO" as const, days };
   if (days === 0) return { estado: "HOY" as const, days };
   return { estado: "PRÓXIMO" as const, days };

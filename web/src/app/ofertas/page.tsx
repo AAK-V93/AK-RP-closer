@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Plus, Upload } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { parseFollowupScripts } from "@/lib/followup-scripts";
+import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
 import {
   commercialRecap,
   offerToSavePayload,
@@ -149,26 +150,23 @@ export default function OfertasPage() {
     event.preventDefault();
     setSavingOffer(true);
     setError(null);
+    setSavedNote(null);
     try {
-      const response = await fetch("/api/workspace/offer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: offerId,
-          productName,
-          productDescription,
-          pitchSummary,
-          includeFathom,
-          commercial,
-        }),
+      const saved = await postWorkspaceOffer({
+        id: offerId,
+        productName,
+        productDescription,
+        pitchSummary,
+        includeFathom,
+        commercial,
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No se guardó");
-      setSavedNote("Guardé la oferta");
-      toast({ title: "Guardé la oferta", duration: 8000 });
-      await load(data.offer?.id || null);
+      const label = offerSavedLabel(1);
+      setSavedNote(label);
+      toast({ title: label, duration: 8000 });
+      setSavingOffer(false);
+      await load(saved.id || offerId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setError(offerSaveFailureMessage(e));
     } finally {
       setSavingOffer(false);
     }
@@ -177,34 +175,27 @@ export default function OfertasPage() {
   const confirmExtracted = async (offers: ExtractedOffer[]) => {
     setSavingOffer(true);
     setError(null);
+    setSavedNote(null);
     try {
       let lastId = offerId;
       for (let index = 0; index < offers.length; index += 1) {
         const payload = offerToSavePayload(offers[index]);
-        const response = await fetch("/api/workspace/offer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: index === 0 ? offerId : undefined,
-            ...payload,
-            includeFathom: index === 0 ? includeFathom : false,
-          }),
+        const saved = await postWorkspaceOffer({
+          id: index === 0 ? offerId : undefined,
+          ...payload,
+          includeFathom: index === 0 ? includeFathom : false,
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "No se guardó");
-        lastId = data.offer?.id || lastId;
+        lastId = saved.id || lastId;
       }
+      const savedTitle = offerSavedLabel(offers.length);
       setReview(null);
       setOfferBlob("");
-      const savedTitle = offers.length > 1 ? `Guardé ${offers.length} ofertas` : "Guardé la oferta";
       setSavedNote(savedTitle);
-      toast({
-        title: savedTitle,
-        duration: 8000,
-      });
+      toast({ title: savedTitle, duration: 8000 });
+      setSavingOffer(false);
       await load(lastId || null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setError(offerSaveFailureMessage(e));
     } finally {
       setSavingOffer(false);
     }
@@ -305,6 +296,19 @@ export default function OfertasPage() {
             cómo te pagan comisión (aunque dependa del plazo o la forma de pago).
           </p>
         </div>
+        {savedNote && (
+          <p
+            className="sticky top-2 z-10 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3 text-sm text-fg0"
+            role="status"
+          >
+            {savedNote}
+          </p>
+        )}
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
 
         <div className="flex flex-wrap gap-2">
           {(workspace?.offers || []).map((row) => (
@@ -384,6 +388,11 @@ export default function OfertasPage() {
               onBack={() => setReview(null)}
               onConfirm={(offers) => void confirmExtracted(offers)}
             />
+          )}
+          {!review && savedNote && (
+            <p className="text-sm text-fg0" role="status">
+              {savedNote}
+            </p>
           )}
           {!review && commercial && (
             <p className="text-xs text-fg2 rounded-xl border border-separator1 px-3 py-2">
@@ -609,8 +618,11 @@ export default function OfertasPage() {
           </Button>
         )}
 
-        {savedNote && <p className="text-sm text-fg0">{savedNote}</p>}
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     </AppShell>
   );

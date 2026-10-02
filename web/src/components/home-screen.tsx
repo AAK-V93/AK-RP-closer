@@ -15,12 +15,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import type { HomeState } from "@/lib/home-state";
 import { moneyLabel } from "@/lib/crm-operacion";
+import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 
 export function HomeScreen() {
   const [snapshot, setSnapshot] = useState<HubSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = () =>
     fetch("/api/hub")
@@ -51,7 +53,14 @@ export function HomeScreen() {
   return (
     <div className="space-y-6">
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {phase === "a" && <OnboardingA home={home} onDone={() => void load()} />}
+      {notice && (
+        <p className="text-sm text-fg0 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3" role="status">
+          {notice}
+        </p>
+      )}
+      {phase === "a" && (
+        <OnboardingA home={home} onDone={() => void load()} onSaved={setNotice} />
+      )}
       {phase === "b" && (
         <NoviceB snapshot={snapshot} onRefresh={() => void load()} />
       )}
@@ -65,9 +74,11 @@ export function HomeScreen() {
 function OnboardingA({
   home,
   onDone,
+  onSaved,
 }: {
   home?: HomeState | null;
   onDone: () => void;
+  onSaved: (message: string) => void;
 }) {
   const hasCalls = Boolean(home?.hasRealCalls);
   const [step, setStep] = useState<"calls" | "offer">(hasCalls ? "offer" : "calls");
@@ -141,20 +152,18 @@ function OnboardingA({
     try {
       for (let index = 0; index < offers.length; index += 1) {
         const payload = offerToSavePayload(offers[index]);
-        const response = await fetch("/api/workspace/offer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...payload,
-            includeFathom: index === 0,
-          }),
+        await postWorkspaceOffer({
+          ...payload,
+          includeFathom: index === 0,
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "No se guardó la oferta");
       }
+      const label = offerSavedLabel(offers.length);
+      onSaved(label);
+      toast({ title: label, duration: 8000 });
+      setReview(null);
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setError(offerSaveFailureMessage(e));
     } finally {
       setSaving(false);
     }

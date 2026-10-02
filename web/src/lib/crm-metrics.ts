@@ -1,5 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { alertBucket, startOfDay } from "@/lib/crm-prefs";
+import { alignFollowups, followupSnapshot } from "@/lib/crm-followups";
+import { zonedDayKey } from "@/lib/crm-time";
 import { userHasReadyCrm, type OfferForCrm } from "@/lib/offer-commercial";
 import { loadOffersForCrm, repairMissingFollowups } from "@/lib/crm-apply";
 import { attachFollowupOptions } from "@/lib/followup-library";
@@ -147,11 +149,12 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       decisionDate: thread.tipo === "DECISION" || thread.tipo === "COBRANZA",
       intentos: thread.pasoActual,
     }).level;
+    const presented = alertBucket(new Date(view.dueAt), now);
     return [
       {
         id: alert.id,
-        estado: "HOY",
-        days: 0,
+        estado: presented.estado,
+        days: Math.max(0, presented.days),
         dueAt: view.dueAt,
         cliente: thread.lead.name,
         telefono: thread.lead.telefono,
@@ -220,9 +223,52 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       }),
   ];
 
-  const vencidos = alerts.filter((row) => alertBucket(row.dueAt, now).estado === "VENCIDO").length;
-  const hoy = alerts.filter((row) => alertBucket(row.dueAt, now).estado === "HOY").length;
-  const enJuego = followups.reduce((sum, row) => sum + (row.enJuego || 0), 0);
+  const leadByName = new Map(leads.map((lead) => [lead.name.trim().toLowerCase(), lead]));
+  const operacion = allCalls
+    .filter((row) => !isNonSalesCall(row.estadoAgenda))
+    .map((row) =>
+      operacionFromCall(
+        row,
+        leadByName.get((row.leadName || "").trim().toLowerCase()) || null,
+      ),
+    );
+  const todayKey = zonedDayKey(now);
+  const openFollowups = alignFollowups(followups, operacion, todayKey, (draft) => ({
+    id: `call:${draft.source.id}`,
+    estado: draft.estado,
+    days: Math.max(0, draft.days),
+    dueAt: draft.dueAt,
+    cliente: draft.source.cliente,
+    telefono: draft.source.telefono,
+    oferta: draft.source.oferta,
+    tipo: draft.source.tipoSeguimiento || "SEGUIMIENTO",
+    hilo: draft.source.tipoSeguimiento || "SEGUIMIENTO",
+    paso: "—",
+    ultimoToque: draft.ultimoToque,
+    proximaAccion: draft.proximaAccion,
+    askLost: false,
+    acuerdo: draft.source.acuerdo,
+    contexto: draft.source.acuerdo,
+    enJuego: draft.enJuego,
+    canal: "WHATSAPP",
+    mensajeSugerido: "",
+    question: draft.proximaAccion,
+    intentos: 0,
+    libraryScriptId: "",
+    objecion: "",
+    temperatura: leadTemperature({
+      enJuego: draft.enJuego,
+      silenceDays: draft.days < 0 ? -draft.days : 0,
+      calificado: null,
+      objectionOpen: false,
+      decisionDate: draft.estado !== "PRÓXIMO",
+      intentos: 0,
+    }).level,
+  }));
+  const counts = followupSnapshot(openFollowups);
+  const vencidos = counts.seguimientosVencidos;
+  const hoy = counts.seguimientosHoy;
+  const enJuego = counts.dineroEnJuego;
   const cashPendiente = calls.reduce((sum, row) => sum + (row.saldoPendiente || 0), 0);
   const comisionPendiente = commissions
     .filter((row) => row.estado !== "COBRADA")
@@ -240,7 +286,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     (row) => row.estadoAgenda === "AGENDADO" && row.recordedAt && row.recordedAt >= tomorrow,
   ).length;
 
-  const followupsWithOptions = (await attachFollowupOptions(prisma, userId, followups))
+  const followupsWithOptions = (await attachFollowupOptions(prisma, userId, openFollowups))
     .map((row) => ({
       ...row,
       queHacer: row.proximaAccion || temperatureAction(row.temperatura, row.opciones?.[0]?.recomendacion || ""),
@@ -347,17 +393,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       productName: row.productName,
       currency: row.commercial.currency || "USD",
     })),
-    operacion: (() => {
-      const byName = new Map(leads.map((lead) => [lead.name.trim().toLowerCase(), lead]));
-      return allCalls
-        .filter((row) => !isNonSalesCall(row.estadoAgenda))
-        .map((row) =>
-          operacionFromCall(
-            row,
-            byName.get((row.leadName || "").trim().toLowerCase()) || null,
-          ),
-        );
-    })(),
+    operacion,
   };
 }
 
