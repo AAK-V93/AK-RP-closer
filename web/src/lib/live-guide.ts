@@ -168,14 +168,14 @@ async function buildGuideForOffer(
   let generated: Partial<LiveGuide> = {};
   try {
     const raw = await generateGeminiJson(
-      `Eres un coach de cierre high-ticket. SOLO usa estas cifras. Si no alcanza para una afirmación, no la inventes.
+      `Eres un coach de cierre high-ticket. SOLO usa estas cifras. Si no alcanza para una afirmación, no la inventes. Escribe en español: ejercicio, no drill; descubrimiento, no discovery; presentación de la oferta, no pitch. No uses Paid Media ni Acknowledge.
 Responde JSON:
 {
   "closingTypes": [{"type":"","approach":"","closed":0,"total":0}],
   "scriptVariations": [{"leadType":"","variation":"contado vs cuotas u otro","closed":0,"total":0}],
   "winMoments": ["frase o momento que aparece en cierres"],
   "missingInLosses": ["qué no aparece en las que se perdieron"],
-  "drills": ["un drill concreto"],
+  "drills": ["un ejercicio concreto, en español"],
   "note": "una frase honesta"
 }
 DATOS:

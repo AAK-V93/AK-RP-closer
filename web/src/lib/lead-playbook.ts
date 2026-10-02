@@ -359,6 +359,7 @@ ${PLAYBOOK_JSON_SHAPE}
 
 Reglas:
 - 2 a 5 leadTypes. Cada oferta tiene tipos, no 20 clones. Lo común es la situación y las frases; lo que cambia es cómo lo dicen y cuánto de lo RELEVANTE se guardan.
+- Nombres de tipos en español. No uses Paid Media, discovery, pitch ni drill.
 - talkStyle: rambler (se va por las ramas), scattered (salta de tema), terse (corto), storyteller (anécdotas).
 - noiseTopics es obligatorio en rambler/scattered/storyteller: de eso SÍ hablan aunque no les pregunten.
 - 4 a 8 personas, cada una atada a un tipo.

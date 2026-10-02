@@ -625,7 +625,7 @@ export function TrainingSetupForm() {
                 callSection === "pitch" ||
                 callSection === "pitch_close") && (
                 <MinuteField
-                  label="Pitch"
+                  label="Presentación de la oferta"
                   value={trainingState.training.timeGoal?.pitchMin}
                   disabled={shouldConnect}
                   onChange={(value) =>
@@ -670,7 +670,7 @@ export function TrainingSetupForm() {
               name="pitchSummary"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Resumen del pitch (modo cierre)</FormLabel>
+                  <FormLabel>Resumen de la presentación (modo cierre)</FormLabel>
                   <FormControl>
                     <Textarea {...field} disabled={shouldConnect} rows={4} />
                   </FormControl>

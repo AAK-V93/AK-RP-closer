@@ -24,6 +24,7 @@ import {
   withRecoveredBonuses,
   type OfferCommercial,
 } from "@/lib/offer-commercial";
+import { pickWorkspaceOffer } from "@/lib/offer-selection";
 
 export async function getWorkspacePrisma() {
   const prisma = getPrisma();
@@ -58,8 +59,7 @@ export async function getWorkspace(
   const oldest = [...offers].sort(
     (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
   )[0];
-  const active =
-    (offerId && offers.find((row) => row.id === offerId)) || offers[0] || null;
+  const active = pickWorkspaceOffer(offers, offerId);
   const includeLegacy = Boolean(oldest && active && oldest.id === active.id);
   const transcriptWhere = active
     ? {

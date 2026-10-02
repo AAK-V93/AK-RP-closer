@@ -1,5 +1,5 @@
 import { CallEvaluation, CriterionScore } from "@/data/evaluation";
-import { RUBRIC_CRITERIA } from "@/data/rubric";
+import { shownRubricLabel } from "@/data/rubric";
 
 export type WeakSkill = {
   id: string;
@@ -34,7 +34,7 @@ export type CoachingInsights = {
 };
 
 function labelFor(id: string) {
-  return RUBRIC_CRITERIA.find((c) => c.id === id)?.label ?? id;
+  return shownRubricLabel(id);
 }
 
 function normalizeNote(text: string) {

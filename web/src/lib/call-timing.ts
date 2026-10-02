@@ -187,7 +187,7 @@ export function buildCallTiming(args: {
     checks.push(checkTarget("Descubrimiento", goal!.discoveryMin!, phases.discovery));
   }
   if (positive(goal?.pitchMin)) {
-    checks.push(checkTarget("Pitch", goal!.pitchMin!, phases.pitch));
+    checks.push(checkTarget("Presentación de la oferta", goal!.pitchMin!, phases.pitch));
   }
   if (positive(goal?.closeMin)) {
     checks.push(checkTarget("Cierre", goal!.closeMin!, phases.close));
@@ -220,10 +220,10 @@ export function parsePhaseSpans(raw: unknown): PhaseSpan[] {
 }
 
 export const COVERAGE_LABELS: Record<CallTiming["coverage"], string> = {
-  completa: "Llamada completa (descubrimiento + pitch + cierre)",
+  completa: "Llamada completa (descubrimiento + presentación de la oferta + cierre)",
   descubrimiento: "Solo descubrimiento",
-  pitch: "Solo pitch",
+  pitch: "Solo presentación de la oferta",
   cierre: "Solo cierre",
-  pitch_cierre: "Pitch + cierre",
+  pitch_cierre: "Presentación de la oferta + cierre",
   incompleta: "Incompleta — faltó alguna parte",
 };

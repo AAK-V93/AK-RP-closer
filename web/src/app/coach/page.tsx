@@ -12,6 +12,7 @@ import type { LiveGuide } from "@/lib/live-guide";
 import { CloserCoachChat } from "@/components/closer-coach-chat";
 import { ChevronRight } from "lucide-react";
 import { DeleteAnalysisButton } from "@/components/delete-analysis-button";
+import { closerSpanish } from "@/lib/closer-spanish";
 
 function asList<T>(value: unknown): T[] {
   return Array.isArray(value) ? value : [];
@@ -53,7 +54,7 @@ export default function CoachPage() {
           <p className="text-sm text-fg3 mt-1">
             Un closer de alto valor que lee tus prácticas por voz y tus QC de
             llamadas reales. Te dice el nivel, la debilidad y el siguiente
-            drill — no un puntaje suelto.
+            ejercicio — no un puntaje suelto.
           </p>
           {insights?.extractorGaps && (
             <div className="text-xs text-fg3 mt-2 space-y-1">
@@ -115,7 +116,7 @@ export default function CoachPage() {
                     {guide.callCount} llamada{guide.callCount === 1 ? "" : "s"}
                   </p>
                 </div>
-                <p className="text-sm text-fg2">{guide.note}</p>
+                <p className="text-sm text-fg2">{closerSpanish(guide.note)}</p>
                 {guide.ready && (
                   <>
                     {closingTypes.length > 0 && (
@@ -126,7 +127,7 @@ export default function CoachPage() {
                         <ul className="mt-1 space-y-1 text-sm">
                           {closingTypes.map((row) => (
                             <li key={row.type}>
-                              {row.type}
+                              {closerSpanish(row.type)}
                               {row.approach ? ` · ${row.approach}` : ""}{" "}
                               <span className="text-fg3">
                                 {row.closed}/{row.total}
@@ -139,12 +140,12 @@ export default function CoachPage() {
                     {scriptVariations.length > 0 && (
                       <div>
                         <p className="text-[11px] uppercase tracking-widest text-fg3">
-                          Variación del script
+                          Variación del guion
                         </p>
                         <ul className="mt-1 space-y-1 text-sm">
                           {scriptVariations.map((row) => (
                             <li key={`${row.leadType}-${row.variation}`}>
-                              {row.leadType}: {row.variation}{" "}
+                              {closerSpanish(row.leadType)}: {closerSpanish(row.variation)}{" "}
                               <span className="text-fg3">
                                 {row.closed}/{row.total}
                               </span>
@@ -155,20 +156,20 @@ export default function CoachPage() {
                     )}
                     {winMoments.length > 0 && (
                       <p className="text-sm">
-                        En las que cerraron: {winMoments.join(" · ")}
+                        En las que cerraron: {winMoments.map(closerSpanish).join(" · ")}
                       </p>
                     )}
                     {missingInLosses.length > 0 && (
                       <p className="text-sm">
-                        No aparece en las perdidas: {missingInLosses.join(" · ")}
+                        No aparece en las perdidas: {missingInLosses.map(closerSpanish).join(" · ")}
                       </p>
                     )}
                     {drills.length > 0 && (
                       <div className="flex flex-wrap gap-2">
                         {drills.map((drill) => (
                           <Button key={drill} asChild size="sm" variant="primary" className="min-h-11">
-                            <Link href={`/practicar?focus=${encodeURIComponent(drill)}`}>
-                              {drill}
+                            <Link href={`/practicar?focus=${encodeURIComponent(closerSpanish(drill))}`}>
+                              {closerSpanish(drill)}
                             </Link>
                           </Button>
                         ))}
@@ -240,13 +241,13 @@ export default function CoachPage() {
                       className="rounded-xl border border-separator1 bg-bg1 p-4"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-sm">{s.label}</span>
+                        <span className="font-medium text-sm">{closerSpanish(s.label)}</span>
                         <Badge variant="outline">
                           {s.avgScore.toFixed(1)}/10 · {s.timesLow} veces flojo
                         </Badge>
                       </div>
                       {s.lastFeedback && (
-                        <p className="text-xs text-fg3 mt-2">{s.lastFeedback}</p>
+                        <p className="text-xs text-fg3 mt-2">{closerSpanish(s.lastFeedback)}</p>
                       )}
                     </div>
                   ))}
@@ -266,7 +267,7 @@ export default function CoachPage() {
                       className="rounded-xl border border-separator1 bg-bg1 p-4 text-sm"
                     >
                       <span className="text-xs text-fg3 mr-2">{e.count}×</span>
-                      {e.text}
+                      {closerSpanish(e.text)}
                     </li>
                   ))}
                 </ol>
@@ -290,10 +291,10 @@ export default function CoachPage() {
                             salió {s.count} veces
                           </span>
                         )}
-                        {s.text}
+                        {closerSpanish(s.text)}
                       </p>
                       <Button asChild size="sm" variant="primary" className="min-h-11">
-                        <Link href={`/practicar?focus=${encodeURIComponent(s.text)}`}>
+                        <Link href={`/practicar?focus=${encodeURIComponent(closerSpanish(s.text))}`}>
                           Practicar esto
                         </Link>
                       </Button>
@@ -316,12 +317,13 @@ export default function CoachPage() {
                       <p className="text-xs text-fg3">
                         {r.callSection === "qc_transcript"
                           ? "Reporte de llamada real"
-                          : CALL_SECTION_LABELS[r.callSection as CallSection] ??
-                            r.callSection}{" "}
+                          : closerSpanish(
+                              CALL_SECTION_LABELS[r.callSection as CallSection] ?? r.callSection,
+                            )}{" "}
                         · {new Date(r.createdAt).toLocaleString()}
                       </p>
                       {r.outcomeSummary && (
-                        <p className="text-xs text-fg2 mt-1">{r.outcomeSummary}</p>
+                        <p className="text-xs text-fg2 mt-1">{closerSpanish(r.outcomeSummary)}</p>
                       )}
                     </Link>
                     <div className="flex flex-col items-end gap-2 shrink-0">

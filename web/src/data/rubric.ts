@@ -1,3 +1,5 @@
+import { closerSpanish } from "@/lib/closer-spanish";
+
 export type RubricPhase = "descubrimiento" | "objeciones";
 
 export interface RubricCriterion {
@@ -10,7 +12,7 @@ export interface RubricCriterion {
 }
 
 export function shownRubricLabel(id: string, stored?: string) {
-  return RUBRIC_CRITERIA.find((row) => row.id === id)?.label || stored || id;
+  return closerSpanish(RUBRIC_CRITERIA.find((row) => row.id === id)?.label || stored || id);
 }
 
 export const RUBRIC_CRITERIA: RubricCriterion[] = [
@@ -19,7 +21,7 @@ export const RUBRIC_CRITERIA: RubricCriterion[] = [
     phase: "descubrimiento",
     label: "Dolor a profundidad",
     description:
-      "Descubrió el dolor real del prospecto con preguntas curiosas, no con supuestos ni pitch. Llegó más allá de la queja superficial: impacto, historia, qué ha intentado.",
+      "Descubrió el dolor real del prospecto con preguntas curiosas, no con supuestos ni una presentación de la oferta. Llegó más allá de la queja superficial: impacto, historia, qué ha intentado.",
     critical: true,
   },
   {

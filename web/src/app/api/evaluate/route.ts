@@ -183,8 +183,8 @@ export async function POST(request: Request) {
 
 Habilidades:
 1) Detectar DOLOR, DESEO y URGENCIA a profundidad, con preguntas (si el modo incluye descubrimiento).
-2) Ante objeciones/preguntas: 3A (Acknowledge, Associate, Ask back).
-3) En cierre/pitch: USAR lo descubierto. Cada objeción se ancla a citas y hechos del lead. 3A genérico = insuficiente.
+2) Ante objeciones/preguntas: 3A (Reconoce, Relaciona, Devuelve la pregunta).
+3) En el cierre y en la presentación de la oferta: USAR lo descubierto. Cada objeción se ancla a citas y hechos del lead. 3A genérico = insuficiente.
 
 ${AAA_EVALUATOR_BRIEF}
 
@@ -257,7 +257,7 @@ Reglas:
 - Si no hubo objeción: objections=[] y use_discovery=5 con feedback de que no hubo objeción, EXCEPTO «¿tienes alguna pregunta?» → aaa_ask máximo 2.
 - discoveryGaps: solo si un hueco de indagar alimentó una objeción. Si el modo es solo cierre, usa la ficha conocida: el closer debía USARLA, no redescubrirla.
 - suggestedLine siempre en primera persona, lista para decirle a ESTE lead.
-- Todo en ${lang.nativeName}.`;
+- Todo en ${lang.nativeName}. El closer lee este JSON: no uses discovery, pitch, drill, Acknowledge, Associate, Ask Back ni Paid Media.`;
 
     let text: string;
     try {

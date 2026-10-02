@@ -5,6 +5,7 @@ import type {
   QcBlockNote,
   QcCallReport,
 } from "@/data/qc-report";
+import { closerSpanish } from "@/lib/closer-spanish";
 
 function Section({
   kicker,
@@ -166,16 +167,16 @@ export function QcReportView({
       <Section kicker="Descubrimiento" title={`Nota del bloque, ${report.discovery.blockScore}/10`}>
         <p className="text-sm text-fg2">
           {report.discovery.discoveryPercent}% de la llamada ocupó el descubrimiento,
-          contra un {report.discovery.pitchPercent}% de pitch y gestión de objeciones.
+          contra un {report.discovery.pitchPercent}% de presentación de la oferta y gestión de objeciones.
         </p>
-        <Block title="Rapport y acuerdo de decisión" note={report.discovery.rapport} />
+        <Block title="Confianza y acuerdo de decisión" note={report.discovery.rapport} />
         <Block title="Problema y dolor" note={report.discovery.problemPain} />
         <Block title="Solución — esfuerzos actuales y pasados" note={report.discovery.pastSolutions} />
         <Block title="Situación deseada" note={report.discovery.desiredSituation} />
       </Section>
 
-      <Section kicker="Pitch" title={`Nota del bloque, ${report.pitch.blockScore}/10`}>
-        <p className="text-sm">{report.pitch.summary}</p>
+      <Section kicker="Presentación de la oferta" title={`Nota del bloque, ${report.pitch.blockScore}/10`}>
+        <p className="text-sm">{closerSpanish(report.pitch.summary)}</p>
       </Section>
 
       <Section kicker="Objeciones" title="Cómo se gestionaron">

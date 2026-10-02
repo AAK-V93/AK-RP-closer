@@ -94,9 +94,9 @@ export const PRACTICE_KIND_LABELS: Record<PracticeKind, string> = {
 export const CALL_SECTION_LABELS: Record<CallSection, string> = {
   full: "Reunión completa",
   discovery: "Solo descubrimiento",
-  pitch: "Solo pitch",
+  pitch: "Solo presentación de la oferta",
   close: "Solo cierre",
-  pitch_close: "Pitch + cierre",
+  pitch_close: "Presentación de la oferta + cierre",
 };
 
 export const DIFFICULTY_LABELS: Record<DifficultyLevel, string> = {
