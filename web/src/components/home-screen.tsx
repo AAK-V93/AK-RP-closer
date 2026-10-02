@@ -448,7 +448,7 @@ function ConfiguredC({
           <HomeRow href="/ofertas" title="Oferta" status="Precios, pagos y comisión" />
         </div>
       </div>
-      <HubChat variant="dock" initialSnapshot={snapshot} />
+      <HubChat variant="dock" initialSnapshot={snapshot} onSnapshot={onRefresh} />
     </div>
   );
 }
