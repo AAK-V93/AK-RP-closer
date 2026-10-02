@@ -584,6 +584,7 @@ export async function attachFollowupOptions<
   const fallback = offers[0];
   return Promise.all(
     rows.map(async (row) => {
+      try {
       const offer = byName.get(row.oferta) || fallback;
       const commercial = parseCommercial(offer?.commercial);
       const vars: FollowupVars = {
@@ -591,7 +592,7 @@ export async function attachFollowupOptions<
         programa: row.oferta || offer?.productName || "",
         monto: row.enJuego ? String(Math.round(row.enJuego)) : "",
         saldo: row.enJuego ? String(Math.round(row.enJuego)) : "",
-        fecha: row.dueAt.slice(0, 10),
+        fecha: String(row.dueAt || "").slice(0, 10),
         pago: commercial.paymentDetails,
         objecion: row.objecion || "",
         deseo: "",
@@ -613,6 +614,10 @@ export async function attachFollowupOptions<
         opciones[0]?.id ||
         "";
       return { ...row, opciones, selectedId };
+      } catch (error) {
+        console.error("crm followup options", row.id, error);
+        return { ...row, opciones: [], selectedId: row.libraryScriptId || "" };
+      }
     }),
   );
 }

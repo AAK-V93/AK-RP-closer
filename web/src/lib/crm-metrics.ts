@@ -66,7 +66,11 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     }),
   ]);
 
-  await reconcileOfferNames(prisma, offers, calls, allCalls, leads);
+  try {
+    await reconcileOfferNames(prisma, offers, calls, allCalls, leads);
+  } catch (error) {
+    console.error("reconcile offers", error);
+  }
 
   const bucket = (from: Date, to: Date) => {
     const slice = calls.filter((row) => inRange(row.recordedAt || row.createdAt, from, to));
@@ -128,6 +132,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     alerts.filter((row) => row.threadId).map((row) => [row.threadId as string, row]),
   );
   const threadRows = threads.flatMap((thread) => {
+    try {
     const alert = alertByThread.get(thread.id);
     if (!alert) return [];
     const view = presentThread({
@@ -152,6 +157,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       decisionDate: thread.tipo === "DECISION" || thread.tipo === "COBRANZA",
       intentos: thread.pasoActual,
     }).level;
+    if (!view) return [];
     const presented = alertBucket(new Date(view.dueAt), now);
     const tipo = thread.tipo as ThreadTipo;
     const steps = tipo in FOLLOWUP_SEQUENCES ? sequenceFor(tipo).steps : [];
@@ -196,12 +202,18 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
         temperatura,
       },
     ];
+    } catch (error) {
+      console.error("crm thread", thread.id, error);
+      return [];
+    }
   });
   const followups = [
     ...threadRows,
     ...alerts
       .filter((row) => !row.threadId)
-      .map((row) => {
+      .flatMap((row) => {
+        try {
+        if (!row.dueAt || Number.isNaN(row.dueAt.getTime()) || !row.lead) return [];
         const { estado, days } = alertBucket(row.dueAt, now);
         const silenceDays = days < 0 ? -days : 0;
         const decisionDate = row.type === "DECISION" || row.type === "PAGO PENDIENTE";
@@ -244,18 +256,28 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
           objecion: row.lead.razonNoCierre || row.lead.objections || "",
           temperatura,
         };
+        } catch (error) {
+          console.error("crm alert", row.id, error);
+          return [];
+        }
       }),
   ];
 
   const leadByName = new Map(leads.map((lead) => [lead.name.trim().toLowerCase(), lead]));
-  const operacion = allCalls
-    .filter((row) => !isNonSalesCall(row.estadoAgenda))
-    .map((row) =>
-      operacionFromCall(
-        row,
-        leadByName.get((row.leadName || "").trim().toLowerCase()) || null,
-      ),
-    );
+  const operacion = allCalls.flatMap((row) => {
+    if (isNonSalesCall(row.estadoAgenda)) return [];
+    try {
+      return [
+        operacionFromCall(
+          row,
+          leadByName.get((row.leadName || "").trim().toLowerCase()) || null,
+        ),
+      ];
+    } catch (error) {
+      console.error("crm operacion", row.id, error);
+      return [];
+    }
+  });
   const openFollowups = alignFollowups(followups, operacion, todayKey, (draft) => ({
     id: `call:${draft.source.id}`,
     callId: draft.source.id,
@@ -397,19 +419,29 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     },
     evolucion: monthly,
     followups: followupsWithOptions,
-    commissions: commissions.map((row) => ({
-      id: row.id,
-      fecha: row.fecha.toISOString(),
-      oferta: row.oferta,
-      cliente: row.lead?.name || "",
-      venta: row.venta,
-      cash: row.cash,
-      pct: row.pctAplicado,
-      generada: row.generada,
-      cobrada: row.cobrada,
-      estado: row.estado,
-      fechaCobro: row.fechaCobro?.toISOString() || null,
-    })),
+    commissions: commissions.flatMap((row) => {
+      try {
+        if (!row.fecha || Number.isNaN(row.fecha.getTime())) return [];
+        return [{
+          id: row.id,
+          fecha: row.fecha.toISOString(),
+          oferta: row.oferta,
+          cliente: row.lead?.name || "",
+          venta: row.venta,
+          cash: row.cash,
+          pct: row.pctAplicado,
+          generada: row.generada,
+          cobrada: row.cobrada,
+          estado: row.estado,
+          fechaCobro: row.fechaCobro && !Number.isNaN(row.fechaCobro.getTime())
+            ? row.fechaCobro.toISOString()
+            : null,
+        }];
+      } catch (error) {
+        console.error("crm commission", row.id, error);
+        return [];
+      }
+    }),
     comisionResumen: {
       generada: comisionGenerada,
       cobrada: comisionCobrada,

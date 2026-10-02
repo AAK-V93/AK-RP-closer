@@ -174,12 +174,11 @@ export default function CrmPage() {
     fetch("/api/crm")
       .then((r) => r.json())
       .then((payload) => {
-        if (!payload || payload.error || !payload.now) {
-          setLoadError(payload?.error || "No se pudo cargar el CRM");
-          setData(null);
+        if (!payload?.now) {
+          setLoadError(payload?.error || payload?.warning || "No se pudo cargar el CRM");
           return;
         }
-        setLoadError(null);
+        setLoadError(payload.warning || null);
         setData(payload);
       })
       .catch(() => setLoadError("No se pudo cargar el CRM"));
@@ -451,7 +450,7 @@ export default function CrmPage() {
           <Button asChild variant="primary">
             <Link href="/login?callbackUrl=/crm">Entrar</Link>
           </Button>
-        ) : loadError ? (
+        ) : loadError && !data ? (
           <p className="text-sm text-destructive">{loadError}</p>
         ) : !data ? (
           <p className="text-sm text-fg3">Cargando…</p>
@@ -508,6 +507,11 @@ export default function CrmPage() {
               ))}
             </div>
 
+            {loadError && (
+              <p className="text-sm text-destructive" role="alert">
+                {loadError}
+              </p>
+            )}
             {undo && (
               <div className="flex flex-col gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm" role="status">
@@ -1369,7 +1373,7 @@ function ComisionesSheet({
       )}
       <SheetTable
         columns={[
-          { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha.slice(0, 10) },
+          { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha?.slice(0, 10) || "—" },
           { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
           { key: "oferta", label: "Oferta", width: 140, value: (row) => row.oferta },
           { key: "venta", label: "Venta", width: 90, align: "right", value: (row) => money(row.venta) },

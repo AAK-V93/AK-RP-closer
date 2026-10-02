@@ -14,6 +14,7 @@ import {
   parseExtractorJson,
   type ExtractorJson,
 } from "@/lib/extractor";
+import { followupIsClosed } from "@/lib/crm-followups";
 import { findMatchingLead } from "@/lib/lead-match";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
 import {
@@ -647,10 +648,16 @@ async function refillFromTranscript(
     },
   });
   if (pasted && parsed.cliente_real) {
-    await prisma.clientTranscript.updateMany({
+    const transcriptRow = await prisma.clientTranscript.findFirst({
       where: { id: call.sourceId, userId },
-      data: { title: parsed.cliente_real },
+      select: { id: true },
     });
+    if (transcriptRow) {
+      await prisma.clientTranscript.update({
+        where: { id: transcriptRow.id },
+        data: { title: parsed.cliente_real },
+      });
+    }
   }
 }
 
@@ -681,25 +688,26 @@ export async function repairMissingFollowups(prisma: PrismaClient, userId: strin
   );
   const seen = new Set<string>();
   for (const call of calls) {
-    if (!isExtractorJson(call.filingJson)) continue;
-    const parsed = storedFiling(call.filingJson);
-    if (!parsed.cliente_real || isNonSalesCall(parsed.estado_agenda)) continue;
-    if (!parsed.proximo_seguimiento && parsed.requiere_seguimiento !== true) continue;
-    const key = parsed.cliente_real.trim().toLowerCase();
-    if (seen.has(key)) continue;
-    const lead = findMatchingLead(leads, parsed.cliente_real);
-    if (lead && covered.has(lead.id)) {
-      seen.add(key);
-      continue;
-    }
     try {
+      if (!isExtractorJson(call.filingJson)) continue;
+      const parsed = storedFiling(call.filingJson);
+      if (followupIsClosed(parsed)) continue;
+      if (!parsed.cliente_real || isNonSalesCall(parsed.estado_agenda)) continue;
+      if (!parsed.proximo_seguimiento && parsed.requiere_seguimiento !== true) continue;
+      const key = parsed.cliente_real.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      const lead = findMatchingLead(leads, parsed.cliente_real);
+      if (lead && covered.has(lead.id)) {
+        seen.add(key);
+        continue;
+      }
       await refillFromTranscript(prisma, userId, call, parsed);
       const opened = await applyExtractorToCrm(prisma, userId, call.id, parsed, offers, true);
       if (opened?.leadId) covered.add(opened.leadId);
+      seen.add(key);
     } catch (error) {
       console.error("repair followup", call.id, error);
     }
-    seen.add(key);
   }
 }
 

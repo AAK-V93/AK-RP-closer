@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { enrichExtractorFollowup, parseExtractorJson } from "./extractor";
-import { followupIsClosed, followupSnapshot } from "./crm-followups";
+import { alignFollowups, followupIsClosed, followupSnapshot } from "./crm-followups";
+import { operacionFromCall } from "./crm-operacion";
 import {
+  normalizeFollowupUndo,
   normalizeFollowupWhen,
   projectDeskRows,
   projectOperacionProximo,
+  restoreFollowupFiling,
   suggestNextFollowup,
 } from "./followup-desk";
+import { presentThread } from "./followup-threads";
 
 const today = "2026-10-02";
 
@@ -150,4 +154,121 @@ test("a closed follow-up is not reopened from the transcript", () => {
   });
   assert.equal(parsed.proximo_seguimiento, null);
   assert.equal(parsed.requiere_seguimiento, false);
+});
+
+test("reabrir after hecho puts Carlos back on 2026-10-02 10:00 as Decisión", () => {
+  const closed = {
+    cliente_real: "Carlos Ramírez",
+    tipo_seguimiento: "DECISION",
+    proximo_seguimiento: "",
+    requiere_seguimiento: false,
+    seguimiento_resultado: "hecho",
+    seguimiento_cerrado: "2026-10-02 10:00",
+    seguimiento_undo: {
+      calls: [
+        {
+          id: "carlos-call",
+          proximo: "2026-10-02 10:00",
+          resultado: "",
+          cerrado: "",
+          intentos: 0,
+          requiere: true,
+        },
+      ],
+      resolvedAlertIds: ["alert-1"],
+      spawnedAlertIds: [],
+      threads: [{ id: "thread-1", estado: "activo", pasoActual: 0, askLost: false }],
+      spawnedThreadIds: [],
+      lead: null,
+      touchedAfter: "2026-10-02T16:25:00.000Z",
+    },
+  };
+  const undo = normalizeFollowupUndo(closed.seguimiento_undo);
+  assert.equal(undo?.calls[0]?.proximo, "2026-10-02 10:00");
+  assert.equal(undo?.threads[0]?.estado, "activo");
+  const restored = restoreFollowupFiling(closed, undo?.calls[0]);
+  assert.equal(restored.restored, true);
+  assert.equal(restored.proximo, "2026-10-02 10:00");
+  assert.equal(restored.filing.seguimiento_undo, undefined);
+  assert.equal(restored.filing.tipo_seguimiento, "DECISION");
+  assert.equal(followupIsClosed(restored.filing), false);
+
+  const row = operacionFromCall({
+    id: "carlos-call",
+    recordedAt: new Date("2026-09-28T15:00:00.000Z"),
+    leadName: "Carlos Ramírez",
+    offerName: "Mentoría",
+    estadoAgenda: "SHOW",
+    filingStatus: "confirmed",
+    filingJson: restored.filing,
+  });
+  assert.equal(row.fechaProximo, "2026-10-02 10:00");
+  assert.equal(row.tipoSeguimiento, "DECISION");
+  assert.equal(row.seguimientoCerrado, false);
+  const aligned = alignFollowups(
+    [],
+    [row],
+    "2026-10-02",
+    (draft) => ({
+      id: `call:${draft.source.id}`,
+      cliente: draft.source.cliente,
+      dueAt: draft.dueAt,
+      estado: draft.estado,
+      days: draft.days,
+      enJuego: draft.enJuego,
+      proximaAccion: draft.proximaAccion,
+    }),
+  );
+  assert.equal(aligned.length, 1);
+  assert.equal(aligned[0]?.cliente, "Carlos Ramírez");
+  assert.equal(aligned[0]?.estado, "HOY");
+});
+
+test("a broken undo still restores the date Hecho saved", () => {
+  const restored = restoreFollowupFiling(
+    {
+      tipo_seguimiento: "DECISION",
+      proximo_seguimiento: "",
+      seguimiento_resultado: "hecho",
+      seguimiento_cerrado: "2026-10-02 10:00",
+      seguimiento_undo: { nope: true },
+    },
+    null,
+  );
+  assert.equal(normalizeFollowupUndo({ nope: true }), null);
+  assert.equal(restored.restored, true);
+  assert.equal(restored.proximo, "2026-10-02 10:00");
+  assert.equal(restored.filing.tipo_seguimiento, "DECISION");
+  assert.equal(restored.filing.seguimiento_resultado, "");
+});
+
+test("an unknown follow-up type does not take down the desk", () => {
+  const now = new Date("2026-10-02T16:00:00.000Z");
+  assert.equal(
+    presentThread({
+      tipo: "SEGUIMIENTO",
+      pasoActual: 0,
+      askLost: false,
+      startedAt: now,
+      pagoAt: null,
+      meetingAt: null,
+      enJuego: 10000,
+      lastTouch: null,
+      now,
+    }),
+    null,
+  );
+  const decision = presentThread({
+    tipo: "DECISION",
+    pasoActual: 0,
+    askLost: false,
+    startedAt: now,
+    pagoAt: null,
+    meetingAt: null,
+    enJuego: 10000,
+    lastTouch: null,
+    now,
+  });
+  assert.equal(decision?.hilo, "DECISION");
+  assert.match(decision?.dueAt || "", /^2026-10-02/);
 });

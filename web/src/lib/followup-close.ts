@@ -4,10 +4,13 @@ import { dueDayFromProximo, foldLeadName, followupIsClosed } from "@/lib/crm-fol
 import { findMatchingLead } from "@/lib/lead-match";
 import {
   instantFromProximo,
+  normalizeFollowupUndo,
   normalizeFollowupWhen,
   proximoFromInstant,
+  restoreFollowupFiling,
   RESCHEDULE_RESULTS,
   type DeskResultado,
+  type FollowupUndo,
 } from "@/lib/followup-desk";
 
 export type { DeskResultado } from "@/lib/followup-desk";
@@ -70,11 +73,6 @@ type DeskUndo = {
   lead: { id: string; status: string; nextStepAt: string | null; razonNoCierre: string } | null;
   touchedAfter: string;
 };
-
-function isUndo(value: unknown): value is DeskUndo {
-  if (!value || typeof value !== "object") return false;
-  return Array.isArray((value as DeskUndo).calls);
-}
 
 export async function applyDeskFollowup(
   prisma: PrismaClient,
@@ -233,75 +231,120 @@ export async function reopenDeskFollowup(prisma: PrismaClient, userId: string, r
   const matches = calls.filter(
     (call) => call.id === resolved.explicitCallId || (key && foldLeadName(callName(call)) === key),
   );
-  const hasUndo = (call: CallRow) => isUndo(filingBase(call.filingJson).seguimiento_undo);
+  const undoOf = (call: CallRow) => normalizeFollowupUndo(filingBase(call.filingJson).seguimiento_undo);
   const host =
-    matches.find((call) => call.id === resolved.explicitCallId && hasUndo(call)) ||
-    matches.find(hasUndo) ||
+    matches.find((call) => call.id === resolved.explicitCallId && undoOf(call)) ||
+    matches.find((call) => undoOf(call)) ||
+    matches.find((call) => dueDayFromProximo(String(filingBase(call.filingJson).seguimiento_cerrado || ""))) ||
     null;
   if (!host) return { error: "No hay nada que deshacer." as const };
-  const undo = filingBase(host.filingJson).seguimiento_undo;
-  if (!isUndo(undo)) return { error: "No hay nada que deshacer." as const };
+  const undo = undoOf(host);
 
-  if (undo.spawnedAlertIds.length) {
-    await prisma.leadAlert.deleteMany({
-      where: { userId, id: { in: undo.spawnedAlertIds } },
+  const restored = await restoreClosedCalls(prisma, matches.length ? matches : [host], undo);
+  if (!restored) return { error: "No hay nada que deshacer." as const };
+
+  if (undo) await restoreUndoSideEffects(prisma, userId, undo);
+  return { ok: true as const, cliente, callId: host.id, proximo: restored };
+}
+
+async function restoreClosedCalls(
+  prisma: PrismaClient,
+  calls: CallRow[],
+  undo: FollowupUndo | null,
+) {
+  let proximo = "";
+  for (const call of calls) {
+    const filing = filingBase(call.filingJson);
+    const snap = undo?.calls.find((row) => row.id === call.id) || null;
+    const next = restoreFollowupFiling(filing, snap);
+    if (!next.restored) continue;
+    proximo = next.proximo || proximo;
+    await prisma.callRecord.update({
+      where: { id: call.id },
+      data: { filingJson: next.filing as Prisma.InputJsonValue },
     });
   }
-  if (undo.spawnedThreadIds.length) {
-    await prisma.followupThread.deleteMany({
-      where: { userId, id: { in: undo.spawnedThreadIds } },
+  return proximo;
+}
+
+/** One row at a time. Neon HTTP rejects updateMany/deleteMany because they open a transaction. */
+async function restoreUndoSideEffects(prisma: PrismaClient, userId: string, undo: FollowupUndo) {
+  const step = async (label: string, job: () => Promise<unknown>) => {
+    try {
+      await job();
+    } catch (error) {
+      console.error("reabrir", label, error);
+    }
+  };
+  for (const id of undo.spawnedAlertIds) {
+    await step(`alerta nueva ${id}`, async () => {
+      const row = await prisma.leadAlert.findFirst({ where: { id, userId }, select: { id: true } });
+      if (row) await prisma.leadAlert.delete({ where: { id: row.id } });
     });
   }
-  if (undo.resolvedAlertIds.length) {
-    await prisma.leadAlert.updateMany({
-      where: { userId, id: { in: undo.resolvedAlertIds } },
-      data: { resolvedAt: null, resultado: "", resultadoNota: "" },
+  for (const id of undo.spawnedThreadIds) {
+    await step(`hilo nuevo ${id}`, async () => {
+      const row = await prisma.followupThread.findFirst({ where: { id, userId }, select: { id: true } });
+      if (row) await prisma.followupThread.delete({ where: { id: row.id } });
+    });
+  }
+  for (const id of undo.resolvedAlertIds) {
+    await step(`alerta ${id}`, async () => {
+      const row = await prisma.leadAlert.findFirst({ where: { id, userId }, select: { id: true } });
+      if (!row) return;
+      await prisma.leadAlert.update({
+        where: { id: row.id },
+        data: { resolvedAt: null, resultado: "", resultadoNota: "" },
+      });
     });
   }
   for (const thread of undo.threads) {
-    await prisma.followupThread.updateMany({
-      where: { id: thread.id, userId },
-      data: {
-        estado: thread.estado,
-        pasoActual: thread.pasoActual,
-        askLost: thread.askLost,
-      },
+    await step(`hilo ${thread.id}`, async () => {
+      const row = await prisma.followupThread.findFirst({
+        where: { id: thread.id, userId },
+        select: { id: true },
+      });
+      if (!row) return;
+      await prisma.followupThread.update({
+        where: { id: row.id },
+        data: {
+          estado: thread.estado,
+          pasoActual: thread.pasoActual,
+          askLost: thread.askLost,
+        },
+      });
     });
   }
-  if (undo.touchedAfter) {
-    const threadIds = undo.threads.map((row) => row.id);
-    if (threadIds.length) {
-      await prisma.followupTouch.deleteMany({
-        where: { threadId: { in: threadIds }, fecha: { gte: new Date(undo.touchedAfter) } },
+  const touched = undo.touchedAfter ? new Date(undo.touchedAfter) : null;
+  if (touched && !Number.isNaN(touched.getTime()) && undo.threads.length) {
+    await step("toques", async () => {
+      const touches = await prisma.followupTouch.findMany({
+        where: { threadId: { in: undo.threads.map((row) => row.id) }, fecha: { gte: touched } },
+        select: { id: true },
       });
-    }
-  }
-  for (const snap of undo.calls) {
-    const call = calls.find((row) => row.id === snap.id);
-    if (!call) continue;
-    const filing = filingBase(call.filingJson);
-    filing.proximo_seguimiento = snap.proximo;
-    filing.seguimiento_resultado = snap.resultado;
-    filing.seguimiento_cerrado = snap.cerrado;
-    filing.seguimiento_intentos = snap.intentos;
-    filing.requiere_seguimiento = snap.requiere;
-    delete filing.seguimiento_undo;
-    await prisma.callRecord.update({
-      where: { id: snap.id },
-      data: { filingJson: filing as Prisma.InputJsonValue },
+      for (const touch of touches) {
+        await prisma.followupTouch.delete({ where: { id: touch.id } });
+      }
     });
   }
   if (undo.lead) {
-    await prisma.lead.updateMany({
-      where: { id: undo.lead.id, userId },
-      data: {
-        status: undo.lead.status,
-        razonNoCierre: undo.lead.razonNoCierre,
-        nextStepAt: undo.lead.nextStepAt ? new Date(undo.lead.nextStepAt) : null,
-      },
+    const nextStep = undo.lead.nextStepAt ? new Date(undo.lead.nextStepAt) : null;
+    await step("lead", async () => {
+      const row = await prisma.lead.findFirst({
+        where: { id: undo.lead?.id, userId },
+        select: { id: true },
+      });
+      if (!row) return;
+      await prisma.lead.update({
+        where: { id: row.id },
+        data: {
+          status: undo.lead?.status || "",
+          razonNoCierre: undo.lead?.razonNoCierre || "",
+          nextStepAt: nextStep && !Number.isNaN(nextStep.getTime()) ? nextStep : null,
+        },
+      });
     });
   }
-  return { ok: true as const, cliente, callId: host.id };
 }
 
 async function resolveTarget(prisma: PrismaClient, userId: string, rawId: string) {
