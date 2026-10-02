@@ -333,7 +333,7 @@ export default function CoachPage() {
                       ) : (
                         <Link
                           href={`/coach/${r.id}`}
-                          className="text-xs text-fg3 inline-flex items-center"
+                          className="inline-flex min-h-11 items-center text-xs text-fg3"
                         >
                           Ver análisis
                           <ChevronRight className="h-3.5 w-3.5" />

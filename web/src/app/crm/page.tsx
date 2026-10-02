@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/app-shell";
+import { CrmSkeleton } from "@/components/page-skeleton";
 import { Button } from "@/components/ui/button";
 import { FollowupPicker, type FollowupOptionView } from "@/components/followup-picker";
 import { BarChart } from "@/components/bar-chart";
@@ -587,7 +588,7 @@ export default function CrmPage() {
         ) : loadError && !data ? (
           <p className="text-sm text-destructive">{loadError}</p>
         ) : !data ? (
-          <p className="text-sm text-fg3">Cargando…</p>
+          <CrmSkeleton />
         ) : (
           <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-4">
           <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden">
