@@ -1,3 +1,5 @@
+import { followupIsClosed } from "@/lib/crm-followups";
+
 export type OperacionRow = {
   id: string;
   fecha: string | null;
@@ -19,6 +21,9 @@ export type OperacionRow = {
   acuerdo: string;
   razonNoCierre: string;
   filingStatus: string;
+  seguimientoResultado: string;
+  seguimientoHecho: string;
+  seguimientoCerrado: boolean;
 };
 
 type FilingBag = Record<string, unknown>;
@@ -96,6 +101,12 @@ export function operacionFromCall(
   const requiere = asSiNo(
     filing.requiere_seguimiento ?? filing.requiereSeguimiento,
   );
+  const proximo = asStr(filing.proximo_seguimiento).replace("T", " ").slice(0, 16);
+  const seguimientoResultado = asStr(filing.seguimiento_resultado).toLowerCase();
+  const cerrado = followupIsClosed({
+    seguimiento_resultado: seguimientoResultado,
+    proximo_seguimiento: proximo,
+  });
   return {
     id: call.id,
     fecha: isoDay(call.recordedAt) || isoDay(call.createdAt),
@@ -106,7 +117,7 @@ export function operacionFromCall(
       asStr(filing.canal_contacto).toUpperCase() ||
       asStr(lead?.canalContacto).toUpperCase(),
     estadoAgenda: asStr(call.estadoAgenda).toUpperCase() || asStr(filing.estado_agenda).toUpperCase(),
-    fechaProximo: asStr(filing.proximo_seguimiento).replace("T", " ").slice(0, 16),
+    fechaProximo: proximo,
     producto: asStr(filing.producto) || asStr(call.offerName),
     oferta: asStr(call.offerName),
     venta: call.ventaTotal ?? asNum(filing.venta_total),
@@ -119,6 +130,9 @@ export function operacionFromCall(
     acuerdo: asStr(filing.acuerdo_seguimiento),
     razonNoCierre: cleanReason(asStr(filing.razon_no_cierre) || asStr(lead?.razonNoCierre)),
     filingStatus: asStr(call.filingStatus) || "confirmed",
+    seguimientoResultado,
+    seguimientoHecho: asStr(filing.seguimiento_cerrado),
+    seguimientoCerrado: cerrado && !/^\d{4}-\d{2}-\d{2}/.test(proximo.slice(0, 10)),
   };
 }
 

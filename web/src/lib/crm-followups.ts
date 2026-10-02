@@ -3,6 +3,18 @@ import { calendarDaysBetween } from "@/lib/crm-time";
 export type FollowupEstado = "VENCIDO" | "HOY" | "PRÓXIMO";
 
 /** The day Operación prints in Próx. seg., not a UTC reinterpretation of the instant. */
+const CLOSED_RESULTS = new Set(["hecho", "mostro", "mostró", "perdido", "cerro", "pago"]);
+
+/** The closer finished this próximo, so a transcript must not open it again. */
+export function followupIsClosed(raw: {
+  seguimiento_resultado?: unknown;
+  proximo_seguimiento?: unknown;
+}) {
+  const resultado = String(raw.seguimiento_resultado || "").trim().toLowerCase();
+  const proximo = String(raw.proximo_seguimiento || "").trim();
+  return CLOSED_RESULTS.has(resultado) && !dueDayFromProximo(proximo);
+}
+
 export function dueDayFromProximo(value: string | null | undefined) {
   const day = String(value || "")
     .trim()
@@ -78,6 +90,8 @@ export type OperacionFollowupSource = {
   saldo: number | null;
   acuerdo: string;
   tipoSeguimiento: string;
+  /** Newest call was closed by the closer, so an older date must not come back. */
+  seguimientoCerrado?: boolean;
 };
 
 export type FollowupDraft = {
@@ -100,6 +114,10 @@ type Alignable = {
   enJuego: number;
   proximaAccion: string;
   acuerdo?: string;
+  callId?: string;
+  proximo?: string;
+  closesOnHecho?: boolean;
+  nextOnHecho?: string;
 };
 
 function draftFor(
@@ -134,14 +152,24 @@ export function alignFollowups<T extends Alignable>(
   today: string,
   create: (draft: FollowupDraft) => T,
 ): T[] {
+  const newestByLead = new Map<string, OperacionFollowupSource>();
+  for (const row of operacion) {
+    const key = foldLeadName(row.cliente);
+    if (!key || newestByLead.has(key)) continue;
+    newestByLead.set(key, row);
+  }
+
   const byLead = new Map<
     string,
     OperacionFollowupSource & { dueDay: string }
   >();
   for (const row of operacion) {
-    const dueDay = dueDayFromProximo(row.fechaProximo);
     const key = foldLeadName(row.cliente);
-    if (!dueDay || !key || byLead.has(key)) continue;
+    // No client means it is not a lead (internal session, coaching, práctica).
+    if (!key || byLead.has(key)) continue;
+    if (newestByLead.get(key)?.seguimientoCerrado) continue;
+    const dueDay = dueDayFromProximo(row.fechaProximo);
+    if (!dueDay) continue;
     byLead.set(key, { ...row, dueDay });
   }
 
@@ -168,6 +196,8 @@ export function alignFollowups<T extends Alignable>(
           );
     aligned.push({
       ...row,
+      callId: source.id,
+      proximo: source.fechaProximo,
       dueAt: draft.dueAt,
       estado: draft.estado,
       days: Math.max(0, draft.days),

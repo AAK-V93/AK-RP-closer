@@ -248,3 +248,55 @@ test("the latest call with a date wins when the same lead has two", () => {
   assert.equal(rows[0]?.dueAt.slice(0, 10), "2026-10-08");
   assert.equal(rows[0]?.estado, "PRÓXIMO");
 });
+
+test("a follow-up without a client is not a lead", () => {
+  const rows = alignFollowups(
+    [],
+    [
+      source({ id: "blank", cliente: "", fechaProximo: "2026-09-30" }),
+      source({ id: "named", cliente: "Ana", fechaProximo: "2026-10-02" }),
+    ],
+    "2026-10-02",
+    (draft) => ({
+      id: draft.source.id,
+      cliente: draft.source.cliente,
+      dueAt: draft.dueAt,
+      estado: draft.estado,
+      days: 0,
+      enJuego: 0,
+      proximaAccion: draft.proximaAccion,
+    }),
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.cliente, "Ana");
+});
+
+test("closing the latest call does not bring back an older date", () => {
+  const rows = alignFollowups(
+    [],
+    [
+      source({
+        id: "new",
+        cliente: "Carlos Ramírez",
+        fechaProximo: "",
+        seguimientoCerrado: true,
+      }),
+      source({
+        id: "old",
+        cliente: "Carlos Ramirez",
+        fechaProximo: "2026-09-02",
+      }),
+    ],
+    "2026-10-02",
+    (draft) => ({
+      id: draft.source.id,
+      cliente: draft.source.cliente,
+      dueAt: draft.dueAt,
+      estado: draft.estado,
+      days: 0,
+      enJuego: 0,
+      proximaAccion: draft.proximaAccion,
+    }),
+  );
+  assert.equal(rows.length, 0);
+});

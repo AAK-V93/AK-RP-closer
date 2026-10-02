@@ -3,6 +3,7 @@ import type { OfferForCrm } from "@/lib/offer-commercial";
 import { RAZONES_NO_CIERRE, ETAPAS_PERDIDAS } from "@/lib/crm-catalog";
 import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
 import { inferFollowupDate } from "@/lib/followup-date";
+import { followupIsClosed } from "@/lib/crm-followups";
 import { fillStatedDeal } from "@/lib/stated-deal";
 import { PROTOCOLO_EXTRACTOR_COMERCIAL_PAE } from "@/lib/protocolo-extractor-comercial-pae";
 
@@ -51,6 +52,12 @@ export type ExtractorJson = {
   canal_contacto: string | null;
   telefono: string | null;
   email: string | null;
+  /** Closer marked this próximo seguimiento done, missed, or lost. */
+  seguimiento_resultado: string | null;
+  /** Previous próximo, kept so Hecho can be reopened. */
+  seguimiento_cerrado: string | null;
+  seguimiento_intentos: number | null;
+  seguimiento_undo: unknown;
 };
 
 export function emptyExtractor(): ExtractorJson {
@@ -95,6 +102,10 @@ export function emptyExtractor(): ExtractorJson {
     canal_contacto: null,
     telefono: null,
     email: null,
+    seguimiento_resultado: null,
+    seguimiento_cerrado: null,
+    seguimiento_intentos: null,
+    seguimiento_undo: null,
   };
 }
 
@@ -326,6 +337,15 @@ export function parseExtractorJson(raw: unknown): ExtractorJson {
     canal_contacto: str(row.canal_contacto)?.toUpperCase() || null,
     telefono: str(row.telefono),
     email: str(row.email),
+    seguimiento_resultado: str(row.seguimiento_resultado),
+    seguimiento_cerrado: str(row.seguimiento_cerrado),
+    seguimiento_intentos: Number.isFinite(Number(row.seguimiento_intentos))
+      ? Number(row.seguimiento_intentos)
+      : null,
+    seguimiento_undo:
+      row.seguimiento_undo && typeof row.seguimiento_undo === "object"
+        ? row.seguimiento_undo
+        : null,
   };
 
   const gatedKeys = [
@@ -381,7 +401,12 @@ export function enrichExtractorFollowup(
   args: { transcript?: string | null; callAt?: Date | string | null },
 ) {
   if (isNonSalesCall(parsed.estado_agenda)) return parsed;
+  const closed = followupIsClosed(parsed);
+  const pinned = ["no_contesto", "no_mostro", "reprogramado"].includes(
+    String(parsed.seguimiento_resultado || "").toLowerCase(),
+  );
   fillStatedDeal(String(args.transcript || ""), parsed);
+  if (closed || (pinned && parsed.proximo_seguimiento)) return parsed;
   const blobs = [
     parsed.proximo_seguimiento,
     parsed.evidencia.seguimiento,

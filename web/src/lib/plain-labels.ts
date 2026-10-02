@@ -17,6 +17,13 @@ const STATUS_LABELS: Record<string, string> = {
   RETOMAR: "Retomar",
   REAGENDAR: "Reagendar",
   "PAGO PENDIENTE": "Pago pendiente",
+  SEGUIMIENTO: "Seguimiento",
+  POST_COBRANZA: "Después del cobro",
+  PRE_COBRANZA: "Antes del cobro",
+  VALIDACION: "Validación",
+  EXPERIENCIA: "Experiencia",
+  COBRO_VENCIDO: "Cobro vencido",
+  COMISION: "Comisión",
   AGENDA_CHECK: "¿Se hizo?",
   ONBOARDING: "Bienvenida",
   HOY: "Hoy",
@@ -24,9 +31,27 @@ const STATUS_LABELS: Record<string, string> = {
   "PRÓXIMO": "Próximo",
 };
 
+const SMALL_WORDS = new Set(["de", "del", "la", "el", "los", "las", "y", "en"]);
+
+function sentenceLabel(raw: string) {
+  return raw
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word, index) => {
+      if (index > 0 && SMALL_WORDS.has(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
+}
+
 /** Screen label for an internal status or thread type. */
 export function plainStatus(value: string | null | undefined) {
   const raw = String(value || "").trim();
   if (!raw) return "—";
-  return STATUS_LABELS[raw] || STATUS_LABELS[raw.toUpperCase()] || raw.replaceAll("_", " ");
+  const known = STATUS_LABELS[raw] || STATUS_LABELS[raw.toUpperCase()];
+  if (known) return known;
+  if (raw === raw.toUpperCase()) return sentenceLabel(raw);
+  return raw.replaceAll("_", " ");
 }

@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Plus, Upload } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
 import { parseFollowupScripts } from "@/lib/followup-scripts";
 import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
 import {
@@ -160,9 +159,7 @@ export default function OfertasPage() {
         includeFathom,
         commercial,
       });
-      const label = offerSavedLabel(1);
-      setSavedNote(label);
-      toast({ title: label, duration: 8000 });
+      setSavedNote(offerSavedLabel(1));
       setSavingOffer(false);
       await load(saved.id || offerId);
     } catch (e) {
@@ -187,11 +184,9 @@ export default function OfertasPage() {
         });
         lastId = saved.id || lastId;
       }
-      const savedTitle = offerSavedLabel(offers.length);
       setReview(null);
       setOfferBlob("");
-      setSavedNote(savedTitle);
-      toast({ title: savedTitle, duration: 8000 });
+      setSavedNote(offerSavedLabel(offers.length));
       setSavingOffer(false);
       await load(lastId || null);
     } catch (e) {
@@ -388,11 +383,6 @@ export default function OfertasPage() {
               onBack={() => setReview(null)}
               onConfirm={(offers) => void confirmExtracted(offers)}
             />
-          )}
-          {!review && savedNote && (
-            <p className="text-sm text-fg0" role="status">
-              {savedNote}
-            </p>
           )}
           {!review && commercial && (
             <p className="text-xs text-fg2 rounded-xl border border-separator1 px-3 py-2">

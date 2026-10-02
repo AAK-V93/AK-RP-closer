@@ -157,9 +157,7 @@ function OnboardingA({
           includeFathom: index === 0,
         });
       }
-      const label = offerSavedLabel(offers.length);
-      onSaved(label);
-      toast({ title: label, duration: 8000 });
+      onSaved(offerSavedLabel(offers.length));
       setReview(null);
       onDone();
     } catch (e) {
