@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { collapseOffersToOne, type ExtractedOffer } from "@/lib/offer-commercial";
 import {
-  allOfferBlocksConfirmed,
+  visibleBlocksConfirmed,
   applyOfferBlockPatch,
   blockDraft,
   confirmKey,
@@ -54,7 +54,7 @@ export function OfferExtractReview({
     [mode, drafts],
   );
 
-  const ready = allOfferBlocksConfirmed(visible.length, confirmed);
+  const ready = visibleBlocksConfirmed(visible, confirmed);
 
   const switchMode = (next: "una" | "varias") => {
     setConfirmed({});

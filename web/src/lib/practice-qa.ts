@@ -37,6 +37,7 @@ const STAGE_LABELS: Record<string, string> = {
   mic: "mic",
   preparing: "preparar",
   audio: "audio",
+  agente: "agente",
   ready: "listo",
   timeout: "tope",
 };

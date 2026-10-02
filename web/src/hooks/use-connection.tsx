@@ -44,6 +44,7 @@ type ConnectionContextType = {
   cancel: () => void;
   prefetch: () => void;
   markReady: () => void;
+  markRoomJoined: () => void;
 };
 
 const ConnectionContext = createContext<ConnectionContextType | undefined>(
@@ -271,7 +272,13 @@ export const ConnectionProvider = ({
     }
   };
 
+  const markRoomJoined = useCallback(() => {
+    if (stageRef.current?.name !== "audio") return;
+    noteStage("agente");
+  }, [noteStage]);
+
   const markReady = useCallback(() => {
+    if (stageRef.current?.name === "audio") noteStage("agente");
     noteStage("ready");
     stageRef.current = null;
     setPhase("ready");
@@ -302,6 +309,7 @@ export const ConnectionProvider = ({
         cancel,
         prefetch,
         markReady,
+        markRoomJoined,
       }}
     >
       {children}

@@ -106,17 +106,32 @@ def choose_session_metadata(job_meta: Dict[str, Any] | None, participant_raw: st
     return participant
 
 
+def closer_already_in_room(room: rtc.Room) -> rtc.RemoteParticipant | None:
+    """Dispatch-on-join puts the closer in the room before this process starts.
+
+    wait_for_participant only hears the next join event, so an already-present
+    closer would sit there until the timeout while Gemini never starts.
+    """
+    remotes = getattr(room, "remote_participants", None) or {}
+    values = list(remotes.values()) if isinstance(remotes, dict) else list(remotes)
+    return values[0] if values else None
+
+
 async def entrypoint(ctx: JobContext):
     logger.info(f"connecting to room {ctx.room.name}")
     # Join first so the closer sees "Casi listo" while Gemini is still starting.
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
 
     job_meta = _load_metadata(getattr(getattr(ctx, "job", None), "metadata", "") or "")
-    try:
-        participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=75)
-    except asyncio.TimeoutError:
-        logger.info("no closer joined; leaving without starting the model")
-        return
+    participant = closer_already_in_room(ctx.room)
+    if participant is not None:
+        logger.info("closer already in the room; starting the model without waiting")
+    else:
+        try:
+            participant = await asyncio.wait_for(ctx.wait_for_participant(), timeout=75)
+        except asyncio.TimeoutError:
+            logger.info("no closer joined; leaving without starting the model")
+            return
 
     metadata = choose_session_metadata(job_meta, participant.metadata)
 
@@ -219,5 +234,19 @@ class SessionManager:
         logger.info("Session restarted with new config; prospect stays silent until closer speaks")
 
 
+def prewarm(proc: Any) -> None:
+    # Import the realtime plugin before a job arrives so a warm process
+    # spends the join wait on Gemini, not on importing the worker.
+    proc.userdata["google"] = google
+
+
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(agent_name="closer-trainer", entrypoint_fnc=entrypoint, worker_type=WorkerType.ROOM))
+    cli.run_app(
+        WorkerOptions(
+            agent_name="closer-trainer",
+            entrypoint_fnc=entrypoint,
+            worker_type=WorkerType.ROOM,
+            prewarm_fnc=prewarm,
+            num_idle_processes=1,
+        )
+    )

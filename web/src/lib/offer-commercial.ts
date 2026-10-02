@@ -1,4 +1,5 @@
 import { parseFollowupScripts, type FollowupScript } from "@/lib/followup-scripts";
+import { commissionCitedInSource } from "@/lib/offer-amounts";
 import { preferOfferName } from "@/lib/offer-name";
 
 export type CommissionTier = {
@@ -317,8 +318,9 @@ function pricedOptions(commercial: OfferCommercial): {
 }
 
 function mainPrice(list: number | null, options: PricedOption[]) {
-  const contado = options.filter((row) => /contado/i.test(row.label));
-  const pool = contado.length ? contado : options;
+  const priced = options.filter((row) => !/\d{1,2}\s*cuotas?\s+de/i.test(row.label));
+  const contado = priced.filter((row) => /contado/i.test(row.label));
+  const pool = contado.length ? contado : priced;
   if (!pool.length) return list == null ? null : { label: "Precio de lista", amount: list, fromList: true };
   const main = pool.reduce((best, row) => (row.amount < best.amount ? row : best));
   return { ...main, fromList: false };
@@ -333,6 +335,7 @@ function cuotaCount(label: string, modes: OfferCommercial["paymentModes"]) {
 /** A small "cuotas" amount is the down payment, not the price of the program. */
 function isCuotaDownPayment(label: string, amount: number, list: number | null) {
   if (!/cuota/i.test(label)) return false;
+  if (/\d{1,2}\s*cuotas?\s+de/i.test(label)) return false;
   if (/inicial|anticipo|enganche|primera/i.test(label)) return true;
   return list != null && amount <= list * 0.6;
 }
@@ -343,6 +346,9 @@ function priceOptionLine(
   modes: OfferCommercial["paymentModes"],
   money: (amount: number) => string,
 ) {
+  if (/\d{1,2}\s*cuotas?\s+de/i.test(alt.label)) {
+    return `${alt.label} ${money(alt.amount)}`.replace(/\s{2,}/g, " ");
+  }
   if (!isCuotaDownPayment(alt.label, alt.amount, list)) {
     return `${alt.label}: ${money(alt.amount)}`;
   }
@@ -526,13 +532,13 @@ export function applyCommercialAnswer(
 }
 
 export function parseCommissionFromText(text: string): CommissionRuleInput | null {
-  const notes = text.trim();
+  const cited = commissionCitedInSource(text);
+  if (!cited) return null;
+  const notes = cited.snippet.trim();
   if (!notes) return null;
-  const pcts = [...text.matchAll(/(\d+(?:[.,]\d+)?)\s*%/g)].map((m) =>
-    Number(m[1].replace(",", ".")),
-  );
-  const umbral = text.match(
-    /(?:hasta|umbral|luego de|después de|acumulad[oa])\s*(\d[\d.\s,]{2,})/i,
+  const pcts = [cited.pct];
+  const umbral = notes.match(
+    /(?:hasta|umbral|luego de|después de|acumulad[oa])[ \t]*(\d{1,3}(?:\.\d{3})+|\d+)/i,
   );
   let umbralAcumuladoUsd = 0;
   if (umbral) {

@@ -47,6 +47,8 @@ export function Chat() {
     state === "initializing" ||
     state === "thinking" ||
     state === "speaking";
+  const agentLive =
+    state === "listening" || state === "thinking" || state === "speaking";
   const agentInRoom = Boolean(agent) || voiceReady;
   const roomJoined = remotes.length > 0 || agentInRoom;
   const {
@@ -60,6 +62,7 @@ export function Chat() {
     stageTimings,
     cancel,
     markReady,
+    markRoomJoined,
   } = useConnection();
   const { trainingState, dispatch } = useTraining();
   const { status: authStatus } = useSession();
@@ -129,8 +132,12 @@ export function Chat() {
   }, [connectionState, agentInRoom, hasSeenAgent, disconnect]);
 
   useEffect(() => {
-    if (voiceReady) markReady();
-  }, [markReady, voiceReady]);
+    if (connectionState === ConnectionState.Connected) markRoomJoined();
+  }, [connectionState, markRoomJoined]);
+
+  useEffect(() => {
+    if (agentLive) markReady();
+  }, [agentLive, markReady]);
 
   useEffect(() => {
     const waiting = phase === "preparing" || phase === "audio" || shouldConnect;
