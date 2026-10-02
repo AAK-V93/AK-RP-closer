@@ -887,7 +887,7 @@ ${userText}`;
   }
 }
 
-export async function hubSnapshot(
+async function hubSnapshot(
   prisma: NonNullable<Awaited<ReturnType<typeof getWorkspacePrisma>>>,
   userId: string,
   timings?: ServerTiming[],
