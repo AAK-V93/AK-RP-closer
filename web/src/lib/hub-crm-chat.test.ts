@@ -918,6 +918,10 @@ test("an unknown question lists what the chat can do; an offer paste does not", 
     looksLikeOfferSetup("Vendo Mentoría Prueba QA a USD 900 contado o 3 cuotas de 330."),
     true,
   );
+  assert.equal(
+    looksLikeFilingAnswer("Vendo Mentoría Prueba QA a USD 900 contado o 3 cuotas de 330."),
+    false,
+  );
   assert.equal(asksForMoneyStats("Vendo Mentoría Prueba QA a USD 900 contado o 3 cuotas de 330."), false);
   assert.equal(
     looksLikeOfferSetup(

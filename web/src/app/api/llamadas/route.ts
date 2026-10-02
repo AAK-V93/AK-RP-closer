@@ -5,6 +5,7 @@ import { EMPTY_TRANSCRIPT_MARK, isUsableTranscript } from "@/lib/fathom-import";
 import { durationMinutesFromTranscript, isInternalNoise, visibleCallTitle } from "@/lib/crm-noise";
 import { fileCallQuietly } from "@/lib/file-call";
 import { listPendingFilings, reviewPendingCall } from "@/lib/call-intelligence";
+import { callAlreadyInCrm, type CrmLeadRef } from "@/lib/lead-match";
 
 export async function GET() {
   try {
@@ -17,7 +18,7 @@ export async function GET() {
       /* optional */
     }
 
-    const [fathom, uploads, tags] = await Promise.all([
+    const [fathom, uploads, tags, leadRows] = await Promise.all([
       auth.prisma.fathomRecording.findMany({
         where: { userId: auth.userId },
         orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
@@ -26,6 +27,7 @@ export async function GET() {
           id: true,
           title: true,
           recordedAt: true,
+          syncedAt: true,
           transcriptText: true,
           practiceSessionId: true,
         },
@@ -38,7 +40,18 @@ export async function GET() {
       auth.prisma.callRecord.findMany({
         where: { userId: auth.userId },
       }),
+      auth.prisma.lead.findMany({
+        where: { userId: auth.userId },
+        select: { id: true, name: true, company: true, telefono: true, email: true },
+      }),
     ]);
+    const crmLeads: CrmLeadRef[] = leadRows.map((lead) => ({
+      id: lead.id,
+      name: lead.name,
+      company: lead.company,
+      telefono: lead.telefono,
+      email: lead.email,
+    }));
 
     const tagKey = (source: string, id: string) => `${source}:${id}`;
     const tagMap = new Map(
@@ -52,22 +65,30 @@ export async function GET() {
           const tag = tagMap.get(tagKey("fathom", row.id));
           const leadName = tag?.leadName || "";
           const rawTitle = tag?.title || row.title;
-          const date = row.recordedAt?.toISOString() || null;
+          const when = row.recordedAt || tag?.recordedAt || row.syncedAt || null;
+          const date = when ? new Date(when).toISOString() : null;
+          const inCrm = callAlreadyInCrm(
+            { id: tag?.id, leadName, title: rawTitle, summary: tag?.summary, filingJson: tag?.filingJson },
+            crmLeads,
+          );
           return {
             id: row.id,
             source: "fathom" as const,
             title: visibleCallTitle({
               title: rawTitle,
               leadName,
-              date: row.recordedAt || date,
+              date: when,
               durationMinutes: durationMinutesFromTranscript(row.transcriptText),
               summary: tag?.summary,
             }),
-            interna: isInternalNoise({
-              cliente: leadName,
-              estadoAgenda: tag?.callType,
-              title: rawTitle,
-            }),
+            inCrm,
+            interna:
+              !inCrm &&
+              isInternalNoise({
+                cliente: leadName || rawTitle,
+                estadoAgenda: tag?.callType,
+                title: rawTitle,
+              }),
             date,
             callType: tag?.callType || "",
             result: tag?.result || "",
@@ -90,22 +111,30 @@ export async function GET() {
         const tag = tagMap.get(tagKey("upload", row.id));
         const leadName = tag?.leadName || "";
         const rawTitle = tag?.title || row.title;
-        const date = row.createdAt.toISOString();
+        const when = tag?.recordedAt || row.createdAt;
+        const date = when.toISOString();
+        const inCrm = callAlreadyInCrm(
+          { id: tag?.id, leadName, title: rawTitle, summary: tag?.summary, filingJson: tag?.filingJson },
+          crmLeads,
+        );
         return {
           id: row.id,
           source: "upload" as const,
           title: visibleCallTitle({
             title: rawTitle,
             leadName,
-            date: row.createdAt,
+            date: when,
             durationMinutes: durationMinutesFromTranscript(row.transcriptText),
             summary: tag?.summary,
           }),
-          interna: isInternalNoise({
-            cliente: leadName,
-            estadoAgenda: tag?.callType,
-            title: rawTitle,
-          }),
+          inCrm,
+          interna:
+            !inCrm &&
+            isInternalNoise({
+              cliente: leadName || rawTitle,
+              estadoAgenda: tag?.callType,
+              title: rawTitle,
+            }),
           date,
           callType: tag?.callType || "",
           result: tag?.result || "",
@@ -121,18 +150,18 @@ export async function GET() {
     ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
     const pending = await listPendingFilings(auth.prisma, auth.userId);
-    const review = pending[0]
-      ? {
-          id: pending[0].id,
-          title: pending[0].title,
-          question: pending[0].question,
-          field: pending[0].field,
-          showToggle: pending[0].showToggle,
-          options: pending[0].options || [],
-        }
-      : null;
+    const queue = pending.map((row) => ({
+      id: row.id,
+      title: row.title,
+      question: row.question,
+      field: row.field,
+      showToggle: row.showToggle,
+      options: row.options || [],
+      date: row.date,
+    }));
+    const review = queue[0] || null;
 
-    return NextResponse.json({ calls, review, unclassified: pending.length });
+    return NextResponse.json({ calls, review, queue, unclassified: queue.length });
   } catch (error) {
     console.error("llamadas GET", error);
     return NextResponse.json({ error: "No se pudieron cargar las llamadas" }, { status: 500 });
@@ -161,17 +190,22 @@ export async function POST(request: Request) {
           value: body.value,
         });
         const pending = await listPendingFilings(auth.prisma, auth.userId);
-        const review = pending[0]
-          ? {
-              id: pending[0].id,
-              title: pending[0].title,
-              question: pending[0].question,
-              field: pending[0].field,
-              showToggle: pending[0].showToggle,
-              options: pending[0].options || [],
-            }
-          : null;
-        return NextResponse.json({ ok: true, result, review, unclassified: pending.length });
+        const queue = pending.map((row) => ({
+          id: row.id,
+          title: row.title,
+          question: row.question,
+          field: row.field,
+          showToggle: row.showToggle,
+          options: row.options || [],
+          date: row.date,
+        }));
+        return NextResponse.json({
+          ok: true,
+          result,
+          review: queue[0] || null,
+          queue,
+          unclassified: queue.length,
+        });
       }
     }
     try {

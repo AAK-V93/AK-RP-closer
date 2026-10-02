@@ -457,6 +457,17 @@ test("a call already in the CRM is not waiting to be classified", () => {
     callAlreadyInCrm({ id: "new", leadName: "Persona Nueva", title: "Llamada sin título" }, leads),
     false,
   );
+  assert.equal(
+    callAlreadyInCrm(
+      { id: "meet-valeria", leadName: "", title: "Impromptu Google Meet Meeting", summary: "Valeria Ríos 29/9" },
+      leads,
+    ),
+    true,
+  );
+  assert.equal(
+    callAlreadyInCrm({ id: "meet-dennis", leadName: "", title: "Dennis Sanchez Solorzano" }, leads),
+    false,
+  );
 });
 
 test("cobrado este mes and cobrado total are named apart, and seguimientos shows the saldo", () => {
