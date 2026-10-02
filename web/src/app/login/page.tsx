@@ -102,7 +102,7 @@ export default function LoginPage() {
         <Link href="/" className="text-lg font-light">
           Closer Trainer
         </Link>
-        <Link href="/" className="text-xs text-fg3">
+        <Link href="/" className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center px-3 text-xs text-fg3 lg:h-auto lg:min-h-0 lg:min-w-0 lg:px-0">
           Volver
         </Link>
       </header>
@@ -181,7 +181,7 @@ export default function LoginPage() {
 
           <button
             type="button"
-            className="text-xs text-fg3 w-full"
+            className="inline-flex min-h-11 w-full items-center justify-center text-xs text-fg3 lg:min-h-0"
             onClick={() => {
               setMode(mode === "login" ? "register" : "login");
               setError(null);

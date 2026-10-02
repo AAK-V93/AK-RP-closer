@@ -30,7 +30,7 @@ export default function PracticeLayout({
             <SidebarProvider defaultOpen={true}>
               <Sidebar className="bg-bg1">
                 <SidebarHeader className="px-4 py-3 space-y-2">
-                  <Link href="/" className="text-sm font-semibold tracking-tight">
+                  <Link href="/" className="inline-flex h-11 min-h-11 items-center text-sm font-semibold tracking-tight lg:h-auto lg:min-h-0">
                     Closer Trainer
                   </Link>
                   <p className="text-xs text-fg3">

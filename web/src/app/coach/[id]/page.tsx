@@ -224,7 +224,7 @@ export default function CoachDetailPage() {
               <section className="space-y-2">
                 <button
                   type="button"
-                  className="text-sm text-fg2 underline"
+                  className="inline-flex min-h-11 items-center text-sm text-fg2 underline lg:min-h-0"
                   onClick={() => setShowTranscript((open) => !open)}
                 >
                   {showTranscript ? "Ocultar transcripción" : "Ver transcripción"}

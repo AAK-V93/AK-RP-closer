@@ -158,7 +158,7 @@ export function OfferExtractReview({
             {mode === "varias" && drafts.length > 1 && (
               <button
                 type="button"
-                className="text-xs text-fg3 underline"
+                className="inline-flex min-h-11 items-center text-xs text-fg3 underline lg:min-h-0"
                 onClick={() => removeAt(index)}
               >
                 Quitar esta

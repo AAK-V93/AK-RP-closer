@@ -19,7 +19,7 @@ export function PipelineDetail({
     <div className="min-w-0">
       <button
         type="button"
-        className="text-sm text-tone-info underline-offset-2 hover:underline"
+        className="inline-flex min-h-11 items-center text-sm text-tone-info underline-offset-2 hover:underline lg:min-h-0"
         onClick={() =>
           setOpen((value) => {
             if (value) setZerosOpen(false);
@@ -47,7 +47,7 @@ export function PipelineDetail({
                 <li className="min-w-0 py-2">
                   <button
                     type="button"
-                    className="flex w-full min-w-0 items-start gap-2 text-left"
+                    className="flex min-h-11 w-full min-w-0 items-center gap-2 text-left lg:min-h-0 lg:items-start"
                     aria-expanded={zerosOpen}
                     onClick={() => setZerosOpen((value) => !value)}
                   >

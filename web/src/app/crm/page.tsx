@@ -1509,7 +1509,7 @@ function DashboardSheet({
             {sinMonto.length === 1 ? (
               <button
                 type="button"
-                className="text-left text-tone-info underline-offset-2 hover:underline"
+                className="inline-flex min-h-11 items-center text-left text-tone-info underline-offset-2 hover:underline lg:min-h-0"
                 onClick={() => sinMonto[0]?.id && onOpenCall(sinMonto[0].id)}
               >
                 1 cierre sin monto: agrega el monto
@@ -1521,7 +1521,7 @@ function DashboardSheet({
                   <button
                     key={row.id || row.cliente}
                     type="button"
-                    className="ml-2 text-tone-info underline-offset-2 hover:underline"
+                    className="ml-2 inline-flex min-h-11 items-center text-tone-info underline-offset-2 hover:underline lg:min-h-0"
                     onClick={() => row.id && onOpenCall(row.id)}
                   >
                     {row.cliente}
@@ -1536,7 +1536,7 @@ function DashboardSheet({
         <p className="text-[11px] text-fg3">{saldoPorCobrarNote(data.now?.saldoPorCobrar || 0)}</p>
         <button
           type="button"
-          className="text-sm text-tone-info underline-offset-2 hover:underline"
+          className="inline-flex min-h-11 items-center text-sm text-tone-info underline-offset-2 hover:underline lg:min-h-0"
           onClick={() => setShowDeals((open) => !open)}
         >
           {showDeals ? "Ocultar los cierres" : "Ver los cierres"}

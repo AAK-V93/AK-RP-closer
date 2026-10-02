@@ -49,7 +49,7 @@ export function HelpNote({
     <div>
       <button
         type="button"
-        className="text-sm text-tone-info underline-offset-2 hover:underline"
+        className="inline-flex min-h-11 items-center text-sm text-tone-info underline-offset-2 hover:underline lg:min-h-0"
         onClick={() => setOpen((value) => !value)}
       >
         {label}

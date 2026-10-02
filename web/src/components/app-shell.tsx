@@ -43,7 +43,7 @@ export function AppShell({
     <div className="min-h-screen bg-bg0 flex flex-col">
       <header className="border-b border-separator1">
         <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-3">
-          <Link href="/" className="font-display text-lg shrink-0">
+          <Link href="/" className="inline-flex h-11 min-h-[44px] shrink-0 items-center font-display text-lg">
             Closer Trainer
           </Link>
           <nav className="hidden md:flex items-center gap-1 text-sm">
