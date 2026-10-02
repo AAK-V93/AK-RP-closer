@@ -245,3 +245,47 @@ test("two rows for Carlos count once, and Alejandro's mentioned price does not",
   assert.equal(doubledList.leads[0]?.id, "carlos-segunda");
   assert.equal(doubledList.leads[0]?.cliente, "Carlos Ramírez");
 });
+
+test("Edson Cerró without an amount is not a venta, and a cleared price mention is not either", () => {
+  const offers = [{ productName: "Círculo Millonario", prices: [11800, 10000], aliases: [] }];
+  const edson = {
+    id: "edson",
+    cliente: "Edson",
+    offerName: "Círculo Millonario",
+    estadoAgenda: "CIERRE VENTA",
+    ventaTotal: null,
+    cashCollected: 0,
+    recordedAt: new Date("2026-09-20T17:00:00.000Z"),
+  };
+  const carlos = {
+    id: "carlos-segunda",
+    cliente: "Carlos Ramírez (QA)",
+    offerName: "Círculo Millonario",
+    estadoAgenda: "SHOW",
+    tipoSeguimiento: "SEGUNDA REUNION",
+    ventaTotal: null,
+    cashCollected: 0,
+    recordedAt: new Date("2026-09-30T17:00:00.000Z"),
+  };
+  const alejandro = {
+    id: "alejandro-meet",
+    cliente: "Alejandro",
+    offerName: "Círculo Millonario",
+    producto: "Círculo Millonario",
+    estadoAgenda: "SHOW",
+    ventaTotal: null,
+    cashCollected: 0,
+    notas: "Impromptu Google Meet Meeting",
+    recordedAt: new Date("2026-09-29T17:00:00.000Z"),
+  };
+  const rolled = rollupCalls(offers, [edson, carlos, alejandro]);
+  const explained = explainVentas([edson, carlos, alejandro], [11800, 10000]);
+  assert.equal(rolled.ventas, 0);
+  assert.equal(rolled.cierres, 0);
+  assert.equal(rolled.cash, 0);
+  assert.equal(explained.n, 0);
+  assert.equal(explained.total, 0);
+  assert.equal(explained.sinMonto.length, 1);
+  assert.equal(explained.sinMonto[0]?.cliente, "Edson");
+  assert.equal(explained.sinMonto[0]?.id, "edson");
+});

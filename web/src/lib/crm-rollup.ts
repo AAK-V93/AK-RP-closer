@@ -167,18 +167,42 @@ export function pickDeals(calls: RollupCall[], prices: number[] = []): PickedDea
   return [...best.values()];
 }
 
+function toDeal(call: RollupCall, at: Date, venta: number): ClosedDeal {
+  return {
+    id: call.id || "",
+    cliente: displayLead(call),
+    fecha: zonedDayKey(at),
+    venta,
+    oferta: String(call.offerName || call.producto || "").trim(),
+  };
+}
+
+/** Cerró, but nothing to add. One row per person, and not someone who already has a counted deal. */
+export function cierresSinMonto(calls: RollupCall[], prices: number[] = []): ClosedDeal[] {
+  const sold = new Set(pickDeals(calls, prices).map((pick) => dealLeadKey(pick.call)));
+  const best = new Map<string, { call: RollupCall; at: Date }>();
+  for (const call of calls) {
+    if (String(call.estadoAgenda || "") !== "CIERRE VENTA") continue;
+    const at = callInstant(call);
+    if (!at) continue;
+    const amount = countedSale(call.ventaTotal, { at, prices });
+    if (amount > 0) continue;
+    const key = dealLeadKey(call);
+    if (!key || sold.has(key)) continue;
+    const prev = best.get(key);
+    if (prev && prev.at.getTime() > at.getTime()) continue;
+    best.set(key, { call, at });
+  }
+  return [...best.values()].map((pick) => toDeal(pick.call, pick.at, 0));
+}
+
 export function explainVentas(calls: RollupCall[], prices: number[] = []) {
-  const leads = pickDeals(calls, prices).map((pick) => ({
-    id: pick.call.id || "",
-    cliente: displayLead(pick.call),
-    fecha: zonedDayKey(pick.at),
-    venta: pick.amount,
-    oferta: String(pick.call.offerName || pick.call.producto || "").trim(),
-  }));
+  const leads = pickDeals(calls, prices).map((pick) => toDeal(pick.call, pick.at, pick.amount));
   return {
     n: leads.length,
     total: leads.reduce((sum, row) => sum + row.venta, 0),
     leads,
+    sinMonto: cierresSinMonto(calls, prices),
   };
 }
 

@@ -116,6 +116,7 @@ type Dash = {
     n: number;
     total: number;
     leads: { id: string; cliente: string; fecha: string; venta: number; oferta: string }[];
+    sinMonto?: { id: string; cliente: string; fecha: string; venta: number; oferta: string }[];
   };
   followups?: Followup[];
   commissions?: Commission[];
@@ -1112,6 +1113,7 @@ function DashboardSheet({
   const series = data.evolucion || [];
   const deals = data.ventasDetalle?.leads || [];
   const dealCount = data.ventasDetalle?.n ?? deals.length;
+  const sinMonto = data.ventasDetalle?.sinMonto || [];
   const [showDeals, setShowDeals] = useState(false);
   return (
     <div className="space-y-8">
@@ -1133,17 +1135,44 @@ function DashboardSheet({
       <div className="space-y-4">
         <SectionHeading>Dinero y comisiones</SectionHeading>
         <p className="text-[11px] text-fg3">
-          Ventas es el total de cierres con monto, una persona una vez, no solo el mes. Suma de {dealCount}{" "}
-          {dealCount === 1 ? "cierre con monto" : "cierres con monto"}. Un show, una segunda reunión o un precio solo mencionado no entra.
-          Cobrado y el ticket usan ese mismo total. Un año escrito en la fecha, como 2026, no cuenta.
+          Ventas cerradas con monto: suma de {dealCount}{" "}
+          {dealCount === 1 ? "cierre con monto" : "cierres con monto"}, cada persona una vez, en todos los meses.
+          Un show, una segunda reunión o un precio solo mencionado no entra. Cobrado es el dinero que ya entró.
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <MetricCard label="Ventas" value={money(total?.ventas)} tone="brand" />
+          <MetricCard label="Ventas cerradas con monto" value={money(total?.ventas)} tone="brand" />
           <MetricCard label="Cobrado" value={money(total?.cash)} tone="money" />
           <MetricCard label="Dinero en juego" value={money(data.now?.dineroEnJuego)} tone="money" />
           <MetricCard label="Comisión generada" value={money(data.comisionResumen?.generada)} tone="brand" />
           <MetricCard label="Comisión cobrada" value={money(data.comisionResumen?.cobrada)} tone="money" />
         </div>
+        {sinMonto.length > 0 && (
+          <p className="text-sm">
+            {sinMonto.length === 1 ? (
+              <button
+                type="button"
+                className="text-left text-tone-info underline-offset-2 hover:underline"
+                onClick={() => sinMonto[0]?.id && onOpenCall(sinMonto[0].id)}
+              >
+                1 cierre sin monto: agrega el monto
+              </button>
+            ) : (
+              <>
+                <span>{sinMonto.length} cierres sin monto: agrega el monto</span>
+                {sinMonto.map((row) => (
+                  <button
+                    key={row.id || row.cliente}
+                    type="button"
+                    className="ml-2 text-tone-info underline-offset-2 hover:underline"
+                    onClick={() => row.id && onOpenCall(row.id)}
+                  >
+                    {row.cliente}
+                  </button>
+                ))}
+              </>
+            )}
+          </p>
+        )}
         <p className="text-[11px] text-fg3">{DINERO_EN_JUEGO_NOTE}</p>
         <button
           type="button"
