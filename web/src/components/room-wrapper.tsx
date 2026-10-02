@@ -13,7 +13,7 @@ import { ConnectionState, LocalAudioTrack, Track } from "livekit-client";
 import { useConnection } from "@/hooks/use-connection";
 import { AgentProvider } from "@/hooks/use-agent";
 import { createSyntheticMicTrack } from "@/lib/practice-audio";
-import { leavePracticeRoom, resetPracticeRoom } from "@/lib/practice-room";
+import { abortPracticeNegotiation, leavePracticeRoom, resetPracticeRoom } from "@/lib/practice-room";
 
 function RoomTeardown() {
   const room = useRoomContext();
@@ -37,19 +37,66 @@ function RoomTeardown() {
   return null;
 }
 
-function QaMicPublisher() {
+function publishCleanup(
+  room: ReturnType<typeof useRoomContext>,
+  participant: ReturnType<typeof useLocalParticipant>["localParticipant"],
+  track: LocalAudioTrack | null,
+) {
+  abortPracticeNegotiation(room);
+  if (!track) return;
+  const published = [...participant.trackPublications.values()].find(
+    (pub) => pub.track === track && pub.trackSid,
+  );
+  if (published) {
+    void participant.unpublishTrack(track, true);
+    return;
+  }
+  track.stop();
+}
+
+function GuardedMicPublisher({ synthetic }: { synthetic: boolean }) {
+  const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
   const connectionState = useConnectionState();
+  const { shouldConnect } = useConnection();
+  const trackRef = useRef<LocalAudioTrack | null>(null);
   useEffect(() => {
-    if (connectionState !== ConnectionState.Connected) return;
-    const synthetic = createSyntheticMicTrack();
-    const track = new LocalAudioTrack(synthetic.track, undefined, true);
-    void localParticipant.publishTrack(track, { source: Track.Source.Microphone });
+    if (!shouldConnect || connectionState !== ConnectionState.Connected) return;
+    let cancelled = false;
+    const owned = synthetic ? createSyntheticMicTrack() : null;
+    void (async () => {
+      try {
+        const media = owned
+          ? owned.track
+          : (
+              await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+              })
+            ).getAudioTracks()[0];
+        if (!media || cancelled || !shouldConnect) {
+          media?.stop();
+          owned?.stop();
+          return;
+        }
+        const track = new LocalAudioTrack(media, undefined, true);
+        trackRef.current = track;
+        if (cancelled) {
+          track.stop();
+          return;
+        }
+        await localParticipant.publishTrack(track, { source: Track.Source.Microphone });
+      } catch {
+        /* cancel or a missing mic closes the room without negotiating */
+      }
+    })();
     return () => {
-      void localParticipant.unpublishTrack(track);
-      synthetic.stop();
+      cancelled = true;
+      const track = trackRef.current;
+      trackRef.current = null;
+      publishCleanup(room, localParticipant, track);
+      owned?.stop();
     };
-  }, [connectionState, localParticipant]);
+  }, [connectionState, localParticipant, room, shouldConnect, synthetic]);
   return null;
 }
 
@@ -61,15 +108,7 @@ export function RoomWrapper({ children }: { children: ReactNode }) {
       serverUrl={wsUrl}
       token={token}
       connect={shouldConnect}
-      audio={
-        qaMode
-          ? false
-          : {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            }
-      }
+      audio={false}
       className="flex w-full h-full min-h-0"
       options={{
         publishDefaults: {
@@ -79,7 +118,7 @@ export function RoomWrapper({ children }: { children: ReactNode }) {
     >
       <AgentProvider>
         <RoomTeardown />
-        {qaMode && <QaMicPublisher />}
+        <GuardedMicPublisher synthetic={qaMode} />
         {children}
         <RoomAudioRenderer />
         <StartAudio

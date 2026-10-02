@@ -1,6 +1,7 @@
 import { generateGeminiJson, generateGeminiParts } from "@/lib/gemini";
 import { isInventedOfferLabel, isPriceLabel, nameHintsFromText } from "@/lib/offer-name";
 import {
+  explicitBonusLines,
   explicitPriceLines,
   guardOfferContent,
   linesFromTextItems,
@@ -309,7 +310,12 @@ async function pdfPlainText(buffer: Buffer) {
     const items = content.items as { str?: string; transform?: number[] }[];
     const body = linesFromTextItems(items);
     const prices = explicitPriceLines(items);
-    pages.push([body, prices.length ? prices.join("\n") : ""].filter(Boolean).join("\n"));
+    const bonuses = explicitBonusLines(items);
+    pages.push(
+      [body, prices.length ? prices.join("\n") : "", bonuses.length ? bonuses.join("\n") : ""]
+        .filter(Boolean)
+        .join("\n"),
+    );
   }
   return separateMoneyTokens(pages.filter(Boolean).join("\n")).replace(/[ \t]+\n/g, "\n").trim();
 }
