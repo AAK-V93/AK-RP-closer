@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { defaultImportSinceDate, toDateInputValue } from "@/lib/fathom-import";
+import { countPhrase } from "@/lib/plain-labels";
 
 type FathomStatus = {
   connected: boolean;
@@ -289,7 +290,7 @@ export function FathomSyncPanel({
       setCoachReady((coachData.analyzedCount || 0) > 0);
       setSyncMessage(
         coachData.analyzedCount
-          ? `Listo: ${coachData.analyzedCount} llamadas auditadas. Tu coach ya tiene la estrategia en Mi coaching.`
+          ? `Listo: ${countPhrase(coachData.analyzedCount, "llamada auditada", "llamadas auditadas")}. Tu coach ya tiene la estrategia en Mi coaching.`
           : coachData.message ||
             "No hubo llamadas auditables en ese rango. Amplía la fecha de inicio.",
       );

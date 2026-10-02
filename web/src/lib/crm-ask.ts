@@ -1,5 +1,5 @@
 import { weekKey } from "@/lib/crm-filters";
-import { plainStatus } from "@/lib/plain-labels";
+import { countPhrase, plainStatus } from "@/lib/plain-labels";
 
 export type CrmAskRow = {
   id: string;
@@ -200,7 +200,7 @@ export function answerCrmFollowups(
   if (!hasIntent) {
     const due = rows.filter((row) => pendingToday(row, today));
     if (!due.length) return "Pregunta a quién, cuándo o cómo. Hoy no toca ninguno.";
-    return `Hoy toca ${due.length}. Pregunta a quién, cuándo o cómo.\n${due
+    return `Hoy toca ${countPhrase(due.length, "seguimiento", "seguimientos")}. Pregunta a quién, cuándo o cómo.\n${due
       .slice(0, 8)
       .map((row) => brief(row, today))
       .join("\n")}`;
@@ -223,12 +223,12 @@ export function answerCrmFollowups(
   }
 
   const title = todayOnly
-    ? `Hoy toca ${pool.length}:`
+    ? `Hoy toca ${countPhrase(pool.length, "seguimiento", "seguimientos")}:`
     : tomorrowOnly
-      ? `Mañana ${pool.length}:`
+      ? `Mañana ${countPhrase(pool.length, "seguimiento", "seguimientos")}:`
       : weekOnly
-        ? `Esta semana ${pool.length}:`
-        : `${pool.length} seguimientos:`;
+        ? `Esta semana ${countPhrase(pool.length, "seguimiento", "seguimientos")}:`
+        : `${countPhrase(pool.length, "seguimiento", "seguimientos")}:`;
   const shown = pool.slice(0, 12).map((row) => brief(row, today));
   const more = pool.length > 12 ? `\n… y ${pool.length - 12} más.` : "";
   return `${title}\n${shown.join("\n")}${more}`;

@@ -636,11 +636,11 @@ export default function CrmPage() {
               }}
             />
 
-            <div className="flex flex-wrap gap-1 border-b border-separator1 pb-2">
+            <div className="flex flex-wrap gap-2 border-b border-separator1 pb-2">
               {MODULES.map((item) => (
                 <Button
                   key={item.id}
-                  size="sm"
+                  size="xl"
                   variant={module === item.id ? "primary" : "outline"}
                   onClick={() => {
                     setModule(item.id);
@@ -829,7 +829,11 @@ export default function CrmPage() {
               />
             )}
           </div>
-          <CrmAsk rows={followupsBase} money={(value) => money(value)} />
+          <CrmAsk
+            rows={followupsBase}
+            money={(value) => money(value)}
+            hidden={Boolean(openCall || openAlert)}
+          />
           </div>
         )}
       </div>
@@ -1294,8 +1298,13 @@ function OperacionSheet({
         empty={empty}
       />
       {selected && (
-        <div className="w-full min-w-0 max-w-full overflow-hidden border border-separator1 bg-bg1 p-3 text-sm space-y-1">
-          <p className="text-[11px] uppercase tracking-wide text-fg3">Detalle de la fila</p>
+        <div className="w-full min-w-0 max-w-full overflow-hidden border border-separator1 bg-bg1 p-3 pb-8 text-sm space-y-1">
+          <div className="sticky top-0 z-20 flex items-center justify-between gap-2 bg-bg1 py-1">
+            <p className="text-[11px] uppercase tracking-wide text-fg3">Detalle de la fila</p>
+            <Button type="button" size="sm" variant="outline" onClick={() => onSelect(selected.id)}>
+              Cerrar
+            </Button>
+          </div>
           {(
             [
               ["Fecha", selected.fecha],
@@ -1601,6 +1610,19 @@ function isSegunda(value: string) {
   return isMeetingFollowup(value);
 }
 
+function sameFollowupText(shown: string, note: string) {
+  const norm = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/\s*·\s*(vencido|pendiente de hoy)\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const left = norm(shown);
+  const right = norm(note);
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+}
+
 function followupForCall(call: OperacionRow, rows: Followup[]) {
   return rows.find((row) => row.callId === call.id || row.id === `call:${call.id}`) || null;
 }
@@ -1864,15 +1886,24 @@ function SeguimientosSheet({
         <p>Perdido cierra el hilo. Cerró, en una decisión, lo pasa a cobro si todavía queda saldo.</p>
       </HelpNote>
       {selected && (
-        <div className="rounded-2xl border border-separator1 bg-bg1 p-3 space-y-3">
-          <div>
-            <p className="text-sm break-words">{selected.cliente}</p>
-            <p className="text-xs text-fg3 break-words">
-              {plainStatus(selected.hilo || selected.tipo)}
-              {selected.proximaAccion ? ` · ${selected.proximaAccion}` : ""}
-            </p>
+        <div className="rounded-2xl border border-separator1 bg-bg1 p-3 pb-8 space-y-3">
+          <div className="sticky top-0 z-20 flex items-start justify-between gap-2 bg-bg1 py-1">
+            <div className="min-w-0">
+              <p className="text-sm break-words">{selected.cliente}</p>
+              <p className="text-xs text-fg3 break-words">
+                {plainStatus(selected.hilo || selected.tipo)}
+                {selected.proximaAccion ? ` · ${selected.proximaAccion}` : ""}
+              </p>
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={() => onSelect(selected.id)}>
+              Cerrar
+            </Button>
           </div>
-          {selected.contexto && <p className="text-xs text-fg3 break-words">{selected.contexto}</p>}
+          {selected.contexto &&
+            !sameFollowupText(
+              `${selected.proximaAccion || ""} ${selected.acuerdo || ""}`,
+              selected.contexto,
+            ) && <p className="text-xs text-fg3 break-words">{selected.contexto}</p>}
           {selected.tipo !== "AGENDA_CHECK" && (selected.opciones || []).length > 0 ? (
             <FollowupPicker
               alertId={selected.id}

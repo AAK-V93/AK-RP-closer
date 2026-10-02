@@ -28,7 +28,7 @@ test("a show without a close opens a decision thread on step 0", () => {
   );
 });
 
-test("a close with a follow-up date and no balance still opens a decision thread", () => {
+test("a paid close opens onboarding, and a balance opens cobro instead of a second meeting", () => {
   assert.equal(
     pickThreadKind({
       estado_agenda: "CIERRE VENTA",
@@ -40,7 +40,20 @@ test("a close with a follow-up date and no balance still opens a decision thread
       venta_total: 10000,
       cash_collected: 10000,
     }),
-    "DECISION",
+    "ONBOARDING",
+  );
+  assert.equal(
+    pickThreadKind({
+      estado_agenda: "CIERRE VENTA",
+      requiere_seguimiento: true,
+      tipo_seguimiento: "SEGUNDA REUNION",
+      proximo_seguimiento: "2026-10-09 17:00",
+      calificado: true,
+      saldo_pendiente: 1064,
+      venta_total: 1597,
+      cash_collected: 533,
+    }),
+    "COBRANZA",
   );
 });
 

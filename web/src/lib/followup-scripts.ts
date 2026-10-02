@@ -49,12 +49,20 @@ const SLOT: Record<string, keyof FollowupVars> = {
 export function fillFollowupGuion(guion: string, vars: FollowupVars) {
   let out = guion;
   for (const [token, key] of Object.entries(SLOT)) {
-    const value = vars[key];
-    if (!value) continue;
+    const value = String(vars[key] || "").trim();
     out = out.split(`[${token}]`).join(value);
     out = out.split(`"${token}"`).join(value);
   }
-  return out;
+  return out
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([,.;:!?])/g, "$1")
+    .replace(/([,.;:])[ \t]*([,.;:])/g, "$1")
+    .replace(/\bsoy\s*\./gi, "")
+    .replace(/\bte saluda\s*,/gi, "te saluda")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 /** Guiones genéricos. El closer pega los suyos en la oferta (commercial.scripts). */
@@ -175,7 +183,7 @@ Avísame por acá cuando lo hayas hecho, con el comprobante.`,
     type: "SEGUNDA REUNION",
     intentosMin: 0,
     canal: "WHATSAPP",
-    recomendacion: "Reprogramó. Confirmar la nueva fecha.",
+    recomendacion: "Confirmar la fecha de la próxima llamada.",
     guion: `Hola [Nombre], te confirmo la próxima llamada de [PROGRAMA] el [FECHA]. ¿Seguimos ahí?`,
   },
   {

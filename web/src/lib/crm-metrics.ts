@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { alertBucket } from "@/lib/crm-prefs";
-import { alignFollowups, foldLeadName, followupSnapshot } from "@/lib/crm-followups";
+import { alignFollowups, applyClosedSaleFollowup, foldLeadName, followupSnapshot } from "@/lib/crm-followups";
 import { countOportunidadesActivas, withEveryActiveLead } from "@/lib/crm-activa";
 import { shiftZonedMonth, zonedDayBounds, zonedDayKey, zonedMonthRange } from "@/lib/crm-time";
 import { userHasReadyCrm, type OfferForCrm } from "@/lib/offer-commercial";
@@ -198,6 +198,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
         libraryScriptId: alert.libraryScriptId,
         objecion: thread.lead.razonNoCierre || thread.lead.objections || "",
         temperatura,
+        leadStatus: thread.lead.status,
       },
     ];
     } catch (error) {
@@ -254,6 +255,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
           libraryScriptId: row.libraryScriptId,
           objecion: row.lead.razonNoCierre || row.lead.objections || "",
           temperatura,
+          leadStatus: row.lead.status,
         };
         } catch (error) {
           console.error("crm alert", row.id, error);
@@ -350,6 +352,8 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
     intentos: 0,
     libraryScriptId: "",
     objecion: "",
+    estadoAgenda: draft.source.estadoAgenda || "",
+    leadStatus: draft.source.leadStatus || "",
     temperatura: leadTemperature({
       enJuego: draft.enJuego,
       silenceDays: draft.days < 0 ? -draft.days : 0,
@@ -416,7 +420,11 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       row.estadoAgenda === "AGENDADO" && row.recordedAt && row.recordedAt >= todayBounds.to,
   ).length;
 
-  const followupsWithOptions = (await attachFollowupOptions(prisma, userId, openFollowups))
+  const followupsWithOptions = (await attachFollowupOptions(
+    prisma,
+    userId,
+    openFollowups.map((row) => applyClosedSaleFollowup(row)),
+  ))
     .map((row) => ({
       ...row,
       suggestedNext: suggestNextFollowup(todayKey, row.proximo || ""),

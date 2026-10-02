@@ -19,6 +19,15 @@ export function isPriceLabel(raw: string | null | undefined) {
   return false;
 }
 
+/** A missing name the extractor must not turn into a program. */
+export function isUnspecifiedOfferName(raw: string | null | undefined) {
+  const text = foldOffer(String(raw || ""));
+  if (!text) return true;
+  return /^(no especificado|sin especificar|sin nombre|no definido|no aplica|n\/a|na|null|undefined)$/.test(
+    text,
+  );
+}
+
 /** Free text the chat once wrote into Producto, not a catalog offer. */
 export function isInventedOfferLabel(raw: string | null | undefined) {
   const text = String(raw || "").trim();

@@ -1,5 +1,10 @@
 import { generateGeminiJson, generateGeminiParts } from "@/lib/gemini";
-import { isInventedOfferLabel, isPriceLabel, nameHintsFromText } from "@/lib/offer-name";
+import {
+  isInventedOfferLabel,
+  isPriceLabel,
+  isUnspecifiedOfferName,
+  nameHintsFromText,
+} from "@/lib/offer-name";
 import {
   guardOfferContent,
   sanitizeCommissionQuestions,
@@ -108,11 +113,12 @@ export function extractedFromParsed(
   }
   const description = String(parsed.productDescription || "").trim();
   let name = String(parsed.productName || "").trim() || fallbackName;
-  if (isPriceLabel(name) || isInventedOfferLabel(name)) {
+  if (isPriceLabel(name) || isInventedOfferLabel(name) || isUnspecifiedOfferName(name)) {
     const better = nameHintsFromText(`${sourceText}\n${description}`).find(
-      (hint) => !isPriceLabel(hint) && !isInventedOfferLabel(hint),
+      (hint) =>
+        !isPriceLabel(hint) && !isInventedOfferLabel(hint) && !isUnspecifiedOfferName(hint),
     );
-    if (better) name = better;
+    name = better || (isUnspecifiedOfferName(name) ? "" : name);
   }
   const icp = String(parsed.icp || "").trim();
   return {
@@ -147,22 +153,28 @@ export function rephraseOfferQuestion(question: string): string {
 }
 
 function defaultQuestions(offers: ExtractedOffer[], assumption: "una" | "varias") {
-  const names = offers.map((row) => row.productName).filter(Boolean);
+  const names = offers
+    .map((row) => row.productName)
+    .filter((name) => name && !isUnspecifiedOfferName(name));
   if (assumption === "varias" || offers.length > 1) {
+    const countLabel = offers.length === 1 ? "1 oferta" : `${offers.length} ofertas`;
     return [
-      `Encontré ${offers.length} ofertas: ${names.join(", ") || "sin nombre"}. ¿Son programas distintos o es uno solo con varios planes?`,
+      `Encontré ${countLabel}: ${names.join(", ") || "sin nombre"}. ¿Son programas distintos o es uno solo con varios planes?`,
       "¿Los nombres están bien? Si hay que corregir uno, dímelo.",
     ];
   }
   const rule = offers[0]?.commercial.commission;
   const pct =
     rule && rule.pctBase > 0 ? `${Math.round(rule.pctBase * 1000) / 10}%` : "";
-  return [
+  const questions = [
     pct
       ? `La comisión queda en ${pct} sobre lo cobrado. ¿Es así?`
       : "No encontré un porcentaje de comisión. ¿La dejo vacía?",
-    `Se llama «${names[0] || "esta oferta"}». ¿Es así?`,
   ];
+  if (names[0] && !isUnspecifiedOfferName(names[0])) {
+    questions.push(`Se llama «${names[0]}». ¿Es así?`);
+  }
+  return questions;
 }
 
 export function parsedToBatch(
@@ -247,7 +259,8 @@ export function heuristicExtract(text: string): ExtractedOffer {
       .find((line) => line.length > 2 && line.length <= 70 && !isPriceLabel(line)) || "Oferta";
   const description = source.slice(0, 1200);
   return {
-    productName: firstLine.length <= 70 ? firstLine : "Oferta",
+    productName:
+      firstLine.length <= 70 && !isUnspecifiedOfferName(firstLine) ? firstLine : "Oferta",
     productDescription: description.length >= 20 ? description : `${description} — oferta`.slice(0, 80),
     pitchSummary: "",
     icp: "",
@@ -273,11 +286,14 @@ export function heuristicBatch(text: string): ExtractedOfferBatch {
 }
 
 export function offerBatchRecap(batch: ExtractedOfferBatch): string {
-  const names = batch.offers.map((row) => row.productName).filter(Boolean);
+  const names = batch.offers
+    .map((row) => row.productName)
+    .filter((name) => name && !isUnspecifiedOfferName(name));
+  const countLabel = names.length === 1 ? "1 oferta" : `${names.length || batch.offers.length} ofertas`;
   const head =
     batch.assumption === "varias" || batch.offers.length > 1
-      ? `Encontré ${batch.offers.length} ofertas: ${names.join(", ")}.`
-      : `Encontré una oferta: ${names[0] || "sin nombre"}.`;
+      ? `Encontré ${countLabel}${names.length ? `: ${names.join(", ")}` : ""}.`
+      : `Encontré una oferta${names[0] ? `: ${names[0]}` : ""}.`;
   const qs = batch.questions.map((row) => `· ${row}`).join("\n");
   return `${head}\nConfirma cada bloque (nombre, ICP, precios, pagos, bonos, comisión, datos de pago): Sí o Corregir. La comisión no la asumo.\n${qs}`;
 }

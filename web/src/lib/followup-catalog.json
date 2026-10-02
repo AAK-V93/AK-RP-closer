@@ -79,8 +79,8 @@
           "type": "SEGUNDA REUNION",
           "intentosMin": 0,
           "canal": "VIDEO",
-          "recomendacion": "Se recomienda grabar un video como previa presentacion para generar confianza al lead",
-          "guion": "Hola, [Nombre] ,que tal como vas?, te saluda [CLOSER], Director de Admision quien te acompañarà en la sesión que tendremos el [FECHA]\nMi equipo me dejó toda tu información de tu empresa. Respóndeme este video de que lo viste y que vas a conectarte!. Vamos a empezar a ayudarte a que tu empresa logre estar organizada!.",
+          "recomendacion": "Se recomienda grabar un video como previa presentación para generar confianza al lead",
+          "guion": "Hola, [Nombre] ,que tal como vas?, te saluda [CLOSER], Director de Admisión quien te acompañará en la sesión que tendremos el [FECHA]\nMi equipo me dejó toda tu información de tu empresa. Respóndeme este video de que lo viste y que vas a conectarte!. Vamos a empezar a ayudarte a que tu empresa logre estar organizada!.",
           "asset": ""
         }
       ]

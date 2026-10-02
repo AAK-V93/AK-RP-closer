@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BUILTIN_FOLLOWUP_PACKS } from "./followup-catalog";
-import { fillFollowupGuion, type FollowupVars } from "./followup-scripts";
+import { DEFAULT_FOLLOWUP_SCRIPTS, fillFollowupGuion, type FollowupVars } from "./followup-scripts";
+import { scriptMatchesOffer } from "./followup-library";
 
 const VARS: FollowupVars = {
   nombre: "Ana",
@@ -41,4 +42,23 @@ test("catalog ships both follow-up packs with blue text as placeholders", () => 
   const frio = scripts.find((row) => row.key === "llamada-en-frio");
   assert.equal(frio?.canal, "LLAMADA");
   assert.match(frio?.guion || "", /\[¿Qué falta para que hagamos la inscripción\?\]/);
+  assert.match(video?.recomendacion || "", /presentación/);
+  assert.match(video?.guion || "", /Admisión/);
+  assert.doesNotMatch(video?.guion || "", /Admision/);
+});
+
+test("an empty closer is removed and another offer's script is not suggested", () => {
+  const filled = fillFollowupGuion("Hola [Nombre], soy [CLOSER]. Bienvenida a [PROGRAMA].", {
+    ...VARS,
+    nombre: "Valeria",
+    closer: "",
+    programa: "Fertilidad Consciente",
+  });
+  assert.equal(filled, "Hola Valeria, Bienvenida a Fertilidad Consciente.");
+  assert.doesNotMatch(filled, /\[CLOSER\]/);
+  const segunda = DEFAULT_FOLLOWUP_SCRIPTS.find((row) => row.key === "segunda_reunion");
+  assert.doesNotMatch(segunda?.recomendacion || "", /Reprogramó/);
+  const video = BUILTIN_FOLLOWUP_PACKS.flatMap((pack) => pack.scripts).find((row) => row.key === "video");
+  assert.equal(scriptMatchesOffer(video?.guion || "", "Fertilidad Consciente"), false);
+  assert.equal(scriptMatchesOffer("Hola [Nombre], ¿cómo vas con [PROGRAMA]?", "Fertilidad Consciente"), true);
 });

@@ -88,16 +88,22 @@ export function AppShell({
             )}
           </div>
         </div>
-        <nav className="md:hidden flex gap-1 overflow-x-auto px-3 pb-2 text-xs">
-          {items.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="shrink-0 rounded-full border border-separator1 px-2.5 py-1 text-tone-info"
-            >
-              {item.label}
-            </Link>
-          ))}
+        <nav className="relative md:hidden">
+          <div className="flex gap-1 overflow-x-auto px-3 pb-2 text-xs [scrollbar-width:thin]">
+            {items.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="shrink-0 rounded-full border border-separator1 px-3 py-2 text-tone-info"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-bg0 to-transparent"
+          />
         </nav>
       </header>
       <main

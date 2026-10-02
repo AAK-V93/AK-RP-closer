@@ -10,6 +10,7 @@ function sequenceTipo(raw: string): ThreadTipo | "GENERIC" | null {
     .replace(/_/g, " ")
     .replace(/\s+/g, " ");
   if (!key || key === "—" || key === "-") return null;
+  if (key === "ONBOARDING") return "ONBOARDING";
   if (key === "DECISION") return "DECISION";
   if (key === "RETOMAR") return "RETOMAR";
   if (key === "REAGENDAR") return "REAGENDAR";

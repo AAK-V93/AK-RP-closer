@@ -5,6 +5,7 @@ import { requireFathomUser } from "@/lib/fathom-auth";
 import { getWorkspace } from "@/lib/workspace";
 import { extractLeadPlaybook } from "@/lib/lead-playbook";
 import { ensureWorkspaceTables } from "@/lib/prisma";
+import { countPhrase } from "@/lib/plain-labels";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -25,7 +26,7 @@ export async function POST() {
     if (pendingAnalysis > 0) {
       return NextResponse.json(
         {
-          error: `Aún faltan ${pendingAnalysis} llamadas por auditar antes de generar la estrategia.`,
+          error: `Aún ${pendingAnalysis === 1 ? "falta" : "faltan"} ${countPhrase(pendingAnalysis, "llamada", "llamadas")} por auditar antes de generar la estrategia.`,
           remainingAnalyses: pendingAnalysis,
         },
         { status: 409 },
