@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { ensureCrmTables, ensureFathomTables } from "@/lib/prisma";
 import { EMPTY_TRANSCRIPT_MARK, isUsableTranscript } from "@/lib/fathom-import";
+import { isInternalNoise, visibleCallTitle } from "@/lib/crm-noise";
 import { fileCallQuietly } from "@/lib/file-call";
 import { listPendingFilings, reviewPendingCall } from "@/lib/call-intelligence";
 
@@ -49,14 +50,22 @@ export async function GET() {
         .filter((row) => row.transcriptText !== EMPTY_TRANSCRIPT_MARK)
         .map((row) => {
           const tag = tagMap.get(tagKey("fathom", row.id));
+          const leadName = tag?.leadName || "";
+          const rawTitle = tag?.title || row.title;
+          const date = row.recordedAt?.toISOString() || null;
           return {
             id: row.id,
             source: "fathom" as const,
-            title: tag?.title || row.title,
-            date: row.recordedAt?.toISOString() || null,
+            title: visibleCallTitle({ title: rawTitle, leadName, date }),
+            interna: isInternalNoise({
+              cliente: leadName,
+              estadoAgenda: tag?.callType,
+              title: rawTitle,
+            }),
+            date,
             callType: tag?.callType || "",
             result: tag?.result || "",
-            leadName: tag?.leadName || "",
+            leadName,
             offerName: tag?.offerName || "",
             trainsBot: tag?.trainsBot || false,
             analyzed: Boolean(
@@ -73,14 +82,22 @@ export async function GET() {
         }),
       ...uploads.map((row) => {
         const tag = tagMap.get(tagKey("upload", row.id));
+        const leadName = tag?.leadName || "";
+        const rawTitle = tag?.title || row.title;
+        const date = row.createdAt.toISOString();
         return {
           id: row.id,
           source: "upload" as const,
-          title: tag?.title || row.title,
-          date: row.createdAt.toISOString(),
+          title: visibleCallTitle({ title: rawTitle, leadName, date }),
+          interna: isInternalNoise({
+            cliente: leadName,
+            estadoAgenda: tag?.callType,
+            title: rawTitle,
+          }),
+          date,
           callType: tag?.callType || "",
           result: tag?.result || "",
-          leadName: tag?.leadName || "",
+          leadName,
           offerName: tag?.offerName || "",
           trainsBot: tag?.trainsBot || false,
             analyzed: Boolean(tag?.practiceSessionId),

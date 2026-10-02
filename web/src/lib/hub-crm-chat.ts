@@ -416,7 +416,7 @@ function askFacts(text: string, ctx: ChatContext): ChatTurn | null {
   const bits = [
     lead.offerName ? `Oferta: ${lead.offerName}.` : "",
     lead.nextStep ? `Acuerdo: ${lead.nextStep}.` : "Sin acuerdo guardado.",
-    lead.amountPaid ? `Cash: ${lead.amountPaid}.` : "",
+    lead.amountPaid ? `Cobrado: ${lead.amountPaid}.` : "",
   ].filter(Boolean);
   return { kind: "answer", reply: `${lead.name}. ${bits.join(" ")}` };
 }

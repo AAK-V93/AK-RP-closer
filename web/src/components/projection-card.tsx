@@ -78,7 +78,7 @@ export function ProjectionCard({
       {projection.assumedRatesLabel && <p className="text-sm text-fg3">{projection.assumedRatesLabel}</p>}
       <HelpNote>
         <p>Ya asegurado es la comisión de lo que falta cobrar más la comisión de los saldos que el cliente todavía debe.</p>
-        <p>Falta es la meta del mes menos eso. Si todavía hay pocas llamadas reales, las tasas de show y cierre son un supuesto y se dice en la línea de arriba.</p>
+        <p>Falta es la meta del mes menos eso. Si todavía hay pocas llamadas reales, las tasas de asistencia y de cierre son un supuesto y se dice en la línea de arriba.</p>
       </HelpNote>
     </section>
   );

@@ -45,6 +45,8 @@ export type HubSnapshot = {
   now?: {
     dineroEnJuego?: number;
     oportunidadesActivas?: number;
+    seguimientosHoy?: number;
+    seguimientosVencidos?: number;
   };
   pendingOfferExtract?: {
     assumption: "una" | "varias";

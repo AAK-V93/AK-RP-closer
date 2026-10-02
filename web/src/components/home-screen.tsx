@@ -15,7 +15,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import type { HomeState } from "@/lib/home-state";
 import { moneyLabel } from "@/lib/crm-operacion";
+import { ACTIVA_EXPLAIN } from "@/lib/crm-activa";
 import { DINERO_EN_JUEGO_NOTE } from "@/lib/crm-followups";
+import { followupCardStatus } from "@/lib/home-desk";
 import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
@@ -451,15 +453,31 @@ function ConfiguredC({
         saving={savingGoal}
         onSaveGoal={saveGoal}
       />
-      {snapshot?.now && (
-        <p className="text-sm text-fg3">
-          Dinero en juego {moneyLabel(snapshot.now.dineroEnJuego || 0)} ·{" "}
-          {snapshot.now.oportunidadesActivas || 0} clientes activos
-        </p>
-      )}
-      {snapshot?.now && (
-        <p className="text-xs text-fg3">{DINERO_EN_JUEGO_NOTE}</p>
-      )}
+      <div>
+        <h2 className="text-sm text-fg3">De un vistazo</h2>
+        <div className="mt-1 divide-y divide-separator1 border-t border-separator1">
+          <HomeRow
+            href="/crm?activas=1#operacion"
+            title="Leads activos"
+            status={String(snapshot?.now?.oportunidadesActivas || 0)}
+          />
+          <HomeRow
+            href="/crm#seguimientos"
+            title="Acciones de hoy"
+            status={followupCardStatus(
+              snapshot?.now?.seguimientosHoy || 0,
+              snapshot?.now?.seguimientosVencidos || 0,
+            )}
+          />
+          <HomeRow
+            href="/crm#seguimientos"
+            title="Dinero en juego"
+            status={moneyLabel(snapshot?.now?.dineroEnJuego)}
+          />
+        </div>
+        <p className="mt-2 text-xs text-fg3">{ACTIVA_EXPLAIN}</p>
+        <p className="mt-1 text-xs text-fg3">{DINERO_EN_JUEGO_NOTE}</p>
+      </div>
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
       <div>
         <h2 className="text-sm text-fg3">Qué hacer</h2>

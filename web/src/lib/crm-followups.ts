@@ -90,6 +90,7 @@ export type OperacionFollowupSource = {
   tipoSeguimiento: string;
   /** Newest call was closed by the closer, so an older date must not come back. */
   seguimientoCerrado?: boolean;
+  interna?: boolean;
 };
 
 export type FollowupDraft = {
@@ -152,6 +153,7 @@ export function alignFollowups<T extends Alignable>(
 ): T[] {
   const newestByLead = new Map<string, OperacionFollowupSource>();
   for (const row of operacion) {
+    if (row.interna) continue;
     const key = foldLeadName(row.cliente);
     if (!key || newestByLead.has(key)) continue;
     newestByLead.set(key, row);
@@ -162,6 +164,7 @@ export function alignFollowups<T extends Alignable>(
     OperacionFollowupSource & { dueDay: string }
   >();
   for (const row of operacion) {
+    if (row.interna) continue;
     const key = foldLeadName(row.cliente);
     // No client means it is not a lead (internal session, coaching, práctica).
     if (!key || byLead.has(key)) continue;

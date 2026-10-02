@@ -167,7 +167,7 @@ Avísame por acá cuando lo hayas hecho, con el comprobante.`,
     type: "REAGENDAR",
     intentosMin: 0,
     canal: "WHATSAPP",
-    recomendacion: "No show. Reagendar a +1 día.",
+    recomendacion: "No asistió. Reagenda para el día siguiente.",
     guion: `Hola [Nombre], ayer no nos encontramos. ¿Qué día te queda mejor para retomar [PROGRAMA]?`,
   },
   {

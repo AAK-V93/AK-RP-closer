@@ -4,7 +4,7 @@ export const RAZONES_NO_CIERRE = [
   "Necesita consultarlo con alguien",
   "No confía / Necesita más información",
   "Ya compró con otra persona",
-  "No show / No se presentó",
+  "No asistió / No se presentó",
   "Otro",
 ] as const;
 
