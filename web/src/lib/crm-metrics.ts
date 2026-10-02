@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { alertBucket, startOfDay } from "@/lib/crm-prefs";
 import { userHasReadyCrm } from "@/lib/offer-commercial";
-import { loadOffersForCrm } from "@/lib/crm-apply";
+import { loadOffersForCrm, repairMissingFollowups } from "@/lib/crm-apply";
 import { attachFollowupOptions } from "@/lib/followup-library";
 import { operacionFromCall } from "@/lib/crm-operacion";
 import { isNonSalesCall } from "@/lib/call-kind";
@@ -26,6 +26,7 @@ function inRange(date: Date | null, from: Date, to: Date) {
 }
 
 export async function crmDashboard(prisma: PrismaClient, userId: string) {
+  await repairMissingFollowups(prisma, userId);
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
   const now = new Date();
@@ -97,6 +98,12 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const previous = bucket(prev.from, prev.to);
   const all = bucket(new Date(0), new Date(8640000000000000));
 
+  const moneyByCall = new Map(
+    allCalls.map((row) => [row.id, row.saldoPendiente || row.ventaTotal || 0]),
+  );
+  const played = (alert: { enJuego: number; callRecordId: string | null }) =>
+    alert.enJuego || moneyByCall.get(alert.callRecordId || "") || 0;
+
   const threads = await prisma.followupThread.findMany({
     where: { userId, estado: "activo" },
     include: {
@@ -117,7 +124,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       startedAt: thread.startedAt,
       pagoAt: thread.pagoAt,
       meetingAt: thread.meetingAt,
-      enJuego: alert.enJuego,
+      enJuego: played(alert),
       lastTouch: thread.touches[0] || null,
       now,
     });
@@ -125,7 +132,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       ? Math.max(0, Math.round((now.getTime() - thread.touches[0].fecha.getTime()) / 86_400_000))
       : 0;
     const temperatura = leadTemperature({
-      enJuego: alert.enJuego || 0,
+      enJuego: played(alert),
       silenceDays,
       calificado: thread.lead.calificado,
       objectionOpen: Boolean((thread.lead.razonNoCierre || thread.lead.objections || "").trim()),
@@ -149,7 +156,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
         askLost: view.askLost,
         acuerdo: view.proximaAccion,
         contexto: alert.contexto,
-        enJuego: alert.enJuego,
+        enJuego: played(alert),
         canal: view.canal,
         mensajeSugerido: alert.mensajeSugerido,
         question: alert.question,
@@ -169,14 +176,14 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
         const silenceDays = days < 0 ? -days : 0;
         const decisionDate = row.type === "DECISION" || row.type === "PAGO PENDIENTE";
         const temperatura = leadTemperature({
-          enJuego: row.enJuego || 0,
+          enJuego: played(row),
           silenceDays,
           calificado: row.lead.calificado,
           objectionOpen: Boolean((row.lead.razonNoCierre || row.lead.objections || "").trim()),
           decisionDate,
           intentos: row.intentos,
         }).level;
-        const ultimoToque = days < 0 ? "pendiente de hoy" : days === 0 ? "hoy" : `en ${days} días`;
+        const ultimoToque = days < 0 ? "vencido" : days === 0 ? "hoy" : `en ${days} días`;
         return {
           id: row.id,
           estado,
@@ -193,7 +200,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
           askLost: false,
           acuerdo: row.lead.nextStep,
           contexto: row.contexto,
-          enJuego: row.enJuego,
+          enJuego: played(row),
           canal: row.canal,
           mensajeSugerido: row.mensajeSugerido,
           question: row.question,

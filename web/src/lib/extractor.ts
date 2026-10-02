@@ -3,6 +3,8 @@ import type { OfferForCrm } from "@/lib/offer-commercial";
 import { RAZONES_NO_CIERRE, ETAPAS_PERDIDAS } from "@/lib/crm-catalog";
 import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
 import { inferFollowupDate } from "@/lib/followup-date";
+import { fillStatedDeal } from "@/lib/stated-deal";
+import { PROTOCOLO_EXTRACTOR_COMERCIAL_PAE } from "@/lib/protocolo-extractor-comercial-pae";
 
 export type ExtractorEvidencia = {
   identidad: string | null;
@@ -102,68 +104,72 @@ export function isExtractorJson(raw: unknown): raw is ExtractorJson {
   return "estado_agenda" in row || "cliente_real" in row;
 }
 
-function productBlock(offers: OfferForCrm[]) {
-  if (!offers.length) {
-    return `Valores permitidos:
-OTROS
+const PAE_PRODUCT_LIST =
+  /MILLONARIOS 360\r?\nINGRESOS 360\r?\nDESPEGA TU NEGOCIO\r?\nCOACHING\r?\nMENTORIAS\r?\nGIRAS\r?\nOTROS/;
 
-No hay ofertas CRM listas. Si reconoces un producto, usa OTROS.`;
-  }
-  const lines = offers.map((offer) => {
-    const aliases = offer.commercial.aliases.length
-      ? ` (alias: ${offer.commercial.aliases.join(", ")})`
-      : "";
-    const price = offer.commercial.listPrice
-      ? ` · lista ${offer.commercial.currency} ${offer.commercial.listPrice}`
-      : "";
-    const alts = offer.commercial.altPrices
-      .map((row) => `${row.label}${row.amount != null ? ` ${row.amount}` : ""}`)
-      .join(" · ");
-    const plazos = offer.commercial.deadlines
-      .map((row) => `${row.name} (${row.days} días)`)
-      .join(" · ");
-    return `- ${offer.productName}${aliases}${price}${alts ? `\n  precios: ${alts}` : ""}${plazos ? `\n  plazos: ${plazos}` : ""}${offer.commercial.duration ? `\n  duración: ${offer.commercial.duration}` : ""}`;
-  });
-  return `Valores permitidos (ofertas de ESTE closer):
-${lines.join("\n")}
-OTROS
+const PAE_PAYMENT_LIST =
+  /CONTADO\r?\n4 CUOTAS\r?\n6 CUOTAS\r?\n8 CUOTAS\r?\n12 CUOTAS\r?\nRESERVA/;
 
-Mapea al nombre exacto de la lista.
-Si el nombre o un alias se dice en la llamada, usa ese nombre y confianza >= 95.
-Si un monto (precio negociado, lista o alternativo) coincide con UNA sola oferta, usa esa oferta y confianza >= 95.
-Si el monto coincide con dos ofertas, o no hay nombre ni monto, producto = null y confianza < 50.
-Nunca elijas una oferta por defecto cuando hay ambigüedad entre dos.`;
+/** Separador. Todo lo que está antes es el protocolo PAE; lo de después es de la app. */
+export const PAE_APPENDIX_MARKER = [
+  "==================================================",
+  "APÉNDICE DE LA APP — FUERA DEL PROTOCOLO PAE",
+  "==================================================",
+].join("\n");
+
+function oneLine(value: string) {
+  return value.replace(/\s+/g, " ").trim();
 }
 
-function paymentBlock(offers: OfferForCrm[]) {
-  const modes = offers.flatMap((offer) =>
-    offer.commercial.paymentModes.map(
-      (mode) => `- ${offer.productName}: ${mode.name}${mode.details ? ` — ${mode.details}` : ""}`,
-    ),
-  );
-  const commissions = offers
+export function paeProductLines(offers: OfferForCrm[]) {
+  return offers
     .map((offer) => {
-      const rule = offer.commercial.commission;
-      if (!rule) return "";
-      const tiers = rule.tiers
-        .map((tier) => {
-          const pct = tier.pct != null ? `${Math.round(tier.pct * 1000) / 10}%` : "";
-          return `${tier.label || tier.when || tier.paymentMode} ${pct}`.trim();
-        })
-        .filter(Boolean)
-        .join("; ");
-      const body = rule.notes || tiers;
-      return body ? `- Comisión ${offer.productName}: ${body}` : "";
+      const name = oneLine(offer.productName);
+      if (!name) return "";
+      const aliases = offer.commercial.aliases.map(oneLine).filter(Boolean);
+      return aliases.length ? `${name} (alias: ${aliases.join(", ")})` : name;
     })
     .filter(Boolean);
-  if (!modes.length) {
-    return `Valores de modo_pago: el texto libre de la estructura final aceptada. Si no hay evidencia: null.${
-      commissions.length ? `\n${commissions.join("\n")}` : ""
-    }`;
+}
+
+export function paePaymentLines(offers: OfferForCrm[]) {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  for (const offer of offers) {
+    for (const mode of offer.commercial.paymentModes) {
+      const name = oneLine(mode.name);
+      if (!name) continue;
+      const details = oneLine(mode.details);
+      const line = details ? `${name} — ${details}` : name;
+      if (seen.has(line)) continue;
+      seen.add(line);
+      lines.push(line);
+    }
   }
-  return `Valores de modo_pago: usa el nombre de la estructura de la oferta que coincida.
-${modes.join("\n")}
-${commissions.length ? `${commissions.join("\n")}\n` : ""}Si el lead aceptó una estructura que no está en la lista, descríbela breve. CONTADO = valor final pagado completo. RESERVA = pago parcial confirmado con saldo. El modo_pago debe poder emparejarse con un tramo de comisión si existe.`;
+  return lines;
+}
+
+function replacePaeList(protocol: string, pattern: RegExp, lines: string[]) {
+  const match = protocol.match(pattern);
+  if (!match || match.index == null) {
+    throw new Error("El protocolo PAE no contiene el bloque que hay que sustituir.");
+  }
+  const newline = match[0].includes("\r\n") ? "\r\n" : "\n";
+  return (
+    protocol.slice(0, match.index) +
+    lines.join(newline) +
+    protocol.slice(match.index + match[0].length)
+  );
+}
+
+/** Protocolo PAE literal. Solo cambia la lista de productos y la de modos de pago. */
+export function renderPaeProtocol(offers: OfferForCrm[]) {
+  const withProducts = replacePaeList(
+    PROTOCOLO_EXTRACTOR_COMERCIAL_PAE,
+    PAE_PRODUCT_LIST,
+    paeProductLines(offers),
+  );
+  return replacePaeList(withProducts, PAE_PAYMENT_LIST, paePaymentLines(offers));
 }
 
 export function buildExtractorPrompt(args: {
@@ -174,175 +180,79 @@ export function buildExtractorPrompt(args: {
   readyCrm: boolean;
   hints?: string | null;
 }) {
-  const productos = productBlock(args.offers);
-  const pagos = paymentBlock(args.offers);
-  const moneyNote = args.readyCrm
-    ? "Puedes extraer producto, montos y modo de pago."
-    : "NO hay oferta CRM lista. Extrae identidad y estado_agenda (SHOW / NO SHOW / REPROGRAMA / AGENDADO). Deja producto, montos y modo_pago en null.";
+  const protocol = renderPaeProtocol(args.offers);
+  const products = paeProductLines(args.offers);
+  const payments = paePaymentLines(args.offers);
+  const hints = args.hints?.trim();
+  const appendix = [
+    PAE_APPENDIX_MARKER,
+    "Lo anterior es el protocolo PAE completo.",
+    "Esta sección no forma parte de ese documento y no modifica sus secciones.",
+    "Normalización, segunda pasada, confianza y el principio de nunca inventar quedan como están en el PAE.",
+    "",
+    "ESTADOS DE AGENDA ADICIONALES",
+    "Además de SHOW, CIERRE VENTA, REPROGRAMA y NO SHOW:",
+    "",
+    "AGENDADO",
+    "La llamada todavía no ocurre. Solo si el texto es una agenda futura, no una llamada ya hecha.",
+    "",
+    "ACUERDO SIN PAGO",
+    "Acuerdo definitivo (producto, precio y modo) pero el pago se hará fuera de la llamada. No es CIERRE VENTA.",
+    "",
+    "INTERNA",
+    "Coaching, práctica, roleplay, auditoría de llamadas, junta de equipo o directivos, feedback entre closers. No hay un prospecto comprando ahora.",
+    "Si están ensayando o revisando llamadas, es INTERNA, aunque hablen de ventas o de un programa.",
+    "",
+    "NO_COMERCIAL",
+    "Personal, operativa, logística, o no se está vendiendo nada.",
+    "",
+    "Si es INTERNA o NO_COMERCIAL: estado_agenda ese valor, confianza >= 95, producto, montos, pago y seguimiento en null, requiere_seguimiento = false. cliente_real puede ser con quién se practicó, o null. notas_crm = una frase de qué tipo de sesión fue.",
+    "",
+    "CAMPOS ADICIONALES",
+    "calificado: true, false o null.",
+    `razon_no_cierre: uno de ${RAZONES_NO_CIERRE.join(" | ")} o null.`,
+    `etapa_perdida: uno de ${ETAPAS_PERDIDAS.join(" | ")} o null.`,
+    "canal_contacto: ZOOM | MEET | WHATSAPP | LLAMADA | PRESENCIAL, o null.",
+    "telefono: si aparece en la llamada, si no null.",
+    "email: si aparece en la llamada, si no null.",
+    "",
+    "El JSON de salida sigue siendo uno solo, sin texto alrededor.",
+    "Incluye todas las claves de la sección 28 del PAE y, al final, estas claves:",
+    '"calificado": null',
+    '"razon_no_cierre": null',
+    '"etapa_perdida": null',
+    '"canal_contacto": null',
+    '"telefono": null',
+    '"email": null',
+    "estado_agenda puede usar también AGENDADO, ACUERDO SIN PAGO, INTERNA o NO_COMERCIAL.",
+    "venta_total, cash_collected y saldo_pendiente son números o null, sin símbolos.",
+    "Dentro de los textos no uses comillas dobles.",
+    "",
+    "DATOS YA CONOCIDOS DE ESTA LLAMADA",
+    `FECHA_LLAMADA: ${args.fechaLlamada || "null"}`,
+    "Si FECHA_LLAMADA es null, no la inventes.",
+    `Título / archivo: ${args.title}`,
+    products.length ? null : "La lista de productos del PAE está vacía. producto = null.",
+    payments.length ? null : "La lista de modos de pago del PAE está vacía. modo_pago = null.",
+    args.readyCrm
+      ? null
+      : "No hay oferta CRM lista. Deja producto, venta_total, cash_collected, saldo_pendiente y modo_pago en null.",
+    hints
+      ? [
+          "",
+          "CORRECCIONES DE ESTE CLOSER",
+          hints,
+          "Si el caso coincide, clasifica así con confianza >= 95. No le pidas al closer que reconfirme.",
+        ].join("\n")
+      : null,
+    "",
+    "TRANSCRIPCIÓN:",
+    args.transcript.slice(0, 24000),
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
 
-  return `Eres “Extractor Comercial IA”. Tu única función es transformar transcripciones de llamadas comerciales en datos estructurados, verificables y seguros para un CRM.
-
-PRINCIPIO CENTRAL
-Nunca inventes información. Es preferible null antes que un dato incorrecto.
-Analiza la llamada completa antes de emitir una conclusión.
-
-${moneyNote}
-${
-  args.hints?.trim()
-    ? `
-==================================================
-CORRECCIONES DE ESTE CLOSER
-==================================================
-${args.hints.trim()}
-Si el caso coincide, clasifica así con confianza >= 95. No le pidas al closer que reconfirme.`
-    : ""
-}
-
-==================================================
-FASE 1 — NORMALIZACIÓN OBLIGATORIA
-==================================================
-Antes del análisis comercial, normaliza internamente la transcripción.
-NO hagas un resumen. Convierte VTT/Zoom/Fathom en una conversación limpia y cronológica.
-Elimina únicamente ruido técnico (numeración VTT, timestamps, metadata, IDs, segmentos consecutivos del mismo hablante).
-NO elimines contenido comercial. Conserva especialmente el tramo final.
-FECHA_LLAMADA conocida: ${args.fechaLlamada || "null (no inventar)"}.
-Título / archivo: ${args.title}
-
-==================================================
-FASE 2 — ANÁLISIS COMERCIAL
-==================================================
-Reconstruye cronológicamente: identidad, diagnóstico, pitch, producto, precios, objeciones, negociación, acuerdo final, pagos, saldo, seguimiento.
-
-Nunca confundas:
-precio mencionado ≠ oferta ≠ valor contractual final ≠ pago prometido ≠ pago ejecutado.
-
-CASH COLLECTED = dinero efectivamente cobrado DURANTE ESTA llamada. No pagos históricos. No “lo hago esta tarde”.
-Enviar un link NO es pago. “Lo hago ahora” NO es pago.
-
-SEGUNDA PASADA OBLIGATORIA del último 25%: acuerdo final, precio final, pago, comprobante, bienvenida, siguiente reunión, FECHA de seguimiento.
-
-==================================================
-ESTADO AGENDA
-==================================================
-Valores permitidos:
-INTERNA
-NO_COMERCIAL
-SHOW
-CIERRE VENTA
-ACUERDO SIN PAGO
-REPROGRAMA
-NO SHOW
-AGENDADO
-
-ANTES de clasificar como SHOW, decide si esto ni siquiera es una llamada de ventas:
-INTERNA = coaching, práctica, roleplay, auditoría de llamadas, junta de equipo/directivos, feedback entre closers. No hay un prospecto comprando AHORA.
-NO_COMERCIAL = personal, operativa, logistica, o no se está vendiendo nada.
-Si es INTERNA o NO_COMERCIAL: estado_agenda ese valor, confianza >= 95, producto/montos/pago/seguimiento en null, requiere_seguimiento = false. cliente_real puede ser con quién se practicó o null. notas_crm = una frase de qué tipo de sesión fue.
-NO uses SHOW solo porque hablaron de ventas o de un programa: si están ensayando o revisando llamadas, es INTERNA.
-
-Si existe conversación comercial REAL closer↔prospecto (el prospecto está en la llamada para comprar o decidir): estado_agenda = SHOW, confianza mínima 95, aunque falte el final.
-CIERRE VENTA requiere acuerdo definitivo + dinero cobrado EN la llamada.
-ACUERDO SIN PAGO: acuerdo definitivo (producto, precio, modo) pero el pago se hará fuera de la llamada. NO es CIERRE VENTA.
-REPROGRAMA: no se realizó la llamada comercial y se movió.
-NO SHOW: la reunión no ocurrió. Si hay conversación comercial real, nunca NO SHOW.
-AGENDADO: la llamada todavía no ocurre (solo si el texto es una agenda futura, no una llamada ya hecha).
-
-==================================================
-PRODUCTOS
-==================================================
-${productos}
-
-==================================================
-MODO DE PAGO
-==================================================
-${pagos}
-
-==================================================
-SEGUIMIENTO
-==================================================
-requiere_seguimiento: true | false | null
-true = acción comercial futura clara. false = evidencia de que no queda nada. null = insuficiente.
-Nunca uses false solo porque no encontraste seguimiento.
-tipo_seguimiento: SEGUNDA REUNION | PAGO PENDIENTE | DECISION | RETOMAR | OTRO
-proximo_seguimiento: YYYY-MM-DD o YYYY-MM-DD HH:MM. OBLIGATORIO si hay cualquier fecha (absoluta o relativa).
-Usa FECHA_LLAMADA para resolver: “hoy”, “mañana”, “pasado mañana”, “el lunes/martes/…”, “el 20”, “el 20 de septiembre”, “en 3 días”, “la otra semana”.
-Si el closer o el lead dicen “te escribo el jueves” / “nos vemos el lunes” / “te marco mañana”, eso ES una fecha: conviértela. No dejes null.
-Copia en evidencia.seguimiento la frase textual que prueba la fecha.
-Si hay seguimiento claro pero no hay día, proximo_seguimiento = null y requiere_revision_humana no sustituye esa fecha: el hueco es la fecha.
-acuerdo_seguimiento: una frase operativa.
-
-==================================================
-CAMPOS EXTRA (coach)
-==================================================
-calificado: true/false/null
-razon_no_cierre: uno de ${RAZONES_NO_CIERRE.join(" | ")} o null
-etapa_perdida: uno de ${ETAPAS_PERDIDAS.join(" | ")} o null
-canal_contacto: ZOOM | MEET | WHATSAPP | LLAMADA | PRESENCIAL o null
-telefono, email: si aparecen, si no null
-
-==================================================
-CONFIANZA
-==================================================
-95-100 = explícito. 85-94 = evidencia fuerte. 70-84 = ambiguo. 0-69 = insuficiente.
-Si confianza < 85 en un campo CRM, ese campo debe ir null.
-Excepción: estado_agenda = SHOW con conversación real puede ir con confianza >= 95 aunque falte el cierre.
-
-requiere_revision_humana = true si hay riesgo real (final inaccesible, identidad ambigua, posible pago no confirmado).
-
-==================================================
-OUTPUT
-==================================================
-Devuelve ÚNICAMENTE JSON válido. Sin texto alrededor.
-Usa exactamente estas claves:
-
-{
-  "cliente_real": null,
-  "estado_agenda": null,
-  "producto": null,
-  "venta_total": null,
-  "cash_collected": null,
-  "saldo_pendiente": null,
-  "modo_pago": null,
-  "requiere_seguimiento": null,
-  "tipo_seguimiento": null,
-  "proximo_seguimiento": null,
-  "acuerdo_seguimiento": null,
-  "notas_crm": null,
-  "evidencia": {
-    "identidad": null,
-    "cierre": null,
-    "venta_total": null,
-    "cash_collected": null,
-    "modo_pago": null,
-    "seguimiento": null
-  },
-  "confianza": {
-    "cliente_real": 0,
-    "estado_agenda": 0,
-    "producto": 0,
-    "venta_total": 0,
-    "cash_collected": 0,
-    "modo_pago": 0,
-    "requiere_seguimiento": 0,
-    "tipo_seguimiento": 0,
-    "proximo_seguimiento": 0,
-    "acuerdo_seguimiento": 0
-  },
-  "requiere_revision_humana": false,
-  "motivo_revision": null,
-  "calificado": null,
-  "razon_no_cierre": null,
-  "etapa_perdida": null,
-  "canal_contacto": null,
-  "telefono": null,
-  "email": null
-}
-
-venta_total, cash_collected, saldo_pendiente son números o null (sin símbolos).
-Dentro de textos, no uses comillas dobles.
-
-TRANSCRIPCIÓN:
-${args.transcript.slice(0, 24000)}`;
+  return `${protocol}\n\n${appendix}`;
 }
 
 function num(raw: unknown): number | null {
@@ -471,6 +381,7 @@ export function enrichExtractorFollowup(
   args: { transcript?: string | null; callAt?: Date | string | null },
 ) {
   if (isNonSalesCall(parsed.estado_agenda)) return parsed;
+  fillStatedDeal(String(args.transcript || ""), parsed);
   const blobs = [
     parsed.proximo_seguimiento,
     parsed.evidencia.seguimiento,
@@ -481,8 +392,17 @@ export function enrichExtractorFollowup(
     .filter(Boolean)
     .join("\n");
   const inferred = inferFollowupDate(blobs, args.callAt);
-  if (!inferred) return parsed;
-  if (!parsed.proximo_seguimiento || !/^\d{4}-\d{2}-\d{2}/.test(parsed.proximo_seguimiento)) {
+  if (!inferred) {
+    if (parsed.proximo_seguimiento && parsed.requiere_seguimiento == null) {
+      parsed.requiere_seguimiento = true;
+    }
+    return parsed;
+  }
+  const current = parsed.proximo_seguimiento || "";
+  const sameDay = current.slice(0, 10) === inferred.slice(0, 10);
+  const inferredTime = /\d{2}:\d{2}/.test(inferred);
+  const currentTime = /\d{2}:\d{2}/.test(current);
+  if (!current || !/^\d{4}-\d{2}-\d{2}/.test(current) || (inferredTime && sameDay && !currentTime)) {
     parsed.proximo_seguimiento = inferred;
     parsed.confianza.proximo_seguimiento = Math.max(parsed.confianza.proximo_seguimiento, 85);
   }

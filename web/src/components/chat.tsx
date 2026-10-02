@@ -268,11 +268,11 @@ export function Chat() {
 
           {shouldConnect && !isChatRunning && !evaluation && (
             <div className="text-center max-w-md px-4 mb-4 space-y-2">
-              <h2 className="text-xl font-light">Conectando…</h2>
+              <h2 className="text-xl font-light">Conectando… {formatClock(elapsedSec)}</h2>
               <p className="text-sm text-fg2">
-                En cuanto el prospecto esté listo vas a ver{" "}
+                Esto puede tardar un momento. En cuanto el prospecto esté listo vas a ver{" "}
                 <span className="font-medium text-fg1">HABLA</span>. Ahí
-                hablas tú. Si el navegador pide el micrófono, acepta.
+                hablas tú.
               </p>
             </div>
           )}

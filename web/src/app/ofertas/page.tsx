@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Plus, Upload } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 import { parseFollowupScripts } from "@/lib/followup-scripts";
 import {
   commercialRecap,
@@ -162,6 +163,7 @@ export default function OfertasPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se guardó");
+      toast({ title: "Guardé la oferta", duration: 3000 });
       await load(data.offer?.id || null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
@@ -192,6 +194,10 @@ export default function OfertasPage() {
       }
       setReview(null);
       setOfferBlob("");
+      toast({
+        title: offers.length > 1 ? `Guardé ${offers.length} ofertas` : "Guardé la oferta",
+        duration: 3000,
+      });
       await load(lastId || null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");

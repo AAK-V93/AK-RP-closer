@@ -281,6 +281,13 @@ export function commercialRecap(commercial: OfferCommercial): string {
   if (commercial.listPrice) {
     bits.push(`lista ${commercial.currency} ${commercial.listPrice}`);
   }
+  for (const alt of commercial.altPrices) {
+    if (alt.amount == null && !alt.label) continue;
+    const label = alt.label.replace(/^precio\s+especial\s+/i, "").trim() || "precio";
+    bits.push(
+      alt.amount != null ? `${label} ${commercial.currency} ${alt.amount}` : label,
+    );
+  }
   if (commercial.paymentModes.length) {
     bits.push(commercial.paymentModes.map((row) => row.name).join(", "));
   }

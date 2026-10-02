@@ -92,7 +92,7 @@ export function operacionFromCall(
       asStr(filing.canal_contacto).toUpperCase() ||
       asStr(lead?.canalContacto).toUpperCase(),
     estadoAgenda: asStr(call.estadoAgenda).toUpperCase() || asStr(filing.estado_agenda).toUpperCase(),
-    fechaProximo: asStr(filing.proximo_seguimiento).slice(0, 10),
+    fechaProximo: asStr(filing.proximo_seguimiento).replace("T", " ").slice(0, 16),
     producto: asStr(filing.producto) || asStr(call.offerName),
     oferta: asStr(call.offerName),
     venta: call.ventaTotal ?? asNum(filing.venta_total),

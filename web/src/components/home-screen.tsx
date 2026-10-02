@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import type { HomeState } from "@/lib/home-state";
+import { moneyLabel } from "@/lib/crm-operacion";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 
 export function HomeScreen() {
@@ -415,6 +416,12 @@ function ConfiguredC({
         saving={savingGoal}
         onSaveGoal={saveGoal}
       />
+      {snapshot?.now && (
+        <p className="text-sm text-fg3">
+          Dinero en juego {moneyLabel(snapshot.now.dineroEnJuego || 0)} ·{" "}
+          {snapshot.now.oportunidadesActivas || 0} leads activos
+        </p>
+      )}
       <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
       <div>
         <h2 className="text-sm text-fg3">Qué hacer</h2>
@@ -431,6 +438,7 @@ function ConfiguredC({
             status={desk?.followupStatus || "Todo al día"}
           />
           <HomeRow href="/coach" title="Coach" status={desk?.coachStatus || "Sin novedades"} />
+          <HomeRow href="/ofertas" title="Oferta" status="Precios, pagos y comisión" />
         </div>
       </div>
       <HubChat variant="dock" initialSnapshot={snapshot} />

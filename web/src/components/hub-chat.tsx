@@ -42,6 +42,10 @@ export type HubSnapshot = {
   monthlyGoalUsd?: number | null;
   needsMonthlyGoal?: boolean;
   projection?: CommissionProjection | null;
+  now?: {
+    dineroEnJuego?: number;
+    oportunidadesActivas?: number;
+  };
   pendingOfferExtract?: {
     assumption: "una" | "varias";
     questions: string[];

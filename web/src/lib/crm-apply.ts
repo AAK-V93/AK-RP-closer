@@ -7,6 +7,7 @@ import {
 import { openFollowupThread } from "@/lib/followup-threads";
 import { generateGeminiJson } from "@/lib/gemini";
 import {
+  enrichExtractorFollowup,
   extractorGap,
   extractorOneLiner,
   isExtractorJson,
@@ -24,7 +25,7 @@ import {
 } from "@/lib/offer-commercial";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { addDays, parseCrmPrefs, parseFollowupDate } from "@/lib/crm-prefs";
-import { inferFollowupDate } from "@/lib/followup-date";
+import { inferCallDate, inferFollowupDate } from "@/lib/followup-date";
 import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
 import { recordExtractorFeedback } from "@/lib/extractor-feedback";
 
@@ -285,6 +286,7 @@ export async function applyExtractorToCrm(
   callRecordId: string,
   parsed: ExtractorJson,
   offers: OfferForCrm[],
+  followupOnly = false,
 ) {
   const readyCrm = userHasReadyCrm(offers);
   const prefs = parseCrmPrefs(
@@ -358,6 +360,10 @@ export async function applyExtractorToCrm(
       });
     }
 
+    if (followupOnly) {
+      return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed) };
+    }
+
     if (moneyOk && cash && cash > 0) {
       await upsertCommission(prisma, {
         userId,
@@ -377,6 +383,10 @@ export async function applyExtractorToCrm(
       recordedAt: callAt,
       estado: parsed.estado_agenda,
     });
+  }
+
+  if (followupOnly) {
+    return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed) };
   }
 
   const summary = extractorOneLiner(parsed);
@@ -577,6 +587,80 @@ export async function confirmExtractorFiling(
   }
   const applied = await applyExtractorToCrm(prisma, userId, row.id, parsed, offers);
   return { gap: null, parsed, applied: true as const, callRecordId, summary: applied?.summary };
+}
+
+async function refillFromTranscript(
+  prisma: PrismaClient,
+  userId: string,
+  call: { id: string; sourceId: string; title: string; recordedAt: Date | null },
+  parsed: ExtractorJson,
+) {
+  const missingMoney = parsed.venta_total == null || !parsed.modo_pago;
+  const missingClock = Boolean(parsed.proximo_seguimiento) && !/\d{2}:\d{2}/.test(parsed.proximo_seguimiento || "");
+  const pasted = /^pegado\b/i.test(call.title);
+  if (!call.sourceId || (!missingMoney && !missingClock && !pasted)) return;
+  const transcript = await prisma.clientTranscript.findFirst({
+    where: { id: call.sourceId, userId },
+    select: { transcriptText: true },
+  });
+  if (!transcript?.transcriptText) return;
+  const callAt = (pasted ? inferCallDate(transcript.transcriptText) : null) || call.recordedAt;
+  enrichExtractorFollowup(parsed, { transcript: transcript.transcriptText, callAt });
+  await prisma.callRecord.update({
+    where: { id: call.id },
+    data: {
+      title: pasted && parsed.cliente_real ? parsed.cliente_real : call.title,
+      recordedAt: callAt || undefined,
+      leadName: parsed.cliente_real || undefined,
+      ventaTotal: parsed.venta_total,
+      cashCollected: parsed.cash_collected,
+      saldoPendiente: parsed.saldo_pendiente,
+      modoPago: parsed.modo_pago || "",
+      filingJson: parsed as unknown as Prisma.InputJsonValue,
+    },
+  });
+  if (pasted && parsed.cliente_real) {
+    await prisma.clientTranscript.updateMany({
+      where: { id: call.sourceId, userId },
+      data: { title: parsed.cliente_real },
+    });
+  }
+}
+
+/** Opens a thread for calls that already named a follow-up but never spawned one. */
+export async function repairMissingFollowups(prisma: PrismaClient, userId: string) {
+  const offers = await loadOffersForCrm(prisma, userId);
+  const [calls, threads, leads] = await Promise.all([
+    prisma.callRecord.findMany({
+      where: { userId, filingStatus: { in: ["confirmed", "pending"] } },
+      orderBy: { recordedAt: "desc" },
+      take: 300,
+    }),
+    prisma.followupThread.findMany({
+      where: { userId, estado: "activo" },
+      select: { leadId: true },
+    }),
+    prisma.lead.findMany({ where: { userId } }),
+  ]);
+  const covered = new Set(threads.map((row) => row.leadId));
+  const seen = new Set<string>();
+  for (const call of calls) {
+    if (!isExtractorJson(call.filingJson)) continue;
+    const parsed = parseExtractorJson(call.filingJson);
+    if (!parsed.cliente_real || isNonSalesCall(parsed.estado_agenda)) continue;
+    if (!parsed.proximo_seguimiento && parsed.requiere_seguimiento !== true) continue;
+    const key = parsed.cliente_real.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    const lead = findMatchingLead(leads, parsed.cliente_real);
+    if (lead && covered.has(lead.id)) {
+      seen.add(key);
+      continue;
+    }
+    await refillFromTranscript(prisma, userId, call, parsed);
+    const opened = await applyExtractorToCrm(prisma, userId, call.id, parsed, offers, true);
+    seen.add(key);
+    if (opened?.leadId) covered.add(opened.leadId);
+  }
 }
 
 export { extractorGap, extractorOneLiner, isExtractorJson, parseExtractorJson };

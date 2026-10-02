@@ -39,6 +39,22 @@ export function ConnectButton() {
 
     setConnecting(true);
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Este navegador no deja usar el micrófono.");
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } catch (micError) {
+        const name = micError instanceof DOMException ? micError.name : "";
+        if (name === "NotFoundError") {
+          throw new Error("No encuentro un micrófono. Conecta uno o revisa los permisos del navegador.");
+        }
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          throw new Error("El navegador bloqueó el micrófono. Permítelo para entrar a la práctica.");
+        }
+        throw new Error("No pude usar el micrófono. Revisa que esté conectado y permitido.");
+      }
       await connect();
     } catch (error) {
       const code =

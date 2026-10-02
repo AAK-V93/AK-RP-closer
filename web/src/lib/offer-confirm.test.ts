@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { emptyCommercial } from "./offer-commercial";
+import { commercialRecap, emptyCommercial } from "./offer-commercial";
 import {
   allOfferBlocksConfirmed,
   applyOfferBlockPatch,
@@ -48,4 +48,24 @@ test("all blocks must be marked before save", () => {
     confirmed[confirmKey(0, block.id)] = true;
   }
   assert.equal(allOfferBlocksConfirmed(1, confirmed), true);
+});
+
+test("cash price stays in the recap and plazo is not doubled", () => {
+  const commercial = emptyCommercial();
+  commercial.listPrice = 11800;
+  commercial.altPrices = [{ label: "Precio especial contado 7 días", amount: 10000 }];
+  commercial.deadlines = [{ name: "Plazo pago contado 7 días", days: 7, appliesTo: "" }];
+  const offer = {
+    productName: "Círculo Millonario",
+    productDescription: "",
+    pitchSummary: "",
+    icp: "",
+    commercial,
+  };
+  const prices = offerConfirmBlocks(offer).find((row) => row.id === "prices");
+  const payments = offerConfirmBlocks(offer).find((row) => row.id === "payments");
+  assert.match(prices?.summary || "", /Contado a 7 días/);
+  assert.match(prices?.summary || "", /10000/);
+  assert.doesNotMatch(payments?.summary || "", /Plazo Plazo/);
+  assert.match(commercialRecap(commercial), /10000/);
 });

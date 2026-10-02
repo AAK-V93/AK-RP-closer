@@ -26,6 +26,13 @@ export type OfferConfirmBlock = {
   hint?: string;
 };
 
+function priceLabel(label: string) {
+  const cleaned = label.replace(/^precio\s+especial\s+/i, "").trim();
+  if (/contado/i.test(cleaned) && /7/.test(cleaned)) return "Contado a 7 días";
+  if (/^contado$/i.test(cleaned)) return "Contado";
+  return cleaned || "Precio";
+}
+
 function money(currency: string, amount: number | null) {
   if (amount == null) return "";
   return `${currency} ${amount}`;
@@ -39,7 +46,7 @@ function priceLines(commercial: OfferCommercial) {
   for (const row of commercial.altPrices) {
     if (!row.label && row.amount == null) continue;
     lines.push(
-      [row.label || "precio", row.amount != null ? money(commercial.currency, row.amount) : ""]
+      [priceLabel(row.label), row.amount != null ? money(commercial.currency, row.amount) : ""]
         .filter(Boolean)
         .join(": "),
     );
@@ -53,9 +60,13 @@ function paymentLines(commercial: OfferCommercial) {
     lines.push([row.name, row.details].filter(Boolean).join(" — "));
   }
   for (const row of commercial.deadlines) {
-    const days = row.days ? `${row.days} días` : "";
+    const name = row.name.replace(/^(plazo\s*)+/i, "");
+    const days =
+      row.days && !new RegExp(`\\b${row.days}\\s*d[ií]as?\\b`, "i").test(name)
+        ? `${row.days} días`
+        : "";
     const applies = row.appliesTo ? `(${row.appliesTo})` : "";
-    lines.push(["Plazo", row.name, days, applies].filter(Boolean).join(" "));
+    lines.push(["Plazo", name, days, applies].filter(Boolean).join(" "));
   }
   return lines;
 }

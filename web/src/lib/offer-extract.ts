@@ -25,7 +25,7 @@ La comisión A MENUDO NO es un % fijo. Puede depender de:
 
 Copia la regla en "notes" con las palabras del closer/documento. Si hay tramos, llénalos en "tiers". NO inventes 3% ni umbral 70,000. Si no hay comisión, commission = null. Nunca asumas comisión.
 
-Después de extraer, llena "questions" (2-4) para que el closer confirme: nombres exactos, si es una o varias, y si juntaste o separaste mal.
+Después de extraer, llena "questions" (2-4) concretas y afirmativas. No preguntes en negativo ni "¿se debe confirmar…?". Di lo que entendiste y pregunta si es así. Ejemplo: "La comisión queda en 10% sobre lo cobrado. ¿Es así?"
 
 Responde SOLO JSON:
 {

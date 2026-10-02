@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   advanceThread,
   lastTouchText,
+  nextActionText,
   pickThreadKind,
   type ThreadAnchors,
 } from "./followup-machine";
@@ -25,6 +26,29 @@ test("a show without a close opens a decision thread on step 0", () => {
     }),
     "DECISION",
   );
+});
+
+test("a close with a follow-up date and no balance still opens a decision thread", () => {
+  assert.equal(
+    pickThreadKind({
+      estado_agenda: "CIERRE VENTA",
+      requiere_seguimiento: null,
+      tipo_seguimiento: null,
+      proximo_seguimiento: "2026-10-05 16:00",
+      calificado: null,
+      saldo_pendiente: 0,
+      venta_total: 10000,
+      cash_collected: 10000,
+    }),
+    "DECISION",
+  );
+});
+
+test("an overdue step is vencido and a same-day step is pendiente de hoy", () => {
+  const due = new Date("2026-09-26T15:00:00.000Z");
+  const now = new Date("2026-10-01T15:00:00.000Z");
+  assert.match(nextActionText("Escribir", due, now, false), /vencido/);
+  assert.match(nextActionText("Escribir", now, now, false), /pendiente de hoy/);
 });
 
 test("marking done moves the decision thread to the next coded step", () => {

@@ -18,6 +18,7 @@ import {
 } from "@/lib/offer-resolve";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
+import { inferCallDate } from "@/lib/followup-date";
 import {
   loadExtractorPattern,
   loadOfferAmountBands,
@@ -107,7 +108,10 @@ export async function classifyAndFileCall(
 
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
-  const fecha = args.recordedAt ? args.recordedAt.toISOString().slice(0, 10) : null;
+  const pasted = /^pegado\b/i.test(args.title);
+  const recordedAt =
+    (pasted ? inferCallDate(args.transcript) : null) || args.recordedAt || null;
+  const fecha = recordedAt ? recordedAt.toISOString().slice(0, 10) : null;
   const learned = await loadOfferAmountBands(prisma, userId);
   const parsed = enrichExtractorFollowup(
     await runExtractor({
@@ -118,7 +122,7 @@ export async function classifyAndFileCall(
       readyCrm,
       hints: [pattern?.summary, offerLearningHint(learned)].filter(Boolean).join("\n") || null,
     }),
-    { transcript: args.transcript, callAt: args.recordedAt },
+    { transcript: args.transcript, callAt: recordedAt },
   );
   if (!isNonSalesCall(parsed.estado_agenda)) {
     const resolution = resolveOfferAssignment({
@@ -137,6 +141,8 @@ export async function classifyAndFileCall(
   const auto = !gap;
   const summary = auto ? extractorOneLiner(parsed) : gap?.question || extractorOneLiner(parsed);
   const filingStatus = nonSales ? "skipped" : auto ? "confirmed" : "pending";
+  const title =
+    parsed.cliente_real && pasted ? parsed.cliente_real : args.title;
 
   const row = await prisma.callRecord.upsert({
     where: {
@@ -150,13 +156,13 @@ export async function classifyAndFileCall(
       userId,
       source: args.source,
       sourceId: args.sourceId,
-      title: args.title,
+      title,
       callType: parsed.estado_agenda || "",
       result: "",
       leadName: parsed.cliente_real || "",
       offerName: parsed.producto || "",
       trainsBot: trainsBotFromType(parsed.estado_agenda || ""),
-      recordedAt: args.recordedAt || new Date(),
+      recordedAt: recordedAt || new Date(),
       summary,
       filingStatus,
       filingJson: parsed as unknown as Prisma.InputJsonValue,
@@ -168,12 +174,12 @@ export async function classifyAndFileCall(
       modoPago: parsed.modo_pago || "",
     },
     update: {
-      title: args.title,
+      title,
       callType: parsed.estado_agenda || "",
       leadName: parsed.cliente_real || "",
       offerName: parsed.producto || "",
       trainsBot: trainsBotFromType(parsed.estado_agenda || ""),
-      recordedAt: args.recordedAt || undefined,
+      recordedAt: recordedAt || undefined,
       summary,
       filingStatus,
       filingJson: parsed as unknown as Prisma.InputJsonValue,
@@ -186,12 +192,23 @@ export async function classifyAndFileCall(
     },
   });
 
-  if (auto && !nonSales) {
+  if (parsed.cliente_real && pasted) {
+    await prisma.clientTranscript.updateMany({
+      where: { id: args.sourceId, userId },
+      data: { title: parsed.cliente_real },
+    });
+  }
+
+  if (!nonSales && parsed.cliente_real && (parsed.proximo_seguimiento || parsed.requiere_seguimiento === true)) {
+    await applyExtractorToCrm(prisma, userId, row.id, parsed, offers, !auto);
+  } else if (auto && !nonSales) {
     await applyExtractorToCrm(prisma, userId, row.id, parsed, offers);
+  }
+  if (auto && !nonSales) {
     const { fulfillAgendado } = await import("@/lib/agenda");
     await fulfillAgendado(prisma, userId, {
       leadName: parsed.cliente_real || row.leadName,
-      recordedAt: args.recordedAt || row.recordedAt,
+      recordedAt: recordedAt || row.recordedAt,
       estado: parsed.estado_agenda,
     });
   }

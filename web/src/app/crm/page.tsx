@@ -9,6 +9,7 @@ import { FollowupPicker, type FollowupOptionView } from "@/components/followup-p
 import { BarChart } from "@/components/bar-chart";
 import { HelpNote, MetricCard, SectionHeading } from "@/components/metric-card";
 import { ProjectionCard } from "@/components/projection-card";
+import { CrmAsk } from "@/components/crm-ask";
 import { SheetTable, sheetCell, type SheetColumn } from "@/components/crm-sheet";
 import { Input } from "@/components/ui/input";
 import type { OperacionRow } from "@/lib/crm-operacion";
@@ -310,7 +311,8 @@ export default function CrmPage() {
         ) : !data ? (
           <p className="text-sm text-fg3">Cargando…</p>
         ) : (
-          <>
+          <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-4">
+          <div className="min-w-0 space-y-4">
             {!data.readyCrm && (
               <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2">
                 <p className="text-sm">
@@ -447,7 +449,9 @@ export default function CrmPage() {
                 }
               />
             )}
-          </>
+          </div>
+          <CrmAsk rows={followupsBase} money={(value) => money(value)} />
+          </div>
         )}
       </div>
     </AppShell>
@@ -896,9 +900,11 @@ function SeguimientosSheet({
                       ["cerro", "Cerró"],
                     ] as const
                   )
-                : selected.hilo === "SEGUNDA_REUNION"
+                  : selected.hilo === "SEGUNDA_REUNION"
                   ? (
                       [
+                        ["hecho", "Hecho"],
+                        ["no_contesto", "No contestó"],
                         ["mostro", "Mostró"],
                         ["no_mostro", "No mostró"],
                         ["perdido", "Perdido"],

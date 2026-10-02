@@ -118,7 +118,8 @@ export function pickThreadKind(parsed: ExtractorSituation): ThreadTipo | null {
   if (estado === "REPROGRAMA" || tipo.includes("SEGUNDA")) return "SEGUNDA_REUNION";
   if (closed && hasSaldo) return "COBRANZA";
   if (estado === "SHOW" && intention) return "DECISION";
-  if (parsed.requiere_seguimiento === true && !parsed.proximo_seguimiento) return "RETOMAR";
+  if (parsed.proximo_seguimiento) return "DECISION";
+  if (parsed.requiere_seguimiento === true) return "RETOMAR";
   return null;
 }
 
@@ -135,7 +136,7 @@ function shift(base: Date, days: number, hours = 0) {
   return new Date(base.getTime() + days * DAY + hours * 3_600_000);
 }
 
-export function stepDue(step: StepDef, anchors: ThreadAnchors, now: Date) {
+export function stepDue(step: StepDef, anchors: ThreadAnchors, _now: Date) {
   let due = anchors.start;
   if (step.from === "start") due = shift(anchors.start, step.days, step.hours || 0);
   if (step.from === "beforePago") {
@@ -145,7 +146,7 @@ export function stepDue(step: StepDef, anchors: ThreadAnchors, now: Date) {
   if (step.from === "beforeMeeting") {
     due = shift(anchors.meetingAt || shift(anchors.start, 1), -step.days);
   }
-  return due.getTime() < now.getTime() ? now : due;
+  return due;
 }
 
 export function pasoLabel(paso: number, total: number) {
@@ -173,8 +174,11 @@ export function lastTouchText(fecha: Date | null, resultado: string, now: Date) 
 
 export function nextActionText(accion: string, due: Date, now: Date, askLost: boolean) {
   if (askLost) return "preguntar si se perdió";
-  const pending = due.getTime() <= now.getTime();
-  return pending ? `${accion} · pendiente de hoy` : accion;
+  const dueKey = due.toISOString().slice(0, 10);
+  const todayKey = now.toISOString().slice(0, 10);
+  if (dueKey < todayKey) return `${accion} · vencido`;
+  if (due.getTime() <= now.getTime()) return `${accion} · pendiente de hoy`;
+  return accion;
 }
 
 export type AdvanceResult = {

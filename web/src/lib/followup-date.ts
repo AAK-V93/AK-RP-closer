@@ -64,9 +64,36 @@ export function quickFollowupIso(
   return isoDay(nextWeekday(base, friday));
 }
 
+function clockFromText(raw: string) {
+  const folded = fold(raw);
+  const ampm = folded.match(/\b(\d{1,2})(?::(\d{2}))?\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\b/);
+  if (ampm) {
+    let hour = Number(ampm[1]);
+    const minute = ampm[2] || "00";
+    const pm = /p/.test(ampm[3]);
+    if (pm && hour < 12) hour += 12;
+    if (!pm && hour === 12) hour = 0;
+    if (hour >= 0 && hour <= 23) return `${String(hour).padStart(2, "0")}:${minute}`;
+  }
+  const alas = folded.match(/\ba las\s+(\d{1,2})(?::(\d{2}))?\b/);
+  if (alas) {
+    const hour = Number(alas[1]);
+    if (hour >= 0 && hour <= 23) return `${String(hour).padStart(2, "0")}:${alas[2] || "00"}`;
+  }
+  const hhmm = raw.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+  if (hhmm) return `${hhmm[1].padStart(2, "0")}:${hhmm[2]}`;
+  return null;
+}
+
+function withClock(day: string | null, raw: string) {
+  if (!day) return null;
+  const clock = clockFromText(raw);
+  return clock ? `${day} ${clock}` : day;
+}
+
 function parseIsoLike(raw: string) {
   const iso = raw.match(/\b(20\d{2}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?\b/);
-  if (iso) return iso[1];
+  if (iso) return iso[2] ? `${iso[1]} ${iso[2]}` : iso[1];
   const dmy = raw.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
   if (dmy) {
     const day = dmy[1].padStart(2, "0");
@@ -107,11 +134,14 @@ export function inferFollowupDate(text: string, callAt?: Date | string | null) {
         : utcDay(new Date());
   if (Number.isNaN(base.getTime())) return null;
 
+  const appointed = dayMonthWithClock(raw, base) || weekdayWithClock(raw, base);
+  if (appointed) return appointed;
+
   const iso = parseIsoLike(raw);
   if (iso) return iso;
 
   const spanish = parseSpanishDay(raw, base);
-  if (spanish) return spanish;
+  if (spanish) return withClock(spanish, raw);
 
   const folded = fold(raw);
   if (/\bhoy\b/.test(folded)) return isoDay(base);
@@ -129,8 +159,92 @@ export function inferFollowupDate(text: string, callAt?: Date | string | null) {
   );
   if (weekday) {
     const idx = WEEKDAYS[weekday[1]];
-    if (idx != null) return isoDay(nextWeekday(base, idx));
+    if (idx != null) return withClock(isoDay(nextWeekday(base, idx)), raw);
   }
 
   return null;
+}
+
+const MONTH_WORD =
+  "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|sept|oct|nov|dic";
+
+function monthIndex(word: string) {
+  const full: Record<string, number> = {
+    ene: 0,
+    feb: 1,
+    mar: 2,
+    abr: 3,
+    may: 4,
+    jun: 5,
+    jul: 6,
+    ago: 7,
+    sep: 8,
+    sept: 8,
+    oct: 9,
+    nov: 10,
+    dic: 11,
+  };
+  return MONTHS[word] ?? full[word] ?? null;
+}
+
+function dayMonthWithClock(raw: string, base: Date) {
+  const folded = fold(raw);
+  const re = new RegExp(`\\b(\\d{1,2})\\s+(?:de\\s+)?(${MONTH_WORD})\\b`, "g");
+  let hit: RegExpExecArray | null;
+  while ((hit = re.exec(folded))) {
+    const window = folded.slice(Math.max(0, hit.index - 24), hit.index + hit[0].length + 24);
+    const clock = clockFromText(window);
+    if (!clock) continue;
+    const day = Number(hit[1]);
+    const month = monthIndex(hit[2]);
+    if (!Number.isFinite(day) || month == null || day < 1 || day > 31) continue;
+    let year = base.getUTCFullYear();
+    let date = new Date(Date.UTC(year, month, day));
+    if (date.getTime() < base.getTime() - 12 * 3600 * 1000) {
+      year += 1;
+      date = new Date(Date.UTC(year, month, day));
+    }
+    return `${isoDay(date)} ${clock}`;
+  }
+  return null;
+}
+
+function weekdayWithClock(raw: string, base: Date) {
+  const folded = fold(raw);
+  const re =
+    /\b(?:el|este|para\s+el)?\s*(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/g;
+  let hit: RegExpExecArray | null;
+  while ((hit = re.exec(folded))) {
+    const window = folded.slice(Math.max(0, hit.index - 12), hit.index + hit[0].length + 24);
+    const clock = clockFromText(window);
+    if (!clock) continue;
+    const idx = WEEKDAYS[hit[1]];
+    if (idx == null) continue;
+    return `${isoDay(nextWeekday(base, idx))} ${clock}`;
+  }
+  return null;
+}
+
+/** A calendar day written in the transcript, used as the call date when the file was pasted. */
+export function inferCallDate(text: string, now = new Date()): Date | null {
+  const raw = String(text || "");
+  const dmy = raw.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
+  if (dmy) {
+    const date = new Date(Date.UTC(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]), 12, 0, 0));
+    if (!Number.isNaN(date.getTime()) && date.getTime() <= now.getTime() + 36 * 3_600_000) return date;
+  }
+  const named = fold(raw).match(
+    /\b(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\s+de\s+(20\d{2}))?\b/,
+  );
+  if (!named) return null;
+  const day = Number(named[1]);
+  const month = MONTHS[named[2]];
+  if (month == null) return null;
+  const year = named[3] ? Number(named[3]) : now.getUTCFullYear();
+  let date = new Date(Date.UTC(year, month, day, 12, 0, 0));
+  if (date.getTime() > now.getTime() + 36 * 3_600_000) {
+    date = new Date(Date.UTC(year - 1, month, day, 12, 0, 0));
+  }
+  if (Number.isNaN(date.getTime()) || date.getTime() > now.getTime() + 36 * 3_600_000) return null;
+  return date;
 }
