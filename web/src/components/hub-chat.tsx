@@ -97,7 +97,7 @@ export function HubChat({
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/hub")
+    fetch("/api/hub?view=chat")
       .then(async (r) => {
         const data = await r.json();
         if (cancelled) return;

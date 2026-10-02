@@ -144,6 +144,64 @@ test("new imports drop Sí, a price label, an inferred sale and a stamp clock", 
   assert.equal(canonicalProducto("MENTORIAS", ["Círculo Millonario"]), "MENTORIAS");
 });
 
+test("a repaired próximo is stable, so the next dashboard load does not write it again", () => {
+  const offers = ["Círculo Millonario"];
+  const first = planCallRepair(
+    alejandro({
+      offerName: "Círculo Millonario",
+      ventaTotal: null,
+      saldoPendiente: null,
+      filingJson: {
+        producto: "Círculo Millonario",
+        tipo_seguimiento: "DECISION",
+        proximo_seguimiento: "2026-10-08T17:00:00.000Z",
+        acuerdo_seguimiento: "seguimos el 8 de octubre a las 5 pm",
+        notas_crm: "quedó para las 5",
+        evidencia: { seguimiento: "a las 5 pm, no es un sello de transcripción" },
+      },
+    }),
+    offers,
+  );
+  assert.ok(first);
+  const stored = {
+    ...alejandro({
+      offerName: first.offerName,
+      ventaTotal: first.ventaTotal,
+      saldoPendiente: first.saldoPendiente,
+      filingJson: first.filingJson,
+    }),
+  };
+  assert.equal(planCallRepair(stored, offers), null);
+  const long = planCallRepair(
+    alejandro({
+      offerName: "Círculo Millonario",
+      ventaTotal: null,
+      saldoPendiente: null,
+      filingJson: {
+        producto: "Círculo Millonario",
+        tipo_seguimiento: "DECISION",
+        proximo_seguimiento: "2026-10-08 17:00:00.000",
+        acuerdo_seguimiento: "",
+        notas_crm: "",
+      },
+    }),
+    offers,
+  );
+  assert.equal(long?.filingJson.proximo_seguimiento, "2026-10-08 17:00");
+  assert.equal(
+    planCallRepair(
+      alejandro({
+        offerName: "Círculo Millonario",
+        ventaTotal: null,
+        saldoPendiente: null,
+        filingJson: { ...long!.filingJson },
+      }),
+      offers,
+    ),
+    null,
+  );
+});
+
 test("repair writes one row at a time and skips a clean row", async () => {
   const updates: string[] = [];
   const dirty = alejandro();

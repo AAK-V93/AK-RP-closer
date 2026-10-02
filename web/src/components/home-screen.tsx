@@ -36,7 +36,7 @@ export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSn
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = () =>
-    fetch("/api/hub")
+    fetch("/api/hub?view=glance")
       .then(async (r) => {
         const data = await r.json();
         if (!r.ok && !data.snapshot) throw new Error(data.error || "No se pudo cargar");

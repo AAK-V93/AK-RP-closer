@@ -83,12 +83,13 @@ async function timed<T>(timings: ServerTiming[] | undefined, name: string, run: 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Inicia sesión" }, { status: 401 });
     }
+    const view = new URL(request.url).searchParams.get("view");
     const timings: ServerTiming[] = [];
     const mark = (name: string, started: number) => {
       timings.push({ name, dur: Math.round(performance.now() - started) });
@@ -105,20 +106,43 @@ export async function GET() {
     }
     mark("ensure", ensureStarted);
 
-    const threadStarted = performance.now();
-    const threadPromise = loadThread(prisma, session.user.id, THREAD_HUB)
-      .catch((error) => {
+    if (view === "chat") {
+      const threadStarted = performance.now();
+      const loaded = await loadThread(prisma, session.user.id, THREAD_HUB).catch((error) => {
         console.error("hub GET thread", error);
         return null;
-      })
-      .finally(() => mark("thread", threadStarted));
-    const snapshot = await hubSnapshot(prisma, session.user.id, timings);
-    const loaded = await threadPromise;
-    const messages = (loaded?.messages || []).map((line) =>
-      line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
-    );
+      });
+      mark("thread", threadStarted);
+      const messages = (loaded?.messages || [])
+        .slice(-40)
+        .map((line) =>
+          line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
+        );
+      return NextResponse.json(
+        { messages },
+        { headers: { "Server-Timing": formatServerTiming(timings) } },
+      );
+    }
+    const snapshot = await hubSnapshot(prisma, session.user.id, timings, {
+      glance: view !== "full",
+    });
+    if (view === "full") {
+      const threadStarted = performance.now();
+      const loaded = await loadThread(prisma, session.user.id, THREAD_HUB).catch((error) => {
+        console.error("hub GET thread", error);
+        return null;
+      });
+      mark("thread", threadStarted);
+      const messages = (loaded?.messages || []).map((line) =>
+        line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
+      );
+      return NextResponse.json(
+        { messages, snapshot },
+        { headers: { "Server-Timing": formatServerTiming(timings) } },
+      );
+    }
     return NextResponse.json(
-      { messages, snapshot },
+      { snapshot },
       { headers: { "Server-Timing": formatServerTiming(timings) } },
     );
   } catch (error) {
@@ -887,10 +911,92 @@ ${userText}`;
   }
 }
 
+async function glanceSnapshot<T extends { pendingOfferExtract: ReturnType<typeof readPendingOfferExtract> }>(
+  prisma: NonNullable<Awaited<ReturnType<typeof getWorkspacePrisma>>>,
+  userId: string,
+  home: Awaited<ReturnType<typeof getHomeState>>,
+  prefs: ReturnType<typeof parseCrmPrefs>,
+  pendingOfferExtract: ReturnType<typeof readPendingOfferExtract>,
+  goalSeed: {
+    monthlyGoalUsd: number | null;
+    needsMonthlyGoal: boolean;
+    projection: Awaited<ReturnType<typeof loadCommissionProjection>>["projection"];
+  },
+  empty: T,
+  timings?: ServerTiming[],
+) {
+  try {
+    const weekStart = new Date();
+    const weekday = weekStart.getUTCDay();
+    weekStart.setUTCDate(weekStart.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const [dash, unclassified, analyzedThisWeek, guides] = await Promise.all([
+      timed(timings, "dashboard", () =>
+        crmDashboard(prisma, userId, { scripts: false, timings }),
+      ),
+      timed(timings, "unclassified", () =>
+        prisma.callRecord.count({
+          where: { userId, filingStatus: "pending" },
+        }),
+      ),
+      timed(timings, "analyzed", () =>
+        prisma.callRecord.count({
+          where: {
+            userId,
+            filingStatus: "confirmed",
+            confirmedAt: { gte: weekStart },
+            estadoAgenda: { notIn: ["INTERNA", "NO_COMERCIAL"] },
+          },
+        }),
+      ),
+      timed(timings, "guides", () => loadLiveGuides(prisma, userId)),
+    ]);
+    let goalBundle = goalSeed;
+    try {
+      goalBundle = await timed(timings, "projection", () =>
+        loadCommissionProjection(prisma, userId, dash),
+      );
+    } catch (error) {
+      console.error("hub projection", error);
+    }
+    const drill = guides.flatMap((guide) => guide.drills).find((item) => item.trim()) || "";
+    const desk = {
+      unclassified,
+      analyzeStatus: analyzeCardStatus(unclassified),
+      followupStatus: followupCardStatus(
+        dash.now.seguimientosHoy || 0,
+        dash.now.seguimientosVencidos || 0,
+      ),
+      practiceHref: drill ? `/practicar?focus=${encodeURIComponent(drill)}` : "/practicar",
+      practiceStatus: drill ? drill.slice(0, 90) : "Elige con quién practicar",
+      coachStatus: coachCardStatus({
+        newPattern: guides.some((guide) => guide.ready),
+        analyzedThisWeek,
+      }),
+    };
+    return {
+      ...empty,
+      now: dash.now,
+      pipelineDetalle: dash.pipelineDetalle,
+      comisionResumen: dash.comisionResumen,
+      desk,
+      monthlyGoalUsd: goalBundle.monthlyGoalUsd,
+      needsMonthlyGoal: goalBundle.needsMonthlyGoal,
+      projection: goalBundle.projection,
+      pendingOfferExtract,
+      needsPushPrompt: home.phase !== "a" && !prefs.pushPromptedAt && Boolean(vapidPublicKey()),
+    };
+  } catch (error) {
+    console.error("hub glance", error);
+    return empty;
+  }
+}
+
 async function hubSnapshot(
   prisma: NonNullable<Awaited<ReturnType<typeof getWorkspacePrisma>>>,
   userId: string,
   timings?: ServerTiming[],
+  opts?: { glance?: boolean },
 ) {
   const [home, prefsRow] = await Promise.all([
     timed(timings, "home", () => getHomeState(prisma, userId)),
@@ -954,6 +1060,9 @@ async function hubSnapshot(
   if (home.phase !== "c") {
     return empty;
   }
+  if (opts?.glance) {
+    return glanceSnapshot(prisma, userId, home, prefs, pendingOfferExtract, goalSeed, empty, timings);
+  }
   try {
     const weekStart = new Date();
     const weekday = weekStart.getUTCDay();
@@ -962,7 +1071,7 @@ async function hubSnapshot(
     const [workspace, dash, leads, pendingCalls, recentAuto, unclassified, analyzedThisWeek, guides] =
       await Promise.all([
         timed(timings, "workspace", () => getWorkspace(prisma, userId, null, { corpus: false })),
-        timed(timings, "dashboard", () => crmDashboard(prisma, userId)),
+        timed(timings, "dashboard", () => crmDashboard(prisma, userId, { timings })),
         timed(timings, "leads", () =>
           prisma.lead.findMany({
             where: { userId },

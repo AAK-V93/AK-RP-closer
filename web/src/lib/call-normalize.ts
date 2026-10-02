@@ -203,7 +203,10 @@ export function planCallRepair(call: CallRepairInput, offerNames: string[]): Cal
 
   const proximoRaw = textOf(filing.proximo_seguimiento);
   const proximo = normalizeProximo(proximoRaw, evidence);
-  if (proximoRaw.replace("T", " ").slice(0, 16) !== proximo) {
+  // Compare the stored value with the normalized one. A 16-char slice stays
+  // unequal forever when the clock text is longer than that, so the same rows
+  // were rewritten on every dashboard load.
+  if (proximo !== proximoRaw) {
     filing.proximo_seguimiento = proximo || null;
     changed = true;
   }
@@ -276,19 +279,21 @@ export async function repairImportedCallFields(
       jobs.push({ id: row.id, repair });
     }
   }
-  for (const job of jobs.slice(0, 40)) {
-    try {
-      await prisma.callRecord.update({
-        where: { id: job.id },
-        data: {
-          offerName: job.repair.offerName,
-          ventaTotal: job.repair.ventaTotal,
-          saldoPendiente: job.repair.saldoPendiente,
-          filingJson: job.repair.filingJson as Prisma.InputJsonValue,
-        },
-      });
-    } catch (error) {
-      console.error("repair imported call", job.id, error);
-    }
-  }
+  await Promise.all(
+    jobs.slice(0, 40).map(async (job) => {
+      try {
+        await prisma.callRecord.update({
+          where: { id: job.id },
+          data: {
+            offerName: job.repair.offerName,
+            ventaTotal: job.repair.ventaTotal,
+            saldoPendiente: job.repair.saldoPendiente,
+            filingJson: job.repair.filingJson as Prisma.InputJsonValue,
+          },
+        });
+      } catch (error) {
+        console.error("repair imported call", job.id, error);
+      }
+    }),
+  );
 }

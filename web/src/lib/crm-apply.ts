@@ -708,18 +708,39 @@ async function refillFromTranscript(
 export async function repairMissingFollowups(prisma: PrismaClient, userId: string) {
   const offers = await loadOffersForCrm(prisma, userId);
   const [calls, threads, leads] = await Promise.all([
-    prisma.callRecord.findMany({
-      where: { userId, filingStatus: { in: ["confirmed", "pending"] } },
-      orderBy: { recordedAt: "desc" },
-      take: 400,
-      select: {
-        id: true,
-        sourceId: true,
-        title: true,
-        recordedAt: true,
-        filingJson: true,
-      },
-    }),
+    prisma.$queryRaw<
+      {
+        id: string;
+        sourceId: string;
+        title: string;
+        recordedAt: Date | null;
+        cliente: string | null;
+        estado: string | null;
+        proximo: string | null;
+        requiere: string | null;
+        resultado: string | null;
+        extractor: boolean;
+      }[]
+    >`
+      SELECT id,
+             "sourceId",
+             title,
+             "recordedAt",
+             "filingJson"->>'cliente_real' AS cliente,
+             "filingJson"->>'estado_agenda' AS estado,
+             "filingJson"->>'proximo_seguimiento' AS proximo,
+             "filingJson"->>'requiere_seguimiento' AS requiere,
+             "filingJson"->>'seguimiento_resultado' AS resultado,
+             (
+               ("filingJson"->'cliente_real') IS NOT NULL
+               OR ("filingJson"->'estado_agenda') IS NOT NULL
+             ) AS extractor
+      FROM "CallRecord"
+      WHERE "userId" = ${userId}
+        AND "filingStatus" IN ('confirmed', 'pending')
+      ORDER BY "recordedAt" DESC NULLS FIRST, "createdAt" DESC
+      LIMIT 400
+    `,
     prisma.followupThread.findMany({
       where: { userId, estado: "activo" },
       select: { leadId: true, alerts: { where: { resolvedAt: null }, select: { id: true } } },
@@ -732,20 +753,28 @@ export async function repairMissingFollowups(prisma: PrismaClient, userId: strin
   const seen = new Set<string>();
   for (const call of calls) {
     try {
-      if (!isExtractorJson(call.filingJson)) continue;
-      const parsed = storedFiling(call.filingJson);
-      if (followupIsClosed(parsed)) continue;
-      if (!parsed.cliente_real || isNonSalesCall(parsed.estado_agenda)) continue;
-      if (!parsed.proximo_seguimiento && parsed.requiere_seguimiento !== true) continue;
-      const key = parsed.cliente_real.trim().toLowerCase();
+      if (call.extractor !== true && call.extractor !== ("true" as unknown)) continue;
+      const cliente = String(call.cliente || "").trim();
+      const proximo = String(call.proximo || "");
+      const requiere = call.requiere === "true";
+      if (followupIsClosed({ seguimiento_resultado: call.resultado, proximo_seguimiento: proximo })) continue;
+      if (!cliente || isNonSalesCall(call.estado)) continue;
+      if (!proximo && !requiere) continue;
+      const key = cliente.toLowerCase();
       if (seen.has(key)) continue;
-      const lead = findMatchingLead(leads, parsed.cliente_real);
+      const lead = findMatchingLead(leads, cliente);
       if (lead && covered.has(lead.id)) {
         seen.add(key);
         continue;
       }
-      await refillFromTranscript(prisma, userId, call, parsed);
-      const opened = await applyExtractorToCrm(prisma, userId, call.id, parsed, offers, true);
+      const full = await prisma.callRecord.findFirst({
+        where: { id: call.id, userId },
+        select: { id: true, sourceId: true, title: true, recordedAt: true, filingJson: true },
+      });
+      if (!full || !isExtractorJson(full.filingJson)) continue;
+      const parsed = storedFiling(full.filingJson);
+      await refillFromTranscript(prisma, userId, full, parsed);
+      const opened = await applyExtractorToCrm(prisma, userId, full.id, parsed, offers, true);
       if (opened?.leadId) covered.add(opened.leadId);
       seen.add(key);
     } catch (error) {
