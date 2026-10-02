@@ -1,5 +1,7 @@
 import {
   commissionSummary,
+  describeOfferPrices,
+  editablePriceLines,
   emptyCommercial,
   parseCommissionFromText,
   type ExtractedOffer,
@@ -8,7 +10,7 @@ import {
 
 export const OFFER_CONFIRM_BLOCKS = [
   { id: "name", title: "Nombre" },
-  { id: "icp", title: "ICP deducido" },
+  { id: "icp", title: "A quién le vendes" },
   { id: "prices", title: "Precios" },
   { id: "payments", title: "Pagos y plazos" },
   { id: "bonuses", title: "Bonos" },
@@ -26,32 +28,21 @@ export type OfferConfirmBlock = {
   hint?: string;
 };
 
-function priceLabel(label: string) {
-  const cleaned = label.replace(/^precio\s+especial\s+/i, "").trim();
-  if (/contado/i.test(cleaned) && /7/.test(cleaned)) return "Contado a 7 días";
-  if (/contado/i.test(cleaned)) return "Contado";
-  return cleaned || "Precio";
-}
-
-function money(currency: string, amount: number | null) {
-  if (amount == null) return "";
-  return `${currency} ${amount}`;
+function parseAmount(raw: string) {
+  const match = raw.match(/\d{1,3}(?:\.\d{3})+|\d+/);
+  if (!match) return null;
+  const token = match[0];
+  const digits =
+    token.includes(".") && /^\d{1,3}(\.\d{3})+$/.test(token)
+      ? token.replace(/\./g, "")
+      : token;
+  const n = Number(digits);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function priceLines(commercial: OfferCommercial) {
-  const lines: string[] = [];
-  if (commercial.listPrice) {
-    lines.push(`Lista: ${money(commercial.currency, commercial.listPrice)}`);
-  }
-  for (const row of commercial.altPrices) {
-    if (!row.label && row.amount == null) continue;
-    lines.push(
-      [priceLabel(row.label), row.amount != null ? money(commercial.currency, row.amount) : ""]
-        .filter(Boolean)
-        .join(": "),
-    );
-  }
-  return lines;
+  const summary = describeOfferPrices(commercial);
+  return summary ? summary.split("\n") : [];
 }
 
 function paymentLines(commercial: OfferCommercial) {
@@ -98,7 +89,7 @@ export function offerConfirmBlocks(offer: ExtractedOffer): OfferConfirmBlock[] {
     if (block.id === "icp") {
       return {
         ...block,
-        summary: icp || "No pude deducir el ICP del documento.",
+        summary: icp || "No pude deducir a quién le vendes.",
         empty: !icp,
         hint: icp ? undefined : "Corregir si sabes a quién le vendes.",
       };
@@ -106,7 +97,7 @@ export function offerConfirmBlocks(offer: ExtractedOffer): OfferConfirmBlock[] {
     if (block.id === "prices") {
       return {
         ...block,
-        summary: prices.join(" · ") || "No encontré precios.",
+        summary: prices.join("\n") || "No encontré precios.",
         empty: !prices.length,
       };
     }
@@ -131,7 +122,7 @@ export function offerConfirmBlocks(offer: ExtractedOffer): OfferConfirmBlock[] {
         empty: !commission,
         hint: commission
           ? undefined
-          : "Corregir si te pagan comisión. Sí = correcto, no estaba en el texto.",
+          : "Si no te pagan comisión, marca Sí. Si te pagan, corrige y escribe el porcentaje.",
       };
     }
     return {
@@ -146,18 +137,13 @@ export function blockDraft(offer: ExtractedOffer, id: OfferConfirmBlockId): stri
   const { commercial } = offer;
   if (id === "name") return offer.productName;
   if (id === "icp") return offer.icp || "";
-  if (id === "prices") return priceLines(commercial).join("\n");
+  if (id === "prices") return editablePriceLines(commercial).join("\n");
   if (id === "payments") return paymentLines(commercial).join("\n");
   if (id === "bonuses") return bonusLines(commercial).join("\n");
   if (id === "commission") {
     return commercial.commission?.notes || commissionSummary(commercial.commission);
   }
   return commercial.paymentDetails;
-}
-
-function parseAmount(raw: string) {
-  const n = Number(raw.replace(/[^\d.-]/g, ""));
-  return Number.isFinite(n) ? n : null;
 }
 
 function parsePriceBlock(text: string, commercial: OfferCommercial): OfferCommercial {
@@ -175,7 +161,7 @@ function parsePriceBlock(text: string, commercial: OfferCommercial): OfferCommer
     const currencyHit = line.match(/\b(USD|EUR|PEN|MXN|COP|CLP|ARS)\b/i);
     if (currencyHit) currency = currencyHit[1].toUpperCase();
     const amount = parseAmount(line);
-    if (/lista/i.test(line) && amount != null) {
+    if (/precio de lista|^lista\b/i.test(line) && amount != null) {
       listPrice = amount;
       continue;
     }

@@ -526,7 +526,11 @@ If they handle the old objection well, you may soften. If they repeat the same p
 8. You already know what this meeting is about. Never ask "what is this?".
 9. Do not speak first.
 10. Hold your one real objection. If they answer with a cliché, push back — rephrase, do not recycle a sentence you already said.
-11. Language: ${lang.nativeName} only.`;
+11. Language: ${lang.nativeName} only.${
+    training.language === "es" || training.language.startsWith("es")
+      ? " Tuteo de Latinoamérica (tú: tienes, puedes, entrenas, cuéntame). Nunca voseo (vos, tenés, podés, entrenás, contame)."
+      : ""
+  }`;
 }
 
 export function shouldShowProspectBrief(section: CallSection): boolean {

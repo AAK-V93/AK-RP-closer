@@ -1,6 +1,6 @@
 const STATUS_LABELS: Record<string, string> = {
-  SHOW: "Show",
-  "NO SHOW": "No show",
+  SHOW: "Asistió",
+  "NO SHOW": "No asistió",
   "CIERRE VENTA": "Cerró",
   "ACUERDO SIN PAGO": "Acuerdo sin pago",
   REPROGRAMA: "Reprogramó",
@@ -29,6 +29,17 @@ const STATUS_LABELS: Record<string, string> = {
   HOY: "Hoy",
   VENCIDO: "Vencido",
   "PRÓXIMO": "Próximo",
+  SI: "Sí",
+  SÍ: "Sí",
+  NO: "No",
+  ZOOM: "Zoom",
+  MEET: "Meet",
+  WHATSAPP: "WhatsApp",
+  LLAMADA: "Llamada",
+  PRESENCIAL: "Presencial",
+  EMAIL: "Correo",
+  OTROS: "Otros",
+  OTRO: "Otro",
 };
 
 const SMALL_WORDS = new Set(["de", "del", "la", "el", "los", "las", "y", "en"]);

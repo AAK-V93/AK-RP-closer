@@ -483,6 +483,7 @@ export default function CrmPage() {
                     key={row.id}
                     size="sm"
                     variant={offer === row.productName ? "primary" : "outline"}
+                    className="h-auto max-w-full whitespace-normal text-left"
                     onClick={() => setOffer(row.productName)}
                   >
                     {row.productName}
@@ -623,7 +624,7 @@ export default function CrmPage() {
                 empty={
                   commissionsBase.length > 0 && commissions.length === 0
                     ? "Nada con estos filtros."
-                    : "Todavía no hay cash cobrado en llamadas."
+                    : "Todavía no hay dinero cobrado en llamadas."
                 }
               />
             )}
@@ -657,12 +658,12 @@ function CrmListFilters({
   const active = Boolean(filter.q || filter.estado || filter.month || filter.week);
   return (
     <div className="flex flex-wrap items-end gap-2">
-      <label className="space-y-1">
+      <label className="w-full space-y-1 sm:w-auto">
         <span className="block text-[11px] uppercase tracking-wide text-fg3">Nombre</span>
         <Input
           value={filter.q}
           placeholder="Buscar"
-          className="h-8 w-44"
+          className="h-8 w-full min-w-0 sm:w-44"
           onChange={(event) => onChange({ ...filter, q: event.target.value })}
         />
       </label>
@@ -777,15 +778,15 @@ function AhoraSheet({
           <QuietFact label="Vencidos" value={String(now.seguimientosVencidos || 0)} />
           <QuietFact label="Agendas de hoy" value={String(now.agendasHoy || 0)} />
           <QuietFact label="Dinero en juego" value={money(now.dineroEnJuego)} />
-          <QuietFact label="Cash pendiente de cobro" value={money(now.cashPendiente)} />
+          <QuietFact label="Pendiente de cobro" value={money(now.cashPendiente)} />
           <QuietFact label="Comisión pendiente" value={money(now.comisionPendiente)} />
           <QuietFact label="Oportunidades activas" value={String(now.oportunidadesActivas || 0)} />
           <QuietFact label="Llamadas agendadas" value={String(now.agendasFuturas || 0)} />
         </dl>
         <HelpNote>
           <p>Pendientes de hoy son los seguimientos que toca hacer hoy. Vencidos son los que ya debían salir.</p>
-          <p>Dinero en juego es lo que todavía puedes cerrar o cobrar en esos seguimientos. Cash pendiente es lo ya acordado que aún no entró.</p>
-          <p>Comisión pendiente es tu parte de ese cash. Agendas de hoy y llamadas agendadas son citas en el calendario, no los seguimientos abiertos.</p>
+          <p>Dinero en juego es lo que todavía puedes cerrar o cobrar en esos seguimientos. Pendiente de cobro es lo ya acordado que aún no entró.</p>
+          <p>Comisión pendiente es tu parte de lo cobrado. Agendas de hoy y llamadas agendadas son citas en el calendario, no los seguimientos abiertos.</p>
         </HelpNote>
       </div>
       {rendimiento && (
@@ -815,7 +816,7 @@ function PeriodoSheet({
     { id: "showrate", metrica: "Tasa de asistencia", mes: pctLabel(rendimiento.mes.showRate), ant: pctLabel(rendimiento.anterior.showRate), acc: pctLabel(rendimiento.acumulado.showRate) },
     { id: "close", metrica: "Tasa de cierre", mes: pctLabel(rendimiento.mes.closeRate), ant: pctLabel(rendimiento.anterior.closeRate), acc: pctLabel(rendimiento.acumulado.closeRate) },
     { id: "ventas", metrica: "Ventas", mes: money(rendimiento.mes.ventas), ant: money(rendimiento.anterior.ventas), acc: money(rendimiento.acumulado.ventas) },
-    { id: "cash", metrica: "Cash", mes: money(rendimiento.mes.cash), ant: money(rendimiento.anterior.cash), acc: money(rendimiento.acumulado.cash) },
+    { id: "cash", metrica: "Cobrado", mes: money(rendimiento.mes.cash), ant: money(rendimiento.anterior.cash), acc: money(rendimiento.acumulado.cash) },
   ];
   return (
     <div className="space-y-2">
@@ -863,21 +864,22 @@ function OperacionSheet({
     { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha },
     { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
     { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
-    { key: "canal", label: "Canal", width: 80, value: (row) => row.canal },
-    { key: "estado", label: "Estado", width: 120, value: (row) => plainStatus(row.estadoAgenda) },
-    { key: "prox", label: "Próx. seg.", width: 90, value: (row) => row.fechaProximo },
-    { key: "producto", label: "Producto", width: 140, value: (row) => row.producto || row.oferta },
-    { key: "venta", label: "Venta", width: 90, align: "right", value: (row) => money(row.venta) },
-    { key: "modo", label: "Modo pago", width: 100, value: (row) => row.modoPago },
-    { key: "cash", label: "Cash", width: 90, align: "right", value: (row) => money(row.cash) },
-    { key: "req", label: "Req. seg.", width: 70, value: (row) => row.requiereSeguimiento },
-    { key: "tipo", label: "Tipo seg.", width: 100, value: (row) => row.tipoSeguimiento },
+    { key: "canal", label: "Canal", width: 110, value: (row) => plainStatus(row.canal) },
+    { key: "estado", label: "Estado", width: 130, value: (row) => plainStatus(row.estadoAgenda) },
+    { key: "prox", label: "Próximo seguimiento", width: 150, value: (row) => row.fechaProximo },
+    { key: "producto", label: "Producto", width: 160, value: (row) => plainStatus(row.producto || row.oferta) },
+    { key: "venta", label: "Venta", width: 110, align: "right", value: (row) => money(row.venta) },
+    { key: "modo", label: "Modo de pago", width: 130, value: (row) => row.modoPago },
+    { key: "cash", label: "Cobrado", width: 110, align: "right", value: (row) => money(row.cash) },
+    { key: "req", label: "¿Seguimiento?", width: 130, value: (row) => plainStatus(row.requiereSeguimiento) },
+    { key: "tipo", label: "Tipo de seguimiento", width: 180, value: (row) => plainStatus(row.tipoSeguimiento) },
     { key: "acuerdo", label: "Acuerdo", width: 140, value: (row) => row.acuerdo },
     { key: "razon", label: "Razón no cierre", width: 140, value: (row) => row.razonNoCierre },
     { key: "notas", label: "Notas", width: 160, value: (row) => row.notas },
   ];
   return (
     <div className="space-y-2">
+      <p className="text-xs text-fg3 md:hidden">Desliza a la derecha para ver el resto de columnas.</p>
       <SheetTable
         columns={columns}
         rows={rows}
@@ -895,16 +897,16 @@ function OperacionSheet({
               ["Cliente", selected.cliente],
               ["Teléfono", selected.telefono],
               ["Email", selected.email],
-              ["Canal", selected.canal],
+              ["Canal", plainStatus(selected.canal)],
               ["Estado", plainStatus(selected.estadoAgenda)],
               ["Próximo seguimiento", selected.fechaProximo],
-              ["Producto", selected.producto || selected.oferta],
+              ["Producto", plainStatus(selected.producto || selected.oferta)],
               ["Venta", money(selected.venta)],
               ["Modo de pago", selected.modoPago],
-              ["Cash", money(selected.cash)],
+              ["Cobrado", money(selected.cash)],
               ["Saldo", money(selected.saldo)],
-              ["Req. seguimiento", selected.requiereSeguimiento],
-              ["Tipo", plainStatus(selected.tipoSeguimiento)],
+              ["¿Seguimiento?", plainStatus(selected.requiereSeguimiento)],
+              ["Tipo de seguimiento", plainStatus(selected.tipoSeguimiento)],
               ["Acuerdo", selected.acuerdo],
               ["Razón no cierre", selected.razonNoCierre],
               ["Notas", selected.notas],
@@ -984,11 +986,11 @@ function DashboardSheet({
       <div className="space-y-4">
         <SectionHeading>Dinero y comisiones</SectionHeading>
         <p className="text-[11px] text-fg3">
-          Ventas, cash y ticket son el total, no solo el mes en curso. El desglose suma ese mismo total. Un año escrito en la fecha de la llamada, como 2026, no cuenta como venta.
+          Ventas, cobrado y ticket son el total, no solo el mes en curso. El desglose suma ese mismo total. Un año escrito en la fecha de la llamada, como 2026, no cuenta como venta.
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="Ventas" value={money(total?.ventas)} tone="brand" />
-          <MetricCard label="Cash cobrado" value={money(total?.cash)} tone="money" />
+          <MetricCard label="Cobrado" value={money(total?.cash)} tone="money" />
           <MetricCard label="Comisión generada" value={money(data.comisionResumen?.generada)} tone="brand" />
           <MetricCard label="Comisión cobrada" value={money(data.comisionResumen?.cobrada)} tone="money" />
         </div>
@@ -1016,10 +1018,10 @@ function DashboardSheet({
           }))}
         />
         <BarChart
-          title="Ventas y cash cobrado"
+          title="Ventas y cobrado"
           series={[
             { label: "Ventas", tone: "brand" },
-            { label: "Cash cobrado", tone: "money" },
+            { label: "Cobrado", tone: "money" },
           ]}
           rows={series.map((row) => ({
             label: monthLabel(row.mes),
@@ -1034,7 +1036,7 @@ function DashboardSheet({
             { key: "oferta", label: "Oferta", width: 180, value: (row) => row.oferta },
             { key: "cierres", label: "Cierres", width: 80, align: "right", value: (row) => row.cierres },
             { key: "ventas", label: "Ventas", width: 110, align: "right", value: (row) => money(row.ventas) },
-            { key: "cash", label: "Cash", width: 110, align: "right", value: (row) => money(row.cash) },
+            { key: "cash", label: "Cobrado", width: 120, align: "right", value: (row) => money(row.cash) },
           ]}
           rows={data.desglose?.porOferta || []}
           getId={(row) => row.oferta}
@@ -1110,11 +1112,11 @@ function FollowupActions({
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {agenda ? (
           <>
-            <Button className="w-full sm:w-auto" size="sm" variant="primary" disabled={disabled} onClick={() => void onPatch(targetId, "SHOW", true)}>
-              {busy === "SHOW" ? "Guardando…" : "Show"}
+            <Button className="w-full sm:w-auto whitespace-normal h-auto" size="sm" variant="primary" disabled={disabled} onClick={() => void onPatch(targetId, "SHOW", true)}>
+              {busy === "SHOW" ? "Guardando…" : "Asistió"}
             </Button>
-            <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "NO SHOW", true)}>
-              No show
+            <Button className="w-full sm:w-auto whitespace-normal h-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "NO SHOW", true)}>
+              No asistió
             </Button>
             <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "REPROGRAMA", true)}>
               Reprogramó
@@ -1139,8 +1141,8 @@ function FollowupActions({
             </Button>
             {segunda ? (
               <>
-                <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "mostro")}>
-                  {busy === "mostro" ? "Guardando…" : "Mostró"}
+                <Button className="w-full sm:w-auto whitespace-normal h-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "mostro")}>
+                  {busy === "mostro" ? "Guardando…" : "Asistió"}
                 </Button>
                 <Button
                   className="w-full sm:w-auto"
@@ -1152,7 +1154,7 @@ function FollowupActions({
                     setDay((suggested || addCalendarDays(today, 1)).slice(0, 10));
                   }}
                 >
-                  No mostró
+                  No asistió
                 </Button>
                 <Button className="w-full sm:w-auto" size="sm" variant="outline" disabled={disabled} onClick={() => void onPatch(targetId, "perdido")}>
                   {busy === "perdido" ? "Guardando…" : "Perdido"}
@@ -1355,7 +1357,7 @@ function ComisionesSheet({
   resumen,
   money,
   onPaid,
-  empty = "Todavía no hay cash cobrado en llamadas.",
+  empty = "Todavía no hay dinero cobrado en llamadas.",
 }: {
   rows: Commission[];
   resumen?: Dash["comisionResumen"];
@@ -1379,7 +1381,7 @@ function ComisionesSheet({
           { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
           { key: "oferta", label: "Oferta", width: 140, value: (row) => row.oferta },
           { key: "venta", label: "Venta", width: 90, align: "right", value: (row) => money(row.venta) },
-          { key: "cash", label: "Cash", width: 90, align: "right", value: (row) => money(row.cash) },
+          { key: "cash", label: "Cobrado", width: 110, align: "right", value: (row) => money(row.cash) },
           { key: "pct", label: "%", width: 60, align: "right", value: (row) => pctLabel(row.pct) },
           { key: "gen", label: "Generada", width: 100, align: "right", value: (row) => money(row.generada) },
           { key: "cob", label: "Cobrada", width: 100, align: "right", value: (row) => money(row.cobrada) },

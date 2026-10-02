@@ -69,17 +69,17 @@ export function SheetTable<T>({
             {trailing && <col style={{ width: trailing.width }} />}
           </colgroup>
           <thead className="sticky top-0 z-10">
-            <tr style={{ height: SHEET_ROW_PX }}>
+            <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="border-b border-separator1 bg-bg1 px-2 text-sm text-fg3"
+                  className="border-b border-separator1 bg-bg1 px-2 py-2 text-sm text-fg3 align-bottom"
                   style={{
-                    height: SHEET_ROW_PX,
+                    minHeight: SHEET_ROW_PX,
                     textAlign: col.align || "left",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    whiteSpace: "normal",
+                    overflowWrap: "anywhere",
+                    lineHeight: 1.25,
                   }}
                 >
                   {col.label}

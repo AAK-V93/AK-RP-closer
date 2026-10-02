@@ -11,16 +11,23 @@ import {
   maxTokensForProspect,
 } from "@/lib/prospect-prompt";
 import { authOptions } from "@/lib/auth";
-import { getWorkspace, getWorkspacePrisma } from "@/lib/workspace";
+import { loadPracticeContext } from "@/lib/workspace";
 import { loadReplayCall } from "@/lib/replay-call";
+import { ensureWorkspaceTables, getPrisma } from "@/lib/prisma";
+import { dispatchPracticeAgent } from "@/lib/practice-dispatch";
+import { liveGuideForPrompt } from "@/lib/live-guide";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 
 const SETUP_REQUIRED_CODE = "SETUP_REQUIRED";
 
 export async function POST(request: Request) {
+  const started = Date.now();
   try {
-    const session = await getServerSession(authOptions);
+    const [session, payload] = await Promise.all([
+      getServerSession(authOptions),
+      request.json().catch(() => null) as Promise<TokenRequestPayload | null>,
+    ]);
     if (!session?.user?.id) {
       return NextResponse.json(
         {
@@ -32,30 +39,34 @@ export async function POST(request: Request) {
       );
     }
 
-    let payload: TokenRequestPayload;
-    try {
-      payload = await request.json();
-    } catch {
+    if (!payload?.training || !payload.sessionConfig) {
       return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
 
-    const { training, sessionConfig } = payload;
-    const prisma = await getWorkspacePrisma();
+    const prisma = getPrisma();
     if (!prisma) {
       return NextResponse.json({ error: "DB no disponible" }, { status: 503 });
     }
 
-    let requestedOfferId = training.offerId || null;
-    if (!requestedOfferId && training.productName.trim()) {
-      const match = await prisma.userOffer.findFirst({
-        where: { userId: session.user.id, productName: training.productName },
-        orderBy: { updatedAt: "desc" },
-      });
-      requestedOfferId = match?.id || null;
+    const { training, sessionConfig } = payload;
+    let practice = null;
+    try {
+      practice = await loadPracticeContext(
+        prisma,
+        session.user.id,
+        training.offerId,
+        training.productName,
+      );
+    } catch {
+      await ensureWorkspaceTables(prisma);
+      practice = await loadPracticeContext(
+        prisma,
+        session.user.id,
+        training.offerId,
+        training.productName,
+      );
     }
-
-    const workspace = await getWorkspace(prisma, session.user.id, requestedOfferId);
-    if (!workspace.offer) {
+    if (!practice?.offer?.productName.trim()) {
       return NextResponse.json(
         {
           error: "Primero guarda tu oferta en Ofertas.",
@@ -65,15 +76,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const { liveGuideForPrompt } = await import("@/lib/live-guide");
-    const liveGuide = workspace.liveGuide;
-
     const trainingWithOffer = {
       ...training,
-      productName: workspace.offer.productName,
-      productDescription: workspace.offer.productDescription,
-      pitchSummary: training.pitchSummary || workspace.offer.pitchSummary,
-      leadPlaybook: workspace.playbook,
+      productName: practice.offer.productName,
+      productDescription: practice.offer.productDescription.slice(0, 1600),
+      pitchSummary: (training.pitchSummary || practice.offer.pitchSummary || "").slice(0, 800),
+      leadPlaybook: practice.playbook,
     };
 
     if (training.practiceKind === "replay") {
@@ -104,28 +112,24 @@ export async function POST(request: Request) {
         trainingWithOffer.productDescription,
         trainingWithOffer.difficulty,
         trainingWithOffer.language,
-        workspace.playbook,
+        practice.playbook,
         trainingWithOffer.practiceFocus,
         replay,
       );
     }
 
-    const instructions = [
-      buildProspectInstructions(
-        trainingWithOffer,
-        "closer",
-        workspace.playbook,
-      ),
-      liveGuideForPrompt(liveGuide),
-    ]
+    const guide = liveGuideForPrompt(practice.liveGuide).slice(0, 1500);
+    const instructions = [buildProspectInstructions(trainingWithOffer, "closer", practice.playbook), guide]
       .filter(Boolean)
-      .join("\n\n");
+      .join("\n\n")
+      .slice(0, 12000);
 
     const roomName = `closer-${Math.random().toString(36).slice(2, 10)}`;
     const apiKey = process.env.LIVEKIT_API_KEY;
     const apiSecret = process.env.LIVEKIT_API_SECRET;
+    const livekitUrl = process.env.LIVEKIT_URL;
 
-    if (!apiKey || !apiSecret || !process.env.LIVEKIT_URL) {
+    if (!apiKey || !apiSecret || !livekitUrl) {
       return NextResponse.json(
         { error: "LiveKit credentials must be set in environment" },
         { status: 500 },
@@ -143,14 +147,15 @@ export async function POST(request: Request) {
         training.prospectProfile?.talkStyle,
       ),
       training_mode: training.callSection,
-      product_name: workspace.offer.productName,
+      product_name: practice.offer.productName,
       difficulty: training.difficulty,
       language: training.language,
     };
+    const metadataJson = JSON.stringify(metadata);
 
     const at = new AccessToken(apiKey, apiSecret, {
       identity: "closer",
-      metadata: JSON.stringify(metadata),
+      metadata: metadataJson,
     });
 
     at.addGrant({
@@ -162,18 +167,35 @@ export async function POST(request: Request) {
       canUpdateOwnMetadata: true,
     });
 
-    at.roomConfig = new RoomConfiguration({
-      name: roomName,
-      agents: [
-        new RoomAgentDispatch({
-          agentName: "closer-trainer",
-        }),
-      ],
-    });
+    let dispatched = false;
+    try {
+      dispatched = await dispatchPracticeAgent({
+        url: livekitUrl,
+        apiKey,
+        apiSecret,
+        roomName,
+        metadata: metadataJson,
+      });
+    } catch (error) {
+      console.error("practice dispatch", error);
+    }
+
+    if (!dispatched) {
+      at.roomConfig = new RoomConfiguration({
+        name: roomName,
+        agents: [
+          new RoomAgentDispatch({
+            agentName: "closer-trainer",
+            metadata: metadataJson,
+          }),
+        ],
+      });
+    }
 
     return NextResponse.json({
       accessToken: await at.toJwt(),
-      url: process.env.LIVEKIT_URL,
+      url: livekitUrl,
+      prepMs: Date.now() - started,
     });
   } catch (error) {
     return NextResponse.json(

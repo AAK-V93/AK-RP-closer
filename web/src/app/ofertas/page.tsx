@@ -358,7 +358,7 @@ export default function OfertasPage() {
               rows={8}
               value={offerBlob}
               onChange={(e) => setOfferBlob(e.target.value)}
-              placeholder="Programa, ticket, formas de pago, plazos, y cómo te pagan comisión según cuándo y cómo pague el lead…"
+              placeholder="Programa, ticket, formas de pago, plazos, y cómo te pagan comisión según cuándo y cómo pague el cliente…"
             />
           </div>
           <Button
@@ -415,7 +415,7 @@ export default function OfertasPage() {
               rows={6}
               value={productDescription}
               onChange={(e) => setProductDescription(e.target.value)}
-              placeholder="ICP, promesa, planes, precios, objeciones típicas…"
+              placeholder="A quién le vendes, promesa, planes, precios, objeciones típicas…"
             />
           </div>
           <div className="space-y-1">
@@ -434,7 +434,7 @@ export default function OfertasPage() {
               checked={includeFathom}
               onChange={(e) => setIncludeFathom(e.target.checked)}
             />
-            Usar mis llamadas de Fathom en esta oferta
+            Usar mis llamadas grabadas en esta oferta
           </label>
           <Button type="submit" variant="primary" disabled={savingOffer}>
             {savingOffer ? (
@@ -458,7 +458,7 @@ export default function OfertasPage() {
               <h2 className="text-lg font-light">Publicar en la biblioteca</h2>
               <p className="text-sm text-fg3">
                 Sube los guiones de esta oferta como un pack público. Quedas
-                tagged como publisher; el puntaje sale de si otros (y tú) los
+                como quien lo publicó; el puntaje sale de si otros (y tú) los
                 envían, cierran o pierden.
               </p>
               <div className="flex flex-wrap gap-2">
@@ -515,7 +515,7 @@ export default function OfertasPage() {
           </p>
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline" size="sm">
-              <Link href="/llamadas#conectar-fathom">Conectar / sync Fathom</Link>
+              <Link href="/llamadas#conectar-fathom">Traer llamadas grabadas</Link>
             </Button>
             <label className="inline-flex">
               <Button type="button" variant="outline" size="sm" asChild disabled={savingTranscripts}>
@@ -564,7 +564,7 @@ export default function OfertasPage() {
               rows={6}
               value={paste}
               onChange={(e) => setPaste(e.target.value)}
-              placeholder="Closer: …&#10;Lead: …"
+              placeholder="Tú: …&#10;Cliente: …"
             />
           </div>
           <Button
@@ -585,9 +585,9 @@ export default function OfertasPage() {
           <p className="text-xs text-fg3">
             {workspace?.transcriptCount || 0} llamadas en esta oferta
             {includeFathom && workspace?.fathomCount
-              ? ` (incluye ${workspace.fathomCount} de Fathom)`
+              ? ` (incluye ${workspace.fathomCount} grabaciones)`
               : ""}
-            {workspace?.playbookReady ? " · playbook listo" : ""}
+            {workspace?.playbookReady ? " · perfil de prospectos listo" : ""}
             {workspace?.offers.find((r) => r.id === offerId)?.readyCrm ||
             workspace?.readyCrm
               ? " · CRM listo"

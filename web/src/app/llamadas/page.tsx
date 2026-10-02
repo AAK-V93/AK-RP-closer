@@ -103,7 +103,7 @@ export default function LlamadasPage() {
         <div>
           <h1 className="text-2xl font-light">Mis llamadas</h1>
           <p className="text-sm text-fg3">
-            Una sola biblioteca. Fathom o archivos. De aquí salen la práctica
+            Una sola biblioteca. Grabaciones o archivos. De aquí salen la práctica
             por voz, el coach y el CRM.
           </p>
         </div>
@@ -117,7 +117,7 @@ export default function LlamadasPage() {
             <FathomSyncPanel authenticated />
             <CalendarConnectPanel authenticated />
             <Button asChild variant="outline" size="sm">
-              <Link href="/ofertas">Subir archivos o pegar transcript</Link>
+              <Link href="/ofertas">Subir archivos o pegar una transcripción</Link>
             </Button>
             {review && (
               <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
@@ -318,7 +318,7 @@ export default function LlamadasPage() {
                         }
                       >
                         {row.result === "cerro" || isNonSalesCall(row.callType)
-                          ? "Lead nuevo"
+                          ? "Prospecto nuevo"
                           : "Recrear"}
                       </Link>
                     </Button>
@@ -326,7 +326,7 @@ export default function LlamadasPage() {
                 </div>
               ))}
               {calls.length === 0 && (
-                <p className="text-sm text-fg3">Aún no hay llamadas. Conecta Fathom o súbelas.</p>
+                <p className="text-sm text-fg3">Aún no hay llamadas. Conecta las grabaciones o súbelas.</p>
               )}
             </div>
           </>

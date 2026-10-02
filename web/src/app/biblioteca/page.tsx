@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Star } from "lucide-react";
+import { plainStatus } from "@/lib/plain-labels";
 
 type PackItem = {
   id: string;
@@ -307,7 +308,7 @@ export default function BibliotecaPage() {
                           {pack.items.map((item) => (
                             <div key={item.id} className="space-y-1">
                               <p className="text-xs text-fg3">
-                                {item.type} · {item.canal} · puntaje {item.puntaje} ·{" "}
+                                {plainStatus(item.type)} · {plainStatus(item.canal)} · puntaje {item.puntaje} ·{" "}
                                 {item.uses} usos
                               </p>
                               {item.recomendacion && (

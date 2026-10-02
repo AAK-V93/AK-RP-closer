@@ -161,7 +161,7 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
   }
 
   const assumedRatesLabel = usedAssumedRates
-    ? `Usamos show ${Math.round(ASSUMED_SHOW_RATE * 100)}% / close ${Math.round(ASSUMED_CLOSE_RATE * 100)}% (menos de ${ASSUMED_RATES_MIN_CALLS} llamadas reales).`
+    ? `Usamos tasa de asistencia ${Math.round(ASSUMED_SHOW_RATE * 100)}% y tasa de cierre ${Math.round(ASSUMED_CLOSE_RATE * 100)}% (menos de ${ASSUMED_RATES_MIN_CALLS} llamadas reales).`
     : null;
 
   const topFollowups = input.followups
@@ -176,7 +176,7 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
       : "- No hay comisión asegurada todavía.",
     falta <= 0
       ? "- Ya la tienes: solo cobra lo pendiente."
-      : `- Te faltan USD ${Math.round(falta)}: ${cierres} cierres, ${shows} shows, ${agendas} agendas.`,
+      : `- Te faltan USD ${Math.round(falta)}: ${cierres} cierres, ${shows} asistencias, ${agendas} agendas.`,
     todayAction ? `- Hoy: ${todayAction}.` : "",
     assumedRatesLabel ? `- ${assumedRatesLabel}` : "",
   ].filter(Boolean);
@@ -203,11 +203,11 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
       },
       {
         id: "seguimientos",
-        text: `Cerrar seguimientos abiertos con más dinero en juego (${topFollowups.length} leads top).`,
+        text: `Cerrar seguimientos abiertos con más dinero en juego (${topFollowups.length} clientes).`,
       },
       {
         id: "close_rate",
-        text: `Si subes el close rate de ${Math.round(closeRate * 100)}% a ${Math.round(mejorClose * 100)}% necesitas ${Math.max(0, agendas - agendasMejor)} agendas menos.`,
+        text: `Si subes la tasa de cierre de ${Math.round(closeRate * 100)}% a ${Math.round(mejorClose * 100)}% necesitas ${Math.max(0, agendas - agendasMejor)} agendas menos.`,
         href: "/coach",
       },
       { id: "agendar", text: `Agendar más: ${agendasHoy} / día hábil.` },

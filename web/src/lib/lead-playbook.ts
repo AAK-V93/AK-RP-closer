@@ -391,7 +391,7 @@ export function typesFromPlaybook(playbook: LeadPlaybook): LeadType[] {
   if (!playbook.personas.length && !playbook.typicalObjections.length) return [];
   return [
     {
-      name: playbook.icp || "Lead típico de esta oferta",
+      name: playbook.icp || "Prospecto típico de esta oferta",
       talkStyle,
       commonSituation: playbook.icp || playbook.personas[0]?.situation || "",
       commonPhrases: playbook.phrases.slice(0, 6),

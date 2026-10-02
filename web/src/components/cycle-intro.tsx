@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const STEPS = [
-  { k: "Llamadas", t: "Entran solas desde Fathom o las subes." },
-  { k: "Voz", t: "Agente de voz de práctica: el prospecto habla como tus leads." },
+  { k: "Llamadas", t: "Entran solas desde tus grabaciones o las subes." },
+  { k: "Voz", t: "Agente de voz de práctica: el prospecto habla como tus clientes." },
   { k: "Coach", t: "Te dice el patrón, no un score suelto." },
   { k: "CRM", t: "Sabes a quién escribir y qué decir." },
 ];

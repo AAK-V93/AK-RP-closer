@@ -11,4 +11,12 @@ test("screen labels hide internal status codes", () => {
   assert.equal(plainStatus("POST_COBRANZA"), "Después del cobro");
   assert.equal(plainStatus("ALGO_NUEVO"), "Algo Nuevo");
   assert.equal(plainStatus(""), "—");
+  assert.equal(plainStatus("SHOW"), "Asistió");
+  assert.equal(plainStatus("NO SHOW"), "No asistió");
+  assert.equal(plainStatus("PAGO PENDIENTE"), "Pago pendiente");
+  assert.equal(plainStatus("RETOMAR"), "Retomar");
+  assert.equal(plainStatus("MEET"), "Meet");
+  assert.equal(plainStatus("ZOOM"), "Zoom");
+  assert.equal(plainStatus("OTROS"), "Otros");
+  assert.equal(plainStatus("SI"), "Sí");
 });

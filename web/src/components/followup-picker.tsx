@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
+import { plainStatus } from "@/lib/plain-labels";
 
 export type FollowupOptionView = {
   id: string;
@@ -63,7 +64,7 @@ export function FollowupPicker({
               }
             >
               <p className="text-[11px] text-fg3">
-                {sourceLabel(row)} · {row.canal}
+                {sourceLabel(row)} · {plainStatus(row.canal)}
                 {row.puntaje != null ? ` · puntaje ${row.puntaje}` : ""}
                 {row.uses ? ` · ${row.uses} usos` : ""}
               </p>
