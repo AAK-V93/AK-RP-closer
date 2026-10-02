@@ -13,8 +13,8 @@ dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 
 export const runtime = "nodejs";
-/** Text extraction plus one 40s model call. A 60s cap was dying as an HTML page. */
-export const maxDuration = 120;
+/** Local PDF read, or one 40s model call. This route stays at the 60s cap. */
+export const maxDuration = 60;
 
 async function filesFromForm(form: FormData) {
   const rows: File[] = [];
