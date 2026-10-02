@@ -81,6 +81,7 @@ export async function POST(request: Request) {
       productName: practice.offer.productName,
       productDescription: practice.offer.productDescription.slice(0, 1600),
       pitchSummary: (training.pitchSummary || practice.offer.pitchSummary || "").slice(0, 800),
+      offerBonuses: practice.offer.bonuses,
       leadPlaybook: practice.playbook,
     };
 

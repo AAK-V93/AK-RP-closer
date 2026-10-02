@@ -11,6 +11,7 @@ import {
   formatPracticeTimings,
   isPracticeQaRequest,
   micHowToFix,
+  practiceClockParts,
   practiceConnectSpans,
   practiceErrorTitle,
   practiceQaStorageAction,
@@ -155,6 +156,17 @@ test("krisp stays off without a real microphone", () => {
   assert.equal(isHardwareMicTrack(null), false);
   assert.equal(isHardwareMicTrack({ label: "" }), false);
   assert.equal(isHardwareMicTrack({ getSettings: () => ({ deviceId: "mic-1" }) }), true);
+});
+
+test("conexión stops at remote audio and llamada is only the call", () => {
+  const connecting = practiceClockParts({ clickAt: 1_000, now: 2_200, voiceAt: null });
+  assert.equal(connecting.connectMs, 1_200);
+  assert.equal(connecting.callMs, 0);
+  assert.equal(connecting.live, false);
+  const live = practiceClockParts({ clickAt: 1_000, now: 3_500, voiceAt: 2_200 });
+  assert.equal(live.connectMs, 1_200);
+  assert.equal(live.callMs, 1_300);
+  assert.equal(live.live, true);
 });
 
 test("stage timings are readable in the badge", () => {

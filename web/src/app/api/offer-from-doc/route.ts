@@ -13,8 +13,12 @@ dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 
 export const runtime = "nodejs";
-/** Local PDF read, or one 40s model call. This route stays at the 60s cap. */
-export const maxDuration = 60;
+/**
+ * Read is a separate request. Extract waits at most 10s for one model, then
+ * returns the guarded prices and bonuses. 30s covers a cold start plus that
+ * budget so the platform does not cut the function with a 504.
+ */
+export const maxDuration = 30;
 
 async function filesFromForm(form: FormData) {
   const rows: File[] = [];

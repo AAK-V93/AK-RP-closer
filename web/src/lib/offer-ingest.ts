@@ -13,6 +13,7 @@ import {
   crmGaps,
   mergeExtractedOffer,
   nextMissingCrmField,
+  offerIdToUpdate,
   offerToSavePayload,
   parseCommercial,
   type ExtractedOffer,
@@ -80,10 +81,11 @@ export async function persistExtractedOffers(
   const names: string[] = [];
   for (let index = 0; index < offers.length; index += 1) {
     const payload = offerToSavePayload(offers[index]);
-    const mergeInto =
-      index === 0 && targetOfferId
-        ? existing.find((row) => row.id === targetOfferId) || null
-        : null;
+    const updateId = offerIdToUpdate(existing, {
+      id: index === 0 ? targetOfferId : undefined,
+      productName: payload.productName,
+    });
+    const mergeInto = updateId ? existing.find((row) => row.id === updateId) || null : null;
 
     if (mergeInto) {
       const merged = mergeExtractedOffer(

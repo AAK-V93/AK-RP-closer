@@ -456,6 +456,11 @@ export function buildProspectInstructions(
   const talk = book?.howLeadsTalk?.slice(0, 500) || p.personalityNotes;
   const types = book ? typesFromPlaybook(book) : [];
 
+  const bonuses = (training.offerBonuses || [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 20);
+
   const identity =
     training.practiceKind === "replay" && training.replayCall
       ? replayCharacterInstructions(p, training.replayCall, book)
@@ -488,6 +493,15 @@ ${playbookBlock}
 ## What they are selling
 - ${training.productName}
 - ${training.productDescription}
+${
+  bonuses.length
+    ? `
+## Included bonuses
+This offer includes these bonuses. Treat each one as real. Do not recite the list unless the closer brings a bonus up.
+${bonuses.map((name) => `- ${name}`).join("\n")}
+`
+    : ""
+}
 
 ${disclosureBlock(training)}
 

@@ -3,6 +3,12 @@ import { emptyCommercial, type ExtractedOffer, type ExtractedOfferBatch } from "
 export const OFFER_READ_PROGRESS = "Leyendo el documento…";
 export const OFFER_EXTRACT_PROGRESS = "Extrayendo precios y comisión…";
 
+/** Covers a cold start plus the 10s model budget, and still ends before the 30s function cap. */
+export const OFFER_CLIENT_TIMEOUT_MS = 25_000;
+
+export const OFFER_EXTRACT_TIMEOUT_MESSAGE =
+  "La extracción tardó demasiado y se cortó. Pulsa Reintentar.";
+
 type OfferPayload = {
   error?: string;
   details?: string;
@@ -57,6 +63,54 @@ async function readPayload(response: Response): Promise<OfferPayload> {
   }
 }
 
+function asTimeout(error: unknown) {
+  if (error instanceof Error && error.message === OFFER_EXTRACT_TIMEOUT_MESSAGE) return error;
+  if (error instanceof TypeError) return new Error(OFFER_EXTRACT_TIMEOUT_MESSAGE);
+  if (error instanceof Error && error.name === "AbortError") {
+    return new Error(OFFER_EXTRACT_TIMEOUT_MESSAGE);
+  }
+  if (
+    error instanceof Error &&
+    /failed to fetch|network|load failed|timeout|504|gateway/i.test(error.message)
+  ) {
+    return new Error(OFFER_EXTRACT_TIMEOUT_MESSAGE);
+  }
+  return error instanceof Error ? error : new Error(OFFER_EXTRACT_TIMEOUT_MESSAGE);
+}
+
+/**
+ * Aborts the request and drops a body that arrives after the timer. A late
+ * 200 must not become the extracted offer.
+ */
+async function postOfferStep(
+  fetchImpl: typeof fetch,
+  body: FormData,
+  timeoutMs: number,
+): Promise<OfferPayload> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    const response = await fetchImpl("/api/offer-from-doc", {
+      method: "POST",
+      body,
+      signal: controller.signal,
+    });
+    const payload = await readPayload(response);
+    if (timedOut || controller.signal.aborted) {
+      throw new Error(OFFER_EXTRACT_TIMEOUT_MESSAGE);
+    }
+    return payload;
+  } catch (error) {
+    throw asTimeout(error);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type OfferExtractResult = ExtractedOfferBatch;
 
 /**
@@ -70,6 +124,7 @@ export async function runOfferExtraction(
     onProgress?: (message: string) => void;
   },
   fetchImpl: typeof fetch = fetch,
+  timeoutMs = OFFER_CLIENT_TIMEOUT_MS,
 ): Promise<OfferExtractResult> {
   const files = args.files || [];
   const paste = (args.paste || "").trim();
@@ -78,16 +133,12 @@ export async function runOfferExtraction(
   readBody.set("step", "read");
   files.forEach((file) => readBody.append("files", file));
   if (paste) readBody.set("paste", paste);
-  const read = await readPayload(
-    await fetchImpl("/api/offer-from-doc", { method: "POST", body: readBody }),
-  );
+  const read = await postOfferStep(fetchImpl, readBody, timeoutMs);
   args.onProgress?.(OFFER_EXTRACT_PROGRESS);
   const extractBody = new FormData();
   extractBody.set("paste", String(read.text || paste));
   if (read.needsModelFile) files.forEach((file) => extractBody.append("files", file));
-  const data = await readPayload(
-    await fetchImpl("/api/offer-from-doc", { method: "POST", body: extractBody }),
-  );
+  const data = await postOfferStep(fetchImpl, extractBody, timeoutMs);
   const offers: ExtractedOffer[] = Array.isArray(data.offers) && data.offers.length
     ? (data.offers as ExtractedOffer[]).map((offer) => ({
         ...offer,

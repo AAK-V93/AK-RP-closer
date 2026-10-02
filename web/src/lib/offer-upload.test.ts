@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseExtractorJson } from "./extractor";
-import { ensureCommissionQuestion, textFromOfferFiles } from "./offer-extract";
-import { offerFailureMessage, runOfferExtraction } from "./offer-upload";
+import { ensureCommissionQuestion, OFFER_MODEL_TIMEOUT_MS, textFromOfferFiles } from "./offer-extract";
+import { OFFER_CLIENT_TIMEOUT_MS, offerFailureMessage, runOfferExtraction } from "./offer-upload";
 
 test("a Vercel HTML error page becomes a Spanish retry", () => {
   const html = "An error occurred with your deployment\nFUNCTION_INVOCATION_TIMEOUT";
@@ -101,6 +101,80 @@ function simplePdf(pages: string[]) {
   body += `${xref}trailer << /Size ${all.length + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF`;
   return Buffer.from(body);
 }
+
+test("the model budget stays inside the function limit", () => {
+  assert.equal(OFFER_MODEL_TIMEOUT_MS, 10_000);
+  assert.equal(OFFER_CLIENT_TIMEOUT_MS, 25_000);
+  assert.ok(OFFER_CLIENT_TIMEOUT_MS > OFFER_MODEL_TIMEOUT_MS);
+  assert.ok(OFFER_CLIENT_TIMEOUT_MS < 30_000);
+});
+
+test("a 504 or a dropped connection asks to retry in Spanish", async () => {
+  const steps = ["read", "504", "network"];
+  for (const step of steps) {
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      const form = init?.body as FormData;
+      if (form.get("step") === "read" && step !== "network") {
+        return new Response(
+          JSON.stringify({ text: "Oferta Fertilidad. Precio USD 10000.", needsModelFile: false }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (step === "network") throw new TypeError("Failed to fetch");
+      return new Response("An error occurred with your deployment\nFUNCTION_INVOCATION_TIMEOUT", {
+        status: 504,
+      });
+    }) as typeof fetch;
+    await assert.rejects(
+      () =>
+        runOfferExtraction(
+          { paste: "Oferta Fertilidad Consciente con precio y comisión por escribir." },
+          fetchImpl,
+        ),
+      /La extracción tardó demasiado y se cortó\. Pulsa Reintentar\./,
+    );
+  }
+});
+
+test("a body that arrives after the timeout is not the extracted offer", async () => {
+  const fetchImpl = (async (_url: string, init?: RequestInit) => {
+    const form = init?.body as FormData;
+    if (form.get("step") === "read") {
+      return new Response(
+        JSON.stringify({ text: "Oferta Fertilidad. Precio USD 10000.", needsModelFile: false }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return new Response(
+      JSON.stringify({
+        offers: [{
+          productName: "Tarde",
+          productDescription: "Esto llegó después del corte de tiempo.",
+          pitchSummary: "",
+          icp: "",
+          commercial: {},
+        }],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  await assert.rejects(
+    () =>
+      runOfferExtraction(
+        { paste: "Oferta Fertilidad Consciente con precio y comisión por escribir." },
+        fetchImpl,
+        20,
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Pulsa Reintentar/);
+      assert.equal(error.message.includes("Tarde"), false);
+      return true;
+    },
+  );
+});
 
 test("a multi-page offer PDF becomes text and is not sent as a binary", async () => {
   const buffer = simplePdf([

@@ -47,8 +47,10 @@ type ConnectionContextType = {
   markRoomJoined: (at?: number) => void;
   markAgentJoined: (at?: number) => void;
   liveStage: PracticeStageTiming | null;
-  /** Milliseconds timestamp of the user's start click. The on-screen clock uses this. */
+  /** Milliseconds timestamp of the user's start click. */
   clockOrigin: number | null;
+  /** Milliseconds timestamp of the first remote audio. Null until the call is live. */
+  voiceStartedAt: number | null;
 };
 
 const ConnectionContext = createContext<ConnectionContextType | undefined>(
@@ -80,6 +82,8 @@ export const ConnectionProvider = ({
   const [stageTimings, setStageTimings] = useState<PracticeStageTiming[]>([]);
   const [liveStage, setLiveStage] = useState<PracticeStageTiming | null>(null);
   const [clockOrigin, setClockOrigin] = useState<number | null>(null);
+  const [voiceStartedAt, setVoiceStartedAt] = useState<number | null>(null);
+  const clockOriginRef = useRef<number | null>(null);
   const cancelingRef = useRef(false);
   const stageRef = useRef<{ name: string; at: number } | null>(null);
   const { trainingState } = useTraining();
@@ -181,10 +185,10 @@ export const ConnectionProvider = ({
     setLiveStage({ stage: name, ms: 0 });
   }, []);
 
-  const closeStage = useCallback(() => {
+  const closeStage = useCallback((at = Date.now()) => {
     const prev = stageRef.current;
     if (!prev) return;
-    const ms = Date.now() - prev.at;
+    const ms = at - prev.at;
     console.info("[práctica]", { etapa: prev.name, ms });
     setStageTimings((rows) => [...rows, { stage: prev.name, ms }]);
     stageRef.current = null;
@@ -219,7 +223,9 @@ export const ConnectionProvider = ({
     setErrorMessage(null);
     setErrorKind(null);
     setPhase("idle");
+    clockOriginRef.current = null;
     setClockOrigin(null);
+    setVoiceStartedAt(null);
   }, []);
 
   const fail = useCallback((message: string, kind: PracticeErrorKind = "connection") => {
@@ -262,7 +268,10 @@ export const ConnectionProvider = ({
     setStageTimings([]);
     setLiveStage(null);
     stageRef.current = null;
-    setClockOrigin(Date.now());
+    const started = Date.now();
+    clockOriginRef.current = started;
+    setClockOrigin(started);
+    setVoiceStartedAt(null);
     setPhase("preparing");
     setIsConnecting(true);
     try {
@@ -321,9 +330,12 @@ export const ConnectionProvider = ({
   }, [noteStage]);
 
   const markReady = useCallback(() => {
-    if (stageRef.current?.name === "sala") noteStage("agente");
-    if (stageRef.current?.name === "agente") noteStage("voz");
-    closeStage();
+    const at = Date.now();
+    if (stageRef.current?.name === "sala") noteStage("agente", at);
+    if (stageRef.current?.name === "agente") noteStage("voz", at);
+    if (stageRef.current?.name === "voz") closeStage(at);
+    else closeStage();
+    setVoiceStartedAt(at);
     setPhase("ready");
     setErrorMessage(null);
     setErrorKind(null);
@@ -337,7 +349,9 @@ export const ConnectionProvider = ({
     setConnectionDetails((prev) => ({ ...prev, shouldConnect: false }));
     setIsConnecting(false);
     setPhase((current) => (current === "error" ? current : "idle"));
+    clockOriginRef.current = null;
     setClockOrigin(null);
+    setVoiceStartedAt(null);
   }, []);
 
   return (
@@ -359,6 +373,7 @@ export const ConnectionProvider = ({
         markRoomJoined,
         markAgentJoined,
         clockOrigin,
+        voiceStartedAt,
       }}
     >
       {children}

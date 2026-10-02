@@ -1,5 +1,5 @@
 import { parseFollowupScripts, type FollowupScript } from "@/lib/followup-scripts";
-import { commissionCitedInSource } from "@/lib/offer-amounts";
+import { bonusesFromOfferText, commissionCitedInSource } from "@/lib/offer-amounts";
 import { preferOfferName } from "@/lib/offer-name";
 
 export type CommissionTier = {
@@ -394,6 +394,35 @@ export function editablePriceLines(commercial: OfferCommercial): string[] {
   if (list != null) lines.push(`Precio de lista: ${money(list)}`);
   for (const alt of options) lines.push(`${alt.label}: ${money(alt.amount)}`);
   return lines;
+}
+
+/** Fill bonuses from the stored document when a save kept the text but not the list. */
+export function withRecoveredBonuses(commercial: OfferCommercial): OfferCommercial {
+  if (commercial.bonuses.length) return commercial;
+  const found = bonusesFromOfferText(commercial.sourceText || "");
+  if (!found.length) return commercial;
+  return { ...commercial, bonuses: found };
+}
+
+export function savedBonusNames(commercial: OfferCommercial): string[] {
+  return withRecoveredBonuses(commercial)
+    .bonuses.map((row) => row.name.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Re-saving «Fertilidad Consciente» updates that row. A missing id still
+ * matches the exact product name so the home screen does not create a duplicate.
+ */
+export function offerIdToUpdate(
+  offers: { id: string; productName: string }[],
+  input: { id?: string | null; productName: string },
+): string | null {
+  const id = String(input.id || "").trim();
+  if (id && offers.some((row) => row.id === id)) return id;
+  const name = input.productName.trim().toLowerCase();
+  if (!name) return null;
+  return offers.find((row) => row.productName.trim().toLowerCase() === name)?.id || null;
 }
 
 export function commercialRecap(commercial: OfferCommercial): string {
