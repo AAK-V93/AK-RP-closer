@@ -40,6 +40,17 @@ export function sinPrecioNote(count: number) {
   return `${count} sin precio`;
 }
 
+/** Priced leads stay as lines. The rest collapse into one «N sin precio» row. */
+export function pipelineDetailGroups(lines: PipelineLine[]) {
+  const priced: PipelineLine[] = [];
+  const unpriced: PipelineLine[] = [];
+  for (const row of lines) {
+    if (row.amount > 0) priced.push(row);
+    else unpriced.push(row);
+  }
+  return { priced, unpriced };
+}
+
 const ACTIVE_STAGES = new Set([
   "DECISION",
   "RETOMAR",
