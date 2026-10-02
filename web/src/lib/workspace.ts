@@ -28,22 +28,12 @@ import {
 export async function getWorkspacePrisma() {
   const prisma = getPrisma();
   if (!prisma) return null;
-  await ensureWorkspaceTables(prisma);
-  try {
-    await ensureFathomTables(prisma);
-  } catch {
-    /* fathom tables optional for uploads */
-  }
-  try {
-    await ensureCrmTables(prisma);
-  } catch {
-    /* crm tables created on first use */
-  }
-  try {
-    await ensureCoachTables(prisma);
-  } catch {
-    /* coach tables exist from prisma schema */
-  }
+  await Promise.all([
+    ensureWorkspaceTables(prisma),
+    ensureFathomTables(prisma).catch(() => undefined),
+    ensureCrmTables(prisma).catch(() => undefined),
+    ensureCoachTables(prisma).catch(() => undefined),
+  ]);
   return prisma;
 }
 
@@ -58,80 +48,112 @@ export async function getWorkspace(
     where: { userId },
     orderBy: { updatedAt: "desc" },
   });
-  const recovered = new Map<string, OfferCommercial>();
-  for (const row of offers) {
-    recovered.set(row.id, await storeRecoveredBonuses(prisma, row.id, row.commercial));
-  }
+  const recoveredEntries = await Promise.all(
+    offers.map(async (row) => {
+      const commercial = await storeRecoveredBonuses(prisma, row.id, row.commercial);
+      return [row.id, commercial] as const;
+    }),
+  );
+  const recovered = new Map<string, OfferCommercial>(recoveredEntries);
   const oldest = [...offers].sort(
     (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
   )[0];
   const active =
     (offerId && offers.find((row) => row.id === offerId)) || offers[0] || null;
+  const includeLegacy = Boolean(oldest && active && oldest.id === active.id);
+  const transcriptWhere = active
+    ? {
+        userId,
+        OR: [
+          { offerId: active.id },
+          ...(includeLegacy ? [{ offerId: null }] : []),
+        ],
+      }
+    : null;
 
-  const uploads = active
-    ? await prisma.clientTranscript.findMany({
-        where: {
-          userId,
-          OR: [
-            { offerId: active.id },
-            ...(oldest && oldest.id === active.id ? [{ offerId: null }] : []),
-          ],
-        },
-        orderBy: { createdAt: "desc" },
-        take: 80,
-        select: {
-          id: true,
-          title: true,
-          source: true,
-          createdAt: true,
-          transcriptText: true,
-          offerId: true,
-        },
-      })
-    : [];
+  const listSelect = {
+    id: true,
+    title: true,
+    source: true,
+    createdAt: true,
+    offerId: true,
+    ...(includeCorpus ? { transcriptText: true } : {}),
+  } as const;
 
+  let uploads: {
+    id: string;
+    title: string;
+    source: string;
+    createdAt: Date;
+    offerId: string | null;
+    transcriptText?: string;
+  }[] = [];
+  let usableUploads = 0;
   let fathomCount = 0;
   let fathomSamples: { title: string; transcriptText: string }[] = [];
   try {
-    fathomCount = await prisma.fathomRecording.count({
-      where: {
-        userId,
-        AND: [
-          { transcriptText: { not: "" } },
-          { transcriptText: { not: EMPTY_TRANSCRIPT_MARK } },
-        ],
-      },
-    });
-    if (includeCorpus && active?.includeFathom && fathomCount > 0) {
-      fathomSamples = await prisma.fathomRecording.findMany({
-        where: {
-          userId,
-          AND: [
-            { transcriptText: { not: "" } },
-            { transcriptText: { not: EMPTY_TRANSCRIPT_MARK } },
-          ],
-        },
-        orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
-        take: 40,
-        select: { title: true, transcriptText: true },
-      });
-    }
+    const [listed, usableRows, fathom] = await Promise.all([
+      transcriptWhere
+        ? prisma.clientTranscript.findMany({
+            where: transcriptWhere,
+            orderBy: { createdAt: "desc" },
+            take: 80,
+            select: listSelect,
+          })
+        : Promise.resolve([]),
+      transcriptWhere
+        ? prisma.$queryRaw<{ n: number }[]>`
+            SELECT COUNT(*)::int AS n
+            FROM "ClientTranscript"
+            WHERE "userId" = ${userId}
+              AND char_length(btrim("transcriptText")) >= 80
+              AND "transcriptText" <> ${EMPTY_TRANSCRIPT_MARK}
+              AND (
+                "offerId" = ${active?.id || ""}
+                OR (${includeLegacy} AND "offerId" IS NULL)
+              )
+          `
+        : Promise.resolve([{ n: 0 }]),
+      (async () => {
+        const count = await prisma.fathomRecording.count({
+          where: {
+            userId,
+            AND: [
+              { transcriptText: { not: "" } },
+              { transcriptText: { not: EMPTY_TRANSCRIPT_MARK } },
+            ],
+          },
+        });
+        const samples =
+          includeCorpus && active?.includeFathom && count > 0
+            ? await prisma.fathomRecording.findMany({
+                where: {
+                  userId,
+                  AND: [
+                    { transcriptText: { not: "" } },
+                    { transcriptText: { not: EMPTY_TRANSCRIPT_MARK } },
+                  ],
+                },
+                orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
+                take: 40,
+                select: { title: true, transcriptText: true },
+              })
+            : [];
+        return { count, samples };
+      })(),
+    ]);
+    uploads = listed;
+    usableUploads = Number(usableRows[0]?.n || 0);
+    fathomCount = fathom.count;
+    fathomSamples = fathom.samples;
   } catch {
     fathomCount = 0;
     fathomSamples = [];
+    usableUploads = uploads.filter((row) => isUsableTranscript(row.transcriptText)).length;
   }
-
-  const usableUploads = uploads.filter((row) =>
-    isUsableTranscript(row.transcriptText),
-  ).length;
   const playbook = active ? parsePlaybook(active.playbook) : emptyPlaybook();
   const transcriptCount = usableUploads + (active?.includeFathom ? fathomCount : 0);
   const offerReady = Boolean(active?.productName.trim()) && transcriptCount > 0;
-  const uploadCounts = await prisma.clientTranscript.groupBy({
-    by: ["offerId"],
-    where: { userId },
-    _count: { _all: true },
-  });
   const canPractice = offers.some((row) => Boolean(row.productName.trim()));
 
   return {
@@ -172,16 +194,18 @@ export async function getWorkspace(
     readyCrm: userHasReadyCrm(offers),
     hasAnyOffer: offers.length > 0,
     canPractice,
-    corpus: [
-      ...uploads.map((row) => ({
-        title: row.title,
-        text: row.transcriptText,
-      })),
-      ...fathomSamples.map((row) => ({
-        title: row.title,
-        text: row.transcriptText,
-      })),
-    ],
+    corpus: includeCorpus
+      ? [
+          ...uploads.map((row) => ({
+            title: row.title,
+            text: row.transcriptText || "",
+          })),
+          ...fathomSamples.map((row) => ({
+            title: row.title,
+            text: row.transcriptText,
+          })),
+        ]
+      : [],
   };
 }
 

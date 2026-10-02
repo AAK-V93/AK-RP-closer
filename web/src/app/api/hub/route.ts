@@ -76,17 +76,15 @@ export async function GET() {
       console.error("hub GET ensureCrm", error);
     }
 
-    let messages: Awaited<ReturnType<typeof loadThread>>["messages"] = [];
-    try {
-      const loaded = await loadThread(prisma, session.user.id, THREAD_HUB);
-      messages = loaded.messages.map((line) =>
-        line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
-      );
-    } catch (error) {
+    const threadPromise = loadThread(prisma, session.user.id, THREAD_HUB).catch((error) => {
       console.error("hub GET thread", error);
-    }
-
+      return null;
+    });
     const snapshot = await hubSnapshot(prisma, session.user.id);
+    const loaded = await threadPromise;
+    const messages = (loaded?.messages || []).map((line) =>
+      line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
+    );
     return NextResponse.json({ messages, snapshot });
   } catch (error) {
     console.error("hub GET", error);
@@ -831,15 +829,17 @@ ${userText}`;
   }
 }
 
-async function hubSnapshot(
+export async function hubSnapshot(
   prisma: NonNullable<Awaited<ReturnType<typeof getWorkspacePrisma>>>,
   userId: string,
 ) {
-  const home = await getHomeState(prisma, userId);
-  const prefsRow = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { crmPrefs: true },
-  });
+  const [home, prefsRow] = await Promise.all([
+    getHomeState(prisma, userId),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { crmPrefs: true },
+    }),
+  ]);
   const prefs = parseCrmPrefs(prefsRow?.crmPrefs);
   const pendingOfferExtract = readPendingOfferExtract(prefsRow?.crmPrefs);
   const goalSeed = {
@@ -893,49 +893,48 @@ async function hubSnapshot(
     return empty;
   }
   try {
-    const workspace = await getWorkspace(prisma, userId, null, { corpus: false });
-    const dash = await crmDashboard(prisma, userId);
+    const weekStart = new Date();
+    const weekday = weekStart.getUTCDay();
+    weekStart.setUTCDate(weekStart.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const [workspace, dash, leads, pendingCalls, recentAuto, unclassified, analyzedThisWeek, guides] =
+      await Promise.all([
+        getWorkspace(prisma, userId, null, { corpus: false }),
+        crmDashboard(prisma, userId),
+        prisma.lead.findMany({
+          where: { userId },
+          orderBy: { updatedAt: "desc" },
+          take: 12,
+        }),
+        listPendingFilings(prisma, userId),
+        prisma.callRecord.findMany({
+          where: {
+            userId,
+            filingStatus: "confirmed",
+            confirmedAt: { gte: new Date(Date.now() - 36 * 3600 * 1000) },
+          },
+          orderBy: { confirmedAt: "desc" },
+          take: 3,
+        }),
+        prisma.callRecord.count({
+          where: { userId, filingStatus: "pending" },
+        }),
+        prisma.callRecord.count({
+          where: {
+            userId,
+            filingStatus: "confirmed",
+            confirmedAt: { gte: weekStart },
+            estadoAgenda: { notIn: ["INTERNA", "NO_COMERCIAL"] },
+          },
+        }),
+        loadLiveGuides(prisma, userId),
+      ]);
     let goalBundle = goalSeed;
     try {
       goalBundle = await loadCommissionProjection(prisma, userId, dash);
     } catch (error) {
       console.error("hub projection", error);
     }
-    const [leads, pendingCalls, recentAuto] = await Promise.all([
-      prisma.lead.findMany({
-        where: { userId },
-        orderBy: { updatedAt: "desc" },
-        take: 12,
-      }),
-      listPendingFilings(prisma, userId),
-      prisma.callRecord.findMany({
-        where: {
-          userId,
-          filingStatus: "confirmed",
-          confirmedAt: { gte: new Date(Date.now() - 36 * 3600 * 1000) },
-        },
-        orderBy: { confirmedAt: "desc" },
-        take: 3,
-      }),
-    ]);
-    const unclassified = await prisma.callRecord.count({
-      where: { userId, filingStatus: "pending" },
-    });
-    const weekStart = new Date();
-    const weekday = weekStart.getUTCDay();
-    weekStart.setUTCDate(weekStart.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
-    weekStart.setUTCHours(0, 0, 0, 0);
-    const [analyzedThisWeek, guides] = await Promise.all([
-      prisma.callRecord.count({
-        where: {
-          userId,
-          filingStatus: "confirmed",
-          confirmedAt: { gte: weekStart },
-          estadoAgenda: { notIn: ["INTERNA", "NO_COMERCIAL"] },
-        },
-      }),
-      loadLiveGuides(prisma, userId),
-    ]);
     const drill = guides.flatMap((guide) => guide.drills).find((item) => item.trim()) || "";
     const desk = {
       unclassified,

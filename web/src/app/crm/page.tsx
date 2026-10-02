@@ -1586,7 +1586,7 @@ function DashboardSheet({
         <SheetTable
           columns={[
             { key: "razon", label: "Razón de no cierre", width: 220, value: (row) => row.razon },
-            { key: "count", label: "N", width: 60, align: "right", value: (row) => row.count },
+            { key: "count", label: "Veces", width: 70, align: "right", value: (row) => row.count },
           ]}
           rows={data.desglose?.razonNoCierre || []}
           getId={(row) => `${row.razon}-${row.count}`}

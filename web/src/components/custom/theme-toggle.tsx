@@ -35,14 +35,14 @@ export function ThemeToggle() {
               className="h-9 w-9"
             >
               {getThemeIcon()}
-              <span className="sr-only">Toggle theme</span>
+              <span className="sr-only">Cambiar tema</span>
             </Button>
           </PopoverTrigger>
           <PopoverContent 
             className="w-48"
           >
             <div className="space-y-2">
-              <h4 className="font-medium leading-none">Theme</h4>
+              <h4 className="font-medium leading-none">Tema</h4>
               <div className="space-y-1">
                 <Button
                   variant="ghost"
@@ -50,7 +50,7 @@ export function ThemeToggle() {
                   onClick={() => setTheme('light')}
                 >
                   <Sun className="mr-2 h-4 w-4" />
-                  Light
+                  Claro
                 </Button>
                 <Button
                   variant="ghost"
@@ -58,7 +58,7 @@ export function ThemeToggle() {
                   onClick={() => setTheme('dark')}
                 >
                   <Moon className="mr-2 h-4 w-4" />
-                  Dark
+                  Oscuro
                 </Button>
                 <Button
                   variant="ghost"
@@ -66,7 +66,7 @@ export function ThemeToggle() {
                   onClick={() => setTheme('system')}
                 >
                   <Monitor className="mr-2 h-4 w-4" />
-                  System
+                  Sistema
                 </Button>
               </div>
             </div>
@@ -80,25 +80,25 @@ export function ThemeToggle() {
   return (
     <Select value={theme} onValueChange={setTheme}>
       <SelectTrigger className="w-full" variant="ghost" size="md">
-        <SelectValue placeholder="Theme" />
+        <SelectValue placeholder="Tema" />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="light">
           <div className="flex items-center gap-2">
             <Sun className="h-4 w-4" />
-            Light
+            Claro
           </div>
         </SelectItem>
         <SelectItem value="dark">
           <div className="flex items-center gap-2">
             <Moon className="h-4 w-4" />
-            Dark
+            Oscuro
           </div>
         </SelectItem>
         <SelectItem value="system">
           <div className="flex items-center gap-2">
             <Monitor className="h-4 w-4" />
-            System
+            Sistema
           </div>
         </SelectItem>
       </SelectContent>

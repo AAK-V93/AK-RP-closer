@@ -7,7 +7,12 @@ export async function GET(request: Request) {
   try {
     const auth = await requireWorkspaceUser();
     if ("error" in auth && auth.error) return auth.error;
-    const offerId = new URL(request.url).searchParams.get("offerId");
+    const url = new URL(request.url);
+    if (url.searchParams.get("view") === "nav") {
+      const home = await getHomeState(auth.prisma, auth.userId);
+      return NextResponse.json({ showCrm: home.showCrm });
+    }
+    const offerId = url.searchParams.get("offerId");
     const [workspace, home] = await Promise.all([
       getWorkspace(auth.prisma, auth.userId, offerId, { corpus: false }),
       getHomeState(auth.prisma, auth.userId),

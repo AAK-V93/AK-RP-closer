@@ -117,11 +117,29 @@ export function prismaErrorCode(error: unknown): string {
   return "UNKNOWN";
 }
 
+/** One round trip per probe. A hit means this process can skip the DDL chain. */
+async function schemaAlreadyThere(prisma: PrismaClient, probes: string[]) {
+  try {
+    await Promise.all(probes.map((sql) => prisma.$queryRawUnsafe(sql)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 let fathomTablesReady: Promise<void> | null = null;
 
 export async function ensureFathomTables(prisma: PrismaClient) {
   if (!fathomTablesReady) {
     fathomTablesReady = (async () => {
+      if (
+        await schemaAlreadyThere(prisma, [
+          `SELECT "webhookToken" FROM "FathomConnection" LIMIT 0`,
+          `SELECT "practiceSessionId" FROM "FathomRecording" LIMIT 0`,
+        ])
+      ) {
+        return;
+      }
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "FathomConnection" (
           "id" TEXT NOT NULL,
@@ -222,6 +240,14 @@ let workspaceTablesReady: Promise<void> | null = null;
 export async function ensureWorkspaceTables(prisma: PrismaClient) {
   if (!workspaceTablesReady) {
     workspaceTablesReady = (async () => {
+      if (
+        await schemaAlreadyThere(prisma, [
+          `SELECT "id" FROM "UserOffer" LIMIT 0`,
+          `SELECT "offerId" FROM "ClientTranscript" LIMIT 0`,
+        ])
+      ) {
+        return;
+      }
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "UserOffer" (
           "id" TEXT NOT NULL,
@@ -298,6 +324,14 @@ let crmTablesReady: Promise<void> | null = null;
 export async function ensureCrmTables(prisma: PrismaClient) {
   if (!crmTablesReady) {
     crmTablesReady = (async () => {
+      if (
+        await schemaAlreadyThere(prisma, [
+          `SELECT "threadId" FROM "LeadAlert" LIMIT 0`,
+          `SELECT "id" FROM "FollowupTouch" LIMIT 0`,
+        ])
+      ) {
+        return;
+      }
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "CallRecord" (
           "id" TEXT NOT NULL,
@@ -631,6 +665,13 @@ let coachTablesReady: Promise<void> | null = null;
 export async function ensureCoachTables(prisma: PrismaClient) {
   if (!coachTablesReady) {
     coachTablesReady = (async () => {
+      if (
+        await schemaAlreadyThere(prisma, [
+          `SELECT "thread" FROM "CoachMessage" LIMIT 0`,
+        ])
+      ) {
+        return;
+      }
       await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "GuestFreePractice"`);
       await prisma.$executeRawUnsafe(
         `ALTER TABLE "CoachMessage" ADD COLUMN IF NOT EXISTS "thread" TEXT NOT NULL DEFAULT 'coach'`,

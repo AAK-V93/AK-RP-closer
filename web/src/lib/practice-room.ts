@@ -64,6 +64,15 @@ export function isPracticeLeaveNoise(message: string) {
   return PRACTICE_LEAVE_NOISE.test(message);
 }
 
+let hushLeaveLogs: (() => void) | null = null;
+let restoreLeaveLogs: (() => void) | null = null;
+
+/** Room logs do not include the signal client. Silence that logger only while leaving. */
+export function bindPracticeLeaveLogs(hush: () => void, restore: () => void) {
+  hushLeaveLogs = hush;
+  restoreLeaveLogs = restore;
+}
+
 /**
  * Stop the 4s reconcile loop before the engine closes.
  * Otherwise it warns "detected connection state mismatch" on cancel.
@@ -71,6 +80,11 @@ export function isPracticeLeaveNoise(message: string) {
 export function markPracticeLeaving(room: object) {
   const target = room as LeavingRoom;
   target.__practiceLeaving = true;
+  try {
+    hushLeaveLogs?.();
+  } catch {
+    /* logger not ready */
+  }
   try {
     target.clearConnectionReconcile?.();
   } catch {
@@ -83,6 +97,11 @@ export function resetPracticeRoom(room: object) {
   leaveTokens.set(room, (leaveTokens.get(room) || 0) + 1);
   leavingRooms.delete(room);
   (room as LeavingRoom).__practiceLeaving = false;
+  try {
+    restoreLeaveLogs?.();
+  } catch {
+    /* logger not ready */
+  }
 }
 
 function publicationsOf<T extends { stop?: () => void }>(room: PracticeRoom<T>): TrackPublication<T>[] {

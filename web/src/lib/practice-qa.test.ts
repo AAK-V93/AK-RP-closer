@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isHardwareMicTrack } from "./practice-audio";
 import {
+  bindPracticeLeaveLogs,
   guardPracticeRoom,
   isPracticeLeaveNoise,
   isUserPracticeDisconnect,
   leavePracticeRoom,
+  markPracticeLeaving,
   resetPracticeRoom,
 } from "./practice-room";
 import { practiceWarmMetadata, practiceWarmRoomName } from "./practice-dispatch";
@@ -172,6 +174,18 @@ test("cancel while connecting drops the mismatch warning and keeps a live one", 
   resetPracticeRoom(room);
   room.log.warn("detected connection state mismatch");
   assert.equal(warnings.at(-1), "detected connection state mismatch");
+});
+
+test("an intentional leave silences the signal logger and a new call restores it", () => {
+  const levels: string[] = [];
+  bindPracticeLeaveLogs(
+    () => levels.push("silent"),
+    () => levels.push("info"),
+  );
+  const room = { clearConnectionReconcile() {} };
+  markPracticeLeaving(room);
+  resetPracticeRoom(room);
+  assert.deepEqual(levels, ["silent", "info"]);
 });
 
 test("the page-load warm room is not a practice dispatch", () => {

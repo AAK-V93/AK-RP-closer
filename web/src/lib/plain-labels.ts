@@ -37,6 +37,8 @@ const STATUS_LABELS: Record<string, string> = {
   ZOOM: "Zoom",
   MEET: "Meet",
   WHATSAPP: "WhatsApp",
+  VIDEO: "Vídeo",
+  video: "Vídeo",
   LLAMADA: "Llamada",
   PRESENCIAL: "Presencial",
   EMAIL: "Correo",

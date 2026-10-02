@@ -9,16 +9,28 @@ import {
   useLocalParticipant,
   useRoomContext,
 } from "@livekit/components-react";
-import { ConnectionState, LocalAudioTrack, Room, Track } from "livekit-client";
+import { ConnectionState, LocalAudioTrack, LogLevel, LoggerNames, Room, Track, setLogLevel } from "livekit-client";
 import { useConnection } from "@/hooks/use-connection";
 import { AgentProvider } from "@/hooks/use-agent";
 import { createSyntheticMicTrack } from "@/lib/practice-audio";
 import {
   abortPracticeNegotiation,
+  bindPracticeLeaveLogs,
   guardPracticeRoom,
   leavePracticeRoom,
   resetPracticeRoom,
 } from "@/lib/practice-room";
+
+const SIGNAL_LOGS = [LoggerNames.Signal, LoggerNames.Engine, LoggerNames.PCManager, LoggerNames.PCTransport];
+
+bindPracticeLeaveLogs(
+  () => {
+    for (const name of SIGNAL_LOGS) setLogLevel(LogLevel.silent, name);
+  },
+  () => {
+    for (const name of SIGNAL_LOGS) setLogLevel(LogLevel.info, name);
+  },
+);
 
 function RoomTeardown() {
   const room = useRoomContext();

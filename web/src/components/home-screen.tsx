@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2, Upload } from "lucide-react";
+import { HomeSkeleton } from "@/components/page-skeleton";
 import { CycleIntro } from "@/components/cycle-intro";
 import { HubChat, type HubSnapshot } from "@/components/hub-chat";
 import { OfferExtractReview } from "@/components/offer-extract-review";
@@ -28,9 +29,9 @@ import {
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 
-export function HomeScreen() {
-  const [snapshot, setSnapshot] = useState<HubSnapshot | null>(null);
-  const [loading, setLoading] = useState(true);
+export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSnapshot | null }) {
+  const [snapshot, setSnapshot] = useState<HubSnapshot | null>(initialSnapshot);
+  const [loading, setLoading] = useState(!initialSnapshot);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -49,12 +50,7 @@ export function HomeScreen() {
   }, []);
 
   if (loading) {
-    return (
-      <p className="text-sm text-fg3 flex items-center gap-2">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando inicio…
-      </p>
-    );
+    return <HomeSkeleton />;
   }
 
   const home = snapshot?.home;

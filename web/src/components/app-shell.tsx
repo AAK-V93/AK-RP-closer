@@ -29,7 +29,7 @@ export function AppShell({
 
   useEffect(() => {
     if (status !== "authenticated") return;
-    fetch("/api/workspace")
+    fetch("/api/workspace?view=nav")
       .then((r) => r.json())
       .then((payload) => {
         if (typeof payload.showCrm === "boolean") setShowCrm(payload.showCrm);
