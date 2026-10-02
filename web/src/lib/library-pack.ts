@@ -87,7 +87,7 @@ export function normalizeLibraryPack(value: unknown, index = 0): LibraryPack | n
   if (!id && !title) return null;
   return {
     id: id || `pack-${index}`,
-    title: title || "Pack",
+    title: title || "Sin nombre",
     description: String(row.description || ""),
     tags: asStringList(row.tags),
     publisher: String(row.publisher || ""),

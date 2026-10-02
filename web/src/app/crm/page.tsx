@@ -38,6 +38,14 @@ import { plainStatus } from "@/lib/plain-labels";
 import { ACTIVA_EXPLAIN, filaCountLabel, latestActiveRows, operacionCountLine } from "@/lib/crm-activa";
 import { clienteVisible } from "@/lib/crm-noise";
 import { derivedPaso, operacionGlance } from "@/lib/crm-glance";
+import {
+  AHORA_TAB_NOTE,
+  COBRADO_PERIOD_NOTE,
+  PERIODO_TAB_NOTE,
+  SEGUIMIENTOS_SALDO_NOTE,
+  cobradoPeriodLine,
+  seguimientosHeader,
+} from "@/lib/crm-period-copy";
 import { dineroEnJuegoNote, saldoPorCobrarNote, type PipelineLine } from "@/lib/crm-pipeline";
 import { followupCardStatus } from "@/lib/home-desk";
 import { PipelineDetail } from "@/components/pipeline-detail";
@@ -983,6 +991,7 @@ function AhoraSheet({
       />
       <div className="space-y-4">
         <SectionHeading>Ahora mismo</SectionHeading>
+        <p className="text-xs text-fg3">{AHORA_TAB_NOTE}</p>
         <dl className="divide-y divide-separator1 border-t border-separator1">
           <QuietFact label="Pendientes de hoy" value={String(now.seguimientosHoy || 0)} />
           <QuietFact label="Vencidos" value={String(now.seguimientosVencidos || 0)} />
@@ -1033,6 +1042,12 @@ function PeriodoSheet({
   ];
   return (
     <div className="space-y-2">
+      <p className="text-xs text-fg3">{PERIODO_TAB_NOTE}</p>
+      {/* Mes and total both come from the payment-dated rollup shared with Período. */}
+      <p className="text-sm text-fg2">
+        {cobradoPeriodLine(money(rendimiento.mes.cash), money(rendimiento.acumulado.cash))}
+      </p>
+      <p className="text-[11px] text-fg3">{COBRADO_PERIOD_NOTE}</p>
       {offerNote && <p className="text-[11px] text-fg3">{offerNote}</p>}
       <p className="text-[11px] text-fg3">
         Ventas es la suma de los cierres que tienen monto, una persona una vez. Una asistencia o un precio solo mencionado no entra, así que ventas y cierres se mueven juntos.
@@ -1884,10 +1899,13 @@ function SeguimientosSheet({
   return (
     <div className="space-y-4">
       <p className="text-sm text-fg3" aria-live="polite">
-        {followupCardStatus(now.seguimientosHoy || 0, now.seguimientosVencidos || 0)} · Dinero en juego{" "}
-        {money(now.dineroEnJuego)}
+        {seguimientosHeader(
+          followupCardStatus(now.seguimientosHoy || 0, now.seguimientosVencidos || 0),
+          money(now.saldoPorCobrar || 0),
+        )}
       </p>
       <HelpNote>
+        <p>{SEGUIMIENTOS_SALDO_NOTE}</p>
         <p>Hecho cierra este seguimiento: sale de la lista y deja de contar en pendientes y en dinero en juego.</p>
         <p>No contestó anota que no respondió y te pide otra fecha, para que el lead no se pierda. Asistió y No asistió son de la reunión.</p>
         <p>Perdido cierra el hilo. Cerró, en una decisión, lo pasa a cobro si todavía queda saldo.</p>

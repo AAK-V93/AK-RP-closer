@@ -8,6 +8,7 @@ import {
   type DeskLine,
 } from "@/lib/crm-followups";
 import { zonedDayBounds, zonedDayKey, zonedMonthRange, zonedWeekRange } from "@/lib/crm-time";
+import { loadCashNotes } from "@/lib/crm-cash-notes";
 import { parseCommercial, looksLikeOfferBlob } from "@/lib/offer-commercial";
 import {
   cobrosAfterCashChange,
@@ -172,6 +173,7 @@ export function isChatCancel(text: string) {
 export function looksLikeFilingAnswer(text: string) {
   const raw = text.trim();
   if (!raw || raw.length > 80) return false;
+  if (looksLikeOfferBlob(raw)) return false;
   if (/[?]/.test(raw)) return false;
   if (isYes(raw) || isNo(raw)) return false;
   if (
@@ -1160,7 +1162,7 @@ export async function respondToCrmChat(
 }
 
 async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Date()): Promise<MoneyBrief> {
-  const [calls, leads, offers, threads, commissions] = await Promise.all([
+  const [calls, leads, offers, threads, commissions, cashNotes] = await Promise.all([
     prisma.callRecord.findMany({
       where: { userId, filingStatus: { not: "skipped" } },
       select: {
@@ -1178,7 +1180,7 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
     }),
     prisma.lead.findMany({
       where: { userId },
-      select: {
+        select: {
         id: true,
         name: true,
         company: true,
@@ -1186,7 +1188,6 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
         offerName: true,
         amountTalked: true,
         nextStepAt: true,
-        updatedAt: true,
       },
     }),
     prisma.userOffer.findMany({
@@ -1201,6 +1202,7 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
       where: { userId },
       select: { callRecordId: true, cash: true, fecha: true },
     }),
+    loadCashNotes(prisma, userId),
   ]);
   const rollupOffers: RollupOffer[] = offers.map((offer) => {
     const commercial = parseCommercial(offer.commercial);
@@ -1256,7 +1258,8 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
         filingJson: row.filingJson,
         bookedCash: booked?.cash,
         bookedAt: booked?.fecha,
-        changedAt: lead?.updatedAt,
+        leadName: lead?.name || row.leadName || filing.cliente_real || "",
+        notes: cashNotes,
       }),
     };
   });

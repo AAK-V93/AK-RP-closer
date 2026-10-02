@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cobrosAfterCashChange, datedCashPayments, explainVentas, mentionedPriceOnly, rollupCalls } from "./crm-rollup";
-import { zonedDayBounds, zonedDayKey, zonedMonthRange } from "./crm-time";
+import { zonedDayBounds, zonedDayKey, zonedMonthRange, zonedWeekRange } from "./crm-time";
 import { inferCallDate, pastedCallTitle, quickFollowupIso } from "./followup-date";
 import { catalogDisplayName, isPriceLabel, preferOfferName } from "./offer-name";
 import { operacionFromCall } from "./crm-operacion";
@@ -327,4 +327,74 @@ test("a later cuota counts on the day Cobrado changed, and the sale stays on its
   assert.equal(cobros[0]?.amount, 533);
   assert.equal(cobros[1]?.amount, 533);
   assert.equal(cobros[1]?.at, today.toISOString());
+});
+
+test("October starts at midnight in Bogota, and Valeria's second cuota is not the sale date", () => {
+  const offers = [{ productName: "Fertilidad", prices: [1597], aliases: [] }];
+  const now = new Date("2026-10-02T18:00:00.000Z");
+  const sale = new Date("2026-09-29T16:00:00.000Z");
+  const second = new Date("2026-10-02T20:00:00.000Z");
+  const beforeOctober = new Date("2026-10-01T04:59:00.000Z");
+  const octoberStart = new Date("2026-10-01T05:00:00.000Z");
+  assert.equal(zonedDayKey(beforeOctober), "2026-09-30");
+  assert.equal(zonedDayKey(octoberStart), "2026-10-01");
+  assert.equal(zonedDayKey(second), "2026-10-02");
+
+  const call = {
+    id: "valeria",
+    cliente: "Valeria Ríos QA6",
+    estadoAgenda: "CIERRE VENTA",
+    ventaTotal: 1597,
+    cashCollected: 1066,
+    recordedAt: sale,
+    cashPayments: datedCashPayments({
+      cashCollected: 1066,
+      recordedAt: sale,
+      leadName: "Valeria Ríos QA6",
+      bookedCash: 1066,
+      bookedAt: sale,
+      changedAt: sale,
+      filingJson: { cobros: [{ amount: 533, at: sale.toISOString() }, { amount: 533, at: sale.toISOString() }] },
+      notes: [
+        { content: "Valeria Ríos pagó la cuota de 533", createdAt: second },
+        { content: "Cobrado de Valeria Ríos de 533 a 1.066 (2ª cuota). ¿Confirmo?", createdAt: second },
+      ],
+    }),
+  };
+  assert.equal(call.cashPayments[0]?.amount, 533);
+  assert.equal(call.cashPayments[0]?.at.toISOString(), sale.toISOString());
+  assert.equal(call.cashPayments[1]?.amount, 533);
+  assert.equal(zonedDayKey(call.cashPayments[1]?.at || sale), "2026-10-02");
+
+  const month = rollupCalls(offers, [call], zonedMonthRange(now));
+  const week = rollupCalls(offers, [call], zonedWeekRange(now));
+  const today = rollupCalls(offers, [call], zonedDayBounds(now));
+  assert.equal(month.cash, 533);
+  assert.equal(month.ventas, 0);
+  assert.equal(today.cash, 533);
+  assert.equal(week.cash, 1066);
+  assert.equal(week.ventas, 1597);
+
+  const early = rollupCalls(
+    offers,
+    [{ ...call, cashPayments: [{ amount: 533, at: beforeOctober }] }],
+    zonedMonthRange(now),
+  );
+  const onTime = rollupCalls(
+    offers,
+    [{ ...call, cashPayments: [{ amount: 533, at: octoberStart }] }],
+    zonedMonthRange(now),
+  );
+  assert.equal(early.cash, 0);
+  assert.equal(onTime.cash, 533);
+
+  const edson = datedCashPayments({
+    cashCollected: 1066,
+    recordedAt: sale,
+    leadName: "Edson",
+    changedAt: sale,
+    notes: [{ content: "Valeria Ríos pagó la cuota de 533", createdAt: second }],
+  });
+  assert.equal(edson.length, 1);
+  assert.equal(edson[0]?.at.toISOString(), sale.toISOString());
 });

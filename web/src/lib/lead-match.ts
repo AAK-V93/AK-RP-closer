@@ -118,6 +118,7 @@ export function callAlreadyInCrm(
     id?: string;
     leadName?: string | null;
     title?: string | null;
+    summary?: string | null;
     filingJson?: unknown;
   },
   leads: CrmLeadRef[],
@@ -128,6 +129,8 @@ export function callAlreadyInCrm(
     cliente_real?: unknown;
     telefono?: unknown;
     email?: unknown;
+    notas_crm?: unknown;
+    summary?: unknown;
   };
   const leadId = String(filing.lead_id || "").trim();
   if (leadId && leads.some((lead) => lead.id === leadId)) return true;
@@ -137,10 +140,20 @@ export function callAlreadyInCrm(
     name: lead.name,
     company: lead.company || "",
   }));
-  const names = [filing.cliente_real, call.leadName, call.title]
+  const names = [filing.cliente_real, call.leadName, call.title, call.summary, filing.notas_crm, filing.summary]
     .map((value) => String(value || "").trim())
     .filter((value) => value && !/^(impromptu|google meet|zoom|llamada sin titulo|sin titulo)/i.test(value));
   if (names.some((name) => findMatchingLead(named, name))) return true;
+  const blob = normalizePersonName(names.join(" "));
+  if (
+    blob &&
+    leads.some((lead) => {
+      const name = normalizePersonName(lead.name);
+      return name.split(" ").length >= 2 && blob.includes(name);
+    })
+  ) {
+    return true;
+  }
   const phone = phoneDigits(String(filing.telefono || ""));
   if (phone && leads.some((lead) => phonesMatch(phone, phoneDigits(lead.telefono)))) return true;
   const email = String(filing.email || "").trim().toLowerCase();

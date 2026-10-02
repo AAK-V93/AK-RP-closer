@@ -9,6 +9,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { BibliotecaPackList } from "@/app/biblioteca/pack-list";
+import { TIPOS_SEGUIMIENTO } from "@/lib/crm-catalog";
+import {
+  LIBRARY_INSTALLED,
+  LIBRARY_INTRO,
+  LIBRARY_PUBLISH_HELP,
+  LIBRARY_PUBLISH_TITLE,
+  LIBRARY_PUBLISHED,
+  LIBRARY_SEARCH,
+  libraryKindLabel,
+  librarySortLabel,
+} from "@/lib/library-copy";
 import {
   normalizeLibraryPayload,
   type LibraryOffer,
@@ -41,7 +52,7 @@ export default function BibliotecaPage() {
 
   useEffect(() => {
     if (status !== "authenticated") return;
-    load().catch((e) => setError(e instanceof Error ? e.message : "Error"));
+    load().catch((e) => setError(e instanceof Error ? e.message : "No se pudo cargar la biblioteca"));
   }, [status]);
 
   const filtered = useMemo(() => {
@@ -91,9 +102,9 @@ export default function BibliotecaPage() {
       setDescription("");
       setTags("");
       setGuion("");
-      setNotice("Pack publicado. Otros closers ya pueden instalarlo.");
+      setNotice(LIBRARY_PUBLISHED);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setError(e instanceof Error ? e.message : "No se pudo publicar");
     } finally {
       setPublishing(false);
     }
@@ -104,11 +115,7 @@ export default function BibliotecaPage() {
       <div className="space-y-6">
         <div className="space-y-2">
           <h1 className="text-2xl font-light">Biblioteca</h1>
-          <p className="text-sm text-fg3">
-            Packs de seguimiento, como repos: quien los publica queda tagged,
-            se estrellan y el puntaje sale de si se enviaron, cerraron o se
-            perdieron. Instálalos en una oferta y el CRM usa esos guiones.
-          </p>
+          <p className="text-sm text-fg3">{LIBRARY_INTRO}</p>
         </div>
 
         {status !== "authenticated" ? (
@@ -121,7 +128,7 @@ export default function BibliotecaPage() {
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar pack, @publisher o tag"
+                placeholder={LIBRARY_SEARCH}
               />
               <div className="flex gap-1">
                 {(["puntaje", "estrellas", "recientes"] as const).map((key) => (
@@ -131,17 +138,16 @@ export default function BibliotecaPage() {
                     variant={sort === key ? "primary" : "outline"}
                     onClick={() => setSort(key)}
                   >
-                    {key === "puntaje" ? "Puntuación" : key === "estrellas" ? "Estrellas" : "Recientes"}
+                    {librarySortLabel(key)}
                   </Button>
                 ))}
               </div>
             </div>
 
             <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3">
-              <h2 className="text-lg font-light">Publicar un pack</h2>
+              <h2 className="text-lg font-light">{LIBRARY_PUBLISH_TITLE}</h2>
               <p className="text-xs text-fg3">
-                Un guion con variables tipo <code>[Nombre]</code> y{" "}
-                <code>[PROGRAMA]</code>. O publica todos los de una oferta desde{" "}
+                {LIBRARY_PUBLISH_HELP}{" "}
                 <Link href="/ofertas" className="underline">
                   Ofertas
                 </Link>
@@ -154,37 +160,43 @@ export default function BibliotecaPage() {
                     id="pack-title"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Retomar emocional · high ticket"
+                    placeholder="Retomar contacto"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="pack-tags">Tags</Label>
+                  <Label htmlFor="pack-tags">Temas</Label>
                   <Input
                     id="pack-tags"
                     value={tags}
                     onChange={(e) => setTags(e.target.value)}
-                    placeholder="retomar, whatsapp, cobro"
+                    placeholder="cobro, primera respuesta"
                   />
                 </div>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="pack-desc">Qué cubre</Label>
+                <Label htmlFor="pack-desc">Para qué sirve</Label>
                 <Input
                   id="pack-desc"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Toques 1–3 cuando el lead no contesta"
+                  placeholder="Cuando la persona no contesta"
                 />
               </div>
               <div className="grid sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
-                  <Label htmlFor="pack-type">Tipo</Label>
-                  <Input
+                  <Label htmlFor="pack-type">Cuándo se usa</Label>
+                  <select
                     id="pack-type"
                     value={tipo}
-                    onChange={(e) => setTipo(e.target.value.toUpperCase())}
-                    placeholder="RETOMAR"
-                  />
+                    onChange={(e) => setTipo(e.target.value)}
+                    className="h-11 w-full rounded border border-separator2 bg-bg1 px-2 text-sm text-fg2"
+                  >
+                    {TIPOS_SEGUIMIENTO.map((kind) => (
+                      <option key={kind} value={kind}>
+                        {libraryKindLabel(kind)}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="sm:col-span-2 space-y-1">
                   <Label htmlFor="pack-guion">Guion</Label>
@@ -214,10 +226,10 @@ export default function BibliotecaPage() {
                 try {
                   await post(body);
                   if (body.action === "install") {
-                    setNotice("Instalado. El CRM usará estos guiones en esa oferta.");
+                    setNotice(LIBRARY_INSTALLED);
                   }
                 } catch (e) {
-                  setError(e instanceof Error ? e.message : "Error");
+                  setError(e instanceof Error ? e.message : "No se pudo");
                 }
               }}
             />

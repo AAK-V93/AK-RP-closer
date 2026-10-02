@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
 import { joinDistinct } from "@/lib/crm-noise";
+import { formatCrmDate } from "@/lib/crm-time";
 import { countPhrase, plainStatus } from "@/lib/plain-labels";
 
 type CallRow = {
@@ -17,6 +18,7 @@ type CallRow = {
   source: string;
   title: string;
   interna?: boolean;
+  inCrm?: boolean;
   date: string | null;
   callType: string;
   result: string;
@@ -34,13 +36,20 @@ type Review = {
   field: string;
   showToggle: boolean;
   options?: string[];
+  date?: string | null;
 };
+
+function shownDate(value?: string | null) {
+  if (!value) return "Sin fecha";
+  const date = new Date(value);
+  return formatCrmDate(date) || "Sin fecha";
+}
 
 export default function LlamadasPage() {
   const { status } = useSession();
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [review, setReview] = useState<Review | null>(null);
-  const [unclassified, setUnclassified] = useState(0);
+  const [queue, setQueue] = useState<Review[]>([]);
   const [otherDate, setOtherDate] = useState("");
   const [answer, setAnswer] = useState("");
   const [reviewing, setReviewing] = useState(false);
@@ -53,8 +62,13 @@ export default function LlamadasPage() {
       .then((r) => r.json())
       .then((data) => {
         setCalls(Array.isArray(data?.calls) ? data.calls : []);
-        setReview(data?.review && typeof data.review === "object" ? data.review : null);
-        setUnclassified(Number(data?.unclassified) || 0);
+        const nextQueue = Array.isArray(data?.queue)
+          ? data.queue
+          : data?.review
+            ? [data.review]
+            : [];
+        setQueue(nextQueue);
+        setReview(nextQueue[0] || null);
       })
       .catch(() => undefined);
 
@@ -92,8 +106,13 @@ export default function LlamadasPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se pudo guardar");
-      setReview(data.review || null);
-      setUnclassified(Number(data.unclassified) || 0);
+      const nextQueue = Array.isArray(data?.queue)
+        ? data.queue
+        : data?.review
+          ? [data.review]
+          : [];
+      setQueue(nextQueue);
+      setReview(nextQueue[0] || null);
       setAnswer("");
       setOtherDate("");
       await loadCalls();
@@ -126,12 +145,19 @@ export default function LlamadasPage() {
             <Button asChild variant="outline" size="sm">
               <Link href="/ofertas">Subir archivos o pegar una transcripción</Link>
             </Button>
-            {review && unclassified > 0 && (
+            {queue.length > 0 && review && (
               <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
                 <p className="text-[11px] uppercase tracking-wide text-fg3">
-                  {countPhrase(unclassified, "llamada por clasificar", "llamadas por clasificar")}
+                  {countPhrase(queue.length, "llamada por clasificar", "llamadas por clasificar")}
                 </p>
-                <p className="text-sm font-medium">{review.title}</p>
+                <ul className="space-y-1">
+                  {queue.map((item) => (
+                    <li key={item.id} className="text-sm">
+                      <span className="font-medium">{item.title}</span>
+                      <span className="text-fg3"> · {shownDate(item.date)}</span>
+                    </li>
+                  ))}
+                </ul>
                 {review.showToggle ? (
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -256,7 +282,7 @@ export default function LlamadasPage() {
               <p className="text-sm text-destructive">{auditError}</p>
             )}
             <div className="space-y-2">
-              {calls.some((row) => row.interna) && (
+              {calls.some((row) => row.interna && !row.inCrm) && (
                 <Button
                   size="sm"
                   className="min-h-11"
@@ -264,11 +290,11 @@ export default function LlamadasPage() {
                   onClick={() => setShowInternas((value) => !value)}
                 >
                   {showInternas
-                    ? "Ocultar llamadas internas"
-                    : `Mostrar llamadas internas (${calls.filter((row) => row.interna).length})`}
+                    ? "Ocultar llamadas internas o sin cliente"
+                    : `Mostrar llamadas internas o sin cliente (${calls.filter((row) => row.interna && !row.inCrm).length})`}
                 </Button>
               )}
-              {(showInternas ? calls : calls.filter((row) => !row.interna)).map((row) => (
+              {(showInternas ? calls.filter((row) => !row.inCrm || !row.interna) : calls.filter((row) => !row.interna)).map((row) => (
                 <div
                   key={`${row.source}-${row.id}`}
                   className="rounded-xl border border-separator1 bg-bg1 px-3 py-2 flex items-start justify-between gap-3"
@@ -277,6 +303,7 @@ export default function LlamadasPage() {
                     <p className="text-sm truncate">{row.title}</p>
                     <p className="text-xs text-fg3">
                       {joinDistinct([
+                        shownDate(row.date),
                         row.leadName,
                         row.offerName,
                         row.callType ? plainStatus(row.callType) : "",
@@ -284,6 +311,9 @@ export default function LlamadasPage() {
                       ]) || row.source}
                       {row.trainsBot ? " · entra a la práctica" : ""}
                     </p>
+                    {auditingId === row.id && (
+                      <p className="text-xs text-fg3">Analizando la llamada… puede tardar unos segundos</p>
+                    )}
                   </div>
                   <div className="flex gap-2 shrink-0">
                     {row.analyzed ? (
@@ -323,7 +353,7 @@ export default function LlamadasPage() {
                           }
                         }}
                       >
-                        {auditingId === row.id ? "Auditando…" : "Auditar"}
+                        {auditingId === row.id ? "Analizando…" : "Auditar"}
                       </Button>
                     ) : null}
                     <Button asChild size="sm" variant="outline">
@@ -345,9 +375,11 @@ export default function LlamadasPage() {
               {calls.length === 0 && (
                 <p className="text-sm text-fg3">Aún no hay llamadas. Conecta las grabaciones o súbelas.</p>
               )}
-              {calls.length > 0 && !showInternas && calls.every((row) => row.interna) && (
+              {calls.length > 0 &&
+                !showInternas &&
+                calls.every((row) => row.interna && !row.inCrm) && (
                 <p className="text-sm text-fg3">
-                  Solo hay llamadas internas. Ábrelas con el botón de arriba.
+                  Solo hay llamadas internas o sin cliente. Ábrelas con el botón de arriba.
                 </p>
               )}
             </div>

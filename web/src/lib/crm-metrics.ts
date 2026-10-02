@@ -11,6 +11,7 @@ import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-
 import { presentThread } from "@/lib/followup-threads";
 import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib/followup-machine";
 import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
+import { loadCashNotes } from "@/lib/crm-cash-notes";
 import { explainVentas, datedCashPayments, offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
 import { findMatchingLead } from "@/lib/lead-match";
 import { summarizePipeline } from "@/lib/crm-pipeline";
@@ -53,7 +54,7 @@ export async function crmDashboard(
   const month = zonedMonthRange(now);
   const prev = shiftZonedMonth(now, -1);
 
-  const [{ calls, allCalls }, alerts, leads, commissions] = await Promise.all([
+  const [{ calls, allCalls }, alerts, leads, commissions, cashNotes] = await Promise.all([
     loadDashboardCalls(prisma, userId),
     prisma.leadAlert.findMany({
       where: { userId, resolvedAt: null },
@@ -66,6 +67,7 @@ export async function crmDashboard(
       include: { lead: true },
       orderBy: { fecha: "desc" },
     }),
+    loadCashNotes(prisma, userId),
   ]);
   markTiming(opts?.timings, "calls", callsStarted);
   await repairGate;
@@ -109,6 +111,7 @@ export async function crmDashboard(
       findMatchingLead(named, row.leadName || filing.cliente_real || "");
     const lead = match ? leads.find((item) => item.id === match.id) : undefined;
     const booked = commissionByCall.get(row.id);
+    const filingName = (row.filingJson as { cliente_real?: string } | null)?.cliente_real;
     return {
       ...base,
       cashPayments: datedCashPayments({
@@ -118,7 +121,8 @@ export async function crmDashboard(
         filingJson: row.filingJson,
         bookedCash: booked?.cash,
         bookedAt: booked?.fecha,
-        changedAt: lead?.updatedAt,
+        leadName: lead?.name || row.leadName || filingName || "",
+        notes: cashNotes,
       }),
     };
   });

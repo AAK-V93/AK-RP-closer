@@ -547,7 +547,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
       if (isNonSalesCall(row.estadoAgenda) || isInternalMeetingTitle(row.title)) {
         return false;
       }
-      if (callAlreadyInCrm(row, refs)) return false;
+      if (callAlreadyInCrm({ ...row, summary: row.summary }, refs)) return false;
       if (isExtractorJson(row.filingJson)) {
         const parsed = parseExtractorJson(row.filingJson);
         if (isNonSalesCall(parsed.estado_agenda)) return false;
@@ -557,6 +557,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
               id: row.id,
               leadName: parsed.cliente_real || row.leadName,
               title: row.title,
+              summary: row.summary || parsed.notas_crm,
               filingJson: { ...parsed, lead_id: (parsed as { lead_id?: string }).lead_id },
             },
             refs,
@@ -581,6 +582,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
           leadName: parsed.cliente_real || row.leadName,
           date: row.recordedAt || row.createdAt,
         }),
+        date: (row.recordedAt || row.createdAt)?.toISOString?.() || null,
         source: row.source,
         sourceId: row.sourceId,
         question,
@@ -627,6 +629,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
         leadName: filing.leadName,
         date: row.recordedAt || row.createdAt,
       }),
+      date: (row.recordedAt || row.createdAt)?.toISOString?.() || null,
       source: row.source,
       sourceId: row.sourceId,
       question: labelCrmProse(filingSummaryLines(filing)[0] || ""),

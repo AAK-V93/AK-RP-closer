@@ -3,7 +3,13 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Star } from "lucide-react";
-import { plainStatus } from "@/lib/plain-labels";
+import {
+  LIBRARY_EMPTY,
+  LIBRARY_NEED_OFFER,
+  libraryRateLabel,
+  libraryScriptLine,
+  libraryUsageLine,
+} from "@/lib/library-copy";
 import {
   normalizeLibraryOffers,
   normalizeLibraryPack,
@@ -31,7 +37,7 @@ export function BibliotecaPackList({
 
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-fg3">Todavía no hay packs públicos. Publica el primero.</p>
+      <p className="text-sm text-fg3">{LIBRARY_EMPTY}</p>
     );
   }
 
@@ -55,24 +61,26 @@ export function BibliotecaPackList({
               >
                 <p className="text-sm font-medium">{pack.title}</p>
                 <p className="text-xs text-fg3">
-                  @{pack.publisher}
-                  {pack.mine ? " · tuyo" : ""}
-                  {" · "}
-                  {pack.scripts} guion{pack.scripts === 1 ? "" : "es"}
-                  {" · "}
-                  {pack.uses} usos
+                  {libraryUsageLine({
+                    publisher: pack.publisher,
+                    mine: pack.mine,
+                    scripts: pack.scripts,
+                    uses: pack.uses,
+                  })}
                 </p>
               </button>
               {pack.builtin ? null : (
                 <Button
                   size="sm"
                   variant={pack.starred ? "primary" : "outline"}
+                  aria-label={pack.starred ? "Quitar de favoritos" : "Guardar en favoritos"}
                   onClick={() =>
                     void onPost({ action: "star", packId: pack.id }).catch(() => undefined)
                   }
                 >
                   <Star className={`h-3.5 w-3.5 ${pack.starred ? "fill-current" : ""}`} />
-                  {pack.stars}
+                  {pack.starred ? "Guardado" : "Guardar"}
+                  {pack.stars > 0 ? ` · ${pack.stars}` : ""}
                 </Button>
               )}
             </div>
@@ -88,23 +96,31 @@ export function BibliotecaPackList({
               ))}
               {pack.puntaje > 0 && (
                 <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
-                  puntuación {pack.puntaje}
+                  resultado {pack.puntaje}
                 </span>
               )}
-              <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
-                envío {Math.round(pack.tasaEnvio * 100)}%
-              </span>
-              <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
-                cierre {Math.round(pack.tasaCierre * 100)}%
-              </span>
+              {pack.uses > 0 && (
+                <>
+                  <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
+                    {libraryRateLabel("enviados", pack.tasaEnvio)}
+                  </span>
+                  <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
+                    {libraryRateLabel("cierres", pack.tasaCierre)}
+                  </span>
+                </>
+              )}
             </div>
             {open && (
               <div className="space-y-3 border-t border-separator1 pt-3">
                 {items.map((item) => (
                   <div key={item.id} className="space-y-1">
                     <p className="text-xs text-fg3">
-                      {plainStatus(item.type)} · {plainStatus(item.canal)}
-                      {item.puntaje ? ` · puntuación ${item.puntaje}` : ""} · {item.uses} usos
+                      {libraryScriptLine({
+                        type: item.type,
+                        canal: item.canal,
+                        puntaje: item.puntaje,
+                        uses: item.uses,
+                      })}
                     </p>
                     {item.recomendacion && (
                       <p className="text-[11px] text-fg3">{item.recomendacion}</p>
@@ -129,7 +145,7 @@ export function BibliotecaPackList({
                     >
                       {(offerRows ?? []).map((offer) => (
                         <option key={offer.id} value={offer.id}>
-                          Instalar en {offer.productName}
+                          Usar en {offer.productName}
                         </option>
                       ))}
                     </select>
@@ -145,11 +161,11 @@ export function BibliotecaPackList({
                         })
                       }
                     >
-                      Instalar
+                      Usar estos guiones
                     </Button>
                   </div>
                 ) : (
-                  <p className="text-xs text-fg3">Crea una oferta para instalar este pack.</p>
+                  <p className="text-xs text-fg3">{LIBRARY_NEED_OFFER}</p>
                 )}
               </div>
             )}
