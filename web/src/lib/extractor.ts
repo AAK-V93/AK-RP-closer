@@ -6,7 +6,7 @@ import { inferFollowupDate } from "@/lib/followup-date";
 import { followupIsClosed } from "@/lib/crm-followups";
 import { normalizeImportedFiling } from "@/lib/call-normalize";
 import { fillStatedDeal } from "@/lib/stated-deal";
-import { spanishAgendaInText } from "@/lib/plain-labels";
+import { labelCrmProse, spanishAgendaInText } from "@/lib/plain-labels";
 import { PROTOCOLO_EXTRACTOR_COMERCIAL_PAE } from "@/lib/protocolo-extractor-comercial-pae";
 
 export type ExtractorEvidencia = {
@@ -520,7 +520,7 @@ export function extractorGap(
         field: "revision",
         question:
           parsed.motivo_revision ||
-          `¿Se hizo la llamada con ${name}? SHOW / NO SHOW / REPROGRAMA`,
+          `¿Se hizo la llamada con ${name}? Asistió, no asistió o reprogramó`,
       };
     }
     return null;
@@ -565,7 +565,7 @@ export function extractorOneLiner(parsed: ExtractorJson) {
       ? `seguimiento ${parsed.proximo_seguimiento}`
       : parsed.acuerdo_seguimiento,
   ].filter(Boolean);
-  return `${bits.join(" · ") || "Llamada"} — listo`;
+  return labelCrmProse(`${bits.join(" · ") || "Llamada"} — listo`);
 }
 
 export async function runExtractor(args: {

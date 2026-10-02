@@ -66,7 +66,7 @@ test("push copy matches the closer-facing format", () => {
   });
   assert.equal(
     filing,
-    "Alberto · Círculo Millonario · SHOW · seguimiento mié 2 p.m.",
+    "Alberto · Círculo Millonario · Asistió · seguimiento mié 2 p.m.",
   );
   assert.match(formatDueLabel(due, "UTC", due), /hoy/i);
 });

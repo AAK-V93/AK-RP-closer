@@ -18,6 +18,8 @@ import {
   resolveOfferAssignment,
 } from "@/lib/offer-resolve";
 import { isNonSalesCall } from "@/lib/call-kind";
+import { visibleCallTitle } from "@/lib/crm-noise";
+import { labelCrmProse } from "@/lib/plain-labels";
 import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
 import { inferCallDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
 import { zonedDayKey } from "@/lib/crm-time";
@@ -526,17 +528,22 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
         callAt: row.recordedAt,
       });
       const gap = extractorGap(parsed, readyCrm, offers);
+      const question = labelCrmProse(gap?.question || row.summary);
       return {
         id: row.id,
-        title: row.title,
+        title: visibleCallTitle({
+          title: row.title,
+          leadName: parsed.cliente_real || row.leadName,
+          date: row.recordedAt || row.createdAt,
+        }),
         source: row.source,
         sourceId: row.sourceId,
-        question: gap?.question || row.summary,
+        question,
         field: gap?.field || "",
         options: gap?.options || [],
         showToggle: parsed.confianza.estado_agenda < 85,
-        line: extractorOneLiner(parsed),
-        lines: gap ? [gap.question] : [extractorOneLiner(parsed)],
+        line: labelCrmProse(extractorOneLiner(parsed)),
+        lines: [question],
         filing: {
           leadName: parsed.cliente_real || "",
           offerName: parsed.producto || "",
@@ -570,10 +577,14 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
     };
     return {
       id: row.id,
-      title: row.title,
+      title: visibleCallTitle({
+        title: row.title,
+        leadName: filing.leadName,
+        date: row.recordedAt || row.createdAt,
+      }),
       source: row.source,
       sourceId: row.sourceId,
-      question: filingSummaryLines(filing)[0],
+      question: labelCrmProse(filingSummaryLines(filing)[0] || ""),
       field: "",
       options: [] as string[],
       showToggle: true,

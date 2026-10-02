@@ -11,6 +11,7 @@ import { getWorkspace } from "@/lib/workspace";
 import { loadCommissionProjection } from "@/lib/crm-projection";
 import { setRecordedCash } from "@/lib/crm-cash";
 import { saveMonthlyGoal } from "@/lib/crm-prefs";
+import { renameShownLead } from "@/lib/crm-rename";
 import { deleteOperacionRow } from "@/lib/crm-delete-row";
 
 export async function GET() {
@@ -140,8 +141,11 @@ export async function PATCH(request: Request) {
         | "commission-paid"
         | "monthly-goal"
         | "set-cash"
-        | "delete-row";
+        | "delete-row"
+        | "rename-lead";
       callId?: string;
+      leadId?: string;
+      name?: string;
       days?: number;
       resultado?: AlertOutcome;
       nextAt?: string;
@@ -182,6 +186,17 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: out.error }, { status: 400 });
       }
       return NextResponse.json({ ok: true });
+    }
+    if (body.action === "rename-lead") {
+      const out = await renameShownLead(auth.prisma, auth.userId, {
+        callId: body.callId,
+        leadId: body.leadId,
+        name: String(body.name || ""),
+      });
+      if ("error" in out) {
+        return NextResponse.json({ error: out.error }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true, name: out.name });
     }
     if (body.action === "monthly-goal") {
       const saved = await saveMonthlyGoal(auth.prisma, auth.userId, Number(body.amount || 0));

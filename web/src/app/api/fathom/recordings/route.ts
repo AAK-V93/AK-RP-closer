@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireFathomUser } from "@/lib/fathom-auth";
+import { visibleCallTitle } from "@/lib/crm-noise";
 
 export async function GET() {
   try {
@@ -23,11 +24,21 @@ export async function GET() {
       },
     });
 
+    const tags = await prisma.callRecord.findMany({
+      where: { userId, source: "fathom" },
+      select: { sourceId: true, leadName: true },
+    });
+    const leadByRecording = new Map(tags.map((row) => [row.sourceId, row.leadName]));
+
     return NextResponse.json({
       recordings: rows.map((row) => ({
         id: row.id,
         fathomRecordingId: row.fathomRecordingId,
-        title: row.title,
+        title: visibleCallTitle({
+          title: row.title,
+          leadName: leadByRecording.get(row.id),
+          date: row.recordedAt,
+        }),
         shareUrl: row.shareUrl,
         recordedAt: row.recordedAt?.toISOString() || null,
         syncedAt: row.syncedAt.toISOString(),

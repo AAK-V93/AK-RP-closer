@@ -6,9 +6,11 @@ import {
   countOportunidadesActivas,
   filaCountLabel,
   isOportunidadActiva,
+  latestActiveRows,
+  operacionCountLine,
 } from "./crm-activa";
 import { deleteOperacionRow, leadStateFromRemaining } from "./crm-delete-row";
-import { operacionGlance } from "./crm-glance";
+import { derivedPaso, operacionGlance } from "./crm-glance";
 import { hiddenInternalCount, isInternalNoise, visibleCallTitle } from "./crm-noise";
 
 test("activa is one definition and the same count for every lead list", () => {
@@ -223,6 +225,78 @@ test("deleting Carlos's duplicate recalculates próximo and estado from the rema
   assert.equal(records.map((row) => row.id).join(","), "carlos-original");
 });
 
+test("solo activas keeps the latest row of each active lead", () => {
+  const active = Array.from({ length: 23 }, (_, index) => ({
+    id: `a-${index}`,
+    cliente: `Lead ${index + 1}`,
+    fecha: "2026-10-01",
+    leadStatus: "seguimiento",
+    estadoAgenda: "SHOW",
+  }));
+  const duplicates = active.slice(0, 7).map((row, index) => ({
+    ...row,
+    id: `old-${index}`,
+    fecha: "2026-09-01",
+  }));
+  const closed = {
+    id: "closed",
+    cliente: "Edson",
+    fecha: "2026-10-02",
+    leadStatus: "cerrado",
+    estadoAgenda: "CIERRE VENTA",
+  };
+  const nameless = {
+    id: "bare",
+    cliente: "Sin estado",
+    fecha: "2026-10-02",
+    leadStatus: "",
+    estadoAgenda: "SHOW",
+  };
+  const rows = [...active, ...duplicates, closed, nameless];
+  assert.equal(rows.length, 32);
+  const only = latestActiveRows(rows.filter((row) => row.id !== "bare"));
+  assert.equal(only.length, 23);
+  assert.equal(only.some((row) => row.id.startsWith("old-")), false);
+  assert.equal(only.some((row) => row.id === "closed"), false);
+  assert.equal(
+    operacionCountLine({
+      shown: rows.length - 1,
+      inScope: rows.length - 1,
+      onlyActivas: false,
+      activeRows: 23,
+      oportunidades: 23,
+    }),
+    "31 filas · 23 oportunidades activas",
+  );
+  assert.equal(
+    operacionCountLine({
+      shown: 23,
+      inScope: 23,
+      onlyActivas: true,
+      activeRows: 23,
+      oportunidades: 23,
+    }),
+    "23 filas · 23 activas",
+  );
+});
+
+test("a follow-up type gets a step even when none is stored", () => {
+  assert.equal(derivedPaso({ tipo: "DECISION", paso: "—" }), "Paso 1 de 4");
+  assert.equal(derivedPaso({ tipo: "DECISION", paso: "2 de 4" }), "Paso 2 de 4");
+  assert.equal(derivedPaso({ tipo: "RETOMAR", intentos: 1 }), "Paso 2 de 3");
+  assert.equal(derivedPaso({ tipo: "SEGUNDA REUNION" }), "Paso 1 de 1");
+  assert.equal(derivedPaso({ tipo: "SEGUIMIENTO" }), "Paso 1 de 1");
+  const diego = operacionGlance({
+    fecha: "2026-09-30",
+    tipoSeguimiento: "DECISION",
+    paso: "—",
+    fechaProximo: "2026-10-03 10:00",
+  });
+  assert.equal(diego.paso, "Paso 1 de 4");
+  assert.match(diego.line, /Paso 1 de 4/);
+  assert.match(diego.line, /Siguiente: Decisión/);
+});
+
 test("operación glance names the step, the last contact and what is next", () => {
   const glance = operacionGlance({
     fecha: "2026-09-30",
@@ -236,4 +310,23 @@ test("operación glance names the step, the last contact and what is next", () =
   assert.equal(glance.siguiente, "Segunda reunión · 2026-10-03 10:00");
   assert.match(glance.line, /Paso 2 de 4/);
   assert.match(glance.line, /Último contacto 2026-10-02/);
+});
+
+test("llamadas list and detail replace an Impromptu title", () => {
+  assert.equal(
+    visibleCallTitle({
+      title: "Impromptu Google Meet Meeting",
+      leadName: "Sofia Mamani Quispe",
+      date: "2026-10-02",
+    }),
+    "Sofia Mamani Quispe",
+  );
+  assert.equal(
+    visibleCallTitle({
+      title: "Impromptu Google Meet Meeting",
+      leadName: "Impromptu Google Meet Meeting",
+      date: "2026-10-01",
+    }),
+    "Llamada sin título · 2026-10-01",
+  );
 });

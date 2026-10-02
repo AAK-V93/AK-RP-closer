@@ -35,6 +35,7 @@ import {
   loadThread,
 } from "@/lib/chat-threads";
 import { crmDashboard } from "@/lib/crm-metrics";
+import { labelCrmProse, presentChatState } from "@/lib/plain-labels";
 import { analyzeCardStatus, coachCardStatus, followupCardStatus } from "@/lib/home-desk";
 import { loadLiveGuides } from "@/lib/live-guide";
 import { loadCommissionProjection, projectCommission } from "@/lib/crm-projection";
@@ -78,7 +79,9 @@ export async function GET() {
     let messages: Awaited<ReturnType<typeof loadThread>>["messages"] = [];
     try {
       const loaded = await loadThread(prisma, session.user.id, THREAD_HUB);
-      messages = loaded.messages;
+      messages = loaded.messages.map((line) =>
+        line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
+      );
     } catch (error) {
       console.error("hub GET thread", error);
     }
@@ -631,7 +634,7 @@ export async function POST(request: Request) {
     const prompt = `${HUB_SYSTEM_PROMPT}
 
 # ESTADO
-${JSON.stringify(live)}
+${JSON.stringify(presentChatState(live))}
 
 # RECIENTE
 ${recent || "(sin historial)"}
@@ -1017,11 +1020,12 @@ async function appendHubLines(
   userText: string | null,
   reply: string,
 ) {
+  const shown = labelCrmProse(reply);
   try {
     const loaded = await loadThread(prisma, userId, THREAD_HUB);
     const incoming: { role: "user" | "coach"; content: string }[] = [];
     if (userText) incoming.push({ role: "user", content: userText });
-    incoming.push({ role: "coach", content: reply });
+    incoming.push({ role: "coach", content: shown });
     const created = await appendThreadLines(
       prisma,
       loaded.profile.id,
@@ -1034,7 +1038,7 @@ async function appendHubLines(
     return {
       id: `tmp-${Date.now()}`,
       role: "coach" as const,
-      content: reply,
+      content: shown,
       createdAt: new Date().toISOString(),
     };
   }

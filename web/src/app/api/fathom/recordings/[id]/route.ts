@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireFathomUser } from "@/lib/fathom-auth";
+import { visibleCallTitle } from "@/lib/crm-noise";
 
 export async function GET(
   _request: Request,
@@ -33,9 +34,18 @@ export async function GET(
       );
     }
 
+    const tag = await prisma.callRecord.findFirst({
+      where: { userId, source: "fathom", sourceId: row.id },
+      select: { leadName: true },
+    });
+
     return NextResponse.json({
       id: row.id,
-      title: row.title,
+      title: visibleCallTitle({
+        title: row.title,
+        leadName: tag?.leadName,
+        date: row.recordedAt,
+      }),
       shareUrl: row.shareUrl,
       recordedAt: row.recordedAt?.toISOString() || null,
       transcript: row.transcriptText,

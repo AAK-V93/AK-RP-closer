@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import webpush from "web-push";
 import { appUrl } from "@/lib/app-url";
 import { moneyLabel } from "@/lib/crm-operacion";
+import { plainStatus } from "@/lib/plain-labels";
 
 export type PushPayload = {
   title: string;
@@ -145,7 +146,8 @@ export function filingPushBody(args: {
   gap?: string | null;
 }) {
   if (args.gap) return args.gap;
-  const bits = [args.leadName, args.offerName, args.estado, args.followup]
+  const estado = plainStatus(args.estado);
+  const bits = [args.leadName, args.offerName, estado === "—" ? "" : estado, args.followup]
     .map((row) => String(row || "").trim())
     .filter(Boolean);
   return bits.join(" · ") || "Llamada lista";

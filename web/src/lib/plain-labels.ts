@@ -83,6 +83,70 @@ export function spanishAgendaInText(value: string | null | undefined) {
     .replace(/\bSHOW\b/gi, "Asistió");
 }
 
+const PROSE_CODES = Object.keys(STATUS_LABELS)
+  .filter((key) => key === key.toUpperCase() && key.length >= 3 && STATUS_LABELS[key] && STATUS_LABELS[key] !== "—")
+  .sort((a, b) => b.length - a.length);
+
+/** Free text the closer reads. Codes become the same labels as the CRM. */
+export function labelCrmProse(value: string | null | undefined) {
+  let text = String(value || "");
+  if (!text.trim()) return text;
+  for (const key of PROSE_CODES) {
+    const label = key === "CIERRE VENTA" ? "Cerró venta" : STATUS_LABELS[key];
+    const body = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "[\\s_]+");
+    text = text.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])`, "giu"), label);
+  }
+  return text;
+}
+
+const CHAT_STATUS_KEYS = new Set([
+  "status",
+  "tipo",
+  "hilo",
+  "estado",
+  "callType",
+  "result",
+  "estadoAgenda",
+  "etapa",
+]);
+
+const CHAT_PROSE_KEYS = new Set([
+  "question",
+  "contexto",
+  "mensajeSugerido",
+  "summary",
+  "line",
+  "content",
+  "notas",
+  "next",
+  "nextStep",
+  "acuerdo",
+  "lastSummary",
+]);
+
+/** Snapshot text the Inicio model reads, with stage codes already in Spanish. */
+export function presentChatState(value: unknown, key = ""): unknown {
+  if (typeof value === "string") {
+    if (CHAT_STATUS_KEYS.has(key)) {
+      if (/^cierre[\s_]*venta$/i.test(value.trim())) return "Cerró venta";
+      const labeled = plainStatus(value);
+      return labeled === "—" ? value : labeled;
+    }
+    if (CHAT_PROSE_KEYS.has(key)) return labelCrmProse(value);
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (key === "appliedCalls" || key === "lines") return value.map((item) => labelCrmProse(String(item ?? "")));
+    return value.map((item) => presentChatState(item));
+  }
+  if (!value || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [child, inner] of Object.entries(value as Record<string, unknown>)) {
+    out[child] = presentChatState(inner, child);
+  }
+  return out;
+}
+
 /** Screen label for an internal status or thread type. */
 export function plainStatus(value: string | null | undefined) {
   const raw = String(value || "").trim();

@@ -2,15 +2,48 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { patchCrmPref } from "@/lib/crm-prefs";
 import { inferFollowupDate } from "@/lib/followup-date";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
+import { normalizePersonName } from "@/lib/lead-match";
 
 export type ChatLead = {
   id: string;
   name: string;
+  /** Name Operación and Seguimientos show, when it differs from the lead record. */
+  crmName?: string;
   offerName: string;
   nextStep: string;
   lastSummary: string;
   amountPaid: string;
 };
+
+/** The name the CRM row shows. Exact, including accents. */
+export function shownCrmName(lead: { name: string; crmName?: string }) {
+  return (lead.crmName || lead.name).trim();
+}
+
+/** Link a stored lead to the longer or accented name the call row shows. */
+export function sameDisplayedPerson(stored: string, shown: string) {
+  const left = stored.trim();
+  const right = shown.trim();
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const a = normalizePersonName(left);
+  const b = normalizePersonName(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter.split(" ").length < 2) return false;
+  return longer.startsWith(`${shorter} `);
+}
+
+/** Prefer the call name the CRM shows when it is not the lead record name. */
+export function crmDisplayedName(leadName: string, shownNames: string[]) {
+  const stored = leadName.trim();
+  const matches = shownNames
+    .map((name) => name.trim())
+    .filter((name) => name && sameDisplayedPerson(stored, name));
+  return matches.find((name) => name !== stored) || matches[0] || stored;
+}
 
 export type ChatCall = {
   leadName: string;
@@ -141,6 +174,10 @@ function isNo(text: string) {
 }
 
 function confirmReply(leadName: string, changes: ChatChange[]) {
+  if (changes.length === 1 && changes[0]?.field === "name") {
+    const from = changes[0].from || leadName;
+    return `Nombre de «${from}» a «${changes[0].to}». ¿Confirmo?`;
+  }
   const bits = changes.map(
     (change) =>
       `${change.label} de ${leadName} de «${change.from || "—"}» a «${change.to}»`,
@@ -229,8 +266,13 @@ function rename(text: string, ctx: ChatContext): ChatTurn | null {
     text.match(/^(.+?)\s+ahora se llama\s+(.+)$/i) ||
     text.match(/^(.+?)\s+se llama\s+(.+)$/i);
   if (!match) return null;
-  const lead = leadInMessage(ctx.leads, match[1]);
+  const spoken = tidyName(match[1]);
+  const lead =
+    ctx.leads.find((row) => shownCrmName(row) === spoken) ||
+    ctx.leads.find((row) => row.name.trim() === spoken) ||
+    leadInMessage(ctx.leads, match[1]);
   const next = tidyName(match[2]);
+  const current = lead ? shownCrmName(lead) : "";
   const pending = ctx.pending;
   if (
     lead &&
@@ -240,20 +282,20 @@ function rename(text: string, ctx: ChatContext): ChatTurn | null {
   ) {
     return {
       kind: "confirm",
-      reply: confirmReply(pending.leadName || lead.name, pending.changes),
+      reply: confirmReply(current || pending.leadName || lead.name, pending.changes),
       proposal: pending,
     };
   }
-  if (!lead || !next || next.length > 80 || fold(next) === fold(lead.name)) {
-    if (lead && next && fold(next) === fold(lead.name)) {
-      return { kind: "answer", reply: `${lead.name} ya está guardado con ese nombre.` };
+  if (!lead || !next || next.length > 80 || next === current) {
+    if (lead && next && next === current) {
+      return { kind: "answer", reply: `${current} ya está guardado con ese nombre.` };
     }
     return null;
   }
   const proposal: ChatProposal = {
     leadId: lead.id,
-    leadName: lead.name,
-    changes: [{ field: "name", label: "Nombre", from: lead.name, to: next }],
+    leadName: current,
+    changes: [{ field: "name", label: "Nombre", from: current, to: next }],
   };
   const memory = /transcript|transcrip|acuerdo|qued|recuerdo/i.test(text) ? recall(text, ctx) : null;
   const reply =
@@ -500,8 +542,9 @@ export function proposalFromLoosePatch(
     });
   }
   const renamed = tidyName(String(patch.name || ""));
-  if (renamed && fold(renamed) !== fold(lead.name) && fold(message).includes(fold(renamed))) {
-    changes.push({ field: "name", label: "Nombre", from: lead.name, to: renamed });
+  const shown = shownCrmName(lead);
+  if (renamed && renamed !== shown && fold(message).includes(fold(renamed))) {
+    changes.push({ field: "name", label: "Nombre", from: shown, to: renamed });
   }
   const step = tidyName(String(patch.nextStep || ""));
   if (step && fold(step) !== fold(lead.nextStep) && fold(step) !== fold(rawOffer)) {
@@ -528,10 +571,10 @@ export function proposalFromLoosePatch(
     if (warning) return { kind: "answer", reply: `${warning}No cambié nada.`.trim() };
     return { kind: "none" };
   }
-  const proposal: ChatProposal = { leadId: lead.id, leadName: lead.name, changes };
+  const proposal: ChatProposal = { leadId: lead.id, leadName: shownCrmName(lead), changes };
   return {
     kind: "confirm",
-    reply: `${warning}${confirmReply(lead.name, changes)}`.trim(),
+    reply: `${warning}${confirmReply(shownCrmName(lead), changes)}`.trim(),
     proposal,
   };
 }
@@ -621,12 +664,14 @@ export async function applyChatProposal(
     } = {};
     let nextName = lead.name;
     let skippedOffer = "";
+    const nameChange = proposal.changes.find((change) => change.field === "name");
+    const fromName = nameChange?.from?.trim() || lead.name;
     for (const change of proposal.changes) {
       const to = typeof change.to === "string" ? change.to.trim() : "";
       if (!to) continue;
       if (change.field === "name") {
         nextName = to;
-        data.name = nextName;
+        if (to !== lead.name) data.name = nextName;
       }
       if (change.field === "nextStep") data.nextStep = to;
       if (change.field === "nextStepAt") {
@@ -642,21 +687,26 @@ export async function applyChatProposal(
         else data.offerName = exact;
       }
     }
-    if (!Object.keys(data).length) {
+    const callsNeedRename = Boolean(nameChange && fromName !== nextName);
+    if (!Object.keys(data).length && !callsNeedRename) {
       const because = skippedOffer
         ? `«${skippedOffer}» no es una oferta. No cambié nada.`
         : "No hay un cambio válido para guardar. No cambié nada.";
       return { ok: true, reply: because };
     }
-    await prisma.lead.update({ where: { id: lead.id }, data });
+    if (Object.keys(data).length) {
+      await prisma.lead.update({ where: { id: lead.id }, data });
+    }
     let callNote = "";
-    if (nextName !== lead.name) {
+    if (callsNeedRename) {
       try {
         // Neon HTTP rejects updateMany: Prisma wraps it in a transaction.
+        // One statement renames every call the CRM shows under the old name.
         await prisma.$executeRaw`
           UPDATE "CallRecord"
           SET "leadName" = ${nextName}
-          WHERE "userId" = ${userId} AND "leadName" = ${lead.name}
+          WHERE "userId" = ${userId}
+            AND ("leadName" = ${lead.name} OR "leadName" = ${fromName})
         `;
       } catch (error) {
         console.error("rename lead calls", error);
@@ -670,7 +720,7 @@ export async function applyChatProposal(
       });
       if (call) {
         const filing = plainFiling(call.filingJson);
-        if (nextName !== lead.name) filing.cliente_real = nextName;
+        if (callsNeedRename) filing.cliente_real = nextName;
         const step = proposal.changes.find((change) => change.field === "nextStep");
         const when = proposal.changes.find((change) => change.field === "nextStepAt");
         const cash = proposal.changes.find((change) => change.field === "cash");
@@ -883,6 +933,13 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
       proximo: String(filing.proximo_seguimiento || "").replace("T", " ").slice(0, 16),
     };
   });
+  for (const lead of leads) {
+    const shown = crmDisplayedName(
+      lead.name,
+      calls.map((call) => call.leadName),
+    );
+    if (shown && shown !== lead.name) lead.crmName = shown;
+  }
   if (mentionsLeadMemory(raw)) {
     const lead = leadInMessage(leads, raw);
     if (lead) {

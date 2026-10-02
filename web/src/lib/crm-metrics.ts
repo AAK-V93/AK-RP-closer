@@ -12,6 +12,7 @@ import { presentThread } from "@/lib/followup-threads";
 import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib/followup-machine";
 import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
 import { explainVentas, offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
+import { summarizePipeline } from "@/lib/crm-pipeline";
 import { countedSale, shownMoney } from "@/lib/stated-deal";
 import { repairImportedCallFields } from "@/lib/call-normalize";
 import { catalogDisplayName, foldOffer, isInventedOfferLabel, isPriceLabel } from "@/lib/offer-name";
@@ -340,7 +341,38 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const counts = followupSnapshot(openFollowups);
   const vencidos = counts.seguimientosVencidos;
   const hoy = counts.seguimientosHoy;
-  const enJuego = counts.dineroEnJuego;
+  const pipeline = summarizePipeline({
+    leads: leads.map((lead) => ({
+      id: lead.id,
+      name: lead.name,
+      status: lead.status,
+      offerName: lead.offerName,
+      amountTalked: lead.amountTalked,
+      nextStepAt: lead.nextStepAt,
+    })),
+    calls: allCalls.map((row) => ({
+      leadName: row.leadName,
+      offerName: row.offerName,
+      estadoAgenda: row.estadoAgenda,
+      ventaTotal: row.ventaTotal,
+      cashCollected: row.cashCollected,
+      recordedAt: row.recordedAt,
+      createdAt: row.createdAt,
+      filingJson: row.filingJson,
+    })),
+    threads: threads.map((thread) => ({
+      leadId: thread.leadId,
+      tipo: thread.tipo,
+      estado: thread.estado,
+    })),
+    offers: offers.map((offer) => ({
+      productName: offer.productName,
+      aliases: offer.commercial.aliases,
+      listPrice: offer.commercial.listPrice,
+      altPrices: offer.commercial.altPrices,
+    })),
+  });
+  const enJuego = pipeline.pipeline.total;
   const cashPendiente = calls.reduce(
     (sum, row) =>
       sum + countedSale(row.saldoPendiente, { at: row.recordedAt || row.createdAt, prices }),
@@ -416,6 +448,8 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       seguimientosHoy: hoy,
       agendasHoy,
       dineroEnJuego: enJuego,
+      pipelineLeads: pipeline.pipeline.count,
+      saldoPorCobrar: pipeline.saldo,
       cashPendiente,
       comisionPendiente,
       oportunidadesActivas: countOportunidadesActivas(leads),
