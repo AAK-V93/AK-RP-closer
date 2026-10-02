@@ -2,6 +2,7 @@
 export const CRM_TIMEZONE = "America/Bogota";
 
 export function zonedDayKey(date: Date, timeZone = CRM_TIMEZONE) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
