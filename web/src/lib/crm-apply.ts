@@ -634,7 +634,14 @@ export async function repairMissingFollowups(prisma: PrismaClient, userId: strin
     prisma.callRecord.findMany({
       where: { userId, filingStatus: { in: ["confirmed", "pending"] } },
       orderBy: { recordedAt: "desc" },
-      take: 300,
+      take: 80,
+      select: {
+        id: true,
+        sourceId: true,
+        title: true,
+        recordedAt: true,
+        filingJson: true,
+      },
     }),
     prisma.followupThread.findMany({
       where: { userId, estado: "activo" },
@@ -656,10 +663,14 @@ export async function repairMissingFollowups(prisma: PrismaClient, userId: strin
       seen.add(key);
       continue;
     }
-    await refillFromTranscript(prisma, userId, call, parsed);
-    const opened = await applyExtractorToCrm(prisma, userId, call.id, parsed, offers, true);
+    try {
+      await refillFromTranscript(prisma, userId, call, parsed);
+      const opened = await applyExtractorToCrm(prisma, userId, call.id, parsed, offers, true);
+      if (opened?.leadId) covered.add(opened.leadId);
+    } catch (error) {
+      console.error("repair followup", call.id, error);
+    }
     seen.add(key);
-    if (opened?.leadId) covered.add(opened.leadId);
   }
 }
 

@@ -25,12 +25,12 @@ La comisión A MENUDO NO es un % fijo. Puede depender de:
 
 Copia la regla en "notes" con las palabras del closer/documento. Si hay tramos, llénalos en "tiers". NO inventes 3% ni umbral 70,000. Si no hay comisión, commission = null. Nunca asumas comisión.
 
-Después de extraer, llena "questions" (2-4) concretas y afirmativas. No preguntes en negativo ni "¿se debe confirmar…?". Di lo que entendiste y pregunta si es así. Ejemplo: "La comisión queda en 10% sobre lo cobrado. ¿Es así?"
+Después de extraer, llena "questions" (2-4). Cada pregunta afirma lo que entendiste y termina en "¿Es así?". Prohibido preguntar en abierto o en negativo: no uses "¿se debe confirmar…?", "¿porcentaje fijo o tramos?" ni "¿cómo se maneja?". Ejemplo: "La comisión queda en 10% sobre lo cobrado. ¿Es así?"
 
 Responde SOLO JSON:
 {
   "assumption": "una",
-  "questions": ["¿El nombre correcto es …?", "¿Esto es un solo programa o varios?"],
+  "questions": ["La comisión queda en 10% sobre lo cobrado. ¿Es así?", "Es un solo programa. ¿Es así?"],
   "offers": [
     {
       "productName": "nombre corto del programa",

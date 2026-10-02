@@ -26,7 +26,11 @@ function inRange(date: Date | null, from: Date, to: Date) {
 }
 
 export async function crmDashboard(prisma: PrismaClient, userId: string) {
-  await repairMissingFollowups(prisma, userId);
+  try {
+    await repairMissingFollowups(prisma, userId);
+  } catch (error) {
+    console.error("repair followups", error);
+  }
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
   const now = new Date();
@@ -241,7 +245,7 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
       (a, b) =>
         temperatureRank(b.temperatura) - temperatureRank(a.temperatura) ||
         (b.enJuego || 0) - (a.enJuego || 0) ||
-        a.dueAt.localeCompare(b.dueAt),
+        String(a.dueAt).localeCompare(String(b.dueAt)),
     );
 
   const byOffer = new Map<string, { cierres: number; ventas: number; cash: number }>();

@@ -192,11 +192,17 @@ export async function classifyAndFileCall(
     },
   });
 
-  if (parsed.cliente_real && pasted) {
-    await prisma.clientTranscript.updateMany({
-      where: { id: args.sourceId, userId },
-      data: { title: parsed.cliente_real },
-    });
+  if (pasted && args.sourceId) {
+    const callDay = recordedAt
+      ? recordedAt.toLocaleDateString("es-CO", { timeZone: "UTC" })
+      : "";
+    const pastedTitle = parsed.cliente_real || (callDay ? `Llamada ${callDay}` : "");
+    if (pastedTitle) {
+      await prisma.clientTranscript.updateMany({
+        where: { id: args.sourceId, userId },
+        data: { title: pastedTitle },
+      });
+    }
   }
 
   if (!nonSales && parsed.cliente_real && (parsed.proximo_seguimiento || parsed.requiere_seguimiento === true)) {

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { extractLeadPlaybook, parsePlaybook } from "@/lib/lead-playbook";
@@ -97,31 +97,40 @@ export async function POST(request: Request) {
       });
     }
 
-    const workspace = await getWorkspace(auth.prisma, auth.userId, offer.id);
     if (commercial?.commission) {
       await persistCommissionRule(auth.prisma, auth.userId, offer.id, commercial.commission);
     }
-    let playbook = parsePlaybook(offer.playbook);
-    if (workspace.corpus.length > 0) {
+    const confirmedIcp = body.icp?.trim();
+    if (confirmedIcp) {
+      const playbook = { ...parsePlaybook(offer.playbook), icp: confirmedIcp };
+      await auth.prisma.userOffer.update({
+        where: { id: offer.id },
+        data: { playbook: playbook as unknown as Prisma.InputJsonValue },
+      });
+    }
+    const savedId = offer.id;
+    const savedName = productName;
+    const savedDescription = productDescription;
+    after(async () => {
       try {
-        playbook = await extractLeadPlaybook({
-          productName,
-          productDescription,
+        const workspace = await getWorkspace(auth.prisma, auth.userId, savedId);
+        if (!workspace.corpus.length) return;
+        const playbook = await extractLeadPlaybook({
+          productName: savedName,
+          productDescription: savedDescription,
           transcripts: workspace.corpus,
-          existing: playbook,
+          existing: workspace.playbook,
+        });
+        await auth.prisma.userOffer.update({
+          where: { id: savedId },
+          data: { playbook: playbook as unknown as Prisma.InputJsonValue },
         });
       } catch (error) {
         console.error("playbook after offer", error);
       }
-    }
-    const confirmedIcp = body.icp?.trim();
-    if (confirmedIcp) playbook = { ...playbook, icp: confirmedIcp };
-    await auth.prisma.userOffer.update({
-      where: { id: offer.id },
-      data: { playbook: playbook as unknown as Prisma.InputJsonValue },
     });
 
-    const next = await getWorkspace(auth.prisma, auth.userId, offer.id);
+    const next = await getWorkspace(auth.prisma, auth.userId, offer.id, { corpus: false });
     return NextResponse.json({
       offer: next.offer,
       offers: next.offers,

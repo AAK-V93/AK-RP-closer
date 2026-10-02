@@ -111,7 +111,7 @@ export async function POST(request: Request) {
           userId: auth.userId,
           offerId,
           source: "paste",
-          title: `Pegado ${new Date().toLocaleDateString("es")}`,
+          title: `Pegado ${new Date().toLocaleDateString("es-CO", { timeZone: "America/Bogota" })}`,
           transcriptText: pasted.slice(0, 200_000),
         },
       });

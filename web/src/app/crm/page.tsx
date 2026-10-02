@@ -149,12 +149,21 @@ export default function CrmPage() {
   const [openAlert, setOpenAlert] = useState<string | null>(null);
   const [openCall, setOpenCall] = useState<string | null>(null);
   const [savingGoal, setSavingGoal] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = () =>
     fetch("/api/crm")
       .then((r) => r.json())
-      .then(setData)
-      .catch(() => undefined);
+      .then((payload) => {
+        if (!payload || payload.error || !payload.now) {
+          setLoadError(payload?.error || "No se pudo cargar el CRM");
+          setData(null);
+          return;
+        }
+        setLoadError(null);
+        setData(payload);
+      })
+      .catch(() => setLoadError("No se pudo cargar el CRM"));
 
   useEffect(() => {
     const hash = window.location.hash.replace("#", "") as ModuleId;
@@ -308,6 +317,8 @@ export default function CrmPage() {
           <Button asChild variant="primary">
             <Link href="/login?callbackUrl=/crm">Entrar</Link>
           </Button>
+        ) : loadError ? (
+          <p className="text-sm text-destructive">{loadError}</p>
         ) : !data ? (
           <p className="text-sm text-fg3">Cargando…</p>
         ) : (

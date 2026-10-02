@@ -65,6 +65,11 @@ test("cash price stays in the recap and plazo is not doubled", () => {
   const prices = offerConfirmBlocks(offer).find((row) => row.id === "prices");
   const payments = offerConfirmBlocks(offer).find((row) => row.id === "payments");
   assert.match(prices?.summary || "", /Contado a 7 días/);
+  const special = emptyCommercial();
+  special.altPrices = [{ label: "Contado con beneficio especial", amount: 10000 }];
+  const specialOffer = { ...offer, commercial: special };
+  const specialPrices = offerConfirmBlocks(specialOffer).find((row) => row.id === "prices");
+  assert.match(specialPrices?.summary || "", /Contado: USD 10000/);
   assert.match(prices?.summary || "", /10000/);
   assert.doesNotMatch(payments?.summary || "", /Plazo Plazo/);
   assert.match(commercialRecap(commercial), /10000/);

@@ -29,7 +29,7 @@ export type OfferConfirmBlock = {
 function priceLabel(label: string) {
   const cleaned = label.replace(/^precio\s+especial\s+/i, "").trim();
   if (/contado/i.test(cleaned) && /7/.test(cleaned)) return "Contado a 7 días";
-  if (/^contado$/i.test(cleaned)) return "Contado";
+  if (/contado/i.test(cleaned)) return "Contado";
   return cleaned || "Precio";
 }
 
