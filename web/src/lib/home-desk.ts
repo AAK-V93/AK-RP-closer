@@ -4,9 +4,12 @@ export function analyzeCardStatus(unclassified: number) {
 }
 
 export function followupCardStatus(today: number, overdue: number) {
-  const pending = Math.max(0, today) + Math.max(0, overdue);
-  if (pending <= 0) return "Todo al día";
-  return pending === 1 ? "1 pendiente de hoy" : `${pending} pendientes de hoy`;
+  const dueToday = Math.max(0, today);
+  const late = Math.max(0, overdue);
+  if (dueToday <= 0 && late <= 0) return "Todo al día";
+  if (dueToday <= 0) return late === 1 ? "1 vencido" : `${late} vencidos`;
+  if (late <= 0) return dueToday === 1 ? "1 pendiente de hoy" : `${dueToday} pendientes de hoy`;
+  return `${dueToday} pendiente${dueToday === 1 ? "" : "s"} de hoy · ${late} vencido${late === 1 ? "" : "s"}`;
 }
 
 export function coachCardStatus(args: {

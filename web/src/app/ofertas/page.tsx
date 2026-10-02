@@ -51,6 +51,7 @@ export default function OfertasPage() {
   const [savingTranscripts, setSavingTranscripts] = useState(false);
   const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspacePayload | null>(null);
   const [offerId, setOfferId] = useState<string | null>(null);
   const [productName, setProductName] = useState("");
@@ -163,7 +164,8 @@ export default function OfertasPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se guardó");
-      toast({ title: "Guardé la oferta", duration: 3000 });
+      setSavedNote("Guardé la oferta");
+      toast({ title: "Guardé la oferta", duration: 8000 });
       await load(data.offer?.id || null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
@@ -194,9 +196,11 @@ export default function OfertasPage() {
       }
       setReview(null);
       setOfferBlob("");
+      const savedTitle = offers.length > 1 ? `Guardé ${offers.length} ofertas` : "Guardé la oferta";
+      setSavedNote(savedTitle);
       toast({
-        title: offers.length > 1 ? `Guardé ${offers.length} ofertas` : "Guardé la oferta",
-        duration: 3000,
+        title: savedTitle,
+        duration: 8000,
       });
       await load(lastId || null);
     } catch (e) {
@@ -605,6 +609,7 @@ export default function OfertasPage() {
           </Button>
         )}
 
+        {savedNote && <p className="text-sm text-fg0">{savedNote}</p>}
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
     </AppShell>

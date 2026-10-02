@@ -5,12 +5,19 @@ import { extractLeadPlaybook } from "@/lib/lead-playbook";
 import { getWorkspace } from "@/lib/workspace";
 import { isUsableTranscript } from "@/lib/fathom-import";
 import { fileCallQuietly } from "@/lib/file-call";
+import { inferCallDate } from "@/lib/followup-date";
 import { MAX_TRANSCRIPT_BYTES, transcriptTitle } from "@/lib/transcript-batch";
 
 export const runtime = "nodejs";
 export const maxDuration = 180;
 
 const MAX_BYTES = MAX_TRANSCRIPT_BYTES;
+
+function pastedTitle(text: string) {
+  const callAt = inferCallDate(text);
+  if (callAt) return `Llamada ${callAt.toLocaleDateString("es-CO", { timeZone: "UTC" })}`;
+  return `Pegado ${new Date().toLocaleDateString("es-CO", { timeZone: "America/Bogota" })}`;
+}
 
 export async function POST(request: Request) {
   try {
@@ -111,7 +118,7 @@ export async function POST(request: Request) {
           userId: auth.userId,
           offerId,
           source: "paste",
-          title: `Pegado ${new Date().toLocaleDateString("es-CO", { timeZone: "America/Bogota" })}`,
+          title: pastedTitle(pasted),
           transcriptText: pasted.slice(0, 200_000),
         },
       });

@@ -92,6 +92,13 @@ export function extractedFromParsed(
     commission: parsed.commission,
     sourceText: sourceText.slice(0, 8000),
   });
+  if (!commercial.commission) {
+    const line = sourceText
+      .split(/\n/)
+      .map((row) => row.trim())
+      .find((row) => /comisi[oó]n/i.test(row) && /\d+\s*%/.test(row));
+    if (line) commercial.commission = parseCommissionFromText(line);
+  }
   const description = String(parsed.productDescription || "").trim();
   const name = String(parsed.productName || "").trim() || fallbackName;
   const icp = String(parsed.icp || "").trim();
@@ -113,9 +120,14 @@ function defaultQuestions(offers: ExtractedOffer[], assumption: "una" | "varias"
       "¿Los nombres están bien? Si hay que corregir uno, dímelo.",
     ];
   }
+  const rule = offers[0]?.commercial.commission;
+  const pct =
+    rule && rule.pctBase > 0 ? `${Math.round(rule.pctBase * 1000) / 10}%` : "";
   return [
-    `¿Se llama «${names[0] || "esta oferta"}»?`,
-    "Si vendes más de un programa, dímelo y lo separamos.",
+    pct
+      ? `La comisión queda en ${pct} sobre lo cobrado. ¿Es así?`
+      : "No encontré un porcentaje de comisión. ¿La dejo vacía?",
+    `Se llama «${names[0] || "esta oferta"}». ¿Es así?`,
   ];
 }
 

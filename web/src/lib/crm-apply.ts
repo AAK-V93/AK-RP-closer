@@ -589,13 +589,40 @@ export async function confirmExtractorFiling(
   return { gap: null, parsed, applied: true as const, callRecordId, summary: applied?.summary };
 }
 
+function storedFiling(raw: unknown): ExtractorJson {
+  const parsed = parseExtractorJson(raw);
+  const row = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const text = (key: string) => {
+    const value = String(row[key] ?? "").trim();
+    if (!value || value.toLowerCase() === "null") return null;
+    return value;
+  };
+  const cliente = text("cliente_real");
+  if (cliente) parsed.cliente_real = cliente;
+  const proximo = text("proximo_seguimiento");
+  if (proximo) parsed.proximo_seguimiento = proximo;
+  if (row.requiere_seguimiento === true) parsed.requiere_seguimiento = true;
+  const venta = Number(row.venta_total);
+  if (Number.isFinite(venta) && venta > 1_000_000) parsed.venta_total = null;
+  else if (Number.isFinite(venta) && venta >= 0) parsed.venta_total = venta;
+  const saldo = Number(row.saldo_pendiente);
+  if (Number.isFinite(saldo) && saldo > 1_000_000) parsed.saldo_pendiente = null;
+  const modo = text("modo_pago");
+  if (modo && modo.replace(/\D/g, "").length > 7) parsed.modo_pago = null;
+  else if (modo) parsed.modo_pago = modo;
+  return parsed;
+}
+
 async function refillFromTranscript(
   prisma: PrismaClient,
   userId: string,
   call: { id: string; sourceId: string; title: string; recordedAt: Date | null },
   parsed: ExtractorJson,
 ) {
-  const missingMoney = parsed.venta_total == null || !parsed.modo_pago;
+  const missingMoney =
+    parsed.venta_total == null ||
+    parsed.venta_total > 1_000_000 ||
+    !parsed.modo_pago;
   const missingClock = Boolean(parsed.proximo_seguimiento) && !/\d{2}:\d{2}/.test(parsed.proximo_seguimiento || "");
   const pasted = /^pegado\b/i.test(call.title);
   if (!call.sourceId || (!missingMoney && !missingClock && !pasted)) return;
@@ -634,7 +661,7 @@ export async function repairMissingFollowups(prisma: PrismaClient, userId: strin
     prisma.callRecord.findMany({
       where: { userId, filingStatus: { in: ["confirmed", "pending"] } },
       orderBy: { recordedAt: "desc" },
-      take: 80,
+      take: 400,
       select: {
         id: true,
         sourceId: true,
@@ -645,15 +672,17 @@ export async function repairMissingFollowups(prisma: PrismaClient, userId: strin
     }),
     prisma.followupThread.findMany({
       where: { userId, estado: "activo" },
-      select: { leadId: true },
+      select: { leadId: true, alerts: { where: { resolvedAt: null }, select: { id: true } } },
     }),
     prisma.lead.findMany({ where: { userId } }),
   ]);
-  const covered = new Set(threads.map((row) => row.leadId));
+  const covered = new Set(
+    threads.filter((row) => row.alerts.length > 0).map((row) => row.leadId),
+  );
   const seen = new Set<string>();
   for (const call of calls) {
     if (!isExtractorJson(call.filingJson)) continue;
-    const parsed = parseExtractorJson(call.filingJson);
+    const parsed = storedFiling(call.filingJson);
     if (!parsed.cliente_real || isNonSalesCall(parsed.estado_agenda)) continue;
     if (!parsed.proximo_seguimiento && parsed.requiere_seguimiento !== true) continue;
     const key = parsed.cliente_real.trim().toLowerCase();

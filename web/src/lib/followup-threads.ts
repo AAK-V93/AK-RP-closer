@@ -117,7 +117,26 @@ export async function openFollowupThread(
   const existing = await prisma.followupThread.findFirst({
     where: { userId: args.userId, leadId: args.leadId, tipo, estado: "activo" },
   });
-  if (existing) return existing;
+  if (existing) {
+    const open = await prisma.leadAlert.findFirst({
+      where: { threadId: existing.id, resolvedAt: null },
+    });
+    if (!open) {
+      const dueAt = stepDue(stepAt(tipo, existing.pasoActual), anchorsOf(existing), args.callAt);
+      await projectThreadAlert(prisma, {
+        thread: existing,
+        leadName: args.leadName,
+        offerName: args.offerName,
+        enJuego: args.enJuego,
+        paymentDetails: args.paymentDetails,
+        customScripts: args.customScripts || [],
+        objecion: args.objecion || "",
+        now: args.callAt,
+        dueAt,
+      });
+    }
+    return existing;
+  }
   const anchors: ThreadAnchors = {
     start: args.callAt,
     pagoAt: args.pagoAt,

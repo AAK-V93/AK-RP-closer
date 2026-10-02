@@ -105,8 +105,10 @@ export async function crmDashboard(prisma: PrismaClient, userId: string) {
   const moneyByCall = new Map(
     allCalls.map((row) => [row.id, row.saldoPendiente || row.ventaTotal || 0]),
   );
+  const sane = (amount: number | null | undefined) =>
+    amount != null && amount > 0 && amount <= 1_000_000 ? amount : 0;
   const played = (alert: { enJuego: number; callRecordId: string | null }) =>
-    alert.enJuego || moneyByCall.get(alert.callRecordId || "") || 0;
+    sane(alert.enJuego) || sane(moneyByCall.get(alert.callRecordId || "")) || 0;
 
   const threads = await prisma.followupThread.findMany({
     where: { userId, estado: "activo" },

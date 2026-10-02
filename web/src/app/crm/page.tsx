@@ -594,7 +594,6 @@ function AhoraSheet({
   rendimiento?: { mes: Period; anterior: Period; acumulado: Period };
   offerNote?: string | null;
 }) {
-  const pending = (now.seguimientosHoy || 0) + (now.seguimientosVencidos || 0);
   return (
     <div className="space-y-8">
       <ProjectionCard
@@ -607,7 +606,8 @@ function AhoraSheet({
       <div className="space-y-4">
         <SectionHeading>Ahora mismo</SectionHeading>
         <dl className="divide-y divide-separator1 border-t border-separator1">
-          <QuietFact label="Pendientes de hoy" value={String(pending)} />
+          <QuietFact label="Pendientes de hoy" value={String(now.seguimientosHoy || 0)} />
+          <QuietFact label="Vencidos" value={String(now.seguimientosVencidos || 0)} />
           <QuietFact label="Agendas de hoy" value={String(now.agendasHoy || 0)} />
           <QuietFact label="Dinero en juego" value={money(now.dineroEnJuego)} />
           <QuietFact label="Cash pendiente de cobro" value={money(now.cashPendiente)} />
@@ -616,7 +616,7 @@ function AhoraSheet({
           <QuietFact label="Agendas futuras" value={String(now.agendasFuturas || 0)} />
         </dl>
         <HelpNote>
-          <p>Pendientes de hoy son los seguimientos que toca hacer hoy, también los que ya debían salir.</p>
+          <p>Pendientes de hoy son los seguimientos que toca hacer hoy. Vencidos son los que ya debían salir.</p>
           <p>Dinero en juego es lo que todavía puedes cerrar o cobrar en esos seguimientos. Cash pendiente es lo ya acordado que aún no entró.</p>
           <p>Comisión pendiente es tu parte de ese cash. Agendas de hoy y futuras son llamadas en el calendario, no seguimientos escritos.</p>
         </HelpNote>
