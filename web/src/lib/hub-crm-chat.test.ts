@@ -4,6 +4,7 @@ import type { PrismaClient } from "@prisma/client";
 import {
   answerCrmChat,
   applyChatProposal,
+  asksForPendingDesk,
   interpretCrmChat,
   loadLeadTranscript,
   looksLikeFilingAnswer,
@@ -698,4 +699,55 @@ test("inicio chat proposes the shown CRM name and sí writes it", async () => {
   assert.equal(state.filingJson.cliente_real, "Sofía Mamani");
   assert.equal(writes.includes("updateMany"), false);
   assert.equal(writes.some((item) => item.startsWith("lead:")), false);
+});
+
+test("a cuota payment for a named lead confirms Cobrado", () => {
+  const turn = interpretCrmChat("Valeria Ríos pagó la primera cuota de 533", {
+    ...ctx,
+    leads: [
+      ...leads,
+      {
+        id: "valeria",
+        name: "Valeria Ríos",
+        offerName: "Fertilidad Consciente",
+        nextStep: "",
+        lastSummary: "",
+        amountPaid: "",
+      },
+    ],
+  });
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.proposal.leadId, "valeria");
+  assert.equal(turn.proposal.changes[0]?.field, "cash");
+  assert.equal(turn.proposal.changes[0]?.label, "Cobrado");
+  assert.equal(turn.proposal.changes[0]?.to, "533");
+  assert.match(turn.reply, /¿Confirmo\?/);
+});
+
+test("pending desk questions list overdue and today, not the offer paste", () => {
+  assert.equal(asksForPendingDesk("¿Qué tengo pendiente hoy?"), true);
+  assert.equal(asksForPendingDesk("¿qué tengo hoy?"), true);
+  assert.equal(asksForPendingDesk("pendientes"), true);
+  assert.equal(asksForPendingDesk("¿a quién llamo hoy?"), true);
+  assert.equal(asksForPendingDesk("No tengo ningún cambio pendiente. ¿Qué quieres actualizar?"), false);
+  const turn = interpretCrmChat("¿Qué tengo pendiente hoy?", {
+    ...ctx,
+    desk: [
+      { name: "Valeria Ríos", step: "Cobro de la siguiente cuota", date: "2026-10-09", estado: "HOY" },
+      { name: "Carlos Ramírez", step: "Seguimiento", date: "2026-09-20", estado: "VENCIDO" },
+    ],
+  });
+  assert.equal(turn.kind, "answer");
+  if (turn.kind !== "answer") return;
+  assert.match(turn.reply, /1 vencido/);
+  assert.match(turn.reply, /1 pendiente de hoy/);
+  assert.match(turn.reply, /Valeria Ríos — Cobro de la siguiente cuota — 2026-10-09/);
+  assert.match(turn.reply, /Carlos Ramírez — Seguimiento — 2026-09-20/);
+  assert.doesNotMatch(turn.reply, /Pega todo junto/);
+});
+
+test("a bare no is not a filing answer", () => {
+  assert.equal(looksLikeFilingAnswer("no"), false);
+  assert.equal(looksLikeFilingAnswer("cancela"), false);
 });

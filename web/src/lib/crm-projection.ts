@@ -5,6 +5,7 @@ import { parseCrmPrefs } from "@/lib/crm-prefs";
 import { zonedDayKey, zonedMidnight, zonedParts } from "@/lib/crm-time";
 import { emptyCommercial, type CommissionRuleInput } from "@/lib/offer-commercial";
 import { commissionOnAmount, resolveCommissionPct } from "@/lib/commission";
+import { countPhrase } from "@/lib/plain-labels";
 
 export const ASSUMED_SHOW_RATE = 0.6;
 export const ASSUMED_CLOSE_RATE = 0.25;
@@ -153,7 +154,10 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
         ? "Cobra lo pendiente: ya cubres la meta."
         : "Ya cubres la meta de este mes.";
   } else if (decision.length > 0) {
-    todayAction = `Cierra 1 de tus ${decision.length} seguimientos de decisión`;
+    todayAction =
+      decision.length === 1
+        ? "Cierra tu seguimiento de decisión"
+        : `Cierra 1 de tus ${decision.length} seguimientos de decisión`;
   } else if (pct <= 0) {
     todayAction = "Define tu comisión en la oferta para calcular agendas/día.";
   } else {
@@ -161,7 +165,7 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
   }
 
   const assumedRatesLabel = usedAssumedRates
-    ? `Usamos tasa de asistencia ${Math.round(ASSUMED_SHOW_RATE * 100)}% y tasa de cierre ${Math.round(ASSUMED_CLOSE_RATE * 100)}% (menos de ${ASSUMED_RATES_MIN_CALLS} llamadas reales).`
+    ? `Usamos tasa de asistencia ${Math.round(ASSUMED_SHOW_RATE * 100)}% y tasa de cierre ${Math.round(ASSUMED_CLOSE_RATE * 100)}% (menos de ${countPhrase(ASSUMED_RATES_MIN_CALLS, "llamada real", "llamadas reales")}).`
     : null;
 
   const topFollowups = input.followups

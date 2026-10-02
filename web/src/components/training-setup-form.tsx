@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { countPhrase } from "@/lib/plain-labels";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -293,7 +294,7 @@ export function TrainingSetupForm() {
               <>
                 <OfferGlance offer={offer} />
                 <p className="text-xs text-fg3">
-                  {transcriptCount} llamadas reales
+                  {countPhrase(transcriptCount, "llamada real", "llamadas reales")}
                   {playbookReady ? " · emulando a tus prospectos" : ""}
                 </p>
                 {trainingState.training.prospectProfile.leadTypeName && (

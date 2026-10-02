@@ -1,6 +1,13 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { patchCrmPref } from "@/lib/crm-prefs";
 import { inferFollowupDate } from "@/lib/followup-date";
+import {
+  deskLinesFromFilings,
+  followupIsClosed,
+  formatPendingDesk,
+  type DeskLine,
+} from "@/lib/crm-followups";
+import { zonedDayKey } from "@/lib/crm-time";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
 import { samePersonName } from "@/lib/lead-match";
 import { realClientName } from "@/lib/crm-noise";
@@ -94,6 +101,7 @@ export type ChatContext = {
   pending: ChatProposal | null;
   now?: Date;
   offers?: string[];
+  desk?: DeskLine[];
 };
 
 type LooseCrmPatch = {
@@ -139,11 +147,15 @@ export function exactOfferName(names: string[], raw: string) {
   return names.find((name) => fold(name) === needle) || "";
 }
 
+export function isChatCancel(text: string) {
+  return isNo(text);
+}
+
 export function looksLikeFilingAnswer(text: string) {
   const raw = text.trim();
   if (!raw || raw.length > 80) return false;
   if (/[?]/.test(raw)) return false;
-  if (isYes(raw)) return false;
+  if (isYes(raw) || isNo(raw)) return false;
   if (
     /se llama|transcript|quedamos|pag[oó]|pagu[eé]|en realidad|revisa|recuerdo|\boferta\b/i.test(
       raw,
@@ -366,9 +378,24 @@ function schedule(text: string, ctx: ChatContext): ChatTurn | null {
   return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
 }
 
+function pendingDesk(text: string, ctx: ChatContext): ChatTurn | null {
+  if (!asksForPendingDesk(text)) return null;
+  return { kind: "answer", reply: formatPendingDesk(ctx.desk || []) };
+}
+
+export function asksForPendingDesk(text: string) {
+  const q = fold(text).replace(/[¿?¡!.,]/g, " ").replace(/\s+/g, " ").trim();
+  if (/\bcambio pendiente\b|\bnada pendiente\b|\bningun cambio\b/.test(q)) return false;
+  return (
+    /\bpendientes?\b/.test(q) ||
+    /\bque tengo hoy\b/.test(q) ||
+    /\ba quien (llamo|escribo|contacto)\b/.test(q)
+  );
+}
+
 function payment(text: string, ctx: ChatContext): ChatTurn | null {
   const match = text.match(
-    /^(.+?)\s+me pag[oó](?:\s+la\s+reserva)?(?:\s+de)?\s*(?:usd\s*)?(\d[\d.\s]*)/i,
+    /^(?:con\s+)?(.+?)\s+(?:me\s+)?pag[oó](?:\s+(?:la|una|el)\s+(?:(?:primera|segunda|tercera|cuarta|siguiente|\d+)\s+)?cuota|\s+la\s+reserva)?(?:\s+de)?\s*(?:usd\s*)?(\d[\d.\s]*?)(?:\s*usd)?\s*$/i,
   );
   if (!match) return null;
   const lead = leadInMessage(ctx.leads, match[1]) || leadInMessage(ctx.leads, text);
@@ -502,8 +529,10 @@ export function interpretCrmChat(text: string, ctx: ChatContext): ChatTurn {
     return { kind: "apply", proposal: ctx.pending };
   }
   if (ctx.pending && isNo(raw)) {
-    return { kind: "drop", reply: "No cambié nada." };
+    return { kind: "drop", reply: "Listo, cancelé eso. No cambié nada." };
   }
+  const desk = pendingDesk(raw, ctx);
+  if (desk) return desk;
   return (
     rename(raw, ctx) ||
     offerEdit(raw, ctx) ||
@@ -943,6 +972,38 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     lastSummary: row.lastSummary,
     amountPaid: row.amountPaid,
   }));
+  const desk = deskLinesFromFilings(
+    callRows.map((row) => {
+      const filing = (row.filingJson || {}) as {
+        acuerdo_seguimiento?: string;
+        tipo_seguimiento?: string;
+        proximo_seguimiento?: string;
+        seguimiento_resultado?: string;
+        estado_agenda?: string;
+        venta_total?: number | null;
+        cash_collected?: number | null;
+        saldo_pendiente?: number | null;
+      };
+      const proximo = String(filing.proximo_seguimiento || "");
+      const venta = Number(filing.venta_total);
+      const cash = Number(filing.cash_collected);
+      const saldo = Number(filing.saldo_pendiente);
+      return {
+        name: callClientName(row) || row.leadName,
+        proximo,
+        step: String(filing.acuerdo_seguimiento || filing.tipo_seguimiento || ""),
+        closed: followupIsClosed({
+          seguimiento_resultado: filing.seguimiento_resultado,
+          proximo_seguimiento: proximo,
+        }),
+        estadoAgenda: String(filing.estado_agenda || ""),
+        venta: Number.isFinite(venta) ? venta : null,
+        cash: Number.isFinite(cash) ? cash : null,
+        saldo: Number.isFinite(saldo) ? saldo : null,
+      };
+    }),
+    zonedDayKey(new Date()),
+  );
   const calls: ChatCall[] = callRows.map((row) => {
     const filing = (row.filingJson || {}) as {
       acuerdo_seguimiento?: string;
@@ -988,6 +1049,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     pending: readPendingChat(user?.crmPrefs),
     now: new Date(),
     offers: offerRows.map((row) => row.productName).filter(Boolean),
+    desk,
   };
   const turn = interpretCrmChat(raw, ctx);
   if (turn.kind === "none") return null;

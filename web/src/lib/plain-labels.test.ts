@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { labelCrmProse, plainStatus, presentChatState, spanishAgendaInText } from "./plain-labels";
+import { countPhrase, labelCrmProse, plainStatus, presentChatState, spanishAgendaInText } from "./plain-labels";
 
 test("screen labels hide internal status codes", () => {
   assert.equal(plainStatus("CIERRE VENTA"), "Cerró");
@@ -65,4 +65,10 @@ test("chat state uses the Spanish stage labels", () => {
   assert.equal(state.appliedCalls[0], "Diego · Asistió");
   assert.equal(state.alertsDue[0]?.tipo, "Cerró venta");
   assert.equal(state.alertsDue[0]?.question, "¿Asistió o No asistió?");
+});
+
+test("counts use singular and plural", () => {
+  assert.equal(countPhrase(1, "llamada real", "llamadas reales"), "1 llamada real");
+  assert.equal(countPhrase(4, "llamada real", "llamadas reales"), "4 llamadas reales");
+  assert.equal(countPhrase(0, "seguimiento", "seguimientos"), "0 seguimientos");
 });

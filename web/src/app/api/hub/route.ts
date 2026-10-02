@@ -11,6 +11,7 @@ import {
   chatFailureReply,
   exactOfferName,
   leadInMessage,
+  isChatCancel,
   looksLikeFilingAnswer,
   messageTargetsOtherLead,
   proposalFromLoosePatch,
@@ -283,6 +284,29 @@ export async function POST(request: Request) {
       ) && !body.message && !body.start;
 
     const userText = body.start ? "" : String(body.message || "").trim();
+
+    if (userText && !body.start && isChatCancel(userText)) {
+      const prefsRow = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { crmPrefs: true },
+      });
+      if (readPendingOfferExtract(prefsRow?.crmPrefs)) {
+        await clearPendingOfferExtract(prisma, userId);
+      }
+      const crmReply = await answerCrmChat(prisma, userId, userText);
+      const coachLine = await appendHubLines(
+        prisma,
+        userId,
+        userText,
+        crmReply || "Listo, cancelé eso. No cambié nada.",
+      );
+      const fresh = await hubSnapshot(prisma, userId);
+      return NextResponse.json({
+        message: coachLine,
+        actions: nextHubActions(fresh),
+        snapshot: fresh,
+      });
+    }
 
     if (userText && !body.start) {
       const crmReply = await answerCrmChat(prisma, userId, userText);

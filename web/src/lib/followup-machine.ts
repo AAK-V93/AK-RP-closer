@@ -3,6 +3,7 @@ import { CRM_TIMEZONE, zonedDayKey } from "@/lib/crm-time";
 export type ThreadTipo =
   | "DECISION"
   | "COBRANZA"
+  | "ONBOARDING"
   | "SEGUNDA_REUNION"
   | "RETOMAR"
   | "REAGENDAR";
@@ -44,6 +45,14 @@ export const FOLLOWUP_SEQUENCES: Record<ThreadTipo, Sequence> = {
       { accion: "enviar mensaje", canal: "WHATSAPP", scriptType: "DECISION", from: "start", days: 2 },
       { accion: "llamar", canal: "LLAMADA", scriptType: "DECISION", from: "start", days: 5 },
       { accion: "último intento", canal: "WHATSAPP", scriptType: "DECISION", from: "start", days: 8 },
+    ],
+  },
+  ONBOARDING: {
+    key: "ONBOARDING",
+    steps: [
+      { accion: "enviar bienvenida", canal: "WHATSAPP", scriptType: "ONBOARDING", from: "start", days: 0, hours: 2 },
+      { accion: "validar accesos", canal: "WHATSAPP", scriptType: "VALIDACION", from: "start", days: 1 },
+      { accion: "preguntar cómo va", canal: "WHATSAPP", scriptType: "EXPERIENCIA", from: "start", days: 8 },
     ],
   },
   COBRANZA: {
@@ -104,6 +113,11 @@ export type ExtractorSituation = {
   cash_collected: number | null;
 };
 
+export function leadRescheduled(args: { estado?: string | null; tipo?: string | null }) {
+  const blob = `${args.estado || ""} ${args.tipo || ""}`.toUpperCase().replace(/_/g, " ");
+  return /\bREPROGRAMA/.test(blob);
+}
+
 export function pickThreadKind(parsed: ExtractorSituation): ThreadTipo | null {
   const estado = parsed.estado_agenda || "";
   const tipo = (parsed.tipo_seguimiento || "").toUpperCase();
@@ -117,8 +131,10 @@ export function pickThreadKind(parsed: ExtractorSituation): ThreadTipo | null {
     parsed.calificado === true || tipo === "DECISION" || Boolean(parsed.proximo_seguimiento);
 
   if (estado === "NO SHOW") return "REAGENDAR";
-  if (estado === "REPROGRAMA" || tipo.includes("SEGUNDA")) return "SEGUNDA_REUNION";
+  // A sale is onboarding or the next installment, even if the call also said "segunda reunión".
   if (closed && hasSaldo) return "COBRANZA";
+  if (closed) return "ONBOARDING";
+  if (estado === "REPROGRAMA" || tipo.includes("SEGUNDA")) return "SEGUNDA_REUNION";
   if (estado === "SHOW" && intention) return "DECISION";
   if (parsed.proximo_seguimiento) return "DECISION";
   if (parsed.requiere_seguimiento === true) return "RETOMAR";

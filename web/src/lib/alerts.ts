@@ -107,6 +107,9 @@ export async function applyAlertOutcome(
       })
     : await prisma.userOffer.findFirst({ where: { userId }, orderBy: { updatedAt: "desc" } });
   const commercial = parseCommercial(offer?.commercial);
+  const closer = String(
+    (await prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name || "",
+  ).trim();
   const copyFor = (type: string, intentos: number) =>
     buildFollowupCopy({
       type,
@@ -120,7 +123,7 @@ export async function applyAlertOutcome(
         pago: commercial.paymentDetails,
         objecion: row.lead.razonNoCierre || row.lead.objections || "",
         deseo: "",
-        closer: "",
+        closer,
       },
       custom: commercial.scripts,
     });

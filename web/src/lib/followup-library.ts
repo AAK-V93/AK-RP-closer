@@ -9,6 +9,8 @@ import {
 } from "@/lib/followup-catalog";
 import { fillFollowupGuion, isCreativeFollowup, listFollowupScripts, parseFollowupScripts, type FollowupScript, type FollowupVars } from "@/lib/followup-scripts";
 import { scriptTemperatureFit, type TemperatureLevel } from "@/lib/lead-temperature";
+import { leadRescheduled } from "@/lib/followup-machine";
+import { applyClosedSaleFollowup } from "@/lib/crm-followups";
 
 export function packScore(row: {
   uses: number;
@@ -383,6 +385,23 @@ function sameGuion(a: string, b: string) {
   return a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
 }
 
+/** A script about another niche ("tu empresa") does not fit this lead's offer. */
+export function scriptMatchesOffer(guion: string, programa: string) {
+  const program = programa.trim().toLowerCase();
+  if (!program) return true;
+  const text = guion.toLowerCase();
+  const otherNiche = /tu empresa|empresario|director de admisi[oó]n/.test(text);
+  if (!otherNiche) return true;
+  return text.includes(program);
+}
+
+function recomendacionFor(script: FollowupScript, rescheduled: boolean) {
+  if (rescheduled && /segunda/i.test(script.type)) {
+    return "Reprogramó. Confirmar la nueva fecha.";
+  }
+  return script.recomendacion.replace(/^Reprogramó\.\s*/i, "");
+}
+
 export async function followupOptionsFor(
   prisma: PrismaClient,
   args: {
@@ -393,6 +412,7 @@ export async function followupOptionsFor(
     selectedId?: string;
     libraryRows?: LibraryRow[];
     temperature?: TemperatureLevel;
+    rescheduled?: boolean;
   },
 ): Promise<FollowupOption[]> {
   if (SKIP_OPTIONS.has(args.type)) return [];
@@ -421,7 +441,8 @@ export async function followupOptionsFor(
     (row) =>
       row.intentosMin <= args.intentos &&
       (row.type === args.type || (args.type === "OTRO" && row.type === "RETOMAR")) &&
-      (args.type === "CREATIVO" || !isCreativeFollowup(row)),
+      (args.type === "CREATIVO" || !isCreativeFollowup(row)) &&
+      scriptMatchesOffer(row.guion, args.vars.programa),
   );
   const options: FollowupOption[] = [];
   const push = (row: FollowupOption) => {
@@ -435,7 +456,7 @@ export async function followupOptionsFor(
       publisher: "tu oferta",
       type: script.type,
       canal: script.canal,
-      recomendacion: script.recomendacion,
+      recomendacion: recomendacionFor(script, Boolean(args.rescheduled)),
       mensaje: filledMensaje(script, args.vars),
       originId: script.originId || "",
       puntaje: null,
@@ -471,7 +492,7 @@ export async function followupOptionsFor(
       publisher: row.pack.user.name || row.pack.user.email.split("@")[0],
       type: row.type,
       canal: script.canal,
-      recomendacion: row.recomendacion,
+      recomendacion: recomendacionFor(script, Boolean(args.rescheduled)),
       mensaje: filledMensaje(script, args.vars),
       originId: row.id,
       puntaje: score.puntaje,
@@ -485,7 +506,7 @@ export async function followupOptionsFor(
       publisher: "secuencia base",
       type: script.type,
       canal: script.canal,
-      recomendacion: script.recomendacion,
+      recomendacion: recomendacionFor(script, Boolean(args.rescheduled)),
       mensaje: filledMensaje(script, args.vars),
       originId: "",
       puntaje: null,
@@ -521,14 +542,35 @@ export async function chooseFollowupOption(
     pago: commercial.paymentDetails,
     objecion: row.lead.razonNoCierre || row.lead.objections || "",
     deseo: "",
-    closer: "",
+    closer: String(
+      (
+        await prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        })
+      )?.name || "",
+    ).trim(),
   };
+  const adjusted = applyClosedSaleFollowup({
+    id: row.id,
+    cliente: row.lead.name,
+    dueAt: row.dueAt.toISOString(),
+    estado: "",
+    days: 0,
+    enJuego: row.enJuego,
+    proximaAccion: "",
+    tipo: row.type,
+    hilo: row.type,
+    contexto: row.contexto,
+    leadStatus: row.lead.status,
+  });
   const options = await followupOptionsFor(prisma, {
-    type: row.type,
+    type: adjusted.tipo || row.type,
     intentos: row.intentos,
     vars,
     offerScripts: commercial.scripts,
     selectedId: optionIdValue,
+    rescheduled: leadRescheduled({ estado: row.lead.status, tipo: row.type }),
   });
   const picked = options.find((item) => item.id === optionIdValue || item.originId === optionIdValue);
   if (!picked) return { error: "Esa opción ya no está" as const };
@@ -561,6 +603,9 @@ export async function attachFollowupOptions<
     mensajeSugerido: string;
     objecion?: string;
     temperatura?: TemperatureLevel;
+    hilo?: string;
+    estadoAgenda?: string;
+    leadStatus?: string;
   },
 >(
   prisma: PrismaClient,
@@ -583,6 +628,11 @@ export async function attachFollowupOptions<
     : [];
   const byName = new Map(offers.map((row) => [row.productName, row]));
   const fallback = offers[0];
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { name: true },
+  });
+  const closer = String(user?.name || "").trim();
   return Promise.all(
     rows.map(async (row) => {
       try {
@@ -597,7 +647,7 @@ export async function attachFollowupOptions<
         pago: commercial.paymentDetails,
         objecion: row.objecion || "",
         deseo: "",
-        closer: "",
+        closer,
       };
       const opciones = await followupOptionsFor(prisma, {
         type: row.tipo,
@@ -607,6 +657,10 @@ export async function attachFollowupOptions<
         selectedId: row.libraryScriptId,
         libraryRows,
         temperature: row.temperatura,
+        rescheduled: leadRescheduled({
+          estado: row.estadoAgenda,
+          tipo: `${row.hilo || ""} ${row.tipo}`,
+        }),
       });
       const selectedId =
         opciones.find((item) => item.originId && item.originId === row.libraryScriptId)?.id ||

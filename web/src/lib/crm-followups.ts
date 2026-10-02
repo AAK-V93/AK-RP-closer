@@ -1,6 +1,7 @@
 import { calendarDaysBetween } from "@/lib/crm-time";
 import { normalizePersonName } from "@/lib/lead-match";
 import { countedSale } from "@/lib/stated-deal";
+import { plainStatus } from "@/lib/plain-labels";
 
 export const DINERO_EN_JUEGO_NOTE =
   "Dinero en juego es el saldo abierto de cada lead con un próximo seguimiento. Cada persona cuenta una vez. Un año, un teléfono o el texto del precio no entran.";
@@ -91,6 +92,8 @@ export type OperacionFollowupSource = {
   /** Newest call was closed by the closer, so an older date must not come back. */
   seguimientoCerrado?: boolean;
   interna?: boolean;
+  estadoAgenda?: string;
+  leadStatus?: string;
 };
 
 export type FollowupDraft = {
@@ -117,6 +120,11 @@ type Alignable = {
   proximo?: string;
   closesOnHecho?: boolean;
   nextOnHecho?: string;
+  tipo?: string;
+  hilo?: string;
+  contexto?: string;
+  estadoAgenda?: string;
+  leadStatus?: string;
 };
 
 function draftFor(
@@ -204,6 +212,8 @@ export function alignFollowups<T extends Alignable>(
       days: Math.max(0, draft.days),
       enJuego: draft.enJuego,
       proximaAccion: action,
+      estadoAgenda: source.estadoAgenda || row.estadoAgenda,
+      leadStatus: source.leadStatus || row.leadStatus,
     });
   }
 
@@ -211,6 +221,117 @@ export function alignFollowups<T extends Alignable>(
     aligned.push(create(draftFor(source, source.dueDay, today)));
   }
   return aligned;
+}
+
+function sameFollowupCopy(left: string, right: string) {
+  const norm = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/\s*·\s*(vencido|pendiente de hoy)\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const a = norm(left);
+  const b = norm(right);
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
+}
+
+function closedSale(estadoAgenda?: string, leadStatus?: string) {
+  const blob = `${estadoAgenda || ""} ${leadStatus || ""}`.toUpperCase().replace(/_/g, " ");
+  return /\bCIERRE VENTA\b|\bACUERDO SIN PAGO\b|\bCERRADO\b|\bCERRO\b|\bCOBRO\b/.test(blob);
+}
+
+function salesMeeting(tipo: string, hilo: string) {
+  const blob = `${hilo} ${tipo}`.toUpperCase().replace(/_/g, " ");
+  return /\bSEGUNDA\b|\bREUNION\b|\bDECISION\b|\bREAGENDAR\b/.test(blob);
+}
+
+/** After a sale, a stored "segunda reunión" is onboarding or the next installment. */
+export function applyClosedSaleFollowup<T extends Alignable>(row: T): T {
+  const contexto = sameFollowupCopy(row.contexto || "", row.proximaAccion) ? "" : row.contexto;
+  if (!closedSale(row.estadoAgenda, row.leadStatus) || !salesMeeting(row.tipo || "", row.hilo || "")) {
+    return contexto === row.contexto ? row : { ...row, contexto };
+  }
+  const owes = (row.enJuego || 0) > 0;
+  const timing = row.proximaAccion.match(/\s·\s(?:vencido|pendiente de hoy)\s*$/i)?.[0] || "";
+  const base = owes ? "cobrar la siguiente cuota" : "dar la bienvenida";
+  return {
+    ...row,
+    tipo: owes ? "PAGO PENDIENTE" : "ONBOARDING",
+    hilo: owes ? "COBRANZA" : "ONBOARDING",
+    proximaAccion: `${base}${timing}`,
+    contexto: "",
+  };
+}
+
+export type DeskFiling = {
+  name: string;
+  proximo: string;
+  step: string;
+  closed: boolean;
+  estadoAgenda?: string;
+  venta?: number | null;
+  cash?: number | null;
+  saldo?: number | null;
+};
+
+export type DeskLine = {
+  name: string;
+  step: string;
+  date: string;
+  estado: "VENCIDO" | "HOY";
+};
+
+/** One open follow-up per person, only today and overdue. Newest call wins. */
+export function deskLinesFromFilings(rows: DeskFiling[], today: string): DeskLine[] {
+  const newestClosed = new Set<string>();
+  const seen = new Set<string>();
+  const chosen = new Map<string, DeskFiling & { due: string }>();
+  for (const row of rows) {
+    const key = foldLeadName(row.name);
+    if (!key) continue;
+    if (!seen.has(key)) {
+      seen.add(key);
+      if (row.closed) newestClosed.add(key);
+    }
+    if (newestClosed.has(key) || chosen.has(key)) continue;
+    const due = dueDayFromProximo(row.proximo);
+    if (!due) continue;
+    chosen.set(key, { ...row, due });
+  }
+  const lines: DeskLine[] = [];
+  for (const row of chosen.values()) {
+    const estado = followupEstado(row.due, today);
+    if (estado === "PRÓXIMO") continue;
+    const owes =
+      (row.saldo || 0) > 0 || ((row.venta || 0) > (row.cash || 0) && (row.venta || 0) > 0);
+    const labeled = plainStatus(row.step);
+    const step = closedSale(row.estadoAgenda)
+      ? owes
+        ? "Cobro de la siguiente cuota"
+        : "Bienvenida"
+      : labeled === "—"
+        ? "seguimiento"
+        : labeled;
+    lines.push({ name: row.name.trim(), step, date: row.due, estado });
+  }
+  return lines.sort(
+    (a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name, "es"),
+  );
+}
+
+export function formatPendingDesk(lines: DeskLine[]) {
+  if (!lines.length) return "Hoy no tienes pendientes ni vencidos.";
+  const overdue = lines.filter((row) => row.estado === "VENCIDO");
+  const today = lines.filter((row) => row.estado === "HOY");
+  const head = [
+    overdue.length === 1 ? "1 vencido" : overdue.length ? `${overdue.length} vencidos` : "",
+    today.length === 1 ? "1 pendiente de hoy" : today.length ? `${today.length} pendientes de hoy` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const body = lines.map((row) => `· ${row.name} — ${row.step} — ${row.date}`).join("\n");
+  return `${head}.\n${body}`;
 }
 
 /** Segunda reunión and any other meeting follow-up, not a call. */

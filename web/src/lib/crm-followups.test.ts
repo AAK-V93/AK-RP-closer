@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   alignFollowups,
+  applyClosedSaleFollowup,
+  deskLinesFromFilings,
   followupSnapshot,
+  formatPendingDesk,
   isMeetingFollowup,
   moneyInPlay,
   type OperacionFollowupSource,
@@ -349,4 +352,62 @@ test("meeting follow-ups are segunda reunión, not a decision call", () => {
   assert.equal(isMeetingFollowup("DECISION"), false);
   assert.equal(isMeetingFollowup("RETOMAR"), false);
   assert.equal(isMeetingFollowup("PAGO PENDIENTE"), false);
+});
+
+test("a closed sale with balance is cobro, and the repeated description is dropped", () => {
+  const row = applyClosedSaleFollowup({
+    id: "valeria",
+    cliente: "Valeria Ríos",
+    dueAt: "2026-10-09T17:00:00.000Z",
+    estado: "PRÓXIMO",
+    days: 7,
+    enJuego: 1064,
+    proximaAccion: "Llamada de seguimiento para ver cómo arranca el programa.",
+    contexto: "Llamada de seguimiento para ver cómo arranca el programa.",
+    tipo: "SEGUNDA REUNION",
+    hilo: "SEGUNDA REUNION",
+    estadoAgenda: "CIERRE VENTA",
+    leadStatus: "cerrado",
+  });
+  assert.equal(row.tipo, "PAGO PENDIENTE");
+  assert.equal(row.hilo, "COBRANZA");
+  assert.equal(row.proximaAccion, "cobrar la siguiente cuota");
+  assert.equal(row.contexto, "");
+  const paid = applyClosedSaleFollowup({ ...row, enJuego: 0, tipo: "SEGUNDA REUNION", hilo: "SEGUNDA_REUNION" });
+  assert.equal(paid.tipo, "ONBOARDING");
+  assert.equal(paid.proximaAccion, "dar la bienvenida");
+});
+
+test("the desk lists overdue and today with name, step and date", () => {
+  const lines = deskLinesFromFilings(
+    [
+      {
+        name: "Valeria Ríos",
+        proximo: "2026-10-02 17:00",
+        step: "SEGUNDA REUNION",
+        closed: false,
+        estadoAgenda: "CIERRE VENTA",
+        venta: 1597,
+        cash: 533,
+        saldo: 1064,
+      },
+      {
+        name: "Carlos Ramírez",
+        proximo: "2026-09-20",
+        step: "DECISION",
+        closed: false,
+      },
+      {
+        name: "Lucía",
+        proximo: "2026-10-20",
+        step: "DECISION",
+        closed: false,
+      },
+    ],
+    "2026-10-02",
+  );
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0]?.name, "Carlos Ramírez");
+  assert.equal(formatPendingDesk(lines).includes("Valeria Ríos — Cobro de la siguiente cuota — 2026-10-02"), true);
+  assert.match(formatPendingDesk(lines), /1 vencido · 1 pendiente de hoy/);
 });

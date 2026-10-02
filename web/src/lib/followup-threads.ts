@@ -48,6 +48,7 @@ async function projectThreadAlert(
     objecion: string;
     now: Date;
     dueAt: Date | null;
+    closer?: string;
   },
 ) {
   const openAlerts = await prisma.leadAlert.findMany({
@@ -75,7 +76,7 @@ async function projectThreadAlert(
       pago: args.paymentDetails,
       objecion: args.objecion,
       deseo: "",
-      closer: "",
+      closer: args.closer || "",
     },
     custom: args.customScripts,
   });
@@ -122,6 +123,9 @@ export async function openFollowupThread(
 ) {
   const tipo = pickThreadKind(args.parsed);
   if (!tipo) return null;
+  const closer = String(
+    (await prisma.user.findUnique({ where: { id: args.userId }, select: { name: true } }))?.name || "",
+  ).trim();
   const existing = await prisma.followupThread.findFirst({
     where: { userId: args.userId, leadId: args.leadId, tipo, estado: "activo" },
   });
@@ -141,6 +145,7 @@ export async function openFollowupThread(
         objecion: args.objecion || "",
         now: args.callAt,
         dueAt,
+        closer,
       });
     }
     return existing;
@@ -177,6 +182,7 @@ export async function openFollowupThread(
     objecion: args.objecion || "",
     now: args.callAt,
     dueAt,
+    closer,
   });
   return thread;
 }
@@ -204,6 +210,9 @@ export async function advanceStoredThread(
     where: { id: alert.threadId, userId },
   });
   if (!thread || thread.estado !== "activo") return null;
+  const closer = String(
+    (await prisma.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name || "",
+  ).trim();
   const tipo = thread.tipo as ThreadTipo;
   const moved = advanceThread({
     tipo,
@@ -271,6 +280,7 @@ export async function advanceStoredThread(
       objecion: lead.razonNoCierre || lead.objections || "",
       now,
       dueAt,
+      closer,
     });
   }
   if (moved.estado === "activo" && moved.dueAt) {
@@ -285,6 +295,7 @@ export async function advanceStoredThread(
       objecion: lead.razonNoCierre || lead.objections || "",
       now,
       dueAt: moved.dueAt,
+      closer,
     });
   }
   return { ok: true as const, followUp: spawned, moved };

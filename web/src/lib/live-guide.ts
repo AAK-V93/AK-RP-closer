@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { generateGeminiJson } from "@/lib/gemini";
 import { isExtractorJson, parseExtractorJson } from "@/lib/extractor";
 import { parsePlaybook } from "@/lib/lead-playbook";
+import { countPhrase } from "@/lib/plain-labels";
 
 export const LIVE_GUIDE_MIN_CALLS = 15;
 
@@ -196,7 +197,7 @@ ${JSON.stringify(stats).slice(0, 8000)}`,
     offerName,
     note:
       generated.note ||
-      `${closed.length} cierres en ${calls.length} llamadas. Patrones con evidencia; no hay más de lo que muestran los números.`,
+      `${countPhrase(closed.length, "cierre", "cierres")} en ${countPhrase(calls.length, "llamada", "llamadas")}. Patrones con evidencia; no hay más de lo que muestran los números.`,
     closingTypes:
       generated.closingTypes?.length
         ? generated.closingTypes

@@ -506,10 +506,29 @@ export function deadlineDaysForPago(offer: OfferForCrm | null, modoPago: string 
   return hit?.days || null;
 }
 
+/**
+ * A pasted offer or a long price sheet. A short sentence that names a lead
+ * and an amount is a CRM update, not an offer.
+ */
 export function looksLikeOfferBlob(text: string) {
   const value = text.trim();
-  if (value.length >= 80) return true;
-  return /comisi[oó]n|precio|pago|contado|reserva|cuota|%|usd|\$/i.test(value) && value.length >= 24;
+  if (!value || value.length < 80) return false;
+  const oneLine = value.split("\n").length < 3;
+  if (oneLine && value.length < 180 && /^(?:con\s+)?.+\s+(?:me\s+)?pag[oó]\b/i.test(value)) {
+    return false;
+  }
+  const cues = [
+    /comisi[oó]n/i,
+    /\bprecio\b/i,
+    /\bcontado\b/i,
+    /\bcuotas?\b/i,
+    /\b(usd|\$)\b/i,
+    /qu[eé] vendes/i,
+    /c[oó]mo (?:paga|te pagan)/i,
+  ];
+  const hits = cues.filter((cue) => cue.test(value)).length;
+  if (value.length >= 400) return hits >= 1;
+  return hits >= 2;
 }
 
 /** Keep the end of the document. Prices on the Fertilidad PDF start after char 8000. */

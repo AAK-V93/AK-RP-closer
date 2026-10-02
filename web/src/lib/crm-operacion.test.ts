@@ -51,6 +51,14 @@ test("operacion row prefers indexed money and ungated filing notes", () => {
     filingJson: { notas_crm: "SHOW. No cerró. Segunda reunión." },
   });
   assert.equal(noted.notas, "Asistió. No cerró. Segunda reunión.");
+  const closedNote = operacionFromCall({
+    id: "cierre-note",
+    leadName: "Valeria Ríos",
+    estadoAgenda: "CIERRE VENTA",
+    filingJson: { notas_crm: "CIERRE VENTA. Pagó la primera cuota." },
+  });
+  assert.equal(closedNote.notas, "Cerró venta. Pagó la primera cuota.");
+  assert.match(closedNote.notas, /^(?!CIERRE VENTA)/);
   assert.equal(noted.estadoAgenda, "SHOW");
   assert.equal(row.canal, "ZOOM");
 });

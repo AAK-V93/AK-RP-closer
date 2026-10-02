@@ -153,6 +153,12 @@ export function presentChatState(value: unknown, key = ""): unknown {
   return out;
 }
 
+/** "1 llamada real" / "4 llamadas reales". */
+export function countPhrase(count: number, singular: string, plural: string) {
+  const n = Math.trunc(Number(count) || 0);
+  return Math.abs(n) === 1 ? `1 ${singular}` : `${n} ${plural}`;
+}
+
 /** Screen label for an internal status or thread type. */
 export function plainStatus(value: string | null | undefined) {
   const raw = String(value || "").trim();

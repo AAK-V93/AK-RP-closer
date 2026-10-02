@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseExtractorJson } from "./extractor";
-import { ensureCommissionQuestion, OFFER_MODEL_TIMEOUT_MS, textFromOfferFiles } from "./offer-extract";
+import { ensureCommissionQuestion, offerBatchRecap, OFFER_MODEL_TIMEOUT_MS, textFromOfferFiles } from "./offer-extract";
+import { emptyCommercial, looksLikeOfferBlob } from "./offer-commercial";
 import { OFFER_CLIENT_TIMEOUT_MS, offerFailureMessage, runOfferExtraction } from "./offer-upload";
 
 test("a Vercel HTML error page becomes a Spanish retry", () => {
@@ -187,4 +188,28 @@ test("a multi-page offer PDF becomes text and is not sent as a binary", async ()
   assert.match(read.text, /Fertilidad Consciente/);
   assert.match(read.text, /11800|10000/);
   assert.equal(read.binaries.length, 0);
+});
+
+test("a short payment is not an offer and No especificado is never proposed", () => {
+  assert.equal(looksLikeOfferBlob("Valeria Ríos pagó la primera cuota de 533"), false);
+  assert.equal(looksLikeOfferBlob("¿Qué tengo pendiente hoy?"), false);
+  const pasted = `Qué vendes: Fertilidad Consciente.
+Precio de lista USD 1597. Contado USD 1200.
+Comisión 10% sobre lo cobrado.
+${"El programa incluye acompañamiento. ".repeat(8)}`;
+  assert.equal(looksLikeOfferBlob(pasted), true);
+  const recap = offerBatchRecap({
+    assumption: "una",
+    questions: ["No encontré un porcentaje de comisión. ¿La dejo vacía?"],
+    offers: [
+      {
+        productName: "No especificado",
+        productDescription: "",
+        pitchSummary: "",
+        icp: "",
+        commercial: emptyCommercial(),
+      },
+    ],
+  });
+  assert.doesNotMatch(recap, /No especificado/);
 });
