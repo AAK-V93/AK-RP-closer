@@ -2,7 +2,9 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { patchCrmPref } from "@/lib/crm-prefs";
 import { inferFollowupDate } from "@/lib/followup-date";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
-import { normalizePersonName } from "@/lib/lead-match";
+import { samePersonName } from "@/lib/lead-match";
+import { realClientName } from "@/lib/crm-noise";
+import { renameCrmCalls } from "@/lib/crm-rename";
 
 export type ChatLead = {
   id: string;
@@ -22,18 +24,22 @@ export function shownCrmName(lead: { name: string; crmName?: string }) {
 
 /** Link a stored lead to the longer or accented name the call row shows. */
 export function sameDisplayedPerson(stored: string, shown: string) {
-  const left = stored.trim();
-  const right = shown.trim();
-  if (!left || !right) return false;
-  if (left === right) return true;
-  const a = normalizePersonName(left);
-  const b = normalizePersonName(right);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  const shorter = a.length <= b.length ? a : b;
-  const longer = a.length > b.length ? a : b;
-  if (shorter.split(" ").length < 2) return false;
-  return longer.startsWith(`${shorter} `);
+  return samePersonName(stored, shown);
+}
+
+/** Name Operación shows: real leadName, else cliente_real, else a person title. */
+export function callClientName(row: {
+  leadName?: string | null;
+  title?: string | null;
+  filingJson?: unknown;
+}) {
+  const filing = (row.filingJson || {}) as { cliente_real?: unknown };
+  return (
+    realClientName(row.leadName) ||
+    realClientName(String(filing.cliente_real ?? "")) ||
+    realClientName(row.title) ||
+    ""
+  );
 }
 
 /** Prefer the call name the CRM shows when it is not the lead record name. */
@@ -260,6 +266,22 @@ function recall(text: string, ctx: ChatContext): ChatTurn | null {
   return { kind: "answer", reply: lines.join(" ") };
 }
 
+function leadForSpokenName(ctx: ChatContext, spoken: string, raw: string) {
+  const exactShown = ctx.leads.find((row) => shownCrmName(row) === spoken);
+  if (exactShown) return exactShown;
+  const exactStored = ctx.leads.find((row) => row.name.trim() === spoken);
+  if (exactStored) return exactStored;
+  const variants = ctx.leads.filter(
+    (row) =>
+      sameDisplayedPerson(row.name, spoken) ||
+      (row.crmName ? sameDisplayedPerson(row.crmName, spoken) : false),
+  );
+  if (variants.length === 1) return variants[0];
+  const contained = leadInMessage(ctx.leads, raw);
+  if (contained && variants.some((row) => row.id === contained.id)) return contained;
+  return variants[0] || contained;
+}
+
 function rename(text: string, ctx: ChatContext): ChatTurn | null {
   const match =
     text.match(/^(.+?)\s+en realidad se llama\s+(.+)$/i) ||
@@ -267,12 +289,15 @@ function rename(text: string, ctx: ChatContext): ChatTurn | null {
     text.match(/^(.+?)\s+se llama\s+(.+)$/i);
   if (!match) return null;
   const spoken = tidyName(match[1]);
-  const lead =
-    ctx.leads.find((row) => shownCrmName(row) === spoken) ||
-    ctx.leads.find((row) => row.name.trim() === spoken) ||
-    leadInMessage(ctx.leads, match[1]);
+  const lead = leadForSpokenName(ctx, spoken, match[1]);
   const next = tidyName(match[2]);
   const current = lead ? shownCrmName(lead) : "";
+  // The words in the message are the name on screen when they name this person
+  // and that string is not already the record we would compare by accident.
+  const from =
+    lead && spoken && spoken !== current && sameDisplayedPerson(current || lead.name, spoken)
+      ? spoken
+      : current;
   const pending = ctx.pending;
   if (
     lead &&
@@ -282,26 +307,26 @@ function rename(text: string, ctx: ChatContext): ChatTurn | null {
   ) {
     return {
       kind: "confirm",
-      reply: confirmReply(current || pending.leadName || lead.name, pending.changes),
+      reply: confirmReply(from || pending.leadName || lead.name, pending.changes),
       proposal: pending,
     };
   }
-  if (!lead || !next || next.length > 80 || next === current) {
-    if (lead && next && next === current) {
-      return { kind: "answer", reply: `${current} ya está guardado con ese nombre.` };
+  if (!lead || !next || next.length > 80 || next === from) {
+    if (lead && next && next === from) {
+      return { kind: "answer", reply: `${from} ya está guardado con ese nombre.` };
     }
     return null;
   }
   const proposal: ChatProposal = {
     leadId: lead.id,
-    leadName: current,
-    changes: [{ field: "name", label: "Nombre", from: current, to: next }],
+    leadName: from,
+    changes: [{ field: "name", label: "Nombre", from, to: next }],
   };
   const memory = /transcript|transcrip|acuerdo|qued|recuerdo/i.test(text) ? recall(text, ctx) : null;
   const reply =
     memory?.kind === "answer"
-      ? `${memory.reply} ${confirmReply(lead.name, proposal.changes)}`
-      : confirmReply(lead.name, proposal.changes);
+      ? `${memory.reply} ${confirmReply(from, proposal.changes)}`
+      : confirmReply(from, proposal.changes);
   return { kind: "confirm", reply, proposal };
 }
 
@@ -700,14 +725,11 @@ export async function applyChatProposal(
     let callNote = "";
     if (callsNeedRename) {
       try {
-        // Neon HTTP rejects updateMany: Prisma wraps it in a transaction.
-        // One statement renames every call the CRM shows under the old name.
-        await prisma.$executeRaw`
-          UPDATE "CallRecord"
-          SET "leadName" = ${nextName}
-          WHERE "userId" = ${userId}
-            AND ("leadName" = ${lead.name} OR "leadName" = ${fromName})
-        `;
+        const updated = await renameCrmCalls(prisma, userId, {
+          fromNames: [fromName, lead.name],
+          next: nextName,
+        });
+        if (updated < 1) callNote = " No encontré una llamada con el nombre anterior.";
       } catch (error) {
         console.error("rename lead calls", error);
         callNote = " No pude renombrar las llamadas vinculadas.";
@@ -898,9 +920,10 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     prisma.callRecord.findMany({
       where: { userId, filingStatus: { not: "skipped" } },
       orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
-      take: 80,
+      take: 2000,
       select: {
         leadName: true,
+        title: true,
         summary: true,
         filingJson: true,
         source: true,
@@ -927,7 +950,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
       proximo_seguimiento?: string;
     };
     return {
-      leadName: row.leadName,
+      leadName: callClientName(row) || row.leadName,
       acuerdo: String(filing.acuerdo_seguimiento || ""),
       notas: String(filing.notas_crm || row.summary || ""),
       proximo: String(filing.proximo_seguimiento || "").replace("T", " ").slice(0, 16),
@@ -936,7 +959,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
   for (const lead of leads) {
     const shown = crmDisplayedName(
       lead.name,
-      calls.map((call) => call.leadName),
+      callRows.map((row) => callClientName(row)).filter(Boolean),
     );
     if (shown && shown !== lead.name) lead.crmName = shown;
   }

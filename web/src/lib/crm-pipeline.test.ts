@@ -140,3 +140,84 @@ test("decision leads with only the offer price are the open pipeline", () => {
   assert.equal(out.pipeline.count, 2);
   assert.equal(out.saldo, 8000);
 });
+
+test("a lead with no offer does not inherit the only catalog list price", () => {
+  const offers = [
+    {
+      productName: "Círculo Millonario",
+      listPrice: 11_800,
+      altPrices: [{ label: "Contado", amount: 10_000 }],
+    },
+  ];
+  const leads = [
+    ...Array.from({ length: 19 }, (_, index) => ({
+      id: `sin-${index}`,
+      name: `Lead ${index + 1}`,
+      status: "seguimiento",
+      offerName: "",
+      amountTalked: "",
+    })),
+    ...Array.from({ length: 4 }, (_, index) => ({
+      id: `precio-${index}`,
+      name: `Precio ${index + 1}`,
+      status: "seguimiento",
+      offerName: "",
+      amountTalked: "10000",
+    })),
+  ];
+  const out = summarizePipeline({
+    leads,
+    offers,
+    threads: leads.map((lead) => ({ leadId: lead.id, tipo: "DECISION", estado: "activo" })),
+    calls: [],
+  });
+  assert.equal(out.pipeline.count, 23);
+  assert.equal(out.pipeline.total, 40_000);
+  const onOffer = summarizePipeline({
+    leads: [
+      {
+        id: "ana",
+        name: "Ana Pérez",
+        status: "seguimiento",
+        offerName: "Círculo Millonario",
+        amountTalked: "",
+      },
+    ],
+    offers,
+    threads: [{ leadId: "ana", tipo: "DECISION", estado: "activo" }],
+    calls: [],
+  });
+  assert.equal(onOffer.pipeline.total, 11_800);
+  const twoOffers = summarizePipeline({
+    leads: [
+      {
+        id: "ana",
+        name: "Ana Pérez",
+        status: "seguimiento",
+        offerName: "Círculo Millonario",
+        amountTalked: "",
+      },
+    ],
+    offers: [
+      ...offers,
+      { productName: "Otra", listPrice: 50_000, altPrices: [] },
+    ],
+    threads: [{ leadId: "ana", tipo: "DECISION", estado: "activo" }],
+    calls: [
+      {
+        leadName: "Ana Pérez",
+        offerName: "Círculo Millonario",
+        ventaTotal: 11_800,
+        recordedAt: "2026-10-02T15:00:00.000Z",
+      },
+      {
+        leadName: "Ana Pérez",
+        offerName: "Otra",
+        ventaTotal: 50_000,
+        recordedAt: "2026-09-01T15:00:00.000Z",
+      },
+    ],
+  });
+  assert.equal(twoOffers.pipeline.count, 1);
+  assert.equal(twoOffers.pipeline.total, 11_800);
+});

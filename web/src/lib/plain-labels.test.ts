@@ -46,6 +46,11 @@ test("chat state uses the Spanish stage labels", () => {
     "Sofia · Círculo Millonario · Asistió · Cerró venta",
   );
   assert.equal(labelCrmProse("NO SHOW en la segunda"), "No asistió en la segunda");
+  assert.equal(
+    labelCrmProse("No tengo ningún cambio pendiente. ¿Qué quieres actualizar?"),
+    "No tengo ningún cambio pendiente. ¿Qué quieres actualizar?",
+  );
+  assert.equal(labelCrmProse("PENDIENTE"), "Por cobrar");
   const state = presentChatState({
     leads: [{ name: "Diego", status: "seguimiento", next: "DECISION" }],
     appliedCalls: ["Diego · SHOW"],
