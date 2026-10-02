@@ -21,7 +21,7 @@ export default function PracticePage() {
     <div className="flex flex-col h-screen bg-bg0 overflow-x-hidden">
       <header className="flex flex-shrink-0 h-14 items-center justify-between gap-2 px-3 md:px-8 w-full border-b border-separator1 min-w-0">
         <div className="flex items-center gap-3 min-w-0 flex-shrink">
-          <Link href="/" className="text-lg font-light truncate">
+          <Link href="/" className="inline-flex h-11 min-h-11 items-center truncate text-lg font-light">
             Closer Trainer
           </Link>
           <Badge variant="outline" className="hidden sm:inline-flex text-xs">
@@ -29,7 +29,11 @@ export default function PracticePage() {
           </Badge>
           <nav className="hidden md:flex items-center gap-2 text-xs text-fg3">
             {PRACTICE_NAV.map((item) => (
-              <Link key={item.href} href={item.href} className="hover:text-fg1">
+              <Link
+                key={item.href}
+                href={item.href}
+                className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center rounded-full px-3 hover:text-fg1 lg:h-7 lg:min-h-0 lg:min-w-0 lg:px-2"
+              >
                 {item.label}
               </Link>
             ))}

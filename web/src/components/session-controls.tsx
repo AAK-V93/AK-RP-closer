@@ -51,7 +51,7 @@ export function SessionControls() {
         <div className="flex items-center gap-2">
           <TrackToggle
             source={Track.Source.Microphone}
-            className={`inline-flex items-center justify-center whitespace-nowrap rounded-l-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 text-foreground hover:!bg-bg3 hover:!rounded-l-md h-9 shadow-none !px-3 !border-r-[1px] !border-separator1`}
+            className={`inline-flex h-11 min-h-11 min-w-11 items-center justify-center whitespace-nowrap rounded-l-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 text-foreground hover:!bg-bg3 hover:!rounded-l-md shadow-none !px-3 !border-r-[1px] !border-separator1 lg:h-9 lg:min-h-0 lg:min-w-0`}
             style={{ borderRightStyle: "solid" }}
             showIcon={false}
           >
@@ -77,7 +77,7 @@ export function SessionControls() {
           <DropdownMenuTrigger asChild>
             <Button
               variant="secondary"
-              className="h-9 px-3 bg-bg2 shadow-none hover:bg-bg3 rounded-l-none rounded-r-md border-l-[1px] border-separator1 text-sm font-semibold"
+              className="h-11 w-11 bg-bg2 shadow-none hover:bg-bg3 rounded-l-none rounded-r-md border-l-[1px] border-separator1 px-0 text-sm font-semibold lg:h-9 lg:w-9"
             >
               <ChevronDown className="h-4 w-4 text-fg3" />
             </Button>
@@ -126,7 +126,7 @@ export function SessionControls() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <Button variant="destructive" onClick={disconnect} className="h-9">
+      <Button variant="destructive" onClick={disconnect} className="h-11 lg:h-9">
         <PhoneOff className="h-4 w-4" />
         Terminar y evaluar
       </Button>

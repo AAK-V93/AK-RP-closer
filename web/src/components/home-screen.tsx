@@ -289,7 +289,7 @@ function OnboardingA({
           {uploadNote && <p className="text-sm text-fg2">{uploadNote}</p>}
           <button
             type="button"
-            className="text-xs text-fg3 underline"
+            className="inline-flex min-h-11 items-center text-xs text-fg3 underline lg:min-h-0"
             onClick={() => {
               setSkipCalls(true);
               setStep("offer");

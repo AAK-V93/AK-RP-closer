@@ -26,10 +26,10 @@ const buttonVariants = cva(
           "border-destructive bg-serious1 text-fgSerious1 hover:border-transparent hover:bg-fgSerious1 hover:text-background focus-visible:ring-destructive active:bg-fgSerious1",
       },
       size: {
-        sm: "h-11 px-2 py-1 text-xs font-semibold md:h-7",
-        lg: "h-11 px-3 py-2 text-base font-semibold md:h-9",
-        xl: "h-11 gap-3 p-3 text-[0.875rem] font-semibold",
-        icon: "h-11 w-11 md:h-7 md:w-8",
+        sm: "h-11 min-w-11 px-2 py-1 text-xs font-semibold lg:h-7",
+        lg: "h-11 min-w-11 px-3 py-2 text-base font-semibold lg:h-9",
+        xl: "h-11 min-w-11 gap-3 p-3 text-[0.875rem] font-semibold",
+        icon: "h-11 w-11 lg:h-7 lg:w-8",
       },
     },
     defaultVariants: {

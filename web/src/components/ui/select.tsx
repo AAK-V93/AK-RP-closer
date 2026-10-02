@@ -15,8 +15,8 @@ const selectConfig = {
       ghost: '',
     },
     size: {
-      sm: 'h-7 text-xs',
-      md: 'h-9 text-sm',
+      sm: 'h-11 min-h-11 min-w-11 text-xs lg:h-7 lg:min-h-0',
+      md: 'h-11 min-h-11 min-w-11 text-sm lg:h-9 lg:min-h-0',
     },
   },
   defaultVariants: {
@@ -173,7 +173,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-default select-none flex-col justify-center rounded py-1.5 pl-2 pr-8 text-fg1 outline-none focus:bg-bg3 data-[disabled]:pointer-events-none data-[state=checked]:text-fg0 data-[disabled]:opacity-50',
+      'relative flex min-h-11 w-full cursor-default select-none flex-col justify-center rounded py-2 pl-2 pr-8 text-fg1 outline-none focus:bg-bg3 data-[disabled]:pointer-events-none data-[state=checked]:text-fg0 data-[disabled]:opacity-50 lg:min-h-0 lg:py-1.5',
       className,
     )}
     {...props}

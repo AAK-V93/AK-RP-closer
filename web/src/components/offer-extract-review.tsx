@@ -158,7 +158,7 @@ export function OfferExtractReview({
             {mode === "varias" && drafts.length > 1 && (
               <button
                 type="button"
-                className="text-xs text-fg3 underline"
+                className="inline-flex min-h-11 items-center text-xs text-fg3 underline lg:min-h-0"
                 onClick={() => removeAt(index)}
               >
                 Quitar esta
@@ -273,7 +273,7 @@ export function OfferExtractReview({
         <Button
           type="button"
           variant="primary"
-          className="h-auto whitespace-normal text-center"
+          className="h-auto min-h-11 whitespace-normal text-center lg:min-h-0"
           disabled={saving || !ready || !visible.some((row) => row.productName.trim())}
           onClick={() => {
             const next =

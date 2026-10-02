@@ -56,7 +56,7 @@ export function BibliotecaPackList({
             <div className="flex items-start justify-between gap-3">
               <button
                 type="button"
-                className="text-left space-y-1 min-w-0"
+                className="min-h-11 min-w-0 space-y-1 text-left lg:min-h-0"
                 onClick={() => setOpenId(open ? null : pack.id)}
               >
                 <p className="text-sm font-medium">{pack.title}</p>
