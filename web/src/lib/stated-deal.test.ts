@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { shouldDropInferredSale } from "./call-normalize";
 import { emptyExtractor } from "./extractor";
-import { fillStatedDeal } from "./stated-deal";
+import { fillStatedDeal, shownBalance } from "./stated-deal";
 
 test("a stated split payment fills amount, mode and balance", () => {
   const parsed = emptyExtractor();
@@ -78,4 +78,11 @@ test("fraccionado without an inicial still fills amount, mode and balance", () =
   assert.equal(parsed.modo_pago, "Fraccionado");
   assert.equal(parsed.saldo_pendiente, 10000);
   assert.equal(parsed.cash_collected, null);
+});
+
+test("lead detail saldo is the counted sale minus Cobrado, not the stored saldo", () => {
+  assert.equal(shownBalance(1597, 1066, 1064), 531);
+  assert.equal(shownBalance(1597, 1597, 1064), 0);
+  assert.equal(shownBalance(null, 1066, 1064), 1064);
+  assert.equal(shownBalance(0, 1066, 1064), 1064);
 });

@@ -18,7 +18,7 @@ import {
   resolveOfferAssignment,
 } from "@/lib/offer-resolve";
 import { isNonSalesCall } from "@/lib/call-kind";
-import { visibleCallTitle } from "@/lib/crm-noise";
+import { linkedToCrmLead, visibleCallTitle } from "@/lib/crm-noise";
 import { labelCrmProse } from "@/lib/plain-labels";
 import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
 import { inferCallDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
@@ -505,6 +505,11 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
   const offers = await loadOffersForCrm(prisma, userId);
   const readyCrm = userHasReadyCrm(offers);
   await archiveSilentNonSalesPendings(prisma, userId);
+  const leads = await prisma.lead.findMany({
+    where: { userId },
+    select: { name: true },
+  });
+  const leadNames = leads.map((row) => row.name);
   const rows = await prisma.callRecord.findMany({
     where: { userId, filingStatus: "pending" },
     orderBy: { createdAt: "desc" },
@@ -518,6 +523,9 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
       if (isExtractorJson(row.filingJson)) {
         const parsed = parseExtractorJson(row.filingJson);
         if (isNonSalesCall(parsed.estado_agenda)) return false;
+        if (linkedToCrmLead(parsed.cliente_real || row.leadName, leadNames)) return false;
+      } else if (linkedToCrmLead(row.leadName, leadNames)) {
+        return false;
       }
       return true;
     })

@@ -38,6 +38,7 @@ import { ACTIVA_EXPLAIN, filaCountLabel, latestActiveRows, operacionCountLine } 
 import { clienteVisible } from "@/lib/crm-noise";
 import { derivedPaso, operacionGlance } from "@/lib/crm-glance";
 import { dineroEnJuegoNote, saldoPorCobrarNote, type PipelineLine } from "@/lib/crm-pipeline";
+import { followupCardStatus } from "@/lib/home-desk";
 import { PipelineDetail } from "@/components/pipeline-detail";
 import { foldLeadName, followupSnapshot, isMeetingFollowup, shownFollowupKind } from "@/lib/crm-followups";
 import { LOST_REASONS, lostScopeMessage, openFollowupCount } from "@/lib/followup-desk";
@@ -1113,12 +1114,7 @@ function AhoraGlance({
   money: (value: number | null | undefined) => string;
   onOpen: (target: "activas" | "hoy" | "dinero") => void;
 }) {
-  const hoy = now.seguimientosHoy || 0;
-  const vencidos = now.seguimientosVencidos || 0;
-  const acciones =
-    hoy <= 0 && vencidos <= 0
-      ? "Todo al día"
-      : `${hoy} pendiente${hoy === 1 ? "" : "s"} · ${vencidos} vencido${vencidos === 1 ? "" : "s"}`;
+  const acciones = followupCardStatus(now.seguimientosHoy || 0, now.seguimientosVencidos || 0);
   const items: { id: "activas" | "hoy" | "dinero"; label: string; value: string }[] = [
     { id: "activas", label: "Leads activos", value: String(now.oportunidadesActivas || 0) },
     { id: "hoy", label: "Acciones de hoy", value: acciones },
@@ -1885,7 +1881,7 @@ function SeguimientosSheet({
   return (
     <div className="space-y-4">
       <p className="text-sm text-fg3" aria-live="polite">
-        Pendientes de hoy {now.seguimientosHoy || 0} · Vencidos {now.seguimientosVencidos || 0} · Dinero en juego{" "}
+        {followupCardStatus(now.seguimientosHoy || 0, now.seguimientosVencidos || 0)} · Dinero en juego{" "}
         {money(now.dineroEnJuego)}
       </p>
       <HelpNote>

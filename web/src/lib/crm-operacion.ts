@@ -129,7 +129,8 @@ export function operacionFromCall(
   const titulo = visibleCallTitle({
     title: call.title || "",
     leadName: cliente,
-    date: fecha,
+    date: call.recordedAt || call.createdAt || fecha,
+    summary: asStr(call.summary) || asStr(filing.notas_crm),
   });
   return {
     id: call.id,

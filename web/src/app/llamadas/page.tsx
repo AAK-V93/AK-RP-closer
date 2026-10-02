@@ -9,6 +9,7 @@ import { CalendarConnectPanel } from "@/components/calendar-connect-panel";
 import { Button } from "@/components/ui/button";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
+import { joinDistinct } from "@/lib/crm-noise";
 import { plainStatus } from "@/lib/plain-labels";
 
 type CallRow = {
@@ -267,14 +268,12 @@ export default function LlamadasPage() {
                   <div className="min-w-0">
                     <p className="text-sm truncate">{row.title}</p>
                     <p className="text-xs text-fg3">
-                      {[
+                      {joinDistinct([
                         row.leadName,
                         row.offerName,
                         row.callType ? plainStatus(row.callType) : "",
                         row.result ? plainStatus(row.result) : "",
-                      ]
-                        .filter((part) => part && part !== "—")
-                        .join(" · ") || row.source}
+                      ]) || row.source}
                       {row.trainsBot ? " · entra a la práctica" : ""}
                     </p>
                   </div>
