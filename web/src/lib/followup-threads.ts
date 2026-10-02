@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { zonedDayKey } from "@/lib/crm-time";
-import { buildFollowupCopy, followupQuestion, type FollowupScript } from "@/lib/followup-scripts";
+import { buildFollowupCopy, collectionCopy, followupQuestion, type FollowupScript, type InstallmentHint } from "@/lib/followup-scripts";
 import {
   advanceThread,
   FOLLOWUP_SEQUENCES,
@@ -45,6 +45,7 @@ async function projectThreadAlert(
     enJuego: number;
     paymentDetails: string;
     customScripts: FollowupScript[];
+    installmentHints?: InstallmentHint[];
     objecion: string;
     now: Date;
     dueAt: Date | null;
@@ -64,16 +65,20 @@ async function projectThreadAlert(
   if (!args.dueAt) return null;
   const tipo = args.thread.tipo as ThreadTipo;
   const step = stepAt(tipo, args.thread.pasoActual);
+  const money = collectionCopy({
+    saldo: args.enJuego,
+    due: args.dueAt.toISOString(),
+    today: zonedDayKey(args.now),
+    paymentDetails: args.paymentDetails,
+    hints: args.installmentHints,
+  });
   const copy = buildFollowupCopy({
     type: step.scriptType,
     intentos: args.thread.pasoActual,
     vars: {
       nombre: args.leadName,
       programa: args.offerName,
-      monto: args.enJuego ? String(Math.round(args.enJuego)) : "",
-      saldo: args.enJuego ? String(Math.round(args.enJuego)) : "",
-      fecha: zonedDayKey(args.dueAt),
-      pago: args.paymentDetails,
+      ...money,
       objecion: args.objecion,
       deseo: "",
       closer: args.closer || "",

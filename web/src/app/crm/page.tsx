@@ -39,7 +39,7 @@ import { clienteVisible } from "@/lib/crm-noise";
 import { derivedPaso, operacionGlance } from "@/lib/crm-glance";
 import { dineroEnJuegoNote, saldoPorCobrarNote, type PipelineLine } from "@/lib/crm-pipeline";
 import { PipelineDetail } from "@/components/pipeline-detail";
-import { foldLeadName, followupSnapshot, isMeetingFollowup } from "@/lib/crm-followups";
+import { foldLeadName, followupSnapshot, isMeetingFollowup, shownFollowupKind } from "@/lib/crm-followups";
 import { LOST_REASONS, lostScopeMessage, openFollowupCount } from "@/lib/followup-desk";
 import { zonedDayKey } from "@/lib/crm-time";
 import {
@@ -1235,7 +1235,7 @@ function OperacionSheet({
   const contacts = useMemo(() => lastContactByClient(scopeRows || rows), [scopeRows, rows]);
   const columns: SheetColumn<OperacionRow>[] = [
     { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha },
-    { key: "cliente", label: "Cliente", width: 220, value: (row) => clienteVisible(row.cliente, row.titulo) },
+    { key: "cliente", label: "Cliente", width: 220, value: (row) => clienteVisible(row.cliente, row.titulo), mobileExtra: (row) => plainStatus(shownFollowupKind(row, glanceFollowup(row, followups))) },
     { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
     { key: "canal", label: "Canal", width: 110, value: (row) => plainStatus(row.canal) },
     { key: "estado", label: "Estado", width: 130, value: (row) => plainStatus(row.estadoAgenda) },
@@ -1245,7 +1245,7 @@ function OperacionSheet({
     { key: "modo", label: "Modo de pago", width: 130, value: (row) => plainStatus(row.modoPago) },
     { key: "cash", label: "Cobrado", width: 110, align: "right", value: (row) => money(row.cash) },
     { key: "req", label: "¿Seguimiento?", width: 130, value: (row) => plainStatus(row.requiereSeguimiento) },
-    { key: "tipo", label: "Tipo de seguimiento", width: 180, value: (row) => plainStatus(row.tipoSeguimiento) },
+    { key: "tipo", label: "Tipo de seguimiento", width: 180, hideOnMobile: true, value: (row) => plainStatus(shownFollowupKind(row, glanceFollowup(row, followups))) },
     { key: "acuerdo", label: "Acuerdo", width: 140, value: (row) => row.acuerdo },
     { key: "razon", label: "Razón no cierre", width: 140, value: (row) => row.razonNoCierre },
     { key: "notas", label: "Notas", width: 160, value: (row) => row.notas },
@@ -1257,7 +1257,7 @@ function OperacionSheet({
       ultimoContacto: contacts.get(foldLeadName(row.cliente)) || row.fecha,
       paso: followup?.paso,
       intentos: followup?.intentos,
-      tipoSeguimiento: followup?.hilo || followup?.tipo || row.tipoSeguimiento,
+      tipoSeguimiento: shownFollowupKind(row, followup),
       fechaProximo: followup?.proximo || row.fechaProximo,
     });
   };
@@ -1323,7 +1323,7 @@ function OperacionSheet({
               ["Cobrado", money(selected.cash)],
               ["Saldo", money(selected.saldo)],
               ["¿Seguimiento?", plainStatus(selected.requiereSeguimiento)],
-              ["Tipo de seguimiento", plainStatus(selected.tipoSeguimiento)],
+              ["Tipo de seguimiento", plainStatus(shownFollowupKind(selected, glanceFollowup(selected, followups)))],
               ["Acuerdo", selected.acuerdo],
               ["Razón no cierre", selected.razonNoCierre],
               ["Notas", selected.notas],
@@ -1948,8 +1948,14 @@ function SeguimientosSheet({
       )}
       <SheetTable
         columns={[
-          { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
-          { key: "hilo", label: "Tipo", width: 150, value: (row) => plainStatus(row.hilo || row.tipo) },
+          {
+            key: "cliente",
+            label: "Cliente",
+            width: 220,
+            value: (row) => row.cliente,
+            mobileExtra: (row) => plainStatus(row.hilo || row.tipo),
+          },
+          { key: "hilo", label: "Tipo", width: 150, hideOnMobile: true, value: (row) => plainStatus(row.hilo || row.tipo) },
           {
             key: "paso",
             label: "Paso",

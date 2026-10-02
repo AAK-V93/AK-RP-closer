@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
 export const SHEET_PAGE_SIZE = 100;
@@ -11,6 +11,9 @@ export type SheetColumn<T> = {
   label: string;
   width: number;
   align?: "left" | "right";
+  /** Full label under the cell on a phone, when this column is dropped. */
+  mobileExtra?: (row: T) => string | number | null | undefined;
+  hideOnMobile?: boolean;
   value: (row: T) => string | number | null | undefined;
 };
 
@@ -44,13 +47,22 @@ export function SheetTable<T>({
   };
 }) {
   const [page, setPage] = useState(0);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 767px)");
+    const sync = () => setNarrow(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+  const visible = columns.filter((col) => !(narrow && col.hideOnMobile));
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
   const slice = useMemo(
     () => rows.slice(safePage * pageSize, (safePage + 1) * pageSize),
     [rows, safePage, pageSize],
   );
-  const minWidth = columns.reduce((sum, col) => sum + col.width, 0) + (trailing?.width || 0);
+  const minWidth = visible.reduce((sum, col) => sum + col.width, 0) + (trailing?.width || 0);
 
   const wide = minWidth > 720;
   return (
@@ -59,30 +71,29 @@ export function SheetTable<T>({
         <p className="text-xs text-fg3">Desliza a la derecha para ver el resto de columnas.</p>
       )}
       <div
-        className="w-full min-w-0 max-w-full overflow-x-scroll overflow-y-auto rounded-2xl border border-separator1 bg-bg1"
-        style={{ maxHeight: "calc(100vh - 220px)", scrollbarWidth: "thin" }}
+        className="w-full min-w-0 max-w-full overflow-x-scroll overflow-y-auto rounded-2xl border border-separator1 bg-bg1 max-h-[calc(100vh-220px-4.5rem)] xl:max-h-[calc(100vh-220px)]"
+        style={{ scrollbarWidth: "thin" }}
       >
         <table
           className="border-collapse text-[13px] leading-snug text-fg1"
           style={{ tableLayout: "fixed", width: minWidth, minWidth }}
         >
           <colgroup>
-            {columns.map((col) => (
+            {visible.map((col) => (
               <col key={col.key} style={{ width: col.width }} />
             ))}
             {trailing && <col style={{ width: trailing.width }} />}
           </colgroup>
           <thead className="sticky top-0 z-10">
             <tr>
-              {columns.map((col) => (
+              {visible.map((col) => (
                 <th
                   key={col.key}
                   className="border-b border-separator1 bg-bg1 px-2 py-2 text-sm text-fg3 align-bottom"
                   style={{
                     minHeight: SHEET_ROW_PX,
                     textAlign: col.align || "left",
-                    whiteSpace: "normal",
-                    overflowWrap: "anywhere",
+                    whiteSpace: "nowrap",
                     lineHeight: 1.25,
                   }}
                 >
@@ -103,7 +114,7 @@ export function SheetTable<T>({
             {slice.length === 0 ? (
               <tr style={{ height: SHEET_ROW_PX }}>
                 <td
-                  colSpan={columns.length + (trailing ? 1 : 0)}
+                  colSpan={visible.length + (trailing ? 1 : 0)}
                   className="border border-separator1 px-2 text-fg3"
                   style={{ height: SHEET_ROW_PX }}
                 >
@@ -127,8 +138,9 @@ export function SheetTable<T>({
                     }
                     style={{ cursor: onRowClick ? "pointer" : "default" }}
                   >
-                    {columns.map((col) => {
+                    {visible.map((col) => {
                       const value = sheetCell(col.value(row));
+                      const extra = narrow && col.mobileExtra ? sheetCell(col.mobileExtra(row)) : "";
                       return (
                         <td
                           key={col.key}
@@ -143,6 +155,9 @@ export function SheetTable<T>({
                           <div className="line-clamp-3 break-words [overflow-wrap:anywhere]">
                             {value}
                           </div>
+                          {extra && extra !== "—" ? (
+                            <div className="mt-0.5 text-xs text-fg3">{extra}</div>
+                          ) : null}
                         </td>
                       );
                     })}

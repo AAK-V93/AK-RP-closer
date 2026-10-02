@@ -1,3 +1,5 @@
+import { zonedDayKey } from "@/lib/crm-time";
+
 export type FollowupScript = {
   key: string;
   type: string;
@@ -19,7 +21,116 @@ export type FollowupVars = {
   objecion: string;
   deseo: string;
   closer: string;
+  /** "hoy te toca" or "el 9 de octubre te toca". Empty stays neutral. */
+  cuando?: string;
 };
+
+const MONTHS = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
+];
+
+export type InstallmentHint = {
+  label?: string;
+  amount?: number | null;
+  details?: string;
+  text?: string;
+};
+
+/** "9 de octubre" from a calendar day. */
+export function spanishCalendarDay(iso: string) {
+  const match = String(iso || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return "";
+  const month = MONTHS[Number(match[2]) - 1];
+  if (!month) return "";
+  return `${Number(match[3])} de ${month}`;
+}
+
+/** Only "hoy" when the follow-up day is today. */
+export function cuotaWhenClause(due: string, today: string) {
+  const day = String(due || "").slice(0, 10);
+  const now = String(today || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "te toca";
+  if (day === now) return "hoy te toca";
+  const named = spanishCalendarDay(day);
+  if (!named) return "te toca";
+  if (day > now) return `el ${named} te toca`;
+  return `desde el ${named} está pendiente`;
+}
+
+/** Next installment, never above the open balance. Equal cuotas come from "N cuotas de". */
+export function nextCuotaAmount(saldo: number, hints: InstallmentHint[] = []) {
+  const due = Math.max(0, Math.round(Number(saldo) || 0));
+  let installment: number | null = null;
+  for (const hint of hints) {
+    const label = `${hint.label || ""} ${hint.details || ""}`.trim();
+    if (hint.amount != null && hint.amount > 0 && /\d{1,2}\s*cuotas?\s+de/i.test(label)) {
+      installment = Math.round(hint.amount);
+      break;
+    }
+    const blob = `${label} ${hint.text || ""}`;
+    const match = blob.match(
+      /(\d{1,2})\s*cuotas?\s+de(?:\s*usd)?\s*(\d{1,3}(?:\.\d{3})+|\d{1,7})/i,
+    );
+    if (!match) continue;
+    const raw = match[2];
+    const amount = /^\d{1,3}(\.\d{3})+$/.test(raw) ? Number(raw.replace(/\./g, "")) : Number(raw);
+    if (amount > 0) {
+      installment = Math.round(amount);
+      break;
+    }
+  }
+  if (installment == null) return due;
+  if (due <= 0) return 0;
+  return Math.min(installment, due);
+}
+
+export function hintsFromOffer(commercial: {
+  altPrices?: { label?: string; amount?: number | null }[];
+  paymentModes?: { name?: string; details?: string }[];
+  sourceText?: string;
+} | null | undefined): InstallmentHint[] {
+  if (!commercial) return [];
+  return [
+    ...(commercial.altPrices || []).map((row) => ({ label: row.label, amount: row.amount })),
+    ...(commercial.paymentModes || []).map((row) => ({
+      label: row.name,
+      details: row.details,
+      text: `${row.name || ""} ${row.details || ""}`,
+    })),
+    { text: commercial.sourceText || "" },
+  ];
+}
+
+export function collectionCopy(args: {
+  saldo: number;
+  due?: string;
+  today?: string;
+  paymentDetails?: string;
+  hints?: InstallmentHint[];
+}) {
+  const saldo = Math.max(0, Math.round(Number(args.saldo) || 0));
+  const next = nextCuotaAmount(saldo, args.hints || []);
+  const day = String(args.due || "").slice(0, 10);
+  const today = args.today || zonedDayKey(new Date());
+  return {
+    monto: next > 0 ? String(next) : "",
+    saldo: saldo > 0 ? String(saldo) : "",
+    cuando: cuotaWhenClause(day, today),
+    pago: String(args.paymentDetails || "").trim(),
+    fecha: spanishCalendarDay(day) || day,
+  };
+}
 
 const SLOT: Record<string, keyof FollowupVars> = {
   Nombre: "nombre",
@@ -44,6 +155,8 @@ const SLOT: Record<string, keyof FollowupVars> = {
   DESEO: "deseo",
   deseo: "deseo",
   CLOSER: "closer",
+  CUANDO: "cuando",
+  cuando: "cuando",
 };
 
 export function fillFollowupGuion(guion: string, vars: FollowupVars) {
@@ -59,6 +172,7 @@ export function fillFollowupGuion(guion: string, vars: FollowupVars) {
     .replace(/([,.;:])[ \t]*([,.;:])/g, "$1")
     .replace(/\bsoy\s*\./gi, "")
     .replace(/\bte saluda\s*,/gi, "te saluda")
+    .replace(/^[ \t]*Te dejo los datos:\s*$/gim, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -109,7 +223,7 @@ Te recuerdo que el [FECHA] corresponde el pago de USD [MONTO]. Ese día te paso 
     intentosMin: 0,
     canal: "WHATSAPP",
     recomendacion: "Mañana del vencimiento. Link/datos + pedir voucher.",
-    guion: `Hola [Nombre], hoy corresponde el pago de USD [MONTO] de [PROGRAMA].
+    guion: `Hola [Nombre], [CUANDO] el pago de USD [MONTO] de [PROGRAMA].
 Te dejo los datos: [DATOS DE PAGO]
 Avísame por acá cuando lo hayas hecho, con el comprobante.`,
   },

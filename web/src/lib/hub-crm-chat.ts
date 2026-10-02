@@ -86,6 +86,14 @@ export type ChatProposal = {
   leadId: string;
   leadName: string;
   changes: ChatChange[];
+  /** Same sentence must not add the cuota again while Cobrado is still this result. */
+  applyKey?: string;
+};
+
+export type AppliedCash = {
+  leadId: string;
+  key: string;
+  to: string;
 };
 
 export type ChatTurn =
@@ -102,6 +110,7 @@ export type ChatContext = {
   now?: Date;
   offers?: string[];
   desk?: DeskLine[];
+  appliedCash?: AppliedCash | null;
 };
 
 type LooseCrmPatch = {
@@ -393,6 +402,70 @@ export function asksForPendingDesk(text: string) {
   );
 }
 
+function paidNow(raw: string) {
+  const text = String(raw || "").trim();
+  if (!text || text === "—" || text === "-") return 0;
+  const normalized = /^\d{1,3}(\.\d{3})+$/.test(text)
+    ? text.replace(/\./g, "")
+    : text.replace(/[^\d.,]/g, "").replace(",", ".");
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount) || amount < 0) return 0;
+  return Math.round(amount);
+}
+
+function formatMoneyEs(amount: number) {
+  return String(Math.round(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+function cuotaOrdinal(current: number, payment: number) {
+  if (payment <= 0) return "cuota";
+  if (current <= 0) return "1ª cuota";
+  const ratio = current / payment;
+  const whole = Math.round(ratio);
+  if (Math.abs(ratio - whole) > 0.05) return "cuota";
+  return `${whole + 1}ª cuota`;
+}
+
+function cashNumber(call: { cashCollected?: number | null; filingJson?: unknown }) {
+  if (call.cashCollected != null && Number.isFinite(Number(call.cashCollected))) {
+    return Math.round(Number(call.cashCollected));
+  }
+  const filing = (call.filingJson || {}) as { cash_collected?: unknown };
+  if (filing.cash_collected == null || filing.cash_collected === "") return null;
+  const amount = Number(filing.cash_collected);
+  return Number.isFinite(amount) ? Math.round(amount) : null;
+}
+
+/** Cobrado the CRM row shows: the call's cash, then the lead field. */
+export function cobradoFromCalls(
+  leadName: string,
+  calls: {
+    leadName?: string | null;
+    title?: string | null;
+    filingJson?: unknown;
+    cashCollected?: number | null;
+  }[],
+) {
+  for (const call of calls) {
+    const name = callClientName(call) || String(call.leadName || "");
+    if (!name || !sameDisplayedPerson(leadName, name)) continue;
+    const cash = cashNumber(call);
+    if (cash != null) return cash;
+  }
+  return null;
+}
+
+export function readAppliedCash(prefs: unknown): AppliedCash | null {
+  if (!prefs || typeof prefs !== "object") return null;
+  const raw = (prefs as Record<string, unknown>).lastCashApply;
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as AppliedCash;
+  if (typeof row.leadId !== "string" || !row.leadId.trim()) return null;
+  if (typeof row.key !== "string" || !row.key.trim()) return null;
+  if (row.to == null || String(row.to).trim() === "") return null;
+  return { leadId: row.leadId, key: row.key, to: String(row.to) };
+}
+
 function payment(text: string, ctx: ChatContext): ChatTurn | null {
   const match = text.match(
     /^(?:con\s+)?(.+?)\s+(?:me\s+)?pag[oó](?:\s+(?:la|una|el)\s+(?:(?:primera|segunda|tercera|cuarta|siguiente|\d+)\s+)?cuota|\s+la\s+reserva)?(?:\s+de)?\s*(?:usd\s*)?(\d[\d.\s]*?)(?:\s*usd)?\s*$/i,
@@ -402,19 +475,47 @@ function payment(text: string, ctx: ChatContext): ChatTurn | null {
   const amount = parseMoney(match[2]);
   if (!lead) return { kind: "answer", reply: "¿Quién pagó? Dime el nombre del cliente." };
   if (!amount) return { kind: "answer", reply: `¿Cuánto pagó ${lead.name}?` };
+  const current = paidNow(lead.amountPaid);
+  const cuota = /cuota/i.test(text);
+  const added = Number(amount);
+  const next = cuota ? current + added : added;
+  const applyKey = `cash:${lead.id}:${fold(text)}`;
+  const already = ctx.appliedCash;
+  if (
+    cuota &&
+    already &&
+    already.leadId === lead.id &&
+    already.key === applyKey &&
+    current === paidNow(already.to)
+  ) {
+    return {
+      kind: "answer",
+      reply: `Ya registré esa cuota. Cobrado de ${shownCrmName(lead)} sigue en ${formatMoneyEs(current)}. No lo sumé otra vez.`,
+    };
+  }
+  if (!cuota && current === next) {
+    return {
+      kind: "answer",
+      reply: `${shownCrmName(lead)} ya tiene ${formatMoneyEs(current)} cobrado.`,
+    };
+  }
   const proposal: ChatProposal = {
     leadId: lead.id,
-    leadName: lead.name,
+    leadName: shownCrmName(lead),
+    applyKey: cuota ? applyKey : undefined,
     changes: [
       {
         field: "cash",
         label: "Cobrado",
-        from: lead.amountPaid || "—",
-        to: amount,
+        from: String(current),
+        to: String(next),
       },
     ],
   };
-  return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
+  const reply = cuota
+    ? `Cobrado de ${shownCrmName(lead)} de ${formatMoneyEs(current)} a ${formatMoneyEs(next)} (${cuotaOrdinal(current, added)}). ¿Confirmo?`
+    : confirmReply(shownCrmName(lead), proposal.changes);
+  return { kind: "confirm", reply, proposal };
 }
 
 function clearPayment(text: string, ctx: ChatContext): ChatTurn | null {
@@ -610,12 +711,17 @@ export function proposalFromLoosePatch(
   }
   const cash = patch.amountPaid ? parseMoney(String(patch.amountPaid)) : null;
   if (cash) {
-    changes.push({
-      field: "cash",
-      label: "Cobrado",
-      from: lead.amountPaid || "—",
-      to: cash,
-    });
+    const current = paidNow(lead.amountPaid);
+    const cuota = /cuota/i.test(message);
+    const next = cuota ? current + Number(cash) : Number(cash);
+    if (!(cuota === false && current === next)) {
+      changes.push({
+        field: "cash",
+        label: "Cobrado",
+        from: String(current),
+        to: String(next),
+      });
+    }
   }
   const notes = tidyName(String(patch.lastSummary || ""));
   if (notes && fold(notes) !== fold(lead.lastSummary) && fold(notes) !== fold(rawOffer)) {
@@ -657,10 +763,12 @@ export function readPendingChat(prefs: unknown): ChatProposal | null {
   if (!Array.isArray(row.changes)) return null;
   const changes = row.changes.map(asChange).filter((change): change is ChatChange => Boolean(change));
   if (!changes.length) return null;
+  const applyKey = (row as { applyKey?: unknown }).applyKey;
   return {
     leadId: row.leadId,
     leadName: typeof row.leadName === "string" ? row.leadName : "",
     changes,
+    ...(typeof applyKey === "string" && applyKey.trim() ? { applyKey } : {}),
   };
 }
 
@@ -702,7 +810,7 @@ export async function applyChatProposal(
   userId: string,
   proposal: ChatProposal,
   offers: string[] = [],
-): Promise<{ ok: boolean; reply: string }> {
+): Promise<{ ok: boolean; reply: string; remember?: boolean }> {
   try {
     const lead = await prisma.lead.findFirst({
       where: { id: proposal.leadId, userId },
@@ -718,11 +826,14 @@ export async function applyChatProposal(
     } = {};
     let nextName = lead.name;
     let skippedOffer = "";
+    let cashChange: ChatChange | null = null;
+    let cashSkipNote = "";
+    let cashRemember = true;
     const nameChange = proposal.changes.find((change) => change.field === "name");
     const fromName = nameChange?.from?.trim() || lead.name;
     for (const change of proposal.changes) {
       const to = typeof change.to === "string" ? change.to.trim() : "";
-      if (!to) continue;
+      if (!to && change.field !== "cash") continue;
       if (change.field === "name") {
         nextName = to;
         if (to !== lead.name) data.name = nextName;
@@ -733,7 +844,7 @@ export async function applyChatProposal(
         const date = new Date(iso.length === 16 ? `${iso}:00.000Z` : iso);
         if (!Number.isNaN(date.getTime())) data.nextStepAt = date;
       }
-      if (change.field === "cash") data.amountPaid = to;
+      if (change.field === "cash") cashChange = { ...change, to };
       if (change.field === "notes") data.lastSummary = to;
       if (change.field === "offer") {
         const exact = exactOfferName(offers, to);
@@ -741,8 +852,35 @@ export async function applyChatProposal(
         else data.offerName = exact;
       }
     }
+    if (cashChange && cashChange.to.trim()) {
+      const target = paidNow(cashChange.to);
+      let callCash: number | null = null;
+      try {
+        const preview = await prisma.callRecord.findFirst({
+          where: { userId, leadName: nextName },
+          orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+        });
+        if (preview) callCash = cashNumber(preview);
+      } catch (error) {
+        console.error("read cobrado", error);
+      }
+      const stored = String(lead.amountPaid ?? "").trim();
+      const leadCash = stored ? paidNow(stored) : null;
+      const current = callCash != null ? callCash : leadCash;
+      const from =
+        cashChange.from && cashChange.from !== "—" ? paidNow(cashChange.from) : null;
+      if (current != null && current === target) {
+        cashSkipNote = `Cobrado de ${nextName} ya está en ${formatMoneyEs(target)}. No lo sumé otra vez.`;
+      } else if (current != null && from != null && from !== current) {
+        cashSkipNote = `Cobrado de ${nextName} ahora está en ${formatMoneyEs(current)}. No lo sumé otra vez.`;
+        cashRemember = false;
+      } else {
+        data.amountPaid = String(target);
+      }
+    }
     const callsNeedRename = Boolean(nameChange && fromName !== nextName);
     if (!Object.keys(data).length && !callsNeedRename) {
+      if (cashSkipNote) return { ok: true, reply: cashSkipNote, remember: cashRemember };
       const because = skippedOffer
         ? `«${skippedOffer}» no es una oferta. No cambié nada.`
         : "No hay un cambio válido para guardar. No cambié nada.";
@@ -774,12 +912,11 @@ export async function applyChatProposal(
         if (callsNeedRename) filing.cliente_real = nextName;
         const step = proposal.changes.find((change) => change.field === "nextStep");
         const when = proposal.changes.find((change) => change.field === "nextStepAt");
-        const cash = proposal.changes.find((change) => change.field === "cash");
         const note = proposal.changes.find((change) => change.field === "notes");
         if (step) filing.acuerdo_seguimiento = step.to;
         if (when) filing.proximo_seguimiento = when.to;
         if (note) filing.notas_crm = note.to;
-        const cashAmount = cash ? Number(cash.to) : null;
+        const cashAmount = data.amountPaid != null ? Number(data.amountPaid) : null;
         if (cashAmount != null && Number.isFinite(cashAmount)) filing.cash_collected = cashAmount;
         await prisma.callRecord.update({
           where: { id: call.id },
@@ -799,14 +936,17 @@ export async function applyChatProposal(
     }
     const done = proposal.changes
       .filter((change) => change.field !== "offer" || !skippedOffer)
+      .filter((change) => change.field !== "cash" || data.amountPaid != null)
       .map((change) => `${change.label} «${change.to}»`)
       .join("; ");
     const offerNote = skippedOffer
       ? ` No toqué Producto/Oferta: «${skippedOffer}» no está en tus ofertas.`
       : "";
+    const cashNote = cashSkipNote ? ` ${cashSkipNote}` : "";
     return {
       ok: true,
-      reply: `Listo. En ${nextName} quedó: ${done}.${offerNote}${callNote ? ` ${callNote}` : ""}`.replace(
+      remember: cashChange ? Boolean(data.amountPaid) || cashRemember : undefined,
+      reply: `Listo. En ${nextName} quedó: ${done}.${offerNote}${cashNote}${callNote ? ` ${callNote}` : ""}`.replace(
         /\s+/g,
         " ",
       ).trim(),
@@ -908,6 +1048,14 @@ export async function respondToCrmChat(
     if (turn.kind === "apply") {
       const result = await applyChatProposal(prisma, userId, turn.proposal, ctx.offers || []);
       if (result.ok) await savePendingChat(prisma, userId, null);
+      const cash = turn.proposal.changes.find((change) => change.field === "cash");
+      if (result.ok && result.remember !== false && turn.proposal.applyKey && cash) {
+        await patchCrmPref(prisma, userId, "lastCashApply", {
+          leadId: turn.proposal.leadId,
+          key: turn.proposal.applyKey,
+          to: cash.to,
+        });
+      }
       return result.reply;
     }
     if (turn.kind === "drop") {
@@ -957,6 +1105,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
         filingJson: true,
         source: true,
         sourceId: true,
+        cashCollected: true,
       },
     }),
     prisma.userOffer.findMany({
@@ -1023,6 +1172,8 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
       callRows.map((row) => callClientName(row)).filter(Boolean),
     );
     if (shown && shown !== lead.name) lead.crmName = shown;
+    const collected = cobradoFromCalls(shown || lead.name, callRows);
+    if (collected != null) lead.amountPaid = String(collected);
   }
   if (mentionsLeadMemory(raw)) {
     const lead = leadInMessage(leads, raw);
@@ -1050,6 +1201,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     now: new Date(),
     offers: offerRows.map((row) => row.productName).filter(Boolean),
     desk,
+    appliedCash: readAppliedCash(user?.crmPrefs),
   };
   const turn = interpretCrmChat(raw, ctx);
   if (turn.kind === "none") return null;

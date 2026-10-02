@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
   buildFollowupCopy,
+  collectionCopy,
   followupQuestion,
   type FollowupVars,
 } from "@/lib/followup-scripts";
@@ -71,15 +72,19 @@ function followupVars(args: {
   paymentDetails: string;
   objecion?: string;
   fecha?: string;
+  hints?: import("@/lib/followup-scripts").InstallmentHint[];
 }): FollowupVars {
-  const monto = args.enJuego ? String(Math.round(args.enJuego)) : "";
+  const money = collectionCopy({
+    saldo: args.enJuego,
+    due: args.fecha,
+    paymentDetails: args.paymentDetails,
+    hints: args.hints,
+  });
   return {
     nombre: args.leadName,
     programa: args.offerName,
-    monto,
-    saldo: monto,
-    fecha: args.fecha || args.acuerdo || "",
-    pago: args.paymentDetails,
+    ...money,
+    fecha: money.fecha || args.acuerdo || "",
     objecion: args.objecion || "",
     deseo: "",
     closer: "",

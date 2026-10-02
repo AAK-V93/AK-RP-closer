@@ -7,7 +7,7 @@ import {
   builtinPackById,
   builtinScriptId,
 } from "@/lib/followup-catalog";
-import { fillFollowupGuion, isCreativeFollowup, listFollowupScripts, parseFollowupScripts, type FollowupScript, type FollowupVars } from "@/lib/followup-scripts";
+import { collectionCopy, fillFollowupGuion, hintsFromOffer, isCreativeFollowup, listFollowupScripts, parseFollowupScripts, type FollowupScript, type FollowupVars, type InstallmentHint } from "@/lib/followup-scripts";
 import { scriptTemperatureFit, type TemperatureLevel } from "@/lib/lead-temperature";
 import { leadRescheduled } from "@/lib/followup-machine";
 import { applyClosedSaleFollowup } from "@/lib/crm-followups";
@@ -376,6 +376,34 @@ function optionId(script: FollowupScript, source: FollowupOption["source"]) {
   return `${source}:${script.key}`;
 }
 
+function messageVars(args: {
+  nombre: string;
+  programa: string;
+  saldo: number;
+  due?: string;
+  today?: string;
+  paymentDetails?: string;
+  hints?: InstallmentHint[];
+  objecion?: string;
+  closer?: string;
+}): FollowupVars {
+  const money = collectionCopy({
+    saldo: args.saldo,
+    due: args.due,
+    today: args.today,
+    paymentDetails: args.paymentDetails,
+    hints: args.hints,
+  });
+  return {
+    nombre: args.nombre,
+    programa: args.programa,
+    ...money,
+    objecion: args.objecion || "",
+    deseo: "",
+    closer: args.closer || "",
+  };
+}
+
 function filledMensaje(script: FollowupScript, vars: FollowupVars) {
   const text = fillFollowupGuion(script.guion, vars);
   return script.asset ? `${text}\n${script.asset}` : text;
@@ -533,24 +561,24 @@ export async function chooseFollowupOption(
       })
     : await prisma.userOffer.findFirst({ where: { userId }, orderBy: { updatedAt: "desc" } });
   const commercial = parseCommercial(offer?.commercial);
-  const vars: FollowupVars = {
+  const closerName = String(
+    (
+      await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      })
+    )?.name || "",
+  ).trim();
+  const vars = messageVars({
     nombre: row.lead.name,
     programa: row.lead.offerName || offer?.productName || "",
-    monto: row.enJuego ? String(Math.round(row.enJuego)) : "",
-    saldo: row.enJuego ? String(Math.round(row.enJuego)) : "",
-    fecha: zonedDayKey(row.dueAt),
-    pago: commercial.paymentDetails,
+    saldo: row.enJuego,
+    due: row.dueAt.toISOString(),
+    paymentDetails: commercial.paymentDetails,
+    hints: hintsFromOffer(commercial),
     objecion: row.lead.razonNoCierre || row.lead.objections || "",
-    deseo: "",
-    closer: String(
-      (
-        await prisma.user.findUnique({
-          where: { id: userId },
-          select: { name: true },
-        })
-      )?.name || "",
-    ).trim(),
-  };
+    closer: closerName,
+  });
   const adjusted = applyClosedSaleFollowup({
     id: row.id,
     cliente: row.lead.name,
@@ -638,17 +666,17 @@ export async function attachFollowupOptions<
       try {
       const offer = byName.get(row.oferta) || fallback;
       const commercial = parseCommercial(offer?.commercial);
-      const vars: FollowupVars = {
+      const vars = messageVars({
         nombre: row.cliente,
         programa: row.oferta || offer?.productName || "",
-        monto: row.enJuego ? String(Math.round(row.enJuego)) : "",
-        saldo: row.enJuego ? String(Math.round(row.enJuego)) : "",
-        fecha: String(row.dueAt || "").slice(0, 10),
-        pago: commercial.paymentDetails,
-        objecion: row.objecion || "",
-        deseo: "",
+        saldo: row.enJuego,
+        due: row.dueAt,
+        today: zonedDayKey(new Date()),
+        paymentDetails: commercial.paymentDetails,
+        hints: hintsFromOffer(commercial),
+        objecion: row.objecion,
         closer,
-      };
+      });
       const opciones = await followupOptionsFor(prisma, {
         type: row.tipo,
         intentos: row.intentos || 0,
