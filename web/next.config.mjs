@@ -9,6 +9,12 @@ const nextConfig = {
 
     return config;
   },
+  async redirects() {
+    return [
+      { source: "/practica", destination: "/practicar", permanent: false },
+      { source: "/oferta", destination: "/ofertas", permanent: false },
+    ];
+  },
   async headers() {
     return [
       {

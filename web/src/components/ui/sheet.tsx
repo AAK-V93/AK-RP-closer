@@ -4,6 +4,7 @@ import * as React from "react"
 import * as SheetPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
 
+import { missingDialogLabels } from "@/lib/dialog-a11y"
 import { cn } from "@/lib/utils"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
@@ -71,7 +72,7 @@ function SheetContent({
         )}
         {...props}
       >
-        {children}
+        <SheetFallbackLabels>{children}</SheetFallbackLabels>
         <SheetPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
           <XIcon className="size-4" />
           <span className="sr-only">Cerrar</span>
@@ -101,6 +102,19 @@ function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+function SheetFallbackLabels({ children }: { children: React.ReactNode }) {
+  const missing = missingDialogLabels(children)
+  return (
+    <>
+      {missing.title ? <SheetTitle className="sr-only">Panel</SheetTitle> : null}
+      {missing.description ? (
+        <SheetDescription className="sr-only">Contenido del panel.</SheetDescription>
+      ) : null}
+      {children}
+    </>
+  )
+}
+
 function SheetTitle({
   className,
   ...props
@@ -113,6 +127,7 @@ function SheetTitle({
     />
   )
 }
+SheetTitle.displayName = "SheetTitle"
 
 function SheetDescription({
   className,
@@ -126,6 +141,7 @@ function SheetDescription({
     />
   )
 }
+SheetDescription.displayName = "SheetDescription"
 
 export {
   Sheet,

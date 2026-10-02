@@ -19,7 +19,12 @@ import { ACTIVA_EXPLAIN } from "@/lib/crm-activa";
 import { dineroEnJuegoNote, saldoPorCobrarNote } from "@/lib/crm-pipeline";
 import { PipelineDetail } from "@/components/pipeline-detail";
 import { followupCardStatus } from "@/lib/home-desk";
-import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
+import {
+  filterPersistableOffers,
+  offerSavedLabel,
+  offerSaveFailureMessage,
+  postWorkspaceOffer,
+} from "@/lib/offer-save";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 
@@ -146,14 +151,18 @@ function OnboardingA({
     setSaving(true);
     setError(null);
     try {
-      for (let index = 0; index < offers.length; index += 1) {
-        const payload = offerToSavePayload(offers[index]);
+      const ready = filterPersistableOffers(offers);
+      if (!ready.length) {
+        throw new Error("Nombre y descripción de la oferta son obligatorios");
+      }
+      for (let index = 0; index < ready.length; index += 1) {
+        const payload = offerToSavePayload(ready[index]);
         await postWorkspaceOffer({
           ...payload,
           includeFathom: index === 0,
         });
       }
-      onSaved(offerSavedLabel(offers.length));
+      onSaved(offerSavedLabel(ready.length));
       setReview(null);
       onDone();
     } catch (e) {

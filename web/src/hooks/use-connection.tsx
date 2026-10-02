@@ -208,7 +208,7 @@ export const ConnectionProvider = ({
   useEffect(() => {
     if (status !== "authenticated") return;
     if (trainingHelpers.validateTraining(trainingState.training)) return;
-    const timer = window.setTimeout(() => prefetch(), 800);
+    const timer = window.setTimeout(() => prefetch(), 0);
     return () => window.clearTimeout(timer);
   }, [prefetch, requestKey, status, trainingState.training]);
 

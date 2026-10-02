@@ -11,7 +11,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Plus, Upload } from "lucide-react";
 import { parseFollowupScripts } from "@/lib/followup-scripts";
-import { offerSavedLabel, offerSaveFailureMessage, postWorkspaceOffer } from "@/lib/offer-save";
+import {
+  filterPersistableOffers,
+  isCompleteOfferSave,
+  offerSavedLabel,
+  offerSaveFailureMessage,
+  postWorkspaceOffer,
+} from "@/lib/offer-save";
 import {
   commercialRecap,
   offerToSavePayload,
@@ -141,6 +147,13 @@ export default function OfertasPage() {
 
   const onSaveOffer = async (event: FormEvent) => {
     event.preventDefault();
+    // Upload already started extraction. Saving the form underneath would POST
+    // the previous (sometimes empty) fields and the route answers 400.
+    if (review || parsingDoc) return;
+    if (!isCompleteOfferSave({ productName, productDescription })) {
+      setError("Nombre y descripción de la oferta son obligatorios");
+      return;
+    }
     setSavingOffer(true);
     setError(null);
     setSavedNote(null);
@@ -168,9 +181,13 @@ export default function OfertasPage() {
     setError(null);
     setSavedNote(null);
     try {
+      const ready = filterPersistableOffers(offers);
+      if (!ready.length) {
+        throw new Error("Nombre y descripción de la oferta son obligatorios");
+      }
       let lastId = offerId;
-      for (let index = 0; index < offers.length; index += 1) {
-        const payload = offerToSavePayload(offers[index]);
+      for (let index = 0; index < ready.length; index += 1) {
+        const payload = offerToSavePayload(ready[index]);
         const saved = await postWorkspaceOffer({
           id: index === 0 ? offerId : undefined,
           ...payload,
@@ -180,7 +197,7 @@ export default function OfertasPage() {
       }
       setReview(null);
       setOfferBlob("");
-      setSavedNote(offerSavedLabel(offers.length));
+      setSavedNote(offerSavedLabel(ready.length));
       setSavingOffer(false);
       await load(lastId || null);
     } catch (e) {
@@ -462,7 +479,16 @@ export default function OfertasPage() {
             />
             Usar mis llamadas grabadas en esta oferta
           </label>
-          <Button type="submit" variant="primary" disabled={savingOffer}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={
+              savingOffer ||
+              parsingDoc ||
+              Boolean(review) ||
+              !isCompleteOfferSave({ productName, productDescription })
+            }
+          >
             {savingOffer ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />

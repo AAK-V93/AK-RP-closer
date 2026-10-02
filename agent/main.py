@@ -22,6 +22,7 @@ from livekit.agents import (
 from livekit.plugins import google
 
 from turn_config import agent_session_kwargs, gemini_realtime_input_config
+from warm_job import is_warm_job
 
 load_dotenv(dotenv_path=".env.local")
 
@@ -118,11 +119,16 @@ def closer_already_in_room(room: rtc.Room) -> rtc.RemoteParticipant | None:
 
 
 async def entrypoint(ctx: JobContext):
+    job_meta = _load_metadata(getattr(getattr(ctx, "job", None), "metadata", "") or "")
+    room_name = getattr(getattr(ctx, "room", None), "name", "") or ""
+    if is_warm_job(room_name, job_meta):
+        logger.info("warm job; leaving without starting the model")
+        return
+
     logger.info(f"connecting to room {ctx.room.name}")
     # Join first so the closer sees "Casi listo" while Gemini is still starting.
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
 
-    job_meta = _load_metadata(getattr(getattr(ctx, "job", None), "metadata", "") or "")
     participant = closer_already_in_room(ctx.room)
     if participant is not None:
         logger.info("closer already in the room; starting the model without waiting")
