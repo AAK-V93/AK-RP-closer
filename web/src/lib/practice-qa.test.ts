@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { isHardwareMicTrack } from "./practice-audio";
 import {
   bindPracticeLeaveLogs,
+  filterPracticeLeaveLogger,
   guardPracticeRoom,
   isPracticeLeaveNoise,
   isUserPracticeDisconnect,
@@ -186,6 +187,59 @@ test("an intentional leave silences the signal logger and a new call restores it
   markPracticeLeaving(room);
   resetPracticeRoom(room);
   assert.deepEqual(levels, ["silent", "info"]);
+});
+
+test("websocket closed stays quiet after the signal logger is rebuilt", async () => {
+  const lines: string[] = [];
+  const logger: {
+    __level: number;
+    getLevel: () => number;
+    setLevel: (level: unknown, persist?: boolean) => void;
+    methodFactory: (methodName: string, level: number, loggerName?: string) => (msg: string) => void;
+    warn: (msg: string) => void;
+  } = {
+    __level: 2,
+    getLevel() {
+      return this.__level;
+    },
+    setLevel(level: unknown) {
+      this.__level = level === "silent" || level === 5 ? 5 : 2;
+      this.warn = this.methodFactory("warn", this.__level, "livekit-signal");
+    },
+    methodFactory() {
+      return (msg: string) => {
+        lines.push(msg);
+      };
+    },
+    warn(msg: string) {
+      lines.push(msg);
+    },
+  };
+  const room = {
+    state: "connecting",
+    engine: { client: { log: logger }, log: logger },
+    log: { warn: (message: string) => lines.push(`room:${message}`) },
+    localParticipant: {
+      trackPublications: new Map(),
+      unpublishTrack: async () => undefined,
+    },
+    disconnect: async () => {
+      lines.push("disconnect from room");
+      logger.setLevel("info", false);
+      logger.warn("websocket closed");
+      logger.warn("signal dropped");
+    },
+  };
+  guardPracticeRoom(room as never);
+  filterPracticeLeaveLogger(logger);
+  logger.warn("websocket closed");
+  assert.deepEqual(lines, ["websocket closed"]);
+  await room.disconnect(true);
+  assert.deepEqual(lines, ["websocket closed", "disconnect from room", "signal dropped"]);
+  resetPracticeRoom(room);
+  logger.setLevel("info", false);
+  logger.warn("websocket closed");
+  assert.equal(lines.at(-1), "websocket closed");
 });
 
 test("the page-load warm room is not a practice dispatch", () => {

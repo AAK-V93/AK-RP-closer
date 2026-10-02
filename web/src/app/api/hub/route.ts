@@ -60,6 +60,26 @@ import { applyHubUtterance, parseHubUtterance } from "@/lib/hub-utterance";
 import { vapidPublicKey } from "@/lib/web-push";
 import { Prisma } from "@prisma/client";
 
+type ServerTiming = { name: string; dur: number; desc?: string };
+
+function formatServerTiming(timings: ServerTiming[]) {
+  return timings
+    .map((row) => {
+      const desc = row.desc ? `;desc="${row.desc.replace(/"/g, "")}"` : "";
+      return `${row.name};dur=${row.dur}${desc}`;
+    })
+    .join(", ");
+}
+
+async function timed<T>(timings: ServerTiming[] | undefined, name: string, run: () => Promise<T>) {
+  const started = performance.now();
+  try {
+    return await run();
+  } finally {
+    timings?.push({ name, dur: Math.round(performance.now() - started) });
+  }
+}
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -69,24 +89,38 @@ export async function GET() {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Inicia sesión" }, { status: 401 });
     }
+    const timings: ServerTiming[] = [];
+    const mark = (name: string, started: number) => {
+      timings.push({ name, dur: Math.round(performance.now() - started) });
+    };
+    const prismaStarted = performance.now();
     const prisma = await getWorkspacePrisma();
+    mark("prisma", prismaStarted);
     if (!prisma) return NextResponse.json({ error: "DB" }, { status: 503 });
+    const ensureStarted = performance.now();
     try {
       await ensureCrmTables(prisma);
     } catch (error) {
       console.error("hub GET ensureCrm", error);
     }
+    mark("ensure", ensureStarted);
 
-    const threadPromise = loadThread(prisma, session.user.id, THREAD_HUB).catch((error) => {
-      console.error("hub GET thread", error);
-      return null;
-    });
-    const snapshot = await hubSnapshot(prisma, session.user.id);
+    const threadStarted = performance.now();
+    const threadPromise = loadThread(prisma, session.user.id, THREAD_HUB)
+      .catch((error) => {
+        console.error("hub GET thread", error);
+        return null;
+      })
+      .finally(() => mark("thread", threadStarted));
+    const snapshot = await hubSnapshot(prisma, session.user.id, timings);
     const loaded = await threadPromise;
     const messages = (loaded?.messages || []).map((line) =>
       line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
     );
-    return NextResponse.json({ messages, snapshot });
+    return NextResponse.json(
+      { messages, snapshot },
+      { headers: { "Server-Timing": formatServerTiming(timings) } },
+    );
   } catch (error) {
     console.error("hub GET", error);
     return NextResponse.json(
@@ -853,16 +887,19 @@ ${userText}`;
   }
 }
 
-export async function hubSnapshot(
+async function hubSnapshot(
   prisma: NonNullable<Awaited<ReturnType<typeof getWorkspacePrisma>>>,
   userId: string,
+  timings?: ServerTiming[],
 ) {
   const [home, prefsRow] = await Promise.all([
-    getHomeState(prisma, userId),
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { crmPrefs: true },
-    }),
+    timed(timings, "home", () => getHomeState(prisma, userId)),
+    timed(timings, "prefs", () =>
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { crmPrefs: true },
+      }),
+    ),
   ]);
   const prefs = parseCrmPrefs(prefsRow?.crmPrefs);
   const pendingOfferExtract = readPendingOfferExtract(prefsRow?.crmPrefs);
@@ -913,6 +950,7 @@ export async function hubSnapshot(
     needsPushPrompt:
       home.phase !== "a" && !prefs.pushPromptedAt && Boolean(vapidPublicKey()),
   };
+  timings?.push({ name: "phase", dur: 0, desc: home.phase });
   if (home.phase !== "c") {
     return empty;
   }
@@ -923,39 +961,47 @@ export async function hubSnapshot(
     weekStart.setUTCHours(0, 0, 0, 0);
     const [workspace, dash, leads, pendingCalls, recentAuto, unclassified, analyzedThisWeek, guides] =
       await Promise.all([
-        getWorkspace(prisma, userId, null, { corpus: false }),
-        crmDashboard(prisma, userId),
-        prisma.lead.findMany({
-          where: { userId },
-          orderBy: { updatedAt: "desc" },
-          take: 12,
-        }),
-        listPendingFilings(prisma, userId),
-        prisma.callRecord.findMany({
-          where: {
-            userId,
-            filingStatus: "confirmed",
-            confirmedAt: { gte: new Date(Date.now() - 36 * 3600 * 1000) },
-          },
-          orderBy: { confirmedAt: "desc" },
-          take: 3,
-        }),
-        prisma.callRecord.count({
-          where: { userId, filingStatus: "pending" },
-        }),
-        prisma.callRecord.count({
-          where: {
-            userId,
-            filingStatus: "confirmed",
-            confirmedAt: { gte: weekStart },
-            estadoAgenda: { notIn: ["INTERNA", "NO_COMERCIAL"] },
-          },
-        }),
-        loadLiveGuides(prisma, userId),
+        timed(timings, "workspace", () => getWorkspace(prisma, userId, null, { corpus: false })),
+        timed(timings, "dashboard", () => crmDashboard(prisma, userId)),
+        timed(timings, "leads", () =>
+          prisma.lead.findMany({
+            where: { userId },
+            orderBy: { updatedAt: "desc" },
+            take: 12,
+          }),
+        ),
+        timed(timings, "filings", () => listPendingFilings(prisma, userId)),
+        timed(timings, "recent", () =>
+          prisma.callRecord.findMany({
+            where: {
+              userId,
+              filingStatus: "confirmed",
+              confirmedAt: { gte: new Date(Date.now() - 36 * 3600 * 1000) },
+            },
+            orderBy: { confirmedAt: "desc" },
+            take: 3,
+          }),
+        ),
+        timed(timings, "unclassified", () =>
+          prisma.callRecord.count({
+            where: { userId, filingStatus: "pending" },
+          }),
+        ),
+        timed(timings, "analyzed", () =>
+          prisma.callRecord.count({
+            where: {
+              userId,
+              filingStatus: "confirmed",
+              confirmedAt: { gte: weekStart },
+              estadoAgenda: { notIn: ["INTERNA", "NO_COMERCIAL"] },
+            },
+          }),
+        ),
+        timed(timings, "guides", () => loadLiveGuides(prisma, userId)),
       ]);
     let goalBundle = goalSeed;
     try {
-      goalBundle = await loadCommissionProjection(prisma, userId, dash);
+      goalBundle = await timed(timings, "projection", () => loadCommissionProjection(prisma, userId, dash));
     } catch (error) {
       console.error("hub projection", error);
     }

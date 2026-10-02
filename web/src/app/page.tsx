@@ -1,13 +1,9 @@
-import { Suspense } from "react";
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { AppShell } from "@/components/app-shell";
 import { HomeScreen } from "@/components/home-screen";
-import { HomeSkeleton } from "@/components/page-skeleton";
 import { Button } from "@/components/ui/button";
 import { authOptions } from "@/lib/auth";
-import { hubSnapshot } from "@/app/api/hub/route";
-import { getWorkspacePrisma } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -29,30 +25,8 @@ function GuestHome() {
   );
 }
 
-async function HomeFromDb({ userId }: { userId: string }) {
-  const prisma = await getWorkspacePrisma();
-  if (!prisma) return <HomeScreen />;
-  try {
-    const snapshot = JSON.parse(JSON.stringify(await hubSnapshot(prisma, userId)));
-    return <HomeScreen initialSnapshot={snapshot} />;
-  } catch (error) {
-    console.error("home page", error);
-    return <HomeScreen />;
-  }
-}
-
 export default async function HomePage() {
   const session = await getServerSession(authOptions);
   const userId = session?.user?.id;
-  return (
-    <AppShell>
-      {userId ? (
-        <Suspense fallback={<HomeSkeleton />}>
-          <HomeFromDb userId={userId} />
-        </Suspense>
-      ) : (
-        <GuestHome />
-      )}
-    </AppShell>
-  );
+  return <AppShell>{userId ? <HomeScreen /> : <GuestHome />}</AppShell>;
 }
