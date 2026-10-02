@@ -37,7 +37,7 @@ export function FollowupPicker({
 
   const sourceLabel = (row: FollowupOptionView) => {
     if (row.source === "oferta") return "Tu oferta";
-    if (row.source === "biblioteca") return `@${row.publisher}`;
+    if (row.source === "biblioteca") return "Biblioteca";
     return "Secuencia base";
   };
 
@@ -65,7 +65,7 @@ export function FollowupPicker({
             >
               <p className="text-[11px] text-fg3">
                 {sourceLabel(row)} · {plainStatus(row.canal)}
-                {row.puntaje != null ? ` · puntaje ${row.puntaje}` : ""}
+                {row.puntaje ? ` · puntuación ${row.puntaje}` : ""}
                 {row.uses ? ` · ${row.uses} usos` : ""}
               </p>
               {row.recomendacion && (

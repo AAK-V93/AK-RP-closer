@@ -160,7 +160,7 @@ export default function BibliotecaPage() {
                     variant={sort === key ? "primary" : "outline"}
                     onClick={() => setSort(key)}
                   >
-                    {key === "puntaje" ? "Puntaje" : key === "estrellas" ? "Estrellas" : "Recientes"}
+                    {key === "puntaje" ? "Puntuación" : key === "estrellas" ? "Estrellas" : "Recientes"}
                   </Button>
                 ))}
               </div>
@@ -293,9 +293,11 @@ export default function BibliotecaPage() {
                             {tag}
                           </span>
                         ))}
-                        <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
-                          puntaje {pack.puntaje}
-                        </span>
+                        {pack.puntaje > 0 && (
+                          <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
+                            puntuación {pack.puntaje}
+                          </span>
+                        )}
                         <span className="rounded-full bg-bg2 px-2 py-0.5 text-[11px] text-fg2">
                           envío {Math.round(pack.tasaEnvio * 100)}%
                         </span>
@@ -308,7 +310,8 @@ export default function BibliotecaPage() {
                           {pack.items.map((item) => (
                             <div key={item.id} className="space-y-1">
                               <p className="text-xs text-fg3">
-                                {plainStatus(item.type)} · {plainStatus(item.canal)} · puntaje {item.puntaje} ·{" "}
+                                {plainStatus(item.type)} · {plainStatus(item.canal)}
+                                {item.puntaje ? ` · puntuación ${item.puntaje}` : ""} ·{" "}
                                 {item.uses} usos
                               </p>
                               {item.recomendacion && (

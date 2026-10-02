@@ -400,7 +400,7 @@ export function Chat() {
             <div className="w-full max-w-lg rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3 mb-4">
               <h2 className="text-xl font-light">Saliste antes</h2>
               <p className="text-sm text-fg2">
-                Este round no se evalúa ni se guarda. Así el coach no se llena
+                Esta práctica no se evalúa ni se guarda. Así el coach no se llena
                 de prácticas a medias.
               </p>
               <div className="flex flex-wrap gap-2">

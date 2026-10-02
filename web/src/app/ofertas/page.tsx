@@ -25,6 +25,7 @@ import {
   savedBonusNames,
   type ExtractedOffer,
 } from "@/lib/offer-commercial";
+import { WorkspaceSkeleton } from "@/components/page-skeleton";
 import { OfferExtractReview } from "@/components/offer-extract-review";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 import { partitionTranscriptUploads } from "@/lib/transcript-batch";
@@ -310,10 +311,7 @@ export default function OfertasPage() {
   if (status === "loading" || loading) {
     return (
       <AppShell>
-        <p className="text-sm text-fg3 flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Cargando tu espacio…
-        </p>
+        <WorkspaceSkeleton />
       </AppShell>
     );
   }

@@ -43,9 +43,9 @@ import {
 import { ProspectBrief } from "@/components/prospect-brief";
 import { useConnection } from "@/hooks/use-connection";
 import { RefreshCw } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import type { LeadPlaybook } from "@/lib/lead-playbook";
 import type { ReplayCall } from "@/lib/replay-call";
+import { practiceOfferGlance } from "@/lib/practice-offer-glance";
 
 const schema = z.object({
   difficulty: z.enum(["easy", "medium", "hard"]),
@@ -60,6 +60,7 @@ type WorkspaceOffer = {
   productName: string;
   productDescription: string;
   pitchSummary: string;
+  commercial?: unknown;
 };
 
 export function TrainingSetupForm() {
@@ -241,28 +242,16 @@ export function TrainingSetupForm() {
 
   return (
     <Form {...form}>
-      <form className="h-full flex flex-col">
-        <div className="flex-shrink-0 py-4 px-1 border-b border-separator1">
-          <div className="text-xs font-bold uppercase tracking-widest text-fg0">
-            Oferta
-          </div>
-          {serverReady === false && (
-            <p className="text-xs text-destructive mt-2">
-              Configura GEMINI_API_KEY y LiveKit en .env.local
-            </p>
-          )}
-          {serverReady === true && (
-            <Badge variant="outline" className="mt-2 text-xs">
-              Servicio listo
-            </Badge>
-          )}
-        </div>
+      <form className="flex flex-col md:h-full">
+        {serverReady === false && (
+          <p className="text-xs text-destructive py-2">
+            Falta la configuración del servicio de voz.
+          </p>
+        )}
 
-        <div className="flex-grow overflow-y-auto py-4 space-y-4">
+        <div className="space-y-4 py-2 md:min-h-0 md:flex-grow md:overflow-y-auto md:py-4">
           <div className="rounded-lg border border-separator1 bg-bg0 p-3 space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
-              Tu oferta
-            </p>
+            <p className="text-sm font-semibold text-fg0">Tu oferta</p>
             {offers.length > 1 && (
               <select
                 className="w-full rounded-md border border-separator1 bg-bg1 px-2 py-1.5 text-sm"
@@ -302,25 +291,19 @@ export function TrainingSetupForm() {
             )}
             {offer ? (
               <>
-                <p className="text-sm font-medium">{offer.productName}</p>
-                <p className="text-xs text-fg3 line-clamp-4">
-                  {offer.productDescription}
-                </p>
+                <OfferGlance offer={offer} />
                 <p className="text-xs text-fg3">
                   {transcriptCount} llamadas reales
                   {playbookReady ? " · emulando a tus prospectos" : ""}
                 </p>
                 {trainingState.training.prospectProfile.leadTypeName && (
-                  <p className="text-xs text-fg2">
-                    Tipo de este round:{" "}
-                    {trainingState.training.prospectProfile.leadTypeName}
+                  <p className="text-xs text-fg2 text-pretty">
+                    Tipo de esta práctica: {trainingState.training.prospectProfile.leadTypeName}
                   </p>
                 )}
               </>
             ) : (
-              <p className="text-xs text-fg3">
-                Aún no hay oferta guardada.
-              </p>
+              <p className="text-xs text-fg3">Aún no hay oferta guardada.</p>
             )}
             <Button asChild variant="outline" size="sm">
               <Link href="/ofertas">
@@ -335,9 +318,7 @@ export function TrainingSetupForm() {
           </div>
 
           <div className="space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
-              Cómo practicar
-            </p>
+            <p className="text-base font-semibold text-fg0 text-pretty">Cómo practicar</p>
             <div className="grid grid-cols-1 gap-2">
               <Button
                 type="button"
@@ -482,7 +463,7 @@ export function TrainingSetupForm() {
                   <SelectContent className="max-h-60">
                     {voices.map((voice) => (
                       <SelectItem key={voice.id} value={voice.id}>
-                        {voice.name} — {voice.characteristic}
+                        {voice.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -717,6 +698,33 @@ function MinuteField({
           onChange(Number.isFinite(next) && next > 0 ? next : null);
         }}
       />
+    </div>
+  );
+}
+
+function OfferGlance({ offer }: { offer: WorkspaceOffer }) {
+  const glance = practiceOfferGlance(offer);
+  const shownBonuses = glance.bonusNames.slice(0, 6);
+  return (
+    <div className="space-y-1">
+      <p className="text-sm font-medium text-pretty">{offer.productName}</p>
+      {glance.blurb && (
+        <p className="text-sm text-fg2 text-pretty">{glance.blurb}</p>
+      )}
+      {glance.prices.length > 0 && (
+        <ul className="text-xs text-fg3 space-y-0.5">
+          {glance.prices.map((line) => (
+            <li key={line} className="text-pretty">{line}</li>
+          ))}
+        </ul>
+      )}
+      {glance.bonusCount > 0 && (
+        <p className="text-xs text-fg3 text-pretty">
+          {glance.bonusCount === 1 ? "1 bono" : `${glance.bonusCount} bonos`}
+          {shownBonuses.length ? `: ${shownBonuses.join(", ")}` : ""}
+          {glance.bonusCount > shownBonuses.length ? "…" : ""}
+        </p>
+      )}
     </div>
   );
 }
