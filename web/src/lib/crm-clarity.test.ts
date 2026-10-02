@@ -13,6 +13,13 @@ import {
 import { deleteOperacionRow, leadStateFromRemaining } from "./crm-delete-row";
 import { derivedPaso, operacionGlance } from "./crm-glance";
 import {
+  AHORA_TAB_NOTE,
+  COBRADO_PERIOD_NOTE,
+  PERIODO_TAB_NOTE,
+  cobradoPeriodLine,
+  seguimientosHeader,
+} from "./crm-period-copy";
+import {
   durationMinutesFromTranscript,
   hiddenInternalCount,
   isInternalNoise,
@@ -450,4 +457,24 @@ test("a call already in the CRM is not waiting to be classified", () => {
     callAlreadyInCrm({ id: "new", leadName: "Persona Nueva", title: "Llamada sin título" }, leads),
     false,
   );
+});
+
+test("cobrado este mes and cobrado total are named apart, and seguimientos shows the saldo", () => {
+  assert.equal(
+    cobradoPeriodLine("USD 0", "USD 1.066"),
+    "Cobrado este mes USD 0. Cobrado total USD 1.066.",
+  );
+  assert.equal(
+    cobradoPeriodLine("USD 533", "USD 1.066"),
+    "Cobrado este mes USD 533. Cobrado total USD 1.066.",
+  );
+  assert.match(COBRADO_PERIOD_NOTE, /fecha en el mes/);
+  assert.match(COBRADO_PERIOD_NOTE, /Cobrado total suma todos los pagos/);
+  assert.match(AHORA_TAB_NOTE, /cobrado este mes/);
+  assert.match(PERIODO_TAB_NOTE, /este mes, el mes anterior y el total/i);
+  assert.equal(
+    seguimientosHeader("Todo al día", "USD 531"),
+    "Todo al día · Saldo por cobrar USD 531",
+  );
+  assert.doesNotMatch(seguimientosHeader("Todo al día", "USD 531"), /cobrado/i);
 });
