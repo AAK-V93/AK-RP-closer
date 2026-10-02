@@ -5,6 +5,7 @@ import {
   expectedDealValue,
   isActiveOpenStage,
   openPipeline,
+  pipelineDetailGroups,
   saldoPorCobrar,
   sinPrecioNote,
   summarizePipeline,
@@ -309,4 +310,28 @@ test("a catalog price on the call is not the lead's offer", () => {
   });
   assert.equal(cashOnly.pipeline.total, 8_000);
   assert.equal(cashOnly.lines[0]?.fuente, "venta de la última llamada");
+});
+
+test("detalle lists priced leads and keeps sin precio as one group", () => {
+  const groups = pipelineDetailGroups([
+    { name: "Carlos", amount: 11_800, fuente: "precio de lista de Círculo Millonario" },
+    { name: "Lucía", amount: 11_800, fuente: "precio de lista de Círculo Millonario" },
+    { name: "Ana", amount: 10_000, fuente: "precio hablado" },
+    { name: "Sin uno", amount: 0, fuente: "sin precio" },
+    { name: "Sin dos", amount: 0, fuente: "sin precio" },
+  ]);
+  assert.deepEqual(
+    groups.priced.map((row) => row.name),
+    ["Carlos", "Lucía", "Ana"],
+  );
+  assert.deepEqual(
+    groups.unpriced.map((row) => row.name),
+    ["Sin uno", "Sin dos"],
+  );
+  assert.equal(sinPrecioNote(groups.unpriced.length), "2 sin precio");
+  assert.equal(
+    groups.priced.reduce((sum, row) => sum + row.amount, 0) +
+      groups.unpriced.reduce((sum, row) => sum + row.amount, 0),
+    33_600,
+  );
 });
