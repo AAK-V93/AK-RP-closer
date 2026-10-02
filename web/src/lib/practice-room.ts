@@ -66,11 +66,102 @@ export function isPracticeLeaveNoise(message: string) {
 
 let hushLeaveLogs: (() => void) | null = null;
 let restoreLeaveLogs: (() => void) | null = null;
+let practiceLeaveArmed = false;
 
 /** Room logs do not include the signal client. Silence that logger only while leaving. */
 export function bindPracticeLeaveLogs(hush: () => void, restore: () => void) {
   hushLeaveLogs = hush;
   restoreLeaveLogs = restore;
+}
+
+type SdkLogger = {
+  warn?: (...args: unknown[]) => void;
+  methodFactory?: (
+    methodName: string,
+    level: number,
+    loggerName?: string,
+  ) => (...args: unknown[]) => unknown;
+  setLevel?: (level: unknown, persist?: boolean) => void;
+  getLevel?: () => number;
+  __leaveFilter?: boolean;
+};
+
+function leaveText(item: unknown) {
+  if (typeof item === "string") return item;
+  if (item instanceof Error) return `${item.name} ${item.message}`;
+  return "";
+}
+
+function argsAreLeaveNoise(args: unknown[]) {
+  return args.some((item) => isPracticeLeaveNoise(leaveText(item)));
+}
+
+/**
+ * livekit-client warns from the signal logger (`livekit-signal`), not the room
+ * logger: `this.log.warn("websocket closed")` when the socket close code is not
+ * 1000. That happens after "disconnect from room", while an in-flight connect
+ * is aborted. `setLogLevel` only replaces methods on the shared loglevel object,
+ * and the next `getLogger` (a new SignalClient inside `recreateEngine`) calls
+ * `setDefaultLevel`, which rebuilds those methods from `methodFactory` whenever
+ * nothing is persisted. `setLogExtension` still forwards to console. Filtering
+ * the factory keeps the line out across that rebuild. The browser's own
+ * "WebSocket is closed before the connection is established" is not this logger.
+ */
+export function filterPracticeLeaveLogger(logger: object | null | undefined) {
+  if (!logger) return;
+  const target = logger as SdkLogger;
+  if (target.__leaveFilter) return;
+  target.__leaveFilter = true;
+  if (typeof target.methodFactory === "function") {
+    const originalFactory = target.methodFactory.bind(target);
+    target.methodFactory = (methodName, level, loggerName) => {
+      const raw = originalFactory(methodName, level, loggerName);
+      return (...args: unknown[]) => {
+        if (practiceLeaveArmed && methodName === "warn" && argsAreLeaveNoise(args)) return;
+        return raw(...args);
+      };
+    };
+    try {
+      target.setLevel?.(target.getLevel?.() ?? "info", false);
+    } catch {
+      /* not a loglevel logger */
+    }
+    return;
+  }
+  if (typeof target.warn !== "function") return;
+  const originalWarn = target.warn.bind(target);
+  target.warn = (...args: unknown[]) => {
+    if (practiceLeaveArmed && argsAreLeaveNoise(args)) return;
+    return originalWarn(...args);
+  };
+}
+
+function sdkLoggers(room: object) {
+  const engine = (
+    room as {
+      engine?: {
+        log?: object;
+        client?: { log?: object };
+        pcManager?: {
+          log?: object;
+          publisher?: { log?: object };
+          subscriber?: { log?: object };
+        };
+      };
+    }
+  ).engine;
+  return [
+    engine?.log,
+    engine?.client?.log,
+    engine?.pcManager?.log,
+    engine?.pcManager?.publisher?.log,
+    engine?.pcManager?.subscriber?.log,
+  ].filter((logger): logger is object => Boolean(logger));
+}
+
+/** Patch the signal/engine loggers that actually emit "websocket closed". */
+export function hushPracticeSdkLogs(room: object) {
+  for (const logger of sdkLoggers(room)) filterPracticeLeaveLogger(logger);
 }
 
 /**
@@ -80,6 +171,12 @@ export function bindPracticeLeaveLogs(hush: () => void, restore: () => void) {
 export function markPracticeLeaving(room: object) {
   const target = room as LeavingRoom;
   target.__practiceLeaving = true;
+  practiceLeaveArmed = true;
+  try {
+    hushPracticeSdkLogs(room);
+  } catch {
+    /* engine not created yet */
+  }
   try {
     hushLeaveLogs?.();
   } catch {
@@ -97,6 +194,7 @@ export function resetPracticeRoom(room: object) {
   leaveTokens.set(room, (leaveTokens.get(room) || 0) + 1);
   leavingRooms.delete(room);
   (room as LeavingRoom).__practiceLeaving = false;
+  practiceLeaveArmed = false;
   try {
     restoreLeaveLogs?.();
   } catch {
