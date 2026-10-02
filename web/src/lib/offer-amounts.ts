@@ -259,18 +259,49 @@ export function explicitBonusLines(items: { str?: string; transform?: number[] }
   return bonuses.map((name) => `Bonus: ${name}`);
 }
 
-export function bonusesFromOfferText(text: string): { name: string; condition: string }[] {
-  const names = text
-    .split(/\n/)
-    .map((line) => line.trim())
-    .filter((line) => /^bonus:\s+\S/i.test(line))
-    .map((line) => line.replace(/^bonus:\s+/i, "").trim())
-    .filter((name) => name.length >= 8);
+const BONUS_SECTION_END =
+  /garant[ií]a\s+total|tasa de [eé]xito|tu pr[oó]ximo paso|^casos reales\b/i;
+
+function uniqueBonusNames(names: string[]) {
   const unique: string[] = [];
   for (const name of names) {
-    if (!unique.some((row) => row.toLowerCase() === name.toLowerCase())) unique.push(name);
+    const cleaned = name.replace(/\s+/g, " ").trim();
+    if (cleaned.length < 8) continue;
+    if (/^no es un bonus\b/i.test(cleaned)) continue;
+    if (!unique.some((row) => row.toLowerCase() === cleaned.toLowerCase())) unique.push(cleaned);
   }
-  return unique.map((name) => ({ name, condition: "" }));
+  return unique;
+}
+
+/**
+ * Production unpdf `extractText({mergePages:true})` puts a heading line
+ * "Bonus incluidos", then one bonus per line (wrapped lines start lowercase),
+ * then "GARANTÍA TOTAL". That heading is not a "Bonus:" prefix, and
+ * "No es un bonus." earlier in the doc is not this section.
+ */
+export function bonusesFromOfferText(text: string): { name: string; condition: string }[] {
+  const lines = text
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const start = lines.findIndex((line) => /^bonus incluidos$/i.test(line));
+  if (start >= 0) {
+    const names: string[] = [];
+    for (const line of lines.slice(start + 1)) {
+      if (BONUS_SECTION_END.test(line)) break;
+      if (/^no es un bonus\b/i.test(line)) continue;
+      if (/^[a-záéíóúñü]/.test(line) && names.length) {
+        names[names.length - 1] = `${names[names.length - 1]} ${line}`;
+        continue;
+      }
+      names.push(line);
+    }
+    return uniqueBonusNames(names).map((name) => ({ name, condition: "" }));
+  }
+  const prefixed = lines
+    .filter((line) => /^bonus:\s+\S/i.test(line))
+    .map((line) => line.replace(/^bonus:\s+/i, "").trim());
+  return uniqueBonusNames(prefixed).map((name) => ({ name, condition: "" }));
 }
 
 /** A percent is commission only when it sits on the comisión / pago al closer line. */

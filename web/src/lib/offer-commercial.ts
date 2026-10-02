@@ -483,6 +483,14 @@ export function looksLikeOfferBlob(text: string) {
   return /comisi[oó]n|precio|pago|contado|reserva|cuota|%|usd|\$/i.test(value) && value.length >= 24;
 }
 
+/** Keep the end of the document. Prices on the Fertilidad PDF start after char 8000. */
+export function retainOfferSource(text: string, max = 24000) {
+  const raw = text.trim();
+  if (raw.length <= max) return raw;
+  const tail = Math.min(6000, Math.floor(max / 3));
+  return `${raw.slice(0, max - tail - 5)}\n\n…\n\n${raw.slice(-tail)}`;
+}
+
 export function applyCommercialAnswer(
   commercial: OfferCommercial,
   field: string,
@@ -492,7 +500,7 @@ export function applyCommercialAnswer(
   const text = value.trim();
   const amount = Number(text.replace(/[^\d.-]/g, ""));
   if (field === "oferta_doc") {
-    next.sourceText = text.slice(0, 8000);
+    next.sourceText = retainOfferSource(text);
     const parsed = parseCommissionFromText(text);
     if (parsed) next.commission = parsed;
     if (!next.listPrice && Number.isFinite(amount) && amount > 50) {

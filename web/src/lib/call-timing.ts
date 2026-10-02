@@ -64,6 +64,16 @@ export function formatClock(totalSec: number) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** Tenths until the first minute, so a sub-second connect is not shown as 0:00. */
+export function formatPracticeClock(totalSec: number) {
+  const safe = Math.max(0, totalSec);
+  if (safe >= 60) return formatClock(safe);
+  const tenths = Math.floor(safe * 10) / 10;
+  const whole = Math.floor(tenths);
+  const frac = Math.round((tenths - whole) * 10);
+  return `0:${String(whole).padStart(2, "0")}.${frac}`;
+}
+
 export function formatMinutes(sec: number) {
   if (sec < 60) return `${Math.round(sec)}s`;
   const m = Math.floor(sec / 60);

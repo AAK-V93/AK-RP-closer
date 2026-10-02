@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { SessionControls } from "@/components/session-controls";
 import { ConnectButton } from "./connect-button";
-import { ConnectionState } from "livekit-client";
+import { ConnectionState, TrackEvent } from "livekit-client";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   useConnectionState,
@@ -28,13 +28,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useSession } from "next-auth/react";
-import { formatClock, hasTimeGoal } from "@/lib/call-timing";
+import { formatPracticeClock, hasTimeGoal } from "@/lib/call-timing";
 import { Loader2 } from "lucide-react";
 import {
   isPrematurePractice,
   nextPracticeRetry,
 } from "@/lib/practice-retry";
-import { formatPracticeTimings, practiceErrorTitle } from "@/lib/practice-qa";
+import { formatPracticeTimings, practiceErrorTitle, sumPracticeTimings } from "@/lib/practice-qa";
 
 export function Chat() {
   const connectionState = useConnectionState();
@@ -47,8 +47,6 @@ export function Chat() {
     state === "initializing" ||
     state === "thinking" ||
     state === "speaking";
-  const agentLive =
-    state === "listening" || state === "thinking" || state === "speaking";
   const agentInRoom = Boolean(agent) || voiceReady;
   const roomJoined = remotes.length > 0 || agentInRoom;
   const {
@@ -65,6 +63,7 @@ export function Chat() {
     markReady,
     markRoomJoined,
     markAgentJoined,
+    clockOrigin,
   } = useConnection();
   const { trainingState, dispatch } = useTraining();
   const { status: authStatus } = useSession();
@@ -78,7 +77,6 @@ export function Chat() {
   const [hasSeenAgent, setHasSeenAgent] = useState(false);
   const wasConnectedRef = useRef(false);
   const transcriptRef = useRef<TranscriptLine[]>([]);
-  const startedAtRef = useRef<number | null>(null);
   const elapsedRef = useRef(0);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [earlyExit, setEarlyExit] = useState(false);
@@ -87,7 +85,7 @@ export function Chat() {
 
   useEffect(() => {
     if (shouldConnect) {
-      const origin = startedAtRef.current || Date.now();
+      const origin = clockOrigin || Date.now();
       transcriptRef.current = displayTranscriptions
         .filter((t) => t.segment.text?.trim())
         .map((t) => ({
@@ -101,7 +99,7 @@ export function Chat() {
           ),
         }));
     }
-  }, [displayTranscriptions, shouldConnect]);
+  }, [clockOrigin, displayTranscriptions, shouldConnect]);
 
   useEffect(() => {
     if (connectionState !== ConnectionState.Connected) {
@@ -111,7 +109,6 @@ export function Chat() {
 
     if (agentInRoom) {
       setHasSeenAgent(true);
-      setIsChatRunning(true);
       return;
     }
 
@@ -134,28 +131,42 @@ export function Chat() {
   }, [connectionState, agentInRoom, hasSeenAgent, disconnect]);
 
   useEffect(() => {
-    if (connectionState === ConnectionState.Connected) markRoomJoined();
-  }, [connectionState, markRoomJoined]);
+    if (phase === "ready") setIsChatRunning(true);
+  }, [phase]);
 
   useEffect(() => {
-    if (agent) markAgentJoined();
-  }, [agent, markAgentJoined]);
+    if (connectionState !== ConnectionState.Connected) return;
+    const at = Date.now();
+    markRoomJoined(at);
+    if (remotes.some((participant) => participant.isAgent)) markAgentJoined(at);
+  }, [connectionState, markAgentJoined, markRoomJoined, remotes]);
 
   useEffect(() => {
-    if (audioTrack || state === "speaking") markReady();
-  }, [audioTrack, markReady, state]);
+    const track = audioTrack?.publication?.track;
+    if (!track || connectionState !== ConnectionState.Connected) return;
+    const onPlaying = () => markReady();
+    track.on(TrackEvent.AudioPlaybackStarted, onPlaying);
+    const playing = (track.attachedElements || []).some(
+      (element) =>
+        element instanceof HTMLMediaElement && !element.paused && element.readyState >= 2,
+    );
+    if (playing) onPlaying();
+    return () => {
+      track.off(TrackEvent.AudioPlaybackStarted, onPlaying);
+    };
+  }, [audioTrack, connectionState, markReady]);
 
   useEffect(() => {
-    const waiting = phase === "preparing" || phase === "audio" || shouldConnect;
-    if (!waiting) return;
-    if (!startedAtRef.current) startedAtRef.current = Date.now();
-    const tick = window.setInterval(() => {
-      const next = Math.floor((Date.now() - (startedAtRef.current || Date.now())) / 1000);
-      elapsedRef.current = next;
-      setElapsedSec(next);
-    }, 250);
-    return () => window.clearInterval(tick);
-  }, [phase, shouldConnect]);
+    if (!clockOrigin) return;
+    const tick = () => {
+      const nextMs = Date.now() - clockOrigin;
+      elapsedRef.current = Math.floor(nextMs / 1000);
+      setElapsedSec(nextMs / 1000);
+    };
+    tick();
+    const timer = window.setInterval(tick, 100);
+    return () => window.clearInterval(timer);
+  }, [clockOrigin]);
 
   // Evaluate when call ends — skip colgadas prematuras so they don't ensucian el ciclo coach.
   useEffect(() => {
@@ -182,16 +193,8 @@ export function Chat() {
           timeGoal: trainingState.training.timeGoal,
         });
       }
-      startedAtRef.current = null;
     }
-    if (!wasConnectedRef.current && shouldConnect) {
-      if (!startedAtRef.current) {
-        startedAtRef.current = Date.now();
-        elapsedRef.current = 0;
-        setElapsedSec(0);
-      }
-      setEarlyExit(false);
-    }
+    if (!wasConnectedRef.current && shouldConnect) setEarlyExit(false);
     wasConnectedRef.current = shouldConnect;
   }, [shouldConnect, evaluateCall, clearEvaluation, trainingState.training]);
 
@@ -330,7 +333,10 @@ export function Chat() {
               {stageTimings.length || liveStage
                 ? ` · ${formatPracticeTimings(
                     liveStage ? [...stageTimings, liveStage] : stageTimings,
-                  )}`
+                  )} · total ${(
+                    sumPracticeTimings(liveStage ? [...stageTimings, liveStage] : stageTimings) /
+                    1000
+                  ).toFixed(1)}s`
                 : ""}
             </p>
           )}
@@ -358,7 +364,7 @@ export function Chat() {
           {isChatRunning && (
             <div className="flex flex-wrap gap-2 justify-center mb-2">
               <Badge variant="secondary" className="font-mono tabular-nums">
-                {formatClock(elapsedSec)}
+                {formatPracticeClock(elapsedSec)}
                 {hasTimeGoal(training.timeGoal) && training.timeGoal?.totalMin
                   ? ` / ${training.timeGoal.totalMin}m`
                   : ""}
@@ -503,7 +509,7 @@ function PracticeConnectStatus({
       <div className="text-center space-y-2">
         <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
         <h2 className="text-xl font-light">{CONNECT_STEPS[step].label}</h2>
-        <p className="text-sm text-fg2 tabular-nums">{formatClock(elapsedSec)}</p>
+        <p className="text-sm text-fg2 tabular-nums">{formatPracticeClock(elapsedSec)}</p>
       </div>
       <Progress value={progress} aria-label="Avance de la conexión" />
       <ol className="space-y-1 text-sm">

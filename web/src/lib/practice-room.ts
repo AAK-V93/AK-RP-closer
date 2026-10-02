@@ -73,8 +73,127 @@ export function leavePracticeRoom<T extends { stop?: () => void }>(room: Practic
   return job;
 }
 
+export function isUserPracticeDisconnect(error: unknown) {
+  const message = error instanceof Error ? `${error.name} ${error.message}` : String(error ?? "");
+  return /client initiated disconnect|abort connection attempt due to user initiated disconnect/i.test(
+    message,
+  );
+}
+
+type LocalTrack = { stop?: () => void };
+
+type GuardedParticipant = {
+  unpublishTrack: (track: LocalTrack, stopOnUnpublish?: boolean) => Promise<unknown>;
+  getPublicationForTrack?: (track: unknown) => { track?: unknown; trackSid?: string } | undefined;
+  trackPublications: Map<string, { track?: LocalTrack | null; trackSid?: string }>;
+  audioTrackPublications?: Map<string, unknown>;
+  videoTrackPublications?: Map<string, unknown>;
+  pendingPublishPromises?: Map<unknown, Promise<unknown>>;
+};
+
+type GuardedRoom = PracticeRoom<LocalTrack> & {
+  connect?: (...args: unknown[]) => Promise<unknown>;
+  log?: { warn?: (...args: unknown[]) => void };
+  __practiceGuarded?: boolean;
+  localParticipant: GuardedParticipant;
+};
+
+function publicationFor(participant: GuardedParticipant, track: unknown) {
+  if (typeof participant.getPublicationForTrack === "function") {
+    const found = participant.getPublicationForTrack(track);
+    if (found) return found;
+  }
+  for (const pub of participant.trackPublications.values()) {
+    if (pub.track === track) return pub;
+  }
+  return undefined;
+}
+
+/** Drop local tracks that were created but never published, so disconnect does not unpublish them. */
+export function scrubUnpublishedLocalTracks(room: { localParticipant: GuardedParticipant }) {
+  const participant = room.localParticipant;
+  const pending = participant.pendingPublishPromises;
+  if (pending) {
+    for (const [track] of pending) {
+      try {
+        (track as LocalTrack | undefined)?.stop?.();
+      } catch {
+        /* already stopped */
+      }
+    }
+    pending.clear();
+  }
+  for (const [sid, pub] of [...participant.trackPublications.entries()]) {
+    if (pub.trackSid && pub.track) continue;
+    try {
+      pub.track?.stop?.();
+    } catch {
+      /* already stopped */
+    }
+    participant.trackPublications.delete(sid);
+    participant.audioTrackPublications?.delete(sid);
+    participant.videoTrackPublications?.delete(sid);
+  }
+}
+
+/**
+ * LiveKit's disconnect(stopTracks) calls unpublishTrack on every local track,
+ * including ones still in pendingPublishPromises. That awaits the publish and
+ * then warns "track was not unpublished because no publication was found".
+ * The room's connect() rejection ("Client initiated disconnect") is the same cancel.
+ */
+export function guardPracticeRoom(room: GuardedRoom) {
+  if (room.__practiceGuarded) return;
+  room.__practiceGuarded = true;
+  const participant = room.localParticipant;
+  const originalUnpublish = participant.unpublishTrack.bind(participant);
+  participant.unpublishTrack = async (track, stopOnUnpublish) => {
+    participant.pendingPublishPromises?.delete(track);
+    const publication = publicationFor(participant, track);
+    if (!publication?.track || !publication.trackSid) {
+      try {
+        track?.stop?.();
+      } catch {
+        /* already stopped */
+      }
+      return undefined;
+    }
+    return originalUnpublish(track, stopOnUnpublish);
+  };
+  if (room.disconnect) {
+    const originalDisconnect = room.disconnect.bind(room);
+    room.disconnect = async (stopTracks?: boolean) => {
+      scrubUnpublishedLocalTracks(room);
+      return originalDisconnect(stopTracks);
+    };
+  }
+  if (room.connect) {
+    const originalConnect = room.connect.bind(room);
+    room.connect = async (...args: unknown[]) => {
+      try {
+        return await originalConnect(...args);
+      } catch (error) {
+        if (isUserPracticeDisconnect(error)) return undefined;
+        throw error;
+      }
+    };
+  }
+  const log = room.log;
+  if (log?.warn) {
+    const originalWarn = log.warn.bind(log);
+    log.warn = (...args: unknown[]) => {
+      const blob = args
+        .map((item) => (item instanceof Error ? `${item.name} ${item.message}` : String(item ?? "")))
+        .join(" ");
+      if (isUserPracticeDisconnect(blob)) return;
+      originalWarn(...args);
+    };
+  }
+}
+
 async function leaveOnce<T extends { stop?: () => void }>(room: PracticeRoom<T>, token: number) {
   if ((leaveTokens.get(room) || 0) !== token) return;
+  guardPracticeRoom(room as GuardedRoom);
   abortPracticeNegotiation(room);
   if (room.state === "disconnected") return;
   for (const pub of publicationsOf(room)) {
