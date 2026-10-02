@@ -13,3 +13,14 @@ dependencies = [
     "packaging>=21.0",
 ]
 
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+# Flat scripts, not a package. Without this, `uv pip install --system .`
+# dies with "Multiple top-level modules: main, turn_config".
+# `packages = []` keeps tests/ out of the wheel.
+[tool.setuptools]
+py-modules = ["main", "turn_config"]
+packages = []
+

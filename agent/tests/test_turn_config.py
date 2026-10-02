@@ -1,5 +1,6 @@
 import unittest
 
+from main import choose_session_metadata
 from turn_config import (
     AEC_WARMUP_SECONDS,
     FALSE_INTERRUPTION_TIMEOUT,
@@ -58,6 +59,29 @@ class TurnConfigTest(unittest.TestCase):
             interruption["false_interruption_timeout"], FALSE_INTERRUPTION_TIMEOUT
         )
         self.assertEqual(kwargs["aec_warmup_duration"], AEC_WARMUP_SECONDS)
+
+
+class MetadataChoiceTest(unittest.TestCase):
+    def test_participant_instructions_when_job_is_empty(self):
+        chosen = choose_session_metadata({}, '{"instructions":"from-token","voice":"Puck"}')
+        self.assertEqual(chosen["instructions"], "from-token")
+        self.assertEqual(chosen["voice"], "Puck")
+
+    def test_job_instructions_win_when_present(self):
+        chosen = choose_session_metadata(
+            {"instructions": "from-job", "voice": "Puck"},
+            '{"instructions":"from-token","voice":"Charon"}',
+        )
+        self.assertEqual(chosen["instructions"], "from-job")
+        self.assertEqual(chosen["voice"], "Puck")
+
+    def test_participant_wins_when_job_has_no_instructions(self):
+        chosen = choose_session_metadata(
+            {"voice": "Puck"},
+            '{"instructions":"from-token","model":"gemini"}',
+        )
+        self.assertEqual(chosen["instructions"], "from-token")
+        self.assertEqual(chosen["model"], "gemini")
 
 
 if __name__ == "__main__":
