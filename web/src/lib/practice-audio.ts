@@ -1,3 +1,15 @@
+/** A getUserMedia mic has a device id. Synthetic and empty tracks do not. */
+export function isHardwareMicTrack(
+  track: { getSettings?: () => MediaTrackSettings; label?: string } | null | undefined,
+) {
+  if (!track) return false;
+  const settings = track.getSettings?.();
+  if (settings?.deviceId) return true;
+  const label = (track.label || "").trim();
+  if (!label) return false;
+  return !/synthetic|destination|audioctx/i.test(label);
+}
+
 /** Quiet tone so Práctica can connect when QA has no microphone. */
 export function createSyntheticMicTrack() {
   const context = new AudioContext();

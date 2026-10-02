@@ -22,21 +22,25 @@ import { useKrispNoiseFilter } from "@livekit/components-react/krisp";
 import { Track } from "livekit-client";
 
 import { useConnection } from "@/hooks/use-connection";
+import { isHardwareMicTrack } from "@/lib/practice-audio";
 
 export function SessionControls() {
   const localParticipant = useLocalParticipant();
   const deviceSelect = useMediaDeviceSelect({ kind: "audioinput" });
-  const { disconnect } = useConnection();
+  const { disconnect, qaMode } = useConnection();
 
   const [isMuted, setIsMuted] = useState(localParticipant.isMicrophoneEnabled);
   const { isNoiseFilterEnabled, isNoiseFilterPending, setNoiseFilterEnabled } =
     useKrispNoiseFilter();
+  const hardwareMic =
+    !qaMode &&
+    isHardwareMicTrack(localParticipant.microphoneTrack?.track?.mediaStreamTrack);
   useEffect(() => {
+    if (!hardwareMic) return;
     const mobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-    if (!mobile) {
-      setNoiseFilterEnabled(true);
-    }
-  }, [setNoiseFilterEnabled]);
+    if (mobile) return;
+    void Promise.resolve(setNoiseFilterEnabled(true)).catch(() => undefined);
+  }, [hardwareMic, setNoiseFilterEnabled]);
   useEffect(() => {
     setIsMuted(localParticipant.isMicrophoneEnabled === false);
   }, [localParticipant.isMicrophoneEnabled]);
@@ -108,9 +112,14 @@ export function SessionControls() {
               className="text-xs"
               checked={isNoiseFilterEnabled}
               onCheckedChange={async (checked) => {
-                setNoiseFilterEnabled(checked);
+                if (!hardwareMic) return;
+                try {
+                  await setNoiseFilterEnabled(checked);
+                } catch {
+                  /* OverconstrainedError when the track cannot take the Krisp constraints */
+                }
               }}
-              disabled={isNoiseFilterPending}
+              disabled={isNoiseFilterPending || !hardwareMic}
             >
               Enhanced Noise Filter
             </DropdownMenuCheckboxItem>

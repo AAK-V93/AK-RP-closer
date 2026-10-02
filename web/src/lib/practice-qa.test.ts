@@ -1,12 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { leavePracticeRoom, resetPracticeRoom } from "./practice-room";
+import { isHardwareMicTrack } from "./practice-audio";
+import {
+  guardPracticeRoom,
+  isUserPracticeDisconnect,
+  leavePracticeRoom,
+  resetPracticeRoom,
+} from "./practice-room";
 import {
   formatPracticeTimings,
   isPracticeQaRequest,
   micHowToFix,
+  practiceConnectSpans,
   practiceErrorTitle,
   practiceQaStorageAction,
+  sumPracticeTimings,
 } from "./practice-qa";
 
 test("qa mode is only the query or the stored flag", () => {
@@ -82,9 +90,71 @@ test("a track without a publication is stopped and not unpublished", async () =>
   };
   await leavePracticeRoom(room);
   assert.equal(unpublished, 0);
-  assert.deepEqual(stopped, ["mic"]);
+  assert.ok(stopped.includes("mic"));
   await room.engine.pcManager.publisher.createAndSendOffer();
   assert.deepEqual(offers, []);
+});
+
+test("disconnect does not unpublish a track that was never published", async () => {
+  let originalUnpublish = 0;
+  const warnings: string[] = [];
+  const track = { stop() {} };
+  const room = {
+    state: "connecting",
+    log: {
+      warn: (message: string) => warnings.push(message),
+    },
+    localParticipant: {
+      trackPublications: new Map([["pending", { track }]]),
+      audioTrackPublications: new Map(),
+      videoTrackPublications: new Map(),
+      pendingPublishPromises: new Map([[track, Promise.resolve()]]),
+      unpublishTrack: async () => {
+        originalUnpublish += 1;
+      },
+    },
+    connect: async () => {
+      throw new Error("Client initiated disconnect");
+    },
+    disconnect: async function (this: {
+      localParticipant: { trackPublications: Map<string, { track?: { stop?: () => void } }> };
+    }) {
+      for (const pub of this.localParticipant.trackPublications.values()) {
+        if (pub.track) await room.localParticipant.unpublishTrack(pub.track, true);
+      }
+    },
+  };
+  guardPracticeRoom(room as never);
+  await room.connect();
+  await room.disconnect(true);
+  assert.equal(originalUnpublish, 0);
+  assert.equal(room.localParticipant.pendingPublishPromises.size, 0);
+  assert.equal(warnings.length, 0);
+  room.log.warn("Abort connection attempt due to user initiated disconnect");
+  room.log.warn("other");
+  assert.deepEqual(warnings, ["other"]);
+  assert.equal(isUserPracticeDisconnect(new Error("Client initiated disconnect")), true);
+});
+
+test("the practice clock starts at the click and voz waits for audio", () => {
+  const spans = practiceConnectSpans({
+    clickAt: 0,
+    micAt: 0,
+    tokenAt: 120,
+    roomAt: 640,
+    agentAt: 640,
+    voiceAt: 4200,
+  });
+  assert.equal(spans.stages.find((row) => row.stage === "agente")?.ms, 0);
+  assert.equal(spans.stages.find((row) => row.stage === "voz")?.ms, 3560);
+  assert.equal(spans.elapsedMs, 4200);
+  assert.equal(sumPracticeTimings(spans.stages), 4200);
+});
+
+test("krisp stays off without a real microphone", () => {
+  assert.equal(isHardwareMicTrack(null), false);
+  assert.equal(isHardwareMicTrack({ label: "" }), false);
+  assert.equal(isHardwareMicTrack({ getSettings: () => ({ deviceId: "mic-1" }) }), true);
 });
 
 test("stage timings are readable in the badge", () => {

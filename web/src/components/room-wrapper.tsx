@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -9,11 +9,16 @@ import {
   useLocalParticipant,
   useRoomContext,
 } from "@livekit/components-react";
-import { ConnectionState, LocalAudioTrack, Track } from "livekit-client";
+import { ConnectionState, LocalAudioTrack, Room, Track } from "livekit-client";
 import { useConnection } from "@/hooks/use-connection";
 import { AgentProvider } from "@/hooks/use-agent";
 import { createSyntheticMicTrack } from "@/lib/practice-audio";
-import { abortPracticeNegotiation, leavePracticeRoom, resetPracticeRoom } from "@/lib/practice-room";
+import {
+  abortPracticeNegotiation,
+  guardPracticeRoom,
+  leavePracticeRoom,
+  resetPracticeRoom,
+} from "@/lib/practice-room";
 
 function RoomTeardown() {
   const room = useRoomContext();
@@ -102,19 +107,22 @@ function GuardedMicPublisher({ synthetic }: { synthetic: boolean }) {
 
 export function RoomWrapper({ children }: { children: ReactNode }) {
   const { shouldConnect, wsUrl, token, qaMode } = useConnection();
+  const [room] = useState(() => {
+    const created = new Room({
+      publishDefaults: { stopMicTrackOnMute: false },
+    });
+    guardPracticeRoom(created as never);
+    return created;
+  });
 
   return (
     <LiveKitRoom
+      room={room}
       serverUrl={wsUrl}
       token={token}
       connect={shouldConnect}
       audio={false}
       className="flex w-full h-full min-h-0"
-      options={{
-        publishDefaults: {
-          stopMicTrackOnMute: false,
-        },
-      }}
     >
       <AgentProvider>
         <RoomTeardown />

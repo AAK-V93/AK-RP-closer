@@ -44,9 +44,11 @@ type ConnectionContextType = {
   cancel: () => void;
   prefetch: () => void;
   markReady: () => void;
-  markRoomJoined: () => void;
-  markAgentJoined: () => void;
+  markRoomJoined: (at?: number) => void;
+  markAgentJoined: (at?: number) => void;
   liveStage: PracticeStageTiming | null;
+  /** Milliseconds timestamp of the user's start click. The on-screen clock uses this. */
+  clockOrigin: number | null;
 };
 
 const ConnectionContext = createContext<ConnectionContextType | undefined>(
@@ -77,6 +79,7 @@ export const ConnectionProvider = ({
   const [qaMode, setQaMode] = useState(false);
   const [stageTimings, setStageTimings] = useState<PracticeStageTiming[]>([]);
   const [liveStage, setLiveStage] = useState<PracticeStageTiming | null>(null);
+  const [clockOrigin, setClockOrigin] = useState<number | null>(null);
   const cancelingRef = useRef(false);
   const stageRef = useRef<{ name: string; at: number } | null>(null);
   const { trainingState } = useTraining();
@@ -166,11 +169,11 @@ export const ConnectionProvider = ({
     void fetch("/api/practice/warm").catch(() => undefined);
   }, [status]);
 
-  const noteStage = useCallback((name: string) => {
-    const now = Date.now();
+  const noteStage = useCallback((name: string, at = Date.now()) => {
+    const now = at;
     const prev = stageRef.current;
     if (prev) {
-      const ms = now - prev.at;
+      const ms = Math.max(0, now - prev.at);
       console.info("[práctica]", { etapa: prev.name, ms });
       setStageTimings((rows) => [...rows, { stage: prev.name, ms }]);
     }
@@ -216,6 +219,7 @@ export const ConnectionProvider = ({
     setErrorMessage(null);
     setErrorKind(null);
     setPhase("idle");
+    setClockOrigin(null);
   }, []);
 
   const fail = useCallback((message: string, kind: PracticeErrorKind = "connection") => {
@@ -258,6 +262,7 @@ export const ConnectionProvider = ({
     setStageTimings([]);
     setLiveStage(null);
     stageRef.current = null;
+    setClockOrigin(Date.now());
     setPhase("preparing");
     setIsConnecting(true);
     try {
@@ -305,14 +310,14 @@ export const ConnectionProvider = ({
     }
   };
 
-  const markRoomJoined = useCallback(() => {
+  const markRoomJoined = useCallback((at?: number) => {
     if (stageRef.current?.name !== "sala") return;
-    noteStage("agente");
+    noteStage("agente", at);
   }, [noteStage]);
 
-  const markAgentJoined = useCallback(() => {
+  const markAgentJoined = useCallback((at?: number) => {
     if (stageRef.current?.name !== "agente") return;
-    noteStage("voz");
+    noteStage("voz", at);
   }, [noteStage]);
 
   const markReady = useCallback(() => {
@@ -332,6 +337,7 @@ export const ConnectionProvider = ({
     setConnectionDetails((prev) => ({ ...prev, shouldConnect: false }));
     setIsConnecting(false);
     setPhase((current) => (current === "error" ? current : "idle"));
+    setClockOrigin(null);
   }, []);
 
   return (
@@ -352,6 +358,7 @@ export const ConnectionProvider = ({
         markReady,
         markRoomJoined,
         markAgentJoined,
+        clockOrigin,
       }}
     >
       {children}

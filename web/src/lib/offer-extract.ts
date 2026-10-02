@@ -1,10 +1,7 @@
 import { generateGeminiJson, generateGeminiParts } from "@/lib/gemini";
 import { isInventedOfferLabel, isPriceLabel, nameHintsFromText } from "@/lib/offer-name";
 import {
-  explicitBonusLines,
-  explicitPriceLines,
   guardOfferContent,
-  linesFromTextItems,
   sanitizeCommissionQuestions,
   separateMoneyTokens,
 } from "@/lib/offer-amounts";
@@ -12,6 +9,7 @@ import {
   emptyCommercial,
   parseCommercial,
   parseCommissionFromText,
+  retainOfferSource,
   type ExtractedOffer,
   type ExtractedOfferBatch,
 } from "@/lib/offer-commercial";
@@ -99,7 +97,7 @@ export function extractedFromParsed(
     paymentDetails: parsed.paymentDetails,
     duration: parsed.duration,
     commission: parsed.commission,
-    sourceText: sourceText.slice(0, 8000),
+    sourceText: retainOfferSource(sourceText),
   });
   if (!commercial.commission) {
     const line = sourceText
@@ -225,7 +223,7 @@ export function ensureCommissionQuestion(questions: string[], hasRule: boolean) 
 export function heuristicExtract(text: string): ExtractedOffer {
   const source = text.trim();
   const commercial = emptyCommercial();
-  commercial.sourceText = source.slice(0, 8000);
+  commercial.sourceText = retainOfferSource(source);
   commercial.commission = parseCommissionFromText(source);
   const priceMatch = separateMoneyTokens(source).match(
     /(?:lista|precio|ticket|usd|\$)[ \t]*:?[ \t]*(\d{1,3}(?:\.\d{3})+|\d{2,})/i,
@@ -258,11 +256,12 @@ export function heuristicExtract(text: string): ExtractedOffer {
 }
 
 export function heuristicBatch(text: string): ExtractedOfferBatch {
-  const offer = heuristicExtract(text);
+  const offer = guardOfferContent(heuristicExtract(text), text);
+  const assumption = "una" as const;
   return {
     offers: [offer],
-    assumption: "una",
-    questions: defaultQuestions([offer], "una"),
+    assumption,
+    questions: ensureCommissionQuestion(defaultQuestions([offer], assumption), Boolean(offer.commercial.commission)),
   };
 }
 
@@ -299,25 +298,19 @@ function isPlainTextFile(file: OfferExtractFile) {
   return mime.startsWith("text/") || name.endsWith(".md") || name.endsWith(".txt");
 }
 
+/**
+ * Same reader production QA used: unpdf `extractText({mergePages:true})`.
+ * Column pairing (y/x) reordered this PDF and glued the núcleo onto the bonuses.
+ * The price block is the last ~700 characters of an ~8.9k string.
+ */
 async function pdfPlainText(buffer: Buffer) {
-  const { getDocumentProxy } = await import("unpdf");
+  const { extractText, getDocumentProxy } = await import("unpdf");
   const pdf = await getDocumentProxy(new Uint8Array(buffer));
-  const pages: string[] = [];
-  const pageCount = pdf.numPages || 0;
-  for (let number = 1; number <= pageCount; number += 1) {
-    const page = await pdf.getPage(number);
-    const content = await page.getTextContent();
-    const items = content.items as { str?: string; transform?: number[] }[];
-    const body = linesFromTextItems(items);
-    const prices = explicitPriceLines(items);
-    const bonuses = explicitBonusLines(items);
-    pages.push(
-      [body, prices.length ? prices.join("\n") : "", bonuses.length ? bonuses.join("\n") : ""]
-        .filter(Boolean)
-        .join("\n"),
-    );
-  }
-  return separateMoneyTokens(pages.filter(Boolean).join("\n")).replace(/[ \t]+\n/g, "\n").trim();
+  const extracted = await extractText(pdf, { mergePages: true });
+  const raw = Array.isArray(extracted.text)
+    ? extracted.text.join("\n")
+    : String(extracted.text ?? "");
+  return separateMoneyTokens(raw).replace(/[ \t]+\n/g, "\n").trim();
 }
 
 /** Pulls text out of PDFs so the model call is short enough for the function limit. */
@@ -352,6 +345,8 @@ export async function textFromOfferFiles(files: OfferExtractFile[]) {
 export async function extractOfferBatchFromInput(args: {
   text?: string;
   files?: OfferExtractFile[];
+  /** Test seam. The API route leaves this empty and calls Gemini. */
+  complete?: (parts: object[]) => Promise<string>;
 }): Promise<ExtractedOfferBatch> {
   const pasted = (args.text || "").trim();
   const files = (args.files || []).slice(0, MAX_FILES);
@@ -376,10 +371,12 @@ export async function extractOfferBatchFromInput(args: {
 
   const fallbackName = files[0]?.name.replace(/\.[^.]+$/, "") || "Oferta";
   try {
-    const raw = await generateGeminiParts(parts, 0.2, 4096, {
-      timeoutMs: 40_000,
-      models: ["gemini-flash-latest"],
-    });
+    const raw = args.complete
+      ? await args.complete(parts)
+      : await generateGeminiParts(parts, 0.2, 4096, {
+          timeoutMs: 40_000,
+          models: ["gemini-flash-latest"],
+        });
     const parsed = parseGeminiJsonObject(raw);
     const batch = parsedToBatch(parsed, fallbackName, text);
     return padBatchDescriptions(batch, text);
@@ -456,7 +453,11 @@ Devuelve el mismo JSON que el extractor (assumption, questions, offers). questio
   try {
     const raw = await generateGeminiJson(prompt, 0.2, 4096);
     const parsed = parseGeminiJsonObject(raw);
-    const next = parsedToBatch(parsed, batch.offers[0]?.productName || "Oferta", "");
+    const source = batch.offers
+      .map((row) => row.commercial.sourceText)
+      .filter(Boolean)
+      .join("\n\n");
+    const next = parsedToBatch(parsed, batch.offers[0]?.productName || "Oferta", source);
     return next.offers.length ? next : batch;
   } catch {
     return batch;
