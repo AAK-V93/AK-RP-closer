@@ -53,11 +53,38 @@ export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSn
   }
 
   const home = snapshot?.home;
-  const phase = home?.phase || "a";
+  if (!home) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-destructive">
+          {error || "No pude cargar el inicio. Recarga la página."}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setError(null);
+            setLoading(true);
+            void load(true);
+          }}
+        >
+          Reintentar
+        </Button>
+      </div>
+    );
+  }
+
+  const phase =
+    home.offersUnreadable && home.phase === "a" ? (home.hasRealCalls ? "c" : "b") : home.phase;
 
   return (
     <div className="space-y-6">
       {error && <p className="text-xs text-destructive">{error}</p>}
+      {home.offersUnreadable && (
+        <p className="text-sm text-destructive">
+          No pude leer tu oferta. Recarga si el inicio se ve incompleto.
+        </p>
+      )}
       {notice && (
         <p className="text-sm text-fg0 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3" role="status">
           {notice}
@@ -576,8 +603,8 @@ function ConfiguredC({
 function HomeRow({ href, title, status }: { href: string; title: string; status: string }) {
   return (
     <Link href={href} className="flex items-baseline justify-between gap-4 py-4">
-      <span className="text-fg0">{title}</span>
-      <span className="text-right text-sm text-fg3">{status}</span>
+      <span className="shrink-0 text-fg0">{title}</span>
+      <span className="min-w-0 line-clamp-2 text-right text-sm text-fg3">{status}</span>
     </Link>
   );
 }

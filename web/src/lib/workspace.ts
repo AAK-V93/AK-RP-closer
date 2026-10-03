@@ -26,6 +26,7 @@ import {
   type OfferCommercial,
 } from "@/lib/offer-commercial";
 import { pickWorkspaceOffer } from "@/lib/offer-selection";
+import { retryRead } from "@/lib/read-retry";
 
 export async function getWorkspacePrisma() {
   const prisma = getPrisma();
@@ -47,10 +48,15 @@ export async function getWorkspace(
   opts: { corpus?: boolean } = {},
 ) {
   const includeCorpus = opts.corpus !== false;
-  const offers = await prisma.userOffer.findMany({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
+  const offers = await retryRead(
+    "workspace offers",
+    () =>
+      prisma.userOffer.findMany({
+        where: { userId },
+        orderBy: { updatedAt: "desc" },
+      }),
+    (rows) => rows.length === 0,
+  );
   const recoveredEntries = await Promise.all(
     offers.map(async (row) => {
       const commercial = await storeRecoveredBonuses(prisma, row.id, row.commercial);

@@ -513,8 +513,9 @@ export function looksLikeOfferSetup(text: string) {
 /** A CRM or desk question must never fall through to the offer paste. */
 export function recognizedCrmQuestion(text: string) {
   const raw = text.trim();
-  if (!raw || looksLikeOfferBlob(raw)) return false;
+  if (!raw) return false;
   if (asksForPendingDesk(raw) || asksForMoneyStats(raw)) return true;
+  if (looksLikeOfferBlob(raw)) return false;
   const q = fold(raw);
   if (/\bse llama\b/.test(q)) return true;
   if (/\b(me pago|pago la cuota|cuota de|reserva de|abono|quedamos|recuerdo|transcript|transcrip)\b/.test(q)) {
@@ -522,6 +523,38 @@ export function recognizedCrmQuestion(text: string) {
   }
   if (/\b(que oferta|cual es la oferta|cuanto ha pagado|cuanto pago|borra el pago)\b/.test(q)) return true;
   return false;
+}
+
+export const OFFER_PASTE_TEXT =
+  "Pega todo junto: qué vendes, precios, cómo paga el lead y cómo te pagan comisión (puede depender del plazo o la forma de pago). O súbelo en Ofertas. No hace falta ir dato por dato.";
+
+/** The paste is only for a confirmed missing offer and a message that is not a CRM question. */
+export function offerPasteReplyAllowed(args: {
+  text: string;
+  offersUnreadable: boolean;
+  missingCrm: boolean;
+}) {
+  if (args.offersUnreadable) return { allow: false, reason: "offers-unreadable" };
+  if (!args.text.trim()) return { allow: false, reason: "empty" };
+  if (recognizedCrmQuestion(args.text) || asksForPendingDesk(args.text)) {
+    return { allow: false, reason: "recognized-crm" };
+  }
+  if (/[?¿]/.test(args.text)) return { allow: false, reason: "question" };
+  if (!args.missingCrm) return { allow: false, reason: "crm-ready" };
+  return { allow: true, reason: "missing-offer" };
+}
+
+/** Last gate. The paste survives only when this call explicitly allows it. */
+export function guardCoachReply(userText: string, reply: string, allowPaste = false) {
+  if (!reply.includes("Pega todo junto")) return reply;
+  if (!allowPaste) return crmReadFailureReply();
+  const decision = offerPasteReplyAllowed({
+    text: userText,
+    offersUnreadable: false,
+    missingCrm: true,
+  });
+  if (!decision.allow) return crmReadFailureReply();
+  return reply;
 }
 
 export function crmReadFailureReply() {

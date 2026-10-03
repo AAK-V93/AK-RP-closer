@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { ExtractedOffer } from "@/lib/offer-commercial";
 import type { CommissionProjection } from "@/lib/crm-projection";
-import { loadHub, rememberHub, type HubGet } from "@/lib/hub-client";
+import { chatSendReady, loadHub, rememberHub, type HubGet } from "@/lib/hub-client";
 
 type Line = { id: string; role: "user" | "coach"; content: string };
 type Action = { type?: string; href: string; label: string };
@@ -74,12 +74,14 @@ export function HubChat({
   const [snapshot, setSnapshot] = useState<HubSnapshot>(initialSnapshot || {});
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
+  const [hubResolved, setHubResolved] = useState(Boolean(initialSnapshot?.home));
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const hadHome = Boolean(initialSnapshot?.home);
 
   const applyPayload = (data: {
     message?: Line;
@@ -107,11 +109,18 @@ export function HubChat({
     loadHub()
       .then((data) => {
         if (cancelled) return;
-        if (data.snapshot) setSnapshot(data.snapshot as HubSnapshot);
+        if (data.snapshot) {
+          setSnapshot(data.snapshot as HubSnapshot);
+          setHubResolved(true);
+        } else {
+          setHubResolved(false);
+        }
         if (Array.isArray(data.messages)) setMessages(data.messages);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Error");
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Error");
+        setHubResolved(hadHome);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -119,7 +128,7 @@ export function HubChat({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hadHome]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -167,7 +176,7 @@ export function HubChat({
   };
 
   const sendText = async (text: string) => {
-    if (!text || sending) return;
+    if (!text || sending || !chatSendReady({ loading, hubResolved })) return;
     setMessages((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, role: "user", content: text },
@@ -178,7 +187,7 @@ export function HubChat({
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || !chatSendReady({ loading, hubResolved })) return;
     setDraft("");
     await sendText(text);
   };
@@ -242,6 +251,7 @@ export function HubChat({
   };
 
   const dock = variant === "dock";
+  const canSend = chatSendReady({ loading, hubResolved });
 
   return (
     <div
@@ -310,18 +320,18 @@ export function HubChat({
             rows={2}
             placeholder="Cerré con Ana, agendé a Juan el jueves, me pagaron…"
             className="min-h-[44px] text-sm"
-            disabled={sending || loading || recording}
+            disabled={!canSend || sending || recording}
           />
           <Button
             type="button"
             variant={recording ? "destructive" : "outline"}
-            disabled={sending || loading}
+            disabled={!canSend || sending}
             onClick={() => void toggleMic()}
             aria-label={recording ? "Detener" : "Grabar"}
           >
             {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
-          <Button type="submit" variant="primary" disabled={sending || !draft.trim()}>
+          <Button type="submit" variant="primary" disabled={!canSend || sending || !draft.trim()}>
             <Send className="h-4 w-4" />
           </Button>
         </div>

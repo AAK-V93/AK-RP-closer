@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { countPhrase } from "@/lib/plain-labels";
+import { practiceOfferLoadState } from "@/lib/practice-offer-glance";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -116,6 +117,7 @@ export function TrainingSetupForm() {
   const [serverReady, setServerReady] = useState<boolean | null>(null);
   const [offers, setOffers] = useState<WorkspaceOffer[]>([]);
   const [offer, setOffer] = useState<WorkspaceOffer | null>(null);
+  const [offerStatus, setOfferStatus] = useState<"loading" | "error" | "empty" | "ready">("loading");
   const [ready, setReady] = useState(false);
   const [transcriptCount, setTranscriptCount] = useState(0);
   const [playbookReady, setPlaybookReady] = useState(false);
@@ -194,32 +196,66 @@ export function TrainingSetupForm() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/workspace")
-      .then((r) => r.json())
-      .then((data) => {
-        setOffers(data.offers || []);
-        setOffer(data.offer);
-        setReady(Boolean(data.ready || data.canPractice));
-        setTranscriptCount(data.transcriptCount || 0);
-        setPlaybookReady(Boolean(data.playbookReady));
-        if (data.offer) {
-          dispatch({
-            type: "SET_TRAINING",
-            payload: {
-              offerId: data.offer.id,
-              productName: data.offer.productName,
-              productDescription: data.offer.productDescription,
-              pitchSummary:
-                form.getValues("pitchSummary") || data.offer.pitchSummary,
-              leadPlaybook: (data.playbook as LeadPlaybook) || null,
-            },
-          });
-          if (data.offer.pitchSummary && !form.getValues("pitchSummary")) {
-            form.setValue("pitchSummary", data.offer.pitchSummary);
+    let cancelled = false;
+    const applyWorkspace = (data: {
+      offers?: WorkspaceOffer[];
+      offer?: WorkspaceOffer | null;
+      ready?: boolean;
+      canPractice?: boolean;
+      transcriptCount?: number;
+      playbookReady?: boolean;
+      playbook?: LeadPlaybook | null;
+    }) => {
+      const state = practiceOfferLoadState({ ok: true, offer: data.offer });
+      setOfferStatus(state);
+      setOffers(data.offers || []);
+      setOffer(data.offer || null);
+      setReady(Boolean(data.ready || data.canPractice));
+      setTranscriptCount(data.transcriptCount || 0);
+      setPlaybookReady(Boolean(data.playbookReady));
+      if (data.offer) {
+        dispatch({
+          type: "SET_TRAINING",
+          payload: {
+            offerId: data.offer.id,
+            productName: data.offer.productName,
+            productDescription: data.offer.productDescription,
+            pitchSummary: form.getValues("pitchSummary") || data.offer.pitchSummary,
+            leadPlaybook: (data.playbook as LeadPlaybook) || null,
+          },
+        });
+        if (data.offer.pitchSummary && !form.getValues("pitchSummary")) {
+          form.setValue("pitchSummary", data.offer.pitchSummary);
+        }
+      }
+    };
+    const loadWorkspace = async () => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const response = await fetch("/api/workspace");
+          const data = await response.json().catch(() => ({}));
+          if (cancelled) return;
+          if (practiceOfferLoadState({ ok: response.ok, offer: data.offer }) === "error") {
+            if (attempt === 0) continue;
+            setOffer(null);
+            setOfferStatus("error");
+            return;
+          }
+          applyWorkspace(data);
+          return;
+        } catch {
+          if (attempt === 0) continue;
+          if (!cancelled) {
+            setOffer(null);
+            setOfferStatus("error");
           }
         }
-      })
-      .catch(() => undefined);
+      }
+    };
+    void loadWorkspace();
+    return () => {
+      cancelled = true;
+    };
   }, [dispatch, form]);
 
   useEffect(() => {
@@ -302,8 +338,17 @@ export function TrainingSetupForm() {
                 onChange={(event) => {
                   const id = event.target.value;
                   fetch(`/api/workspace?offerId=${encodeURIComponent(id)}`)
-                    .then((r) => r.json())
+                    .then(async (response) => {
+                      const data = await response.json().catch(() => ({}));
+                      if (practiceOfferLoadState({ ok: response.ok, offer: data.offer }) === "error") {
+                        setOfferStatus("error");
+                        return null;
+                      }
+                      return data;
+                    })
                     .then((data) => {
+                      if (!data) return;
+                      setOfferStatus(practiceOfferLoadState({ ok: true, offer: data.offer }));
                       setOffer(data.offer);
                       setReady(Boolean(data.ready || data.canPractice));
                       setTranscriptCount(data.transcriptCount || 0);
@@ -321,7 +366,7 @@ export function TrainingSetupForm() {
                         });
                       }
                     })
-                    .catch(() => undefined);
+                    .catch(() => setOfferStatus("error"));
                 }}
               >
                 {offers.map((row) => (
@@ -331,7 +376,13 @@ export function TrainingSetupForm() {
                 ))}
               </select>
             )}
-            {offer ? (
+            {offerStatus === "loading" && (
+              <p className="text-xs text-fg3">Leyendo tu oferta…</p>
+            )}
+            {offerStatus === "error" && (
+              <p className="text-xs text-destructive">No pude leer tu oferta. Recarga la página.</p>
+            )}
+            {offerStatus === "ready" && offer ? (
               <>
                 <OfferGlance offer={offer} />
                 <p className="text-xs text-fg3">
@@ -344,7 +395,8 @@ export function TrainingSetupForm() {
                   </p>
                 )}
               </>
-            ) : (
+            ) : null}
+            {offerStatus === "empty" && (
               <p className="text-xs text-fg3">Aún no hay oferta guardada.</p>
             )}
             <Button asChild variant="outline" size="sm">

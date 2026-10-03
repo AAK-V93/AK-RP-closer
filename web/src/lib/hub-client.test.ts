@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createHubCache, type HubGet } from "./hub-client";
+import { chatSendReady, createHubCache, hubChatPostBody, type HubGet } from "./hub-client";
 
 function fakeFetch(calls: string[]) {
   return async (input: string) => {
@@ -46,4 +46,31 @@ test("a mutation can refresh once, and a remembered reply skips the GET", async 
     (again.snapshot as { now: { oportunidadesActivas: number } }).now.oportunidadesActivas,
     23,
   );
+});
+
+test("a failed hub read is not cached as an empty home", async () => {
+  const cache = createHubCache(() => 1_000);
+  const calls: string[] = [];
+  await assert.rejects(() =>
+    cache.load(async (input) => {
+      calls.push(input);
+      return {
+        ok: false,
+        json: async () => ({ error: "No se pudo cargar el inicio", snapshot: null, messages: [] }),
+      };
+    }),
+  );
+  assert.equal(calls.length, 1);
+  await cache.load(fakeFetch(calls));
+  assert.equal(calls.length, 2);
+});
+
+test("the first chat message waits until the hub has loaded", () => {
+  const pending = "¿Qué tengo pendiente hoy?";
+  assert.equal(chatSendReady({ loading: true, hubResolved: false }), false);
+  assert.equal(hubChatPostBody({ loading: true, hubResolved: false, text: pending }), null);
+  assert.equal(hubChatPostBody({ loading: false, hubResolved: false, text: pending }), null);
+  assert.deepEqual(hubChatPostBody({ loading: false, hubResolved: true, text: pending }), {
+    message: pending,
+  });
 });

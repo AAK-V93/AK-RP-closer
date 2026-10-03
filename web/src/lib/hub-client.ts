@@ -42,7 +42,7 @@ export function createHubCache(now: () => number = () => Date.now()) {
     const run = fetchImpl("/api/hub")
       .then(async (response) => {
         const data = await response.json();
-        if (!response.ok && !data.snapshot) {
+        if (!response.ok || data.snapshot == null) {
           throw new Error(data.error || "No se pudo cargar el inicio");
         }
         remember(data);
@@ -73,4 +73,17 @@ export function rememberHub(data: HubGet) {
 
 export function invalidateHub() {
   shared.invalidate();
+}
+
+/** The first chat send waits until a real hub snapshot has loaded. */
+export function chatSendReady(args: { loading: boolean; hubResolved: boolean }) {
+  return !args.loading && args.hubResolved;
+}
+
+/** No POST while the hub is still loading or the last read failed. */
+export function hubChatPostBody(args: { loading: boolean; hubResolved: boolean; text: string }) {
+  if (!chatSendReady(args)) return null;
+  const text = args.text.trim();
+  if (!text) return null;
+  return { message: text };
 }
