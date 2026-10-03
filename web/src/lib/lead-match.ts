@@ -112,6 +112,10 @@ export function matchLeadForFiling<T extends { name: string; aliases?: readonly 
   if (hits.length === 1) return { kind: "one", lead: hits[0] };
   if (hits.length > 1) return { kind: "ambiguous" };
   if (needle.split(" ").length < 2) return { kind: "ambiguous" };
+  // A lead stored as only «Edson» plus a call for «Edson Pérez» is not a new person.
+  const first = needle.split(" ")[0];
+  const bare = leads.filter((lead) => foldedName(lead.name) === first);
+  if (bare.length === 1) return { kind: "ambiguous" };
   return { kind: "none" };
 }
 

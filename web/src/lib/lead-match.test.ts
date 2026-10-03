@@ -149,6 +149,37 @@ test("chat update resolves one first name and does not write when two share it",
   assert.equal(writes.some((line) => line.startsWith("update:kim2")), false);
 });
 
+test("a single-token stored name plus a longer call stays unclassified", async () => {
+  const edson = {
+    id: "edson",
+    name: "Edson",
+    company: "",
+    nextStep: "Acuerdo de Edson",
+    lastSummary: "Notas de Edson",
+  };
+  assert.equal(matchLeadForFiling([edson], "Edson").kind, "one");
+  assert.equal(matchLeadForFiling([edson], "Edson Pérez").kind, "ambiguous");
+  const filed = await fileAgainst([edson], "Edson Pérez", "Acuerdo nuevo", "Notas nuevas");
+  assert.equal(filed.writes.some((line) => line.startsWith("create:")), false);
+  assert.equal(filed.writes.some((line) => line.startsWith("update:")), false);
+  assert.ok(filed.writes.includes("call:pending"));
+  assert.equal(edson.nextStep, "Acuerdo de Edson");
+  assert.equal(edson.lastSummary, "Notas de Edson");
+
+  const garcia = {
+    id: "garcia",
+    name: "Edson García",
+    company: "",
+    nextStep: "Acuerdo de García",
+    lastSummary: "Notas de García",
+  };
+  assert.equal(matchLeadForFiling([garcia], "Edson Pérez").kind, "none");
+  const created = await fileAgainst([garcia], "Edson Pérez", "Acuerdo de Pérez", "Notas de Pérez");
+  assert.ok(created.writes.includes("create:Edson Pérez:Acuerdo de Pérez:Notas de Pérez"));
+  assert.equal(created.writes.some((line) => line.startsWith("update:garcia")), false);
+  assert.equal(garcia.nextStep, "Acuerdo de García");
+});
+
 test("formatCrmStamp keeps a Bogotá clock time", () => {
   assert.equal(formatCrmStamp(new Date("2026-10-07T20:00:00.000Z")), "2026-10-07 15:00");
   assert.equal(formatCrmStamp("2026-10-07 15:00"), "2026-10-07 15:00");
