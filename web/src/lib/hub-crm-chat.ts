@@ -4,7 +4,8 @@ import { inferFollowupDate } from "@/lib/followup-date";
 import {
   deskLinesFromFilings,
   followupIsClosed,
-  formatPendingDesk,
+  formatPendingToday,
+  formatWhoToCall,
   type DeskLine,
 } from "@/lib/crm-followups";
 import { zonedDayBounds, zonedDayKey, zonedMonthRange, zonedWeekRange } from "@/lib/crm-time";
@@ -20,6 +21,7 @@ import {
 import { summarizePipeline } from "@/lib/crm-pipeline";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
 import { findMatchingLead, samePersonName } from "@/lib/lead-match";
+import { listPendingFilings } from "@/lib/call-intelligence";
 import { realClientName } from "@/lib/crm-noise";
 import { renameCrmCalls } from "@/lib/crm-rename";
 
@@ -120,6 +122,7 @@ export type ChatContext = {
   now?: Date;
   offers?: string[];
   desk?: DeskLine[];
+  unclassified?: number;
   appliedCash?: AppliedCash | null;
 };
 
@@ -398,9 +401,20 @@ function schedule(text: string, ctx: ChatContext): ChatTurn | null {
   return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
 }
 
+export function deskQuestionKind(text: string): "calls" | "summary" | null {
+  if (!asksForPendingDesk(text)) return null;
+  const q = fold(text).replace(/[¿?¡!.,]/g, " ").replace(/\s+/g, " ").trim();
+  if (/\ba quien (llamo|escribo|contacto)\b/.test(q) || /\bllamo hoy\b/.test(q)) return "calls";
+  return "summary";
+}
+
 function pendingDesk(text: string, ctx: ChatContext): ChatTurn | null {
   if (!asksForPendingDesk(text)) return null;
-  return { kind: "answer", reply: formatPendingDesk(ctx.desk || []) };
+  const lines = ctx.desk || [];
+  if (deskQuestionKind(text) === "calls") {
+    return { kind: "answer", reply: formatWhoToCall(lines) };
+  }
+  return { kind: "answer", reply: formatPendingToday(lines, ctx.unclassified || 0) };
 }
 
 export function asksForPendingDesk(text: string) {
@@ -1318,7 +1332,8 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
   ) {
     return null;
   }
-  const [user, leadRows, callRows, offerRows] = await Promise.all([
+  const needsClassifyCount = deskQuestionKind(raw) === "summary";
+  const [user, leadRows, callRows, offerRows, pendingFilings] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { crmPrefs: true } }),
     prisma.lead.findMany({
       where: { userId },
@@ -1343,12 +1358,19 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
         source: true,
         sourceId: true,
         cashCollected: true,
+        recordedAt: true,
       },
     }),
     prisma.userOffer.findMany({
       where: { userId },
       select: { productName: true },
     }),
+    needsClassifyCount
+      ? listPendingFilings(prisma, userId).catch((error) => {
+          console.error("chat classify count", error);
+          return [];
+        })
+      : Promise.resolve([]),
   ]);
   const leads: ChatLead[] = leadRows.map((row) => ({
     id: row.id,
@@ -1369,15 +1391,19 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
         venta_total?: number | null;
         cash_collected?: number | null;
         saldo_pendiente?: number | null;
+        notas_crm?: string;
       };
       const proximo = String(filing.proximo_seguimiento || "");
       const venta = Number(filing.venta_total);
       const cash = Number(filing.cash_collected);
       const saldo = Number(filing.saldo_pendiente);
+      const contacted = row.recordedAt ? zonedDayKey(new Date(row.recordedAt)) : "";
       return {
         name: callClientName(row) || row.leadName,
         proximo,
-        step: String(filing.acuerdo_seguimiento || filing.tipo_seguimiento || ""),
+        step: String(filing.tipo_seguimiento || filing.acuerdo_seguimiento || ""),
+        note: String(filing.acuerdo_seguimiento || filing.notas_crm || row.summary || ""),
+        lastContact: contacted,
         closed: followupIsClosed({
           seguimiento_resultado: filing.seguimiento_resultado,
           proximo_seguimiento: proximo,
@@ -1438,6 +1464,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     now: new Date(),
     offers: offerRows.map((row) => row.productName).filter(Boolean),
     desk,
+    unclassified: pendingFilings.length,
     appliedCash: readAppliedCash(user?.crmPrefs),
   };
   const turn = interpretCrmChat(raw, ctx);

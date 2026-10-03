@@ -686,3 +686,54 @@ export async function ensureCoachTables(prisma: PrismaClient) {
   }
   return coachTablesReady;
 }
+
+const READ_INDEX_NAMES = [
+  "CallRecord_userId_filingStatus_idx",
+  "CallRecord_userId_filingStatus_confirmedAt_idx",
+  "LeadAlert_userId_resolvedAt_idx",
+] as const;
+
+const READ_INDEX_SQL = [
+  `CREATE INDEX IF NOT EXISTS "CallRecord_userId_filingStatus_idx" ON "CallRecord"("userId", "filingStatus")`,
+  `CREATE INDEX IF NOT EXISTS "CallRecord_userId_filingStatus_confirmedAt_idx" ON "CallRecord"("userId", "filingStatus", "confirmedAt")`,
+  `CREATE INDEX IF NOT EXISTS "LeadAlert_userId_resolvedAt_idx" ON "LeadAlert"("userId", "resolvedAt")`,
+] as const;
+
+let readIndexesReady: Promise<void> | null = null;
+
+/**
+ * Indexes the hub reads by, created outside ensureCrmTables. That function
+ * returns as soon as the newest tables exist, so a new index there would
+ * never run on a database that already has the CRM.
+ */
+export async function ensureReadIndexes(prisma: PrismaClient) {
+  if (!readIndexesReady) {
+    readIndexesReady = (async () => {
+      let missing: string[] = [...READ_INDEX_NAMES];
+      try {
+        const rows = await prisma.$queryRaw<{ indexname: string }[]>`
+          SELECT indexname FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND indexname IN (
+              'CallRecord_userId_filingStatus_idx',
+              'CallRecord_userId_filingStatus_confirmedAt_idx',
+              'LeadAlert_userId_resolvedAt_idx'
+            )
+        `;
+        const have = new Set(rows.map((row) => row.indexname));
+        missing = READ_INDEX_NAMES.filter((name) => !have.has(name));
+      } catch {
+        missing = [...READ_INDEX_NAMES];
+      }
+      if (!missing.length) return;
+      for (const sql of READ_INDEX_SQL) {
+        if (!missing.some((name) => sql.includes(`"${name}"`))) continue;
+        await prisma.$executeRawUnsafe(sql);
+      }
+    })().catch((error) => {
+      readIndexesReady = null;
+      console.error("read indexes", error);
+    });
+  }
+  return readIndexesReady;
+}

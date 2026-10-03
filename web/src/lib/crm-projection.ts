@@ -220,6 +220,60 @@ export function computeProjection(input: ProjectionInput): CommissionProjection 
   };
 }
 
+/** Uses numbers the dashboard already loaded. No extra database round trip. */
+export function projectionFromDashboard(args: {
+  monthlyGoalUsd: number | null;
+  hasOffer: boolean;
+  callCount: number;
+  dash: Awaited<ReturnType<typeof crmDashboard>>;
+  listPrice: number;
+  commission: CommissionRuleInput | null;
+}) {
+  const needsMonthlyGoal = args.hasOffer && args.monthlyGoalUsd == null;
+  if (!args.monthlyGoalUsd) {
+    return {
+      monthlyGoalUsd: null as number | null,
+      needsMonthlyGoal,
+      projection: null as CommissionProjection | null,
+    };
+  }
+  const stats = args.dash.rendimiento.mes.agendas
+    ? args.dash.rendimiento.mes
+    : args.dash.rendimiento.acumulado.agendas
+      ? args.dash.rendimiento.acumulado
+      : {
+          showRate: 0,
+          closeRate: 0,
+          ticket: args.listPrice || 10_000,
+          cashPct: 0.4,
+          agendas: 0,
+          shows: 0,
+          cierres: 0,
+          ventas: 0,
+          cash: 0,
+        };
+  return {
+    monthlyGoalUsd: args.monthlyGoalUsd,
+    needsMonthlyGoal: false,
+    projection: computeProjection({
+      metaUsd: args.monthlyGoalUsd,
+      until: endOfMonth(),
+      realCallCount: args.callCount,
+      comisionPendiente: args.dash.comisionResumen.pendiente,
+      cashPendiente: args.dash.now.cashPendiente,
+      mesCash: args.dash.rendimiento.mes.cash,
+      stats,
+      ticketFallback: args.listPrice || 10_000,
+      commissionRule: args.commission || emptyCommercial().commission,
+      followups: args.dash.followups.map((row) => ({
+        tipo: row.tipo,
+        enJuego: row.enJuego,
+        cliente: row.cliente,
+      })),
+    }),
+  };
+}
+
 export async function loadCommissionProjection(
   prisma: PrismaClient,
   userId: string,

@@ -46,15 +46,14 @@ export async function crmDashboard(
       markTiming(opts?.timings, "repair", repairStarted);
     });
   const callsStarted = performance.now();
-  const offers = await loadOffersForCrm(prisma, userId);
-  const readyCrm = userHasReadyCrm(offers);
   const now = new Date();
   const todayKey = zonedDayKey(now);
   const todayBounds = zonedDayBounds(now);
   const month = zonedMonthRange(now);
   const prev = shiftZonedMonth(now, -1);
 
-  const [{ calls, allCalls }, alerts, leads, commissions, cashNotes] = await Promise.all([
+  const [offers, { calls, allCalls }, alerts, leads, commissions, cashNotes, threads] = await Promise.all([
+    loadOffersForCrm(prisma, userId),
     loadDashboardCalls(prisma, userId),
     prisma.leadAlert.findMany({
       where: { userId, resolvedAt: null },
@@ -64,11 +63,19 @@ export async function crmDashboard(
     prisma.lead.findMany({ where: { userId } }),
     prisma.commission.findMany({
       where: { userId },
-      include: { lead: true },
+      include: { lead: { select: { name: true } } },
       orderBy: { fecha: "desc" },
     }),
     loadCashNotes(prisma, userId),
+    prisma.followupThread.findMany({
+      where: { userId, estado: "activo" },
+      include: {
+        lead: true,
+        touches: { orderBy: { fecha: "desc" }, take: 1 },
+      },
+    }),
   ]);
+  const readyCrm = userHasReadyCrm(offers);
   markTiming(opts?.timings, "calls", callsStarted);
   await repairGate;
 
@@ -78,25 +85,29 @@ export async function crmDashboard(
     filingProduct(row.filingJson),
   ]);
   const reconcileStarted = performance.now();
+  const reconcileWrites: Promise<unknown>[] = [];
   try {
-    await repairCatalogNames(prisma, offers, rollupOffers, nameHints);
+    reconcileWrites.push(...repairCatalogNames(prisma, offers, rollupOffers, nameHints));
   } catch (error) {
     console.error("repair offer name", error);
   }
   try {
-    await reconcileOfferNames(prisma, offers, calls, allCalls, leads);
+    reconcileWrites.push(...reconcileOfferNames(prisma, offers, calls, allCalls, leads));
   } catch (error) {
     console.error("reconcile offers", error);
   }
   try {
-    await persistDirtyCallRepairs(
-      prisma,
-      offers.map((offer) => offer.productName),
-      [calls, allCalls],
+    reconcileWrites.push(
+      persistDirtyCallRepairs(
+        prisma,
+        offers.map((offer) => offer.productName),
+        [calls, allCalls],
+      ),
     );
   } catch (error) {
     console.error("repair imported calls", error);
   }
+  void Promise.all(reconcileWrites).catch((error) => console.error("crm reconcile", error));
   markTiming(opts?.timings, "reconcile", reconcileStarted);
 
   const commissionByCall = new Map(
@@ -160,13 +171,6 @@ export async function crmDashboard(
   const played = (alert: { enJuego: number; callRecordId: string | null }) =>
     countedSale(alert.enJuego, { prices }) || moneyByCall.get(alert.callRecordId || "") || 0;
 
-  const threads = await prisma.followupThread.findMany({
-    where: { userId, estado: "activo" },
-    include: {
-      lead: true,
-      touches: { orderBy: { fecha: "desc" }, take: 1 },
-    },
-  });
   const alertByThread = new Map(
     alerts.filter((row) => row.threadId).map((row) => [row.threadId as string, row]),
   );
@@ -585,6 +589,10 @@ export async function crmDashboard(
       productName: row.productName,
       currency: row.commercial.currency || "USD",
     })),
+    projectionSeed: {
+      listPrice: offers[0]?.commercial.listPrice || 0,
+      commission: offers[0]?.commercial.commission || null,
+    },
     operacion,
   };
 }
@@ -646,7 +654,7 @@ function asRollupCall(row: {
 }
 
 /** Apply field repairs in memory, and write back only the rows that changed. */
-async function persistDirtyCallRepairs(
+function persistDirtyCallRepairs(
   prisma: PrismaClient,
   offerNames: string[],
   groups: {
@@ -668,8 +676,8 @@ async function persistDirtyCallRepairs(
       dirty.add(row.id);
     }
   }
-  if (!dirty.size) return;
-  const full = await prisma.callRecord.findMany({
+  if (!dirty.size) return Promise.resolve();
+  return prisma.callRecord.findMany({
     where: { id: { in: [...dirty].slice(0, 40) } },
     select: {
       id: true,
@@ -680,16 +688,16 @@ async function persistDirtyCallRepairs(
       cashCollected: true,
       filingJson: true,
     },
-  });
-  await repairImportedCallFields(prisma, offerNames, [full]);
+  }).then((full) => repairImportedCallFields(prisma, offerNames, [full]));
 }
 
-async function repairCatalogNames(
+function repairCatalogNames(
   prisma: PrismaClient,
   offers: OfferForCrm[],
   rollupOffers: RollupOffer[],
   hints: string[],
 ) {
+  const writes: Promise<unknown>[] = [];
   for (const offer of offers) {
     if (!isPriceLabel(offer.productName)) continue;
     const displayName = catalogDisplayName(
@@ -704,11 +712,14 @@ async function repairCatalogNames(
     offer.productName = displayName;
     const shadow = rollupOffers.find((row) => row.id === offer.id);
     if (shadow) shadow.productName = displayName;
-    await prisma.userOffer.update({
-      where: { id: offer.id },
-      data: { productName: displayName },
-    });
+    writes.push(
+      prisma.userOffer.update({
+        where: { id: offer.id },
+        data: { productName: displayName },
+      }),
+    );
   }
+  return writes;
 }
 
 function strictOfferName(offers: OfferForCrm[], raw: string | null | undefined) {
@@ -731,7 +742,7 @@ function resolvedOfferName(raw: string, filing: unknown, offers: OfferForCrm[]) 
 }
 
 /** Drop offer names that are not in the closer's list, and fold "Otro o null". */
-async function reconcileOfferNames(
+function reconcileOfferNames(
   prisma: PrismaClient,
   offers: Awaited<ReturnType<typeof loadOffersForCrm>>,
   calls: { id: string; offerName: string; filingJson: unknown }[],
@@ -772,5 +783,5 @@ async function reconcileOfferNames(
       );
     }
   }
-  if (jobs.length) await Promise.all(jobs);
+  return jobs;
 }

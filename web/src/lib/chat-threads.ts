@@ -117,6 +117,21 @@ export async function loadThread(
   userId: string,
   thread: typeof THREAD_COACH | typeof THREAD_HUB,
 ) {
+  const existing = await prisma.coachProfile.findUnique({ where: { userId } });
+  if (existing) {
+    const rows = await prisma.coachMessage.findMany({
+      where: { profileId: existing.id, thread },
+      orderBy: { createdAt: "asc" },
+      take: 80,
+    });
+    if (rows.length > 0) {
+      return {
+        profile: existing,
+        notes: parseStoredNotes(existing.notes),
+        messages: rows.map(toLine),
+      };
+    }
+  }
   const profile = await getOrCreateCoachProfile(prisma, userId);
   const rows = await prisma.coachMessage.findMany({
     where: { profileId: profile.id, thread },
