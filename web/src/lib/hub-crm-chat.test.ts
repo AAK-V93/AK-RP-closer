@@ -1625,7 +1625,7 @@ test("an unchanged acuerdo is not proposed and nothing is saved", () => {
   });
   assert.equal(same.kind, "answer");
   if (same.kind === "answer") {
-    assert.match(same.reply, /No cambié nada/);
+    assert.equal(same.reply, "No cambié nada: ya estaba así.");
     assert.equal("proposal" in same, false);
   }
   const patch = proposalFromLoosePatch(
@@ -1635,7 +1635,7 @@ test("an unchanged acuerdo is not proposed and nothing is saved", () => {
   );
   assert.equal(patch.kind, "answer");
   if (patch.kind === "answer") {
-    assert.match(patch.reply, /No cambié nada/);
+    assert.equal(patch.reply, "No cambié nada: ya estaba así.");
     assert.equal("proposal" in patch, false);
   }
 });
@@ -1773,4 +1773,85 @@ test("a date-only save is that Bogotá calendar day and a clock is Bogotá wall 
   assert.match(clock.reply, /Listo/);
   assert.equal(stored?.toISOString(), "2026-10-09T20:00:00.000Z");
   assert.equal(filingProximo, "2026-10-09 15:00");
+});
+
+test("próximo seguimiento, llámalo and agenda para propose that date", () => {
+  const withDiego = { ...ctx, leads: [...leads, diego] };
+  const phrases = [
+    "Diego Huáman: próximo seguimiento el viernes 9",
+    "Diego Huamán seguimiento el viernes 9",
+    "Diego Huamán llámalo el viernes 9",
+    "Diego Huamán agenda para el viernes 9",
+  ];
+  for (const text of phrases) {
+    const turn = interpretCrmChat(text, withDiego);
+    assert.equal(turn.kind, "confirm", text);
+    if (turn.kind !== "confirm") continue;
+    assert.equal(turn.proposal.leadId, "diego", text);
+    assert.equal(
+      turn.proposal.changes.find((change) => change.field === "nextStepAt")?.to,
+      "2026-10-09 15:00",
+      text,
+    );
+    assert.match(turn.reply, /2026-10-09 15:00/, text);
+    assert.doesNotMatch(turn.reply, /Puedo decirte el cobrado/, text);
+  }
+  const missed = interpretCrmChat("Diego Huamen: próximo seguimiento el viernes 9", withDiego);
+  assert.equal(missed.kind, "answer");
+  if (missed.kind === "answer") {
+    assert.match(missed.reply, /¿Te refieres a Diego Huamán\?/);
+    assert.equal("proposal" in missed, false);
+  }
+});
+
+test("an acuerdo with a date also proposes Próximo seguimiento", () => {
+  const turn = interpretCrmChat(
+    "Diego Huamán quedamos en llamar el miércoles 7 de octubre a las 3 pm",
+    {
+      ...ctx,
+      leads: [
+        ...leads,
+        { ...diego, nextStepAt: new Date("2026-10-02T15:00:00.000Z") },
+      ],
+    },
+  );
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(
+    turn.proposal.changes.find((change) => change.field === "nextStep")?.to,
+    "quedamos en llamar el miércoles 7 de octubre a las 3 pm",
+  );
+  assert.equal(
+    turn.proposal.changes.find((change) => change.field === "nextStepAt")?.to,
+    "2026-10-07 15:00",
+  );
+  assert.equal(turn.proposal.changes.some((change) => /vernos/i.test(change.to)), false);
+  const pay = interpretCrmChat("Diego Huamán quedó en pagar el lunes", {
+    ...ctx,
+    leads: [...leads, diego],
+  });
+  assert.equal(pay.kind, "confirm");
+  if (pay.kind !== "confirm") return;
+  assert.equal(pay.proposal.changes.find((change) => change.field === "nextStep")?.to, "pagar el lunes");
+  assert.equal(
+    pay.proposal.changes.find((change) => change.field === "nextStepAt")?.to,
+    "2026-10-05 15:00",
+  );
+  assert.match(pay.reply, /2026-10-05 15:00/);
+});
+
+test("a date-only proposal says the previous hour it will keep", () => {
+  const turn = proposalFromLoosePatch(
+    { nextStepAt: "2026-10-09" },
+    { ...ctx, leads: [...leads, diego] },
+    "Diego Huamán el viernes 9",
+  );
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(
+    turn.proposal.changes.find((change) => change.field === "nextStepAt")?.to,
+    "2026-10-09 15:00",
+  );
+  assert.match(turn.reply, /2026-10-09 15:00/);
+  assert.doesNotMatch(turn.reply, /«2026-10-09»/);
 });

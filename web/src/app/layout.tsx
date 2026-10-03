@@ -46,7 +46,7 @@ export default async function RootLayout({
   const session = await getServerSession(authOptions);
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className={`${fraunces.variable} ${publicSans.variable}`}>
+      <body className={`${fraunces.variable} ${publicSans.variable} overflow-x-clip`}>
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           <AuthSessionProvider session={session}>
             {children}

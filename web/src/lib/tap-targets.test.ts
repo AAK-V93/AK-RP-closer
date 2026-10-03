@@ -42,6 +42,29 @@ test("main menu pills and Llamadas and Coach pills are at least 44px", () => {
   assert.match(deleteButton, /size=\{iconOnly \? "icon" : "sm"\}/);
 });
 
+test("mobile nav scrolls inside 375px instead of widening the page", () => {
+  const shell = source("../components/app-shell.tsx");
+  assert.match(shell, /w-full min-w-0 max-w-full flex-col overflow-x-clip/);
+  assert.match(shell, /min-w-0 max-w-full border-b/);
+  assert.match(shell, /relative min-w-0 max-w-full md:hidden/);
+  assert.match(shell, /flex w-full min-w-0 max-w-full gap-1 overflow-x-auto/);
+  assert.match(shell, /min-w-0 w-full max-w-full flex-1 overflow-x-clip/);
+  assert.equal(shell.includes("overflow-x-hidden"), false);
+  const layout = source("../app/layout.tsx");
+  assert.match(layout, /overflow-x-clip/);
+  assert.equal(layout.includes("overflow-x-hidden"), false);
+  const coach = source("../app/coach/page.tsx");
+  assert.match(coach, /min-w-0 max-w-full space-y-8 overflow-x-clip/);
+  assert.equal(coach.includes("overflow-x-hidden"), false);
+  const chat = source("../components/closer-coach-chat.tsx");
+  assert.match(chat, /min-w-0 max-w-full flex-col overflow-x-hidden/);
+  assert.match(chat, /overflow-x-hidden overflow-y-auto/);
+  assert.match(chat, /min-w-0 break-words/);
+  assert.match(chat, /flex min-w-0 gap-2/);
+  const toast = source("../components/ui/toast.tsx");
+  assert.match(toast, /w-full max-w-\[100vw\]/);
+});
+
 test("CRM offer chips and the coach trash icon do not shrink at tablet width", () => {
   const crm = source("../app/crm/page.tsx");
   assert.match(crm, /h-auto min-h-11 max-w-full whitespace-normal text-left lg:min-h-0/);
