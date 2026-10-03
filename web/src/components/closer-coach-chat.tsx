@@ -146,14 +146,14 @@ export function CloserCoachChat({
           </p>
           <p className="text-sm">
             Nivel {level}/10
-            {notes.nextSkill ? ` · Siguiente: ${notes.nextSkill}` : ""}
+            {notes.nextSkill ? ` · Siguiente: ${closerSpanish(notes.nextSkill)}` : ""}
           </p>
           {notes.recommendedExercise && (
-            <p className="text-xs text-fg3">{notes.recommendedExercise}</p>
+            <p className="text-xs text-fg3">{closerSpanish(notes.recommendedExercise)}</p>
           )}
           <Button asChild size="sm" variant="primary" className="mt-2">
             <Link
-              href={`/practicar?focus=${encodeURIComponent(notes.nextSkill || notes.recommendedExercise)}`}
+              href={`/practicar?focus=${encodeURIComponent(closerSpanish(notes.nextSkill || notes.recommendedExercise))}`}
             >
               Practicar esto
             </Link>

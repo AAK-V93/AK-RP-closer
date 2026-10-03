@@ -242,6 +242,55 @@ test("websocket closed stays quiet after the signal logger is rebuilt", async ()
   assert.equal(lines.at(-1), "websocket closed");
 });
 
+test("two connects with the same url and token share one attempt", async () => {
+  let calls = 0;
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const room = {
+    localParticipant: {
+      trackPublications: new Map(),
+      unpublishTrack: async () => undefined,
+    },
+    connect: async () => {
+      calls += 1;
+      await gate;
+      return "ok";
+    },
+    disconnect: async () => undefined,
+  };
+  guardPracticeRoom(room as never);
+  const first = room.connect("wss://livekit.example", "token");
+  const second = room.connect("wss://livekit.example", "token");
+  assert.equal(calls, 1);
+  assert.equal(first, second);
+  release();
+  assert.equal(await first, "ok");
+  assert.equal(await second, "ok");
+});
+
+test("a same-turn reconnect does not close the socket", async () => {
+  const log: string[] = [];
+  const room = {
+    localParticipant: {
+      trackPublications: new Map(),
+      unpublishTrack: async () => undefined,
+    },
+    connect: async () => {
+      log.push("connect");
+    },
+    disconnect: async () => {
+      log.push("disconnect");
+    },
+  };
+  guardPracticeRoom(room as never);
+  const leaving = room.disconnect();
+  const joining = room.connect("wss://livekit.example", "token");
+  await Promise.all([leaving, joining]);
+  assert.deepEqual(log, ["connect"]);
+});
+
 test("the page-load warm room is not a practice dispatch", () => {
   assert.equal(practiceWarmMetadata(), '{"warm":true}');
   assert.equal(practiceWarmRoomName("user-1", 60_000), "warm-user1-1");

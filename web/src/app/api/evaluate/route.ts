@@ -19,6 +19,7 @@ import {
   parsePhaseSpans,
   type TimeGoal,
 } from "@/lib/call-timing";
+import { PLAIN_SPANISH_RULE } from "@/lib/closer-spanish";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
@@ -57,7 +58,7 @@ Dinero: ${profile.moneySituation}
 Tiempo: ${profile.timeSituation}
 Objeciones esperadas: ${profile.objections.join(" | ")}
 Precalificación: meta=${profile.preQualification.mainGoal}; situación=${profile.preQualification.currentSituation}; timeline=${profile.preQualification.timeline}; presupuesto=${profile.preQualification.budgetRange}; decisor=${profile.preQualification.decisionMaker}
-${pitchSummary?.trim() ? `Resumen del pitch ya oído:\n${pitchSummary.trim()}` : ""}`;
+${pitchSummary?.trim() ? `Resumen de la presentación de la oferta ya oída:\n${pitchSummary.trim()}` : ""}`;
 }
 
 async function authedDb() {
@@ -183,8 +184,8 @@ export async function POST(request: Request) {
 
 Habilidades:
 1) Detectar DOLOR, DESEO y URGENCIA a profundidad, con preguntas (si el modo incluye descubrimiento).
-2) Ante objeciones/preguntas: 3A (Reconoce, Relaciona, Devuelve la pregunta).
-3) En el cierre y en la presentación de la oferta: USAR lo descubierto. Cada objeción se ancla a citas y hechos del lead. 3A genérico = insuficiente.
+2) Ante objeciones o preguntas: Reconoce, Relaciona y Devuelve la pregunta.
+3) En el cierre y en la presentación de la oferta: USAR lo descubierto. Cada objeción se ancla a citas y hechos del lead. Un marco genérico, sin citar el caso, es insuficiente.
 
 ${AAA_EVALUATOR_BRIEF}
 
@@ -193,7 +194,7 @@ DIFICULTAD: ${difficulty}
 IDIOMA: ${lang.nativeName}
 ${sectionEvalNotes(callSection)}
 
-FICHA / DESCUBRIMIENTO YA CONOCIDO (en modos pitch/cierre esto YA se descubrió; el closer lo tiene en pantalla):
+FICHA / DESCUBRIMIENTO YA CONOCIDO (en los modos de presentación de la oferta y de cierre esto YA se descubrió; el closer lo tiene en pantalla):
 ${knownDiscovery}
 
 TRANSCRIPCIÓN:
@@ -230,7 +231,7 @@ Responde ÚNICAMENTE JSON válido:
       "realRoot": "raíz real, no la etiqueta superficial",
       "howHandled": "qué hizo el closer",
       "whyFailedOrWorked": "por qué funcionó o falló; ¿usó el descubrimiento?",
-      "suggestedLine": "frase 3A que CITA dolor/deseo/urgencia de ESTE lead (como: 'me comentaste que... si el dinero no fuera el tema, ¿hay algo más que te frene?')"
+      "suggestedLine": "frase de Reconoce, Relaciona y Devuelve la pregunta que CITA dolor, deseo y urgencia de ESTE lead (como: 'me comentaste que... si el dinero no fuera el tema, ¿hay algo más que te frene?')"
     }
   ],
   "discoveryGaps": [
@@ -253,11 +254,13 @@ Si no hay timestamps, estima por el orden del diálogo.
 
 Reglas:
 - overallScore = promedio de los criterios listados × 10.
-- use_discovery: 8-10 solo si el closer menciona hechos/citas del caso al objetar. 0-4 si 3A genérico, downsell, o acepta reagendar sin anclar.
+- use_discovery: 8-10 solo si el closer menciona hechos o citas del caso al objetar. 0-4 si el marco es genérico, hay downsell, o acepta reagendar sin anclar.
 - Si no hubo objeción: objections=[] y use_discovery=5 con feedback de que no hubo objeción, EXCEPTO «¿tienes alguna pregunta?» → aaa_ask máximo 2.
 - discoveryGaps: solo si un hueco de indagar alimentó una objeción. Si el modo es solo cierre, usa la ficha conocida: el closer debía USARLA, no redescubrirla.
 - suggestedLine siempre en primera persona, lista para decirle a ESTE lead.
-- Todo en ${lang.nativeName}. El closer lee este JSON: no uses discovery, pitch, drill, Acknowledge, Associate, Ask Back ni Paid Media.`;
+- Todo en ${lang.nativeName}.
+- ${PLAIN_SPANISH_RULE}
+- Los valores de phase en phaseSpans siguen siendo exactamente discovery, pitch, close u other. No los traduzcas.`;
 
     let text: string;
     try {

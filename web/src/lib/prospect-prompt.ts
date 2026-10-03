@@ -4,6 +4,7 @@ import {
   ProspectProfile,
   TrainingSessionConfig,
 } from "@/data/training-session";
+import { closerSpanish } from "@/lib/closer-spanish";
 import { LanguageCode, getLanguage } from "@/data/languages";
 import {
   PROSPECT_POOLS,
@@ -514,7 +515,7 @@ ${
   training.practiceFocus?.trim()
     ? `
 ## Coach objective
-Steer toward this situation without dumping it on turn one: "${training.practiceFocus.trim()}".
+Steer toward this situation without dumping it on turn one: "${closerSpanish(training.practiceFocus.trim())}".
 `
     : ""
 }
