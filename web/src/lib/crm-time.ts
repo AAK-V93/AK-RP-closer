@@ -15,6 +15,25 @@ export function zonedDayKey(date: Date, timeZone = CRM_TIMEZONE) {
   return `${year}-${month}-${day}`;
 }
 
+/** `2026-10-07 15:00` in the closer's zone. A stamp already written that way is kept. */
+export function formatCrmStamp(value: Date | string | null | undefined, timeZone = CRM_TIMEZONE) {
+  if (value == null || value === "") return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(trimmed)) {
+      return trimmed.slice(0, 16).replace("T", " ");
+    }
+    const date = new Date(trimmed);
+    if (Number.isNaN(date.getTime())) return "";
+    return formatCrmStamp(date, timeZone);
+  }
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return "";
+  const parts = zonedParts(value, timeZone);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  const hour = parts.hour === 24 ? 0 : parts.hour;
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(hour)}:${pad(parts.minute)}`;
+}
+
 export function formatCrmDate(date: Date, timeZone = CRM_TIMEZONE) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("es-CO", {

@@ -247,11 +247,13 @@ export async function classifyAndFileCall(
     }
   }
 
+  let applied: Awaited<ReturnType<typeof applyExtractorToCrm>> = null;
   if (!nonSales && parsed.cliente_real && (parsed.proximo_seguimiento || parsed.requiere_seguimiento === true)) {
-    await applyExtractorToCrm(prisma, userId, row.id, parsed, offers, !auto);
+    applied = await applyExtractorToCrm(prisma, userId, row.id, parsed, offers, !auto);
   } else if (auto && !nonSales) {
-    await applyExtractorToCrm(prisma, userId, row.id, parsed, offers);
+    applied = await applyExtractorToCrm(prisma, userId, row.id, parsed, offers);
   }
+  const unclassified = Boolean(applied?.unclassified);
   if (auto && !nonSales) {
     const { fulfillAgendado } = await import("@/lib/agenda");
     await fulfillAgendado(prisma, userId, {
@@ -264,8 +266,8 @@ export async function classifyAndFileCall(
   return {
     ...parsed,
     callRecordId: row.id,
-    filingStatus,
-    autoApplied: auto && !nonSales,
+    filingStatus: unclassified ? "pending" : filingStatus,
+    autoApplied: auto && !nonSales && !unclassified,
     gap,
     summary,
   };

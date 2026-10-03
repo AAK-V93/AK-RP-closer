@@ -42,7 +42,108 @@ function containsName(a: string, b: string) {
   return a.includes(b) || b.includes(a);
 }
 
-/** Match "Juan" to "Juan Pérez", or same company + first name. */
+const NAME_PARTICLES = new Set([
+  "de",
+  "del",
+  "la",
+  "las",
+  "los",
+  "y",
+  "e",
+  "da",
+  "do",
+  "das",
+  "dos",
+  "van",
+  "von",
+]);
+
+function significantTokens(value: string) {
+  return normalizePersonName(value)
+    .split(" ")
+    .filter((part) => part.length > 1 && !NAME_PARTICLES.has(part));
+}
+
+function foldedName(value: string) {
+  return significantTokens(value).join(" ");
+}
+
+/**
+ * Full name only: same spelling once accents and case are folded, an exact
+ * alias, a 2+ token prefix, or the same first and last token.
+ * A shared first name is not a match.
+ */
+export function filingNamesFullyMatch(
+  stored: string,
+  shown: string,
+  aliases?: readonly string[] | null,
+) {
+  const left = foldedName(stored);
+  const right = foldedName(shown);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  for (const alias of aliases || []) {
+    const folded = foldedName(alias);
+    if (folded && folded === right) return true;
+  }
+  const leftTokens = left.split(" ");
+  const rightTokens = right.split(" ");
+  if (leftTokens.length < 2 || rightTokens.length < 2) return false;
+  if (samePersonName(left, right)) return true;
+  return (
+    leftTokens[0] === rightTokens[0] &&
+    leftTokens[leftTokens.length - 1] === rightTokens[rightTokens.length - 1]
+  );
+}
+
+export type FilingMatch<T> = { kind: "one"; lead: T } | { kind: "none" } | { kind: "ambiguous" };
+
+/**
+ * One full-name lead, no lead (the caller may create one), or ambiguous.
+ * One token that is not an exact name stays ambiguous: do not merge and do not create.
+ */
+export function matchLeadForFiling<T extends { name: string; aliases?: readonly string[] | null }>(
+  leads: readonly T[],
+  name: string,
+): FilingMatch<T> {
+  const needle = foldedName(name);
+  if (!needle) return { kind: "ambiguous" };
+  const hits = leads.filter((lead) => filingNamesFullyMatch(lead.name, name, lead.aliases));
+  if (hits.length === 1) return { kind: "one", lead: hits[0] };
+  if (hits.length > 1) return { kind: "ambiguous" };
+  if (needle.split(" ").length < 2) return { kind: "ambiguous" };
+  return { kind: "none" };
+}
+
+/** A bare first name that belongs to exactly one lead. Shared first names do not count. */
+function uniqueFirstNameLead<T extends { name: string }>(leads: readonly T[], name: string) {
+  const parts = significantTokens(name);
+  if (parts.length !== 1) return null;
+  const first = parts[0];
+  if (first.length < 3) return null;
+  const hits = leads.filter((lead) => significantTokens(lead.name)[0] === first);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * Chat may resolve a unique first name. Filing stays on `matchLeadForFiling`.
+ * Two leads with the same first name stay ambiguous and must not be written.
+ */
+export function matchLeadForChat<T extends { name: string; aliases?: readonly string[] | null }>(
+  leads: readonly T[],
+  name: string,
+): FilingMatch<T> {
+  const full = matchLeadForFiling(leads, name);
+  if (full.kind === "one") return full;
+  const parts = significantTokens(name);
+  if (parts.length !== 1) return full;
+  const first = parts[0];
+  const hits = leads.filter((lead) => significantTokens(lead.name)[0] === first);
+  if (hits.length === 1) return { kind: "one", lead: hits[0] };
+  return { kind: "ambiguous" };
+}
+
+/** Match "Juan" to "Juan Pérez", or same company + first name. Not used to file a call. */
 export function findMatchingLead<T extends NamedLead>(
   leads: T[],
   name: string,
@@ -197,7 +298,8 @@ export function callAlreadyInCrm(
     .map((value) => String(value || "").trim())
     .filter((value) => value && !isBlankMeetingLabel(value));
   const names = [...identity, ...prose];
-  if (names.some((name) => findMatchingLead(named, name))) return true;
+  if (names.some((name) => matchLeadForFiling(named, name).kind === "one")) return true;
+  if (names.some((name) => uniqueFirstNameLead(named, name))) return true;
   const blob = normalizePersonName(names.join(" "));
   if (
     blob &&

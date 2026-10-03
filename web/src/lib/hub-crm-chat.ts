@@ -9,7 +9,7 @@ import {
   formatWhoToCall,
   type DeskLine,
 } from "@/lib/crm-followups";
-import { zonedDayBounds, zonedDayKey, zonedMonthRange, zonedWeekRange } from "@/lib/crm-time";
+import { formatCrmStamp, zonedDayBounds, zonedDayKey, zonedMonthRange, zonedWeekRange } from "@/lib/crm-time";
 import { loadCashNotes } from "@/lib/crm-cash-notes";
 import { parseCommercial, looksLikeOfferBlob } from "@/lib/offer-commercial";
 import {
@@ -43,6 +43,8 @@ export type ChatLead = {
   nextStep: string;
   lastSummary: string;
   amountPaid: string;
+  /** Stored próximo seguimiento. A Date is shown in Bogotá as `YYYY-MM-DD HH:mm`. */
+  nextStepAt?: Date | string | null;
 };
 
 /** The name the CRM row shows. Exact, including accents. */
@@ -287,19 +289,23 @@ function offerList(ctx: ChatContext) {
   return offerRefsOf(ctx).map((offer) => offer.productName);
 }
 
+const LEAD_UPDATE_HINT =
+  /\b(se llama|pag(?:ar(?:a|e)?|o|amos|aron|ad[oa]|ue)|qued(?:amos|aron|aste|o|e)|oferta|producto|cash|borra|elimina|quita|anula|reserva|cuota|abono|avisaba|acuerdo|agende)\b/;
+
 function looksLikeLeadUpdate(text: string) {
-  return /\b(se llama|pag[oó]|pagad[oa]|pagu[eé]|quedamos|oferta|producto|cash|borra|elimina|quita|anula|reserva|cuota|abono|avisaba|acuerdo|agend[eé])\b/i.test(
-    text,
-  );
+  return LEAD_UPDATE_HINT.test(fold(text));
 }
 
 function unclearLeadUpdate(text: string, leads: ChatLead[]): ChatTurn | null {
-  if (/[?¿]/.test(text) && !/\b(pag[oó]|quedamos|se llama)\b/i.test(text)) return null;
+  if (!looksLikeLeadUpdate(text)) return null;
+  if (/[?¿]/.test(text) && !LEAD_UPDATE_HINT.test(fold(text))) return null;
   if (isChatRequest(text) && !/\b(se llama|pag[oó]|producto de|oferta de)\b/i.test(text)) return null;
   const mention = leadMention(text, leads);
-  if (mention.kind !== "clarify") return null;
-  if (!looksLikeLeadUpdate(text)) return null;
-  return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
+  if (mention.kind === "clarify") return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
+  if (mention.kind === "none" && /^(?:con\s+)?\S+\s+(?:me\s+)?(?:pag|qued)/i.test(text)) {
+    return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+  }
+  return null;
 }
 
 function recall(text: string, ctx: ChatContext): ChatTurn | null {
@@ -425,10 +431,26 @@ function schedule(text: string, ctx: ChatContext): ChatTurn | null {
       {
         field: "nextStepAt",
         label: "Próximo seguimiento",
-        from: "",
+        from: formatCrmStamp(lead.nextStepAt),
         to: when,
       },
     ],
+  };
+  return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
+}
+
+/** «Kimlen quedó en llamar el lunes» keeps the closer's words as the acuerdo. */
+function spokenAgreement(text: string, ctx: ChatContext): ChatTurn | null {
+  const match = text.match(/^(?:con\s+)?(.+?)\s+qued(?:o|ó|aron|aste|[eé])(?:\s+en)?\s+(.+)$/i);
+  if (!match) return null;
+  const lead = leadInMessage(ctx.leads, match[1]) || leadInMessage(ctx.leads, text);
+  if (!lead) return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+  const step = tidyName(match[2]);
+  if (!step || fold(step) === fold(lead.nextStep)) return null;
+  const proposal: ChatProposal = {
+    leadId: lead.id,
+    leadName: lead.name,
+    changes: [{ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step }],
   };
   return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
 }
@@ -787,16 +809,19 @@ function clearPayment(text: string, ctx: ChatContext): ChatTurn | null {
 }
 
 function offerEdit(text: string, ctx: ChatContext): ChatTurn | null {
-  const match =
+  const explicit =
     text.match(
       /^(?:la oferta|el producto)(?:\s+de\s+(.+?))?\s+(?:es|queda|queda en|ser[aá])\s+(.+)$/i,
     ) || text.match(/^(.+?)\s+(?:tiene|va por|quiere)\s+(?:la oferta|el producto)\s+(.+)$/i);
+  const bare = explicit ? null : text.match(/^(.+?)\s+va por\s+(.+)$/i);
+  const match = explicit || bare;
   if (!match) return null;
   const rawOffer = tidyName(match[2] || "");
   if (!rawOffer) return null;
   const refs = offerRefsOf(ctx);
   const names = refs.map((offer) => offer.productName).join(", ") || "ninguna";
   const plan = planProductoWrite(rawOffer, refs);
+  if (bare && !plan.producto) return null;
   if (plan.action === "request") {
     return {
       kind: "answer",
@@ -899,6 +924,7 @@ export function interpretCrmChat(text: string, ctx: ChatContext): ChatTurn {
     offerEdit(raw, ctx) ||
     recall(raw, ctx) ||
     schedule(raw, ctx) ||
+    spokenAgreement(raw, ctx) ||
     clearPayment(raw, ctx) ||
     payment(raw, ctx) ||
     askFacts(raw, ctx) ||
@@ -970,7 +996,7 @@ export function proposalFromLoosePatch(
   } else if (offerPlan?.action === "unread") {
     warning = "";
   } else if (offerPlan?.action === "acuerdo" && offerPlan.acuerdo) {
-    const step = tidyName(String(patch.nextStep || "")) || offerPlan.acuerdo;
+    const step = tidyName(offerPlan.acuerdo) || tidyName(String(patch.nextStep || ""));
     if (fold(step) !== fold(lead.nextStep)) {
       changes.push({ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step });
     }
@@ -1001,7 +1027,12 @@ export function proposalFromLoosePatch(
   }
   const when = String(patch.nextStepAt || "").trim();
   if (when && /^\d{4}-\d{2}-\d{2}/.test(when)) {
-    changes.push({ field: "nextStepAt", label: "Próximo seguimiento", from: "", to: when });
+    changes.push({
+      field: "nextStepAt",
+      label: "Próximo seguimiento",
+      from: formatCrmStamp(lead.nextStepAt),
+      to: when,
+    });
   }
   const cash = patch.amountPaid ? parseMoney(String(patch.amountPaid)) : null;
   if (cash) {
@@ -1558,6 +1589,7 @@ async function loadCrmChatRead(prisma: PrismaClient, userId: string, raw: string
           name: true,
           offerName: true,
           nextStep: true,
+          nextStepAt: true,
           lastSummary: true,
           amountPaid: true,
         },
@@ -1641,6 +1673,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     name: row.name,
     offerName: row.offerName,
     nextStep: row.nextStep,
+    nextStepAt: row.nextStepAt,
     lastSummary: row.lastSummary,
     amountPaid: row.amountPaid,
   }));
