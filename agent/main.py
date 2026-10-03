@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List
 
@@ -21,6 +22,17 @@ from livekit.agents import (
 )
 from livekit.plugins import google
 
+from long_practice import (
+    TARGET_TOKENS,
+    TRIGGER_TOKENS,
+    LongPractice,
+    chat_item_text,
+    gemini_long_practice_config,
+    max_session_seconds,
+    practice_agent_name,
+    reinject_summary,
+    with_memory_rule,
+)
 from turn_config import agent_session_kwargs, gemini_realtime_input_config
 from warm_job import is_warm_job
 
@@ -167,6 +179,9 @@ class SessionManager:
         self.ctx: JobContext | None = None
         self.participant: rtc.RemoteParticipant | None = None
         self.current_agent: CloserTrainerAgent | None = None
+        self.practice: LongPractice | None = None
+        self._practice_tasks: list[asyncio.Task[Any]] = []
+        self._shutdown_registered = False
 
     def create_session(self, config: SessionConfig) -> AgentSession:
         return AgentSession(
@@ -178,9 +193,94 @@ class SessionManager:
                 modalities=config.modalities,
                 api_key=config.gemini_api_key,
                 realtime_input_config=gemini_realtime_input_config(),
+                **gemini_long_practice_config(),
             ),
             **agent_session_kwargs(),
         )
+
+    def _cancel_practice_tasks(self) -> None:
+        for task in self._practice_tasks:
+            task.cancel()
+        self._practice_tasks = []
+
+    def _bind_long_practice(self, ctx: JobContext, session: AgentSession) -> None:
+        self._cancel_practice_tasks()
+        practice = LongPractice(
+            self.current_config.instructions,
+            started_at=time.monotonic(),
+        )
+        self.practice = practice
+        limit = max_session_seconds()
+        logger.info(
+            "long practice compression trigger=%s target=%s max_seconds=%s",
+            TRIGGER_TOKENS,
+            TARGET_TOKENS,
+            limit,
+        )
+        logger.info(
+            "session resumption is on; GoAway reconnects inside "
+            "livekit-plugins-google 1.3.5 and does not end the practice"
+        )
+
+        @session.on("user_input_transcribed")
+        def _closer(ev: Any) -> None:
+            practice.on_closer_transcript(
+                getattr(ev, "transcript", ""),
+                bool(getattr(ev, "is_final", False)),
+            )
+
+        @session.on("conversation_item_added")
+        def _item(ev: Any) -> None:
+            item = getattr(ev, "item", None)
+            practice.on_conversation_item(
+                str(getattr(item, "role", "") or ""),
+                chat_item_text(item),
+            )
+
+        @session.on("metrics_collected")
+        def _metrics(ev: Any) -> None:
+            line = practice.on_metrics(getattr(ev, "metrics", None))
+            if line:
+                logger.info(line)
+
+        @session.on("close")
+        def _close(_ev: Any) -> None:
+            logger.info(practice.usage.session_log())
+
+        async def _summary_loop() -> None:
+            while True:
+                await asyncio.sleep(30)
+                note = practice.summary_due(time.monotonic())
+                if not note:
+                    continue
+                logger.info("practice summary stored chars=%s", len(practice.summary))
+                try:
+                    await reinject_summary(session, note)
+                except Exception as exc:  # noqa: BLE001 — a note must not end the call
+                    logger.warning("practice summary reinject failed: %s", exc)
+
+        async def _max_duration() -> None:
+            await asyncio.sleep(limit)
+            logger.info("practice max duration reached seconds=%s", limit)
+            current = asyncio.current_task()
+            for task in list(self._practice_tasks):
+                if task is not current:
+                    task.cancel()
+            await session.aclose()
+
+        self._practice_tasks = [
+            asyncio.create_task(_summary_loop(), name="practice-summary"),
+            asyncio.create_task(_max_duration(), name="practice-max-duration"),
+        ]
+
+        async def _shutdown() -> None:
+            self._cancel_practice_tasks()
+
+        if not self._shutdown_registered:
+            self._shutdown_registered = True
+            add_shutdown = getattr(ctx, "add_shutdown_callback", None)
+            if add_shutdown:
+                add_shutdown(_shutdown)
 
     async def start_session(self, ctx: JobContext, participant: rtc.RemoteParticipant):
         self.ctx = ctx
@@ -188,13 +288,14 @@ class SessionManager:
 
         self.current_session = self.create_session(self.current_config)
         self.current_agent = CloserTrainerAgent(
-            instructions=self.current_config.instructions,
+            instructions=with_memory_rule(self.current_config.instructions),
         )
 
         await self.current_session.start(
             room=ctx.room,
             agent=self.current_agent,
         )
+        self._bind_long_practice(ctx, self.current_session)
 
         # The closer always opens. Do not generate a prospect greeting.
 
@@ -221,6 +322,8 @@ class SessionManager:
         if self.current_session is None or self.current_agent is None:
             return
 
+        self._cancel_practice_tasks()
+
         chat_ctx = None
         try:
             if hasattr(self.current_agent, "chat_ctx"):
@@ -232,7 +335,7 @@ class SessionManager:
 
         self.current_session = self.create_session(config)
         self.current_agent = CloserTrainerAgent(
-            instructions=config.instructions,
+            instructions=with_memory_rule(config.instructions),
             chat_ctx=chat_ctx,
         )
 
@@ -240,6 +343,7 @@ class SessionManager:
             room=ctx.room,
             agent=self.current_agent,
         )
+        self._bind_long_practice(ctx, self.current_session)
         logger.info("Session restarted with new config; prospect stays silent until closer speaks")
 
 
@@ -252,7 +356,7 @@ def prewarm(proc: Any) -> None:
 if __name__ == "__main__":
     cli.run_app(
         WorkerOptions(
-            agent_name="closer-trainer",
+            agent_name=practice_agent_name(),
             entrypoint_fnc=entrypoint,
             worker_type=WorkerType.ROOM,
             prewarm_fnc=prewarm,
