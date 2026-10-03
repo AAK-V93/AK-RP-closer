@@ -175,6 +175,7 @@ model CallRecord {
   @@index([userId, recordedAt])
   @@index([userId, estadoAgenda])
   @@index([userId, filingStatus])
+  @@index([userId, filingStatus, recordedAt])
   @@index([userId, filingStatus, confirmedAt])
 }
 

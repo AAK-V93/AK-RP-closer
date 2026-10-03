@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { dashboardCallFromRow, dashboardRowFromFiling } from "./crm-call-read";
 import { operacionFromCall } from "./crm-operacion";
@@ -94,4 +95,17 @@ test("the slim call row keeps the glance numbers and drops the transcript blob",
   assert.equal(slimPipe.pipeline.total, fullPipe.pipeline.total);
   assert.equal(slimPipe.pipeline.count, fullPipe.pipeline.count);
   assert.deepEqual(slimPipe.lines, fullPipe.lines);
+});
+
+test("the dashboard call query is one indexed read without the transcript", () => {
+  const src = readFileSync(new URL("./crm-call-read.ts", import.meta.url), "utf8");
+  assert.equal(src.includes("transcriptText"), false);
+  assert.equal(src.includes("transcriptJson"), false);
+  const query = src.slice(src.indexOf("async function selectDashboardCalls"));
+  assert.match(query, /LIMIT 2000/);
+  assert.match(query, /filingStatus" <> 'skipped'/);
+  assert.match(query, /recordedAt" DESC/);
+  assert.equal((src.match(/\$queryRaw/g) || []).length, 1);
+  const loader = src.slice(src.indexOf("export async function loadDashboardCalls"));
+  assert.equal(loader.includes("Promise.all"), false);
 });

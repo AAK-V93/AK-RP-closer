@@ -3,6 +3,7 @@ import { patchCrmPref } from "@/lib/crm-prefs";
 import { inferFollowupDate } from "@/lib/followup-date";
 import {
   deskLinesFromFilings,
+  deskAgreement,
   followupIsClosed,
   formatPendingToday,
   formatWhoToCall,
@@ -1402,7 +1403,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
         name: callClientName(row) || row.leadName,
         proximo,
         step: String(filing.tipo_seguimiento || filing.acuerdo_seguimiento || ""),
-        note: String(filing.acuerdo_seguimiento || filing.notas_crm || row.summary || ""),
+        note: deskAgreement(filing),
         lastContact: contacted,
         closed: followupIsClosed({
           seguimiento_resultado: filing.seguimiento_resultado,

@@ -37,14 +37,7 @@ export async function crmDashboard(
   opts?: { scripts?: boolean; timings?: DashboardTiming[] },
 ) {
   const scripts = opts?.scripts !== false;
-  const repairStarted = performance.now();
-  const repairGate = scheduleMissingFollowupRepair(prisma, userId)
-    .catch((error) => {
-      console.error("repair followups", error);
-    })
-    .finally(() => {
-      markTiming(opts?.timings, "repair", repairStarted);
-    });
+  scheduleMissingFollowupRepair(prisma, userId);
   const callsStarted = performance.now();
   const now = new Date();
   const todayKey = zonedDayKey(now);
@@ -77,7 +70,6 @@ export async function crmDashboard(
   ]);
   const readyCrm = userHasReadyCrm(offers);
   markTiming(opts?.timings, "calls", callsStarted);
-  await repairGate;
 
   const rollupOffers = offers.map(asRollupOffer);
   const nameHints = [...calls, ...allCalls].flatMap((row) => [

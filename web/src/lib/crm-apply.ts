@@ -733,11 +733,10 @@ export function followupRepairIsCurrent(
 }
 
 /**
- * The read path only compares two indexed timestamps. The filing scan that
- * opens missing threads runs after the response, and only when a call is
- * newer than the watermark stored on crmPrefs.
+ * Watermark check plus the filing scan. Only call this from after(), never
+ * from a read that is still building the response.
  */
-export async function scheduleMissingFollowupRepair(prisma: PrismaClient, userId: string) {
+export async function runFollowupRepairIfStale(prisma: PrismaClient, userId: string) {
   const rows = await prisma.$queryRaw<{ latest: Date | null; watermark: string | null }[]>`
     SELECT
       (
@@ -758,25 +757,30 @@ export async function scheduleMissingFollowupRepair(prisma: PrismaClient, userId
   if (repairAlreadyRunning(userId)) return;
   const stamp = new Date(latest as Date | string).toISOString();
   repairInflight.set(userId, Date.now());
-  const run = async () => {
-    try {
-      await repairMissingFollowups(prisma, userId);
-      await patchCrmPref(prisma, userId, FOLLOWUP_REPAIR_KEY, stamp);
-    } catch (error) {
-      console.error("repair followups", error);
-    } finally {
-      repairInflight.delete(userId);
-    }
-  };
   try {
-    const { after } = await import("next/server");
-    after(() => {
-      void run();
-    });
+    await repairMissingFollowups(prisma, userId);
+    await patchCrmPref(prisma, userId, FOLLOWUP_REPAIR_KEY, stamp);
   } catch (error) {
+    console.error("repair followups", error);
+  } finally {
     repairInflight.delete(userId);
-    console.error("repair followups schedule", error);
   }
+}
+
+/** Registers the watermark check for after the response. Does not query. */
+export function scheduleMissingFollowupRepair(prisma: PrismaClient, userId: string) {
+  const start = () => {
+    void runFollowupRepairIfStale(prisma, userId);
+  };
+  void import("next/server")
+    .then(({ after }) => {
+      try {
+        after(start);
+      } catch (error) {
+        console.error("repair followups schedule", error);
+      }
+    })
+    .catch(() => undefined);
 }
 
 /** Opens a thread for calls that already named a follow-up but never spawned one. */
