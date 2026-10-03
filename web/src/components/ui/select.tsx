@@ -27,7 +27,7 @@ const selectConfig = {
 
 const selectTriggerVariants = cva(
   [
-    'group relative inline-flex items-center justify-between gap-1 whitespace-nowrap px-2 py-2 placeholder:text-fg3 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+    'group relative inline-flex w-full min-w-0 items-center justify-between gap-1 px-2 py-2 placeholder:text-fg3 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:min-w-0 [&>span]:truncate',
     'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-fgAccent1 focus-visible:ring-offset-2 focus-visible:ring-offset-bg1 focus-visible:invalid:ring-fgSerious1',
     'rounded font-sans transition-all',
     'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',

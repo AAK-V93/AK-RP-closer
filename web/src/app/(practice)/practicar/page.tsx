@@ -21,8 +21,10 @@ export default function PracticePage() {
     <div className="flex flex-col h-screen bg-bg0 overflow-x-hidden">
       <header className="flex flex-shrink-0 h-14 items-center justify-between gap-2 px-3 md:px-8 w-full border-b border-separator1 min-w-0">
         <div className="flex items-center gap-3 min-w-0 flex-shrink">
-          <Link href="/" className="inline-flex h-11 min-h-11 items-center truncate text-lg font-light">
-            Closer Trainer
+          <Link href="/" className="flex h-11 min-h-11 min-w-0 items-center text-lg font-light">
+            <span className="truncate" title="Closer Trainer">
+              Closer Trainer
+            </span>
           </Link>
           <Badge variant="outline" className="hidden sm:inline-flex text-xs">
             Práctica
