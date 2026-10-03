@@ -93,7 +93,7 @@ test("the practice card keeps the drill off the hub payload", () => {
   assert.equal(hub.includes("practiceCardFromGuides"), false);
   assert.match(screen, /\/api\/hub\/practice/);
   assert.match(screen, /Elige con quién practicar/);
-  assert.match(screen, /line-clamp-2/);
+  assert.match(screen, /DeskRowStatus/);
   assert.match(screen, /title=\{status\}/);
   assert.match(screen, /min-w-0/);
   assert.match(screen, /items-start justify-between/);

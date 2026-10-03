@@ -66,3 +66,18 @@ export function ellipsisCut(value: string) {
   const body = dropDanglingWords(clean);
   return `${body || clean}…`;
 }
+
+/** Phone desk row. Short enough that the «…» is in the text, not painted by line-clamp. */
+export const MOBILE_DESK_CHARS = 64;
+
+const WHOLE_LABELS = new Set(["cliente", "oferta", "producto", "lead"]);
+
+export function mobileDeskStatus(value: string) {
+  return clipVisible(value, MOBILE_DESK_CHARS);
+}
+
+/** CRM cells on a phone. Lead and offer names stay whole. */
+export function mobileCellText(key: string, value: string, narrow: boolean) {
+  if (!narrow || value === "—" || WHOLE_LABELS.has(key)) return value;
+  return mobileDeskStatus(value);
+}

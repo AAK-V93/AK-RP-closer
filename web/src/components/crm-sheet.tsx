@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { mobileCellText } from "@/lib/visible-text";
 
 export const SHEET_PAGE_SIZE = 100;
 export const SHEET_ROW_PX = 38;
@@ -152,8 +153,20 @@ export function SheetTable<T>({
                               col.align === "right" ? "tabular-nums" : undefined,
                           }}
                         >
-                          <div className="line-clamp-3 break-words [overflow-wrap:anywhere]">
-                            {value}
+                          <div
+                            className={
+                              value === "—" ||
+                              col.key === "cliente" ||
+                              col.key === "oferta" ||
+                              col.key === "producto" ||
+                              col.key === "lead"
+                                ? "break-words"
+                                : narrow
+                                  ? ""
+                                  : "line-clamp-3"
+                            }
+                          >
+                            {mobileCellText(col.key, value, narrow)}
                           </div>
                           {extra && extra !== "—" ? (
                             <div className="mt-0.5 text-xs text-fg3">{extra}</div>

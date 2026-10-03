@@ -19,6 +19,7 @@ import { moneyLabel } from "@/lib/crm-operacion";
 import { ACTIVA_EXPLAIN } from "@/lib/crm-activa";
 import { dineroEnJuegoNote, saldoPorCobrarNote } from "@/lib/crm-pipeline";
 import { PipelineDetail } from "@/components/pipeline-detail";
+import { DeskRowStatus } from "@/components/desk-row-status";
 import { followupCardStatus } from "@/lib/home-desk";
 import {
   filterPersistableOffers,
@@ -628,13 +629,9 @@ function ConfiguredC({
 
 function HomeRow({ href, title, status }: { href: string; title: string; status: string }) {
   return (
-    <Link href={href} className="flex items-start justify-between gap-4 py-4">
+    <Link href={href} className="flex items-start justify-between gap-4 py-4" title={status}>
       <span className="shrink-0 text-fg0">{title}</span>
-      <div className="min-w-0">
-        <p className="line-clamp-2 text-right text-sm text-fg3" title={status}>
-          {status}
-        </p>
-      </div>
+      <DeskRowStatus status={status} />
     </Link>
   );
 }
