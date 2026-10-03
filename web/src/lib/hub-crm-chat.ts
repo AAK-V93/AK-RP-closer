@@ -22,6 +22,14 @@ import {
 import { summarizePipeline } from "@/lib/crm-pipeline";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
 import { findMatchingLead, samePersonName } from "@/lib/lead-match";
+import {
+  canonicalOfferName,
+  isChatRequest,
+  leadClarifyReply,
+  leadMention,
+  planProductoWrite,
+  type OfferRef,
+} from "@/lib/producto-guard";
 import { listPendingFilings } from "@/lib/call-intelligence";
 import { realClientName } from "@/lib/crm-noise";
 import { renameCrmCalls } from "@/lib/crm-rename";
@@ -122,6 +130,7 @@ export type ChatContext = {
   pending: ChatProposal | null;
   now?: Date;
   offers?: string[];
+  offerRefs?: OfferRef[];
   desk?: DeskLine[];
   unclassified?: number;
   appliedCash?: AppliedCash | null;
@@ -164,10 +173,8 @@ export function leadInMessage(leads: ChatLead[], text: string) {
   return byFirst.length === 1 ? byFirst[0] : null;
 }
 
-export function exactOfferName(names: string[], raw: string) {
-  const needle = fold(raw);
-  if (!needle) return "";
-  return names.find((name) => fold(name) === needle) || "";
+export function exactOfferName(names: readonly string[], raw: string) {
+  return canonicalOfferName(raw, names);
 }
 
 export function isChatCancel(text: string) {
@@ -267,8 +274,32 @@ export function mentionsLeadMemory(text: string) {
   return /transcript|transcrip|acuerdo|qued|recuerdo|notas|de qu[eé] habl/i.test(text);
 }
 
+function offerRefsOf(ctx: ChatContext): OfferRef[] {
+  if (ctx.offerRefs?.length) {
+    return ctx.offerRefs.filter((offer) => offer.productName.trim());
+  }
+  return (ctx.offers || []).map((productName) => productName.trim()).filter(Boolean).map((productName) => ({
+    productName,
+  }));
+}
+
 function offerList(ctx: ChatContext) {
-  return (ctx.offers || []).map((name) => name.trim()).filter(Boolean);
+  return offerRefsOf(ctx).map((offer) => offer.productName);
+}
+
+function looksLikeLeadUpdate(text: string) {
+  return /\b(se llama|pag[oó]|pagad[oa]|pagu[eé]|quedamos|oferta|producto|cash|borra|elimina|quita|anula|reserva|cuota|abono|avisaba|acuerdo|agend[eé])\b/i.test(
+    text,
+  );
+}
+
+function unclearLeadUpdate(text: string, leads: ChatLead[]): ChatTurn | null {
+  if (/[?¿]/.test(text) && !/\b(pag[oó]|quedamos|se llama)\b/i.test(text)) return null;
+  if (isChatRequest(text) && !/\b(se llama|pag[oó]|producto de|oferta de)\b/i.test(text)) return null;
+  const mention = leadMention(text, leads);
+  if (mention.kind !== "clarify") return null;
+  if (!looksLikeLeadUpdate(text)) return null;
+  return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
 }
 
 function recall(text: string, ctx: ChatContext): ChatTurn | null {
@@ -421,6 +452,8 @@ function pendingDesk(text: string, ctx: ChatContext): ChatTurn | null {
 export function asksForPendingDesk(text: string) {
   const q = fold(text).replace(/[¿?¡!.,]/g, " ").replace(/\s+/g, " ").trim();
   if (/\bcambio pendiente\b|\bnada pendiente\b|\bningun cambio\b/.test(q)) return false;
+  if (/\blista de seguimientos\b/.test(q)) return true;
+  if (/\b(dame|muestrame|ensename)\b/.test(q) && /\bseguimientos?\b/.test(q)) return true;
   return (
     /\bpendientes?\b/.test(q) ||
     /\bque tengo hoy\b/.test(q) ||
@@ -761,10 +794,32 @@ function offerEdit(text: string, ctx: ChatContext): ChatTurn | null {
   if (!match) return null;
   const rawOffer = tidyName(match[2] || "");
   if (!rawOffer) return null;
+  const refs = offerRefsOf(ctx);
+  const names = refs.map((offer) => offer.productName).join(", ") || "ninguna";
+  const plan = planProductoWrite(rawOffer, refs);
+  if (plan.action === "request") {
+    return {
+      kind: "answer",
+      reply: "Eso es una petición al chat, no un dato del lead. No cambié nada.",
+    };
+  }
+  if (plan.action === "unread") {
+    return {
+      kind: "answer",
+      reply: "No toqué Producto: no hay ofertas guardadas para comparar. No cambié nada.",
+    };
+  }
   const lead = leadInMessage(ctx.leads, match[1] || "") || leadInMessage(ctx.leads, text);
-  const offers = offerList(ctx);
-  const exact = exactOfferName(offers, rawOffer);
-  const names = offers.join(", ") || "ninguna";
+  if (plan.action === "acuerdo") {
+    if (!lead) return { kind: "answer", reply: "¿De quién es ese acuerdo? Dime el nombre del cliente." };
+    const proposal: ChatProposal = {
+      leadId: lead.id,
+      leadName: lead.name,
+      changes: [{ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: plan.acuerdo }],
+    };
+    return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
+  }
+  const exact = plan.producto;
   if (!exact) {
     return {
       kind: "answer",
@@ -833,10 +888,12 @@ export function interpretCrmChat(text: string, ctx: ChatContext): ChatTurn {
     return { kind: "apply", proposal: ctx.pending };
   }
   if (ctx.pending && isNo(raw)) {
-    return { kind: "drop", reply: "Listo, cancelé eso. No cambié nada." };
+    return { kind: "drop", reply: "Cancelé eso. No cambié nada." };
   }
   const desk = pendingDesk(raw, ctx);
   if (desk) return desk;
+  const unclear = unclearLeadUpdate(raw, ctx.leads);
+  if (unclear) return unclear;
   return (
     rename(raw, ctx) ||
     offerEdit(raw, ctx) ||
@@ -870,12 +927,31 @@ export function proposalFromLoosePatch(
   message: string,
 ): ChatTurn {
   if (!patch) return { kind: "none" };
-  const lead = leadInMessage(ctx.leads, message);
-  const offers = offerList(ctx);
+  if (isChatRequest(message)) return { kind: "none" };
+  const mention = leadMention(message, ctx.leads);
+  if (mention.kind === "clarify") {
+    return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
+  }
+  const lead = mention.kind === "exact" ? ctx.leads.find((row) => row.id === mention.lead.id) || null : null;
+  const refs = offerRefsOf(ctx);
+  const names = refs.map((offer) => offer.productName).join(", ") || "ninguna";
   const rawOffer = String(patch.offerName || "").trim();
-  const exactOffer = rawOffer ? exactOfferName(offers, rawOffer) : "";
-  const names = offers.join(", ") || "ninguna";
+  const offerPlan = rawOffer ? planProductoWrite(rawOffer, refs) : null;
+  const exactOffer = offerPlan?.producto || "";
   if (!lead) {
+    if (offerPlan?.action === "request") return { kind: "none" };
+    if (offerPlan?.action === "unread") {
+      if (patch.name || patch.nextStep || patch.amountPaid || patch.lastSummary) {
+        return { kind: "answer", reply: "¿De quién? Dime el nombre del cliente." };
+      }
+      return {
+        kind: "answer",
+        reply: "No toqué Producto: no hay ofertas guardadas para comparar. No cambié nada.",
+      };
+    }
+    if (offerPlan?.action === "acuerdo") {
+      return { kind: "answer", reply: "¿De quién es ese acuerdo? Dime el nombre del cliente." };
+    }
     if (rawOffer && !exactOffer) {
       return {
         kind: "answer",
@@ -889,7 +965,16 @@ export function proposalFromLoosePatch(
   }
   const changes: ChatChange[] = [];
   let warning = "";
-  if (rawOffer && !exactOffer) {
+  if (offerPlan?.action === "request") {
+    warning = "";
+  } else if (offerPlan?.action === "unread") {
+    warning = "";
+  } else if (offerPlan?.action === "acuerdo" && offerPlan.acuerdo) {
+    const step = tidyName(String(patch.nextStep || "")) || offerPlan.acuerdo;
+    if (fold(step) !== fold(lead.nextStep)) {
+      changes.push({ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step });
+    }
+  } else if (rawOffer && !exactOffer) {
     warning = `«${rawOffer}» no es una oferta. Las tuyas son: ${names}. `;
   } else if (exactOffer && fold(exactOffer) !== fold(lead.offerName)) {
     changes.push({
@@ -905,7 +990,13 @@ export function proposalFromLoosePatch(
     changes.push({ field: "name", label: "Nombre", from: shown, to: renamed });
   }
   const step = tidyName(String(patch.nextStep || ""));
-  if (step && fold(step) !== fold(lead.nextStep) && fold(step) !== fold(rawOffer)) {
+  if (
+    step &&
+    !isChatRequest(step) &&
+    offerPlan?.action !== "acuerdo" &&
+    fold(step) !== fold(lead.nextStep) &&
+    fold(step) !== fold(rawOffer)
+  ) {
     changes.push({ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step });
   }
   const when = String(patch.nextStepAt || "").trim();
@@ -927,7 +1018,12 @@ export function proposalFromLoosePatch(
     }
   }
   const notes = tidyName(String(patch.lastSummary || ""));
-  if (notes && fold(notes) !== fold(lead.lastSummary) && fold(notes) !== fold(rawOffer)) {
+  if (
+    notes &&
+    !isChatRequest(notes) &&
+    fold(notes) !== fold(lead.lastSummary) &&
+    fold(notes) !== fold(rawOffer)
+  ) {
     changes.push({ field: "notes", label: "Notas", from: lead.lastSummary, to: notes });
   }
   if (!changes.length) {
@@ -1012,7 +1108,7 @@ export async function applyChatProposal(
   prisma: PrismaClient,
   userId: string,
   proposal: ChatProposal,
-  offers: string[] = [],
+  offers: ReadonlyArray<string | OfferRef> = [],
 ): Promise<{ ok: boolean; reply: string; remember?: boolean }> {
   try {
     const lead = await prisma.lead.findFirst({
@@ -1029,6 +1125,7 @@ export async function applyChatProposal(
     } = {};
     let nextName = lead.name;
     let skippedOffer = "";
+    let acuerdoInstead = "";
     let cashChange: ChatChange | null = null;
     let cashSkipNote = "";
     let cashRemember = true;
@@ -1051,9 +1148,17 @@ export async function applyChatProposal(
       if (change.field === "cash") cashChange = { ...change, to };
       if (change.field === "notes") data.lastSummary = to;
       if (change.field === "offer") {
-        const exact = exactOfferName(offers, to);
-        if (!exact) skippedOffer = to;
-        else data.offerName = exact;
+        const plan = planProductoWrite(to, offers);
+        if (plan.producto) data.offerName = plan.producto;
+        else if (plan.acuerdo) {
+          acuerdoInstead = plan.acuerdo;
+          const step = String(lead.nextStep || "").trim();
+          const notes = String(lead.lastSummary || "").trim();
+          if (!step && !data.nextStep) data.nextStep = plan.acuerdo;
+          else if (!notes.includes(plan.acuerdo) && !data.lastSummary) {
+            data.lastSummary = notes ? `${notes}\n${plan.acuerdo}` : plan.acuerdo;
+          }
+        } else skippedOffer = to;
       }
     }
     if (cashChange && cashChange.to.trim()) {
@@ -1084,8 +1189,13 @@ export async function applyChatProposal(
     const callsNeedRename = Boolean(nameChange && fromName !== nextName);
     if (!Object.keys(data).length && !callsNeedRename) {
       if (cashSkipNote) return { ok: true, reply: cashSkipNote, remember: cashRemember };
+      const skippedAction = skippedOffer ? planProductoWrite(skippedOffer, offers).action : "";
       const because = skippedOffer
-        ? `«${skippedOffer}» no es una oferta. No cambié nada.`
+        ? skippedAction === "request"
+          ? "Eso es una petición al chat, no un dato del lead. No cambié nada."
+          : skippedAction === "unread"
+            ? "No toqué Producto: no hay ofertas guardadas para comparar. No cambié nada."
+            : `«${skippedOffer}» no es una oferta. No cambié nada.`
         : "No hay un cambio válido para guardar. No cambié nada.";
       return { ok: true, reply: because };
     }
@@ -1117,8 +1227,11 @@ export async function applyChatProposal(
         const when = proposal.changes.find((change) => change.field === "nextStepAt");
         const note = proposal.changes.find((change) => change.field === "notes");
         if (step) filing.acuerdo_seguimiento = step.to;
+        if (data.nextStep) filing.acuerdo_seguimiento = data.nextStep;
         if (when) filing.proximo_seguimiento = when.to;
         if (note) filing.notas_crm = note.to;
+        if (data.lastSummary) filing.notas_crm = data.lastSummary;
+        if (data.offerName) filing.producto = data.offerName;
         const cashAmount = data.amountPaid != null ? Number(data.amountPaid) : null;
         if (cashAmount != null && Number.isFinite(cashAmount)) {
           filing.cash_collected = cashAmount;
@@ -1147,12 +1260,24 @@ export async function applyChatProposal(
       callNote = `${callNote} No pude actualizar la llamada vinculada.`.trim();
     }
     const done = proposal.changes
-      .filter((change) => change.field !== "offer" || !skippedOffer)
-      .filter((change) => change.field !== "cash" || data.amountPaid != null)
-      .map((change) => `${change.label} «${change.to}»`)
+      .flatMap((change) => {
+        if (change.field === "offer") {
+          if (data.offerName) return [`Producto/Oferta «${data.offerName}»`];
+          if (acuerdoInstead) {
+            const label = data.nextStep ? "Acuerdo" : "Notas";
+            return [`${label} «${acuerdoInstead}»`];
+          }
+          return [];
+        }
+        if (change.field === "cash" && data.amountPaid == null) return [];
+        if (change.field === "nextStep" && acuerdoInstead && change.to === acuerdoInstead) return [];
+        return [`${change.label} «${change.to}»`];
+      })
       .join("; ");
     const offerNote = skippedOffer
-      ? ` No toqué Producto/Oferta: «${skippedOffer}» no está en tus ofertas.`
+      ? planProductoWrite(skippedOffer, offers).action === "unread"
+        ? " No toqué Producto: no hay ofertas guardadas para comparar."
+        : ` No toqué Producto/Oferta: «${skippedOffer}» no está en tus ofertas.`
       : "";
     const cashNote = cashSkipNote ? ` ${cashSkipNote}` : "";
     return {
@@ -1258,7 +1383,8 @@ export async function respondToCrmChat(
       return turn.reply;
     }
     if (turn.kind === "apply") {
-      const result = await applyChatProposal(prisma, userId, turn.proposal, ctx.offers || []);
+      const catalog = ctx.offerRefs?.length ? ctx.offerRefs : ctx.offers || [];
+      const result = await applyChatProposal(prisma, userId, turn.proposal, catalog);
       if (result.ok) await savePendingChat(prisma, userId, null);
       const cash = turn.proposal.changes.find((change) => change.field === "cash");
       if (result.ok && result.remember !== false && turn.proposal.applyKey && cash) {
@@ -1454,7 +1580,7 @@ async function loadCrmChatRead(prisma: PrismaClient, userId: string, raw: string
       }),
       prisma.userOffer.findMany({
         where: { userId },
-        select: { productName: true },
+        select: { productName: true, commercial: true },
       }),
       needsClassifyCount
         ? listPendingFilings(prisma, userId).catch((error) => {
@@ -1607,6 +1733,12 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     pending: readPendingChat(user?.crmPrefs),
     now: new Date(),
     offers: offerRows.map((row) => row.productName).filter(Boolean),
+    offerRefs: offerRows
+      .filter((row) => row.productName)
+      .map((row) => ({
+        productName: row.productName,
+        aliases: parseCommercial(row.commercial).aliases,
+      })),
     desk,
     unclassified: pendingFilings.length,
     appliedCash: readAppliedCash(user?.crmPrefs),

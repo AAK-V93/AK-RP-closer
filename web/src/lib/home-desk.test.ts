@@ -96,7 +96,7 @@ test("the practice card keeps the drill off the hub payload", () => {
   assert.match(screen, /DeskRowStatus/);
   assert.match(screen, /title=\{status\}/);
   assert.match(screen, /min-w-0/);
-  assert.match(screen, /items-start justify-between/);
+  assert.match(screen, /grid-cols-\[7\.5rem_minmax\(0,1fr\)\]/);
   assert.doesNotMatch(screen, /items-baseline justify-between gap-4 py-4[\s\S]{0,120}line-clamp-2/);
   assert.doesNotMatch(screen, /phase \|\| "a"/);
   assert.match(practice, /practiceCardFromGuides/);

@@ -47,4 +47,6 @@ test("CRM offer chips and the coach trash icon do not shrink at tablet width", (
   assert.match(crm, /h-auto min-h-11 max-w-full whitespace-normal text-left lg:min-h-0/);
   assert.match(crm, /h-11 min-h-11 w-full px-0\.5 text-\[11px\] lg:h-8 lg:min-h-0/);
   assert.equal(crm.includes('className="h-8 '), false);
+  assert.match(crm, /block text-sm text-fg3">Nombre/);
+  assert.match(crm, /placeholder="Buscar"[\s\S]{0,180}lg:h-11 lg:min-h-11/);
 });

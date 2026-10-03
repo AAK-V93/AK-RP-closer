@@ -240,6 +240,7 @@ export function buildExtractorPrompt(args: {
     "estado_agenda puede usar también AGENDADO, ACUERDO SIN PAGO, INTERNA o NO_COMERCIAL.",
     "venta_total, cash_collected y saldo_pendiente son números o null, sin símbolos.",
     "Dentro de los textos no uses comillas dobles.",
+    "producto es exactamente un nombre de la lista de productos del PAE, o null. Nunca un acuerdo, una frase del closer ni una petición. Si el texto es un acuerdo, va en acuerdo_seguimiento y producto queda null.",
     "",
     "DATOS YA CONOCIDOS DE ESTA LLAMADA",
     `FECHA_LLAMADA: ${args.fechaLlamada || "null"}`,

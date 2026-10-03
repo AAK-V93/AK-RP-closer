@@ -20,11 +20,11 @@ import { findMatchingLead } from "@/lib/lead-match";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
 import {
   deadlineDaysForPago,
-  matchOfferName,
   parseCommercial,
   type OfferForCrm,
   userHasReadyCrm,
 } from "@/lib/offer-commercial";
+import { applyProductoGuard, keptOfferName, offersCatalogOpen, type OfferRef } from "@/lib/producto-guard";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { addDays, parseCrmPrefs, parseFollowupDate, patchCrmPref } from "@/lib/crm-prefs";
 import { canonicalTipo } from "@/lib/call-normalize";
@@ -314,6 +314,11 @@ async function stampLeadOnCall(
   });
 }
 
+function filingProducto(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  return String((value as { producto?: unknown }).producto || "").trim();
+}
+
 export async function applyExtractorToCrm(
   prisma: PrismaClient,
   userId: string,
@@ -327,8 +332,10 @@ export async function applyExtractorToCrm(
     (await prisma.user.findUnique({ where: { id: userId }, select: { crmPrefs: true } }))
       ?.crmPrefs,
   );
-  const matched = matchOfferName(offers, parsed.producto);
-  const offerName = matched?.productName || (parsed.producto === "OTROS" ? "" : parsed.producto || "");
+  const offerRefs: OfferRef[] = offers.map((offer) => ({
+    productName: offer.productName,
+    aliases: offer.commercial?.aliases,
+  }));
   const row = await prisma.callRecord.findFirst({
     where: { id: callRecordId, userId },
   });
@@ -341,16 +348,25 @@ export async function applyExtractorToCrm(
   const saldo = moneyOk ? parsed.saldo_pendiente : null;
 
   let leadId: string | null = null;
+  const catalogOpen = offersCatalogOpen(offerRefs);
+  const acceptedOffer = catalogOpen ? applyProductoGuard(parsed, offerRefs).producto : "";
+  if (!catalogOpen) parsed.producto = null;
+  const previousProducto = filingProducto(row.filingJson);
+  if (!acceptedOffer && previousProducto) parsed.producto = previousProducto;
+  let offerName = acceptedOffer;
+  let matched = acceptedOffer ? offers.find((offer) => offer.productName === acceptedOffer) || null : null;
   if (parsed.cliente_real && !isNonSalesCall(parsed.estado_agenda)) {
     const leads = await prisma.lead.findMany({ where: { userId } });
     const existing = findMatchingLead(leads, parsed.cliente_real);
+    offerName = keptOfferName(acceptedOffer, existing?.offerName, offerRefs);
+    matched = acceptedOffer ? offers.find((offer) => offer.productName === acceptedOffer) || null : null;
     const status = leadStatusFromAgenda(parsed.estado_agenda);
     const nextAt =
       parseFollowupDate(parsed.proximo_seguimiento, callAt) ||
       (parsed.requiere_seguimiento ? followupInstant(callAt, prefs.followupGraceDays) : null);
     const data = {
       company: existing?.company || "",
-      offerName: offerName || existing?.offerName || "",
+      offerName,
       status,
       lastSummary: parsed.notas_crm || existing?.lastSummary || "",
       nextStep: parsed.acuerdo_seguimiento || existing?.nextStep || "",
@@ -441,7 +457,7 @@ export async function applyExtractorToCrm(
                 ? "pendiente"
                 : "pendiente",
       leadName: parsed.cliente_real || row.leadName,
-      offerName: offerName || row.offerName,
+      offerName: keptOfferName(acceptedOffer, row.offerName, offerRefs),
       trainsBot: trainsBot(parsed.estado_agenda),
       summary,
       filingStatus: "confirmed",

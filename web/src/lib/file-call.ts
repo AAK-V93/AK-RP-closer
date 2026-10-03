@@ -4,6 +4,7 @@ import { loadOffersForCrm } from "@/lib/crm-apply";
 import { findMatchingLead } from "@/lib/lead-match";
 import type { OfferForCrm } from "@/lib/offer-commercial";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
+import { canonicalOfferName } from "@/lib/producto-guard";
 import { ensureCrmTables } from "@/lib/prisma";
 import { isNonSalesCall } from "@/lib/call-kind";
 
@@ -94,21 +95,13 @@ function normalizeStatus(raw?: string) {
 function offerFromChat(raw: string | null | undefined, offers: OfferForCrm[]) {
   const text = String(raw || "").trim();
   if (!text || text.length > 80 || text.split(/\s+/).length > 6) return "";
-  const needle = text
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-  const hit = offers.find((offer) =>
-    [offer.productName, ...(offer.commercial?.aliases || [])].some(
-      (name) =>
-        name
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .toLowerCase()
-          .trim() === needle,
-    ),
+  return canonicalOfferName(
+    text,
+    offers.map((offer) => ({
+      productName: offer.productName,
+      aliases: offer.commercial?.aliases,
+    })),
   );
-  return hit?.productName || "";
 }
 
 function parseDue(raw?: string) {

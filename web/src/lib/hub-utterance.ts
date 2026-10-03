@@ -4,6 +4,7 @@ import { applyExtractorToCrm, loadOffersForCrm } from "@/lib/crm-apply";
 import { upsertLeadForAgenda } from "@/lib/agenda";
 import { emptyExtractor } from "@/lib/extractor";
 import { findMatchingLead } from "@/lib/lead-match";
+import { canonicalOfferName } from "@/lib/producto-guard";
 import { followupQuestion } from "@/lib/followup-scripts";
 import { Prisma } from "@prisma/client";
 
@@ -273,11 +274,16 @@ export async function applyHubUtterance(
   }
 
   const offers = await loadOffersForCrm(prisma, userId);
-  const offer = offers.find((row) => row.productName === lead.offerName) || offers[0];
+  const refs = offers.map((row) => ({
+    productName: row.productName,
+    aliases: row.commercial?.aliases,
+  }));
+  const namedOffer = canonicalOfferName(lead.offerName, refs);
+  const offer = offers.find((row) => row.productName === namedOffer) || offers[0];
   const parsed = emptyExtractor();
   parsed.cliente_real = lead.name;
   parsed.estado_agenda = "CIERRE VENTA";
-  parsed.producto = lead.offerName || offer?.productName || "";
+  parsed.producto = namedOffer || (String(lead.offerName || "").trim() ? "" : offer?.productName || "");
   parsed.cash_collected = spoken.amount;
   parsed.venta_total = spoken.amount;
   parsed.saldo_pendiente = 0;
