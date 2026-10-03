@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { classifyAndFileCall, maybeCreateAlert } from "@/lib/call-intelligence";
 import { loadOffersForCrm } from "@/lib/crm-apply";
-import { findMatchingLead } from "@/lib/lead-match";
+import { matchLeadForFiling } from "@/lib/lead-match";
 import type { OfferForCrm } from "@/lib/offer-commercial";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
 import { canonicalOfferName } from "@/lib/producto-guard";
@@ -122,11 +122,9 @@ export async function applyCrmChatUpdate(
   await ensureCrmTables(prisma);
 
   const leads = await prisma.lead.findMany({ where: { userId } });
-  const existing = findMatchingLead(
-    leads,
-    name,
-    patch.company,
-  );
+  const linked = matchLeadForFiling(leads, name);
+  if (linked.kind === "ambiguous") return null;
+  const existing = linked.kind === "one" ? linked.lead : null;
   const status = normalizeStatus(patch.status);
   const nextStepAt = parseDue(patch.nextStepAt);
   const offers = await loadOffersForCrm(prisma, userId);

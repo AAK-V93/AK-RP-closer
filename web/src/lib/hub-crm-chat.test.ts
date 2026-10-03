@@ -416,6 +416,113 @@ test("an agreement in offerName becomes the acuerdo of the exact lead", () => {
   assert.doesNotMatch(turn.reply, /Carlos/);
 });
 
+const diego: ChatLead = {
+  id: "diego",
+  name: "Diego Huamán",
+  offerName: "",
+  nextStep: "Llamar el jueves",
+  lastSummary: "",
+  amountPaid: "",
+  nextStepAt: new Date("2026-10-07T20:00:00.000Z"),
+};
+
+test("quedó en pagar asks which Diego before writing", () => {
+  const withDiego = { ...ctx, leads: [...leads, diego] };
+  for (const text of [
+    "Diego Huamen quedó en pagar el lunes",
+    "Diego Huamen quedamos en pagar el lunes",
+    "Diego Huamen quedaron en pagar el lunes",
+    "Diego Huamen va a pagar el lunes",
+    "Diego Huamen pagó el lunes",
+    "Diego Huamen pago el lunes",
+    "Diego Huamen pagará el lunes",
+  ]) {
+    const turn = interpretCrmChat(text, withDiego);
+    assert.equal(turn.kind, "answer", text);
+    if (turn.kind !== "answer") continue;
+    assert.match(turn.reply, /¿Te refieres a Diego Huamán\?/);
+    assert.match(turn.reply, /No cambié nada/);
+    assert.equal("proposal" in turn, false);
+  }
+});
+
+test("va por a saved offer does not need the word oferta", () => {
+  const turn = interpretCrmChat("Diego Huamán va por Círculo Millonario", {
+    ...ctx,
+    leads: [...leads, diego],
+    offers: ["Círculo Millonario"],
+  });
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.proposal.leadId, "diego");
+  assert.equal(turn.proposal.changes[0]?.field, "offer");
+  assert.equal(turn.proposal.changes[0]?.to, "Círculo Millonario");
+  assert.doesNotMatch(turn.reply, /Puedo decirte el cobrado/);
+});
+
+test("va por an alias resolves, and an unknown phrase is not an offer", () => {
+  const saved = interpretCrmChat("Diego Huamán va por círculo", {
+    ...ctx,
+    leads: [...leads, diego],
+    offerRefs: [{ productName: "Círculo Millonario", aliases: ["círculo"] }],
+  });
+  assert.equal(saved.kind, "confirm");
+  if (saved.kind === "confirm") {
+    assert.equal(saved.proposal.changes[0]?.to, "Círculo Millonario");
+  }
+  const missed = interpretCrmChat("Diego Huamán va por un plan distinto", {
+    ...ctx,
+    leads: [...leads, diego],
+    offers: ["Círculo Millonario"],
+  });
+  assert.equal(missed.kind, "none");
+});
+
+test("the user's acuerdo wins over the model's Vernos rewrite", () => {
+  const turn = proposalFromLoosePatch(
+    {
+      offerName: "quedamos en que el viernes me avisaba",
+      nextStep: "Vernos en que el viernes me avisaba",
+    },
+    { ...ctx, leads: [...leads, diego], offers: ["Círculo Millonario"] },
+    "Diego Huamán quedamos en que el viernes me avisaba",
+  );
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(
+    turn.proposal.changes.find((change) => change.field === "nextStep")?.to,
+    "quedamos en que el viernes me avisaba",
+  );
+  assert.equal(
+    turn.proposal.changes.some((change) => change.to.includes("Vernos")),
+    false,
+  );
+});
+
+test("próximo seguimiento shows the stored Bogotá time, not a dash", () => {
+  const turn = proposalFromLoosePatch(
+    { nextStepAt: "2026-10-09 17:00" },
+    { ...ctx, leads: [...leads, diego], offers: ["Círculo Millonario"] },
+    "Diego Huamán el viernes a las 5",
+  );
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  const when = turn.proposal.changes.find((change) => change.field === "nextStepAt");
+  assert.equal(when?.from, "2026-10-07 15:00");
+  assert.match(turn.reply, /2026-10-07 15:00/);
+  assert.doesNotMatch(turn.reply, /«—»/);
+  const scheduled = interpretCrmChat(
+    "Con Diego Huamán quedamos de vernos el viernes 9 de octubre a las 5 pm",
+    { ...ctx, leads: [...leads, diego] },
+  );
+  assert.equal(scheduled.kind, "confirm");
+  if (scheduled.kind !== "confirm") return;
+  assert.equal(
+    scheduled.proposal.changes.find((change) => change.field === "nextStepAt")?.from,
+    "2026-10-07 15:00",
+  );
+});
+
 test("a reply about another lead is replaced with the one named now", () => {
   const reply = replyForNamedLead(
     "¿Cuál fue el valor de la venta con Edson?",

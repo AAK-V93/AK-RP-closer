@@ -445,6 +445,10 @@ test("a call already in the CRM is not waiting to be classified", () => {
   ];
   assert.equal(
     callAlreadyInCrm({ id: "pending-1", leadName: "Valeria", title: "Impromptu Google Meet Meeting" }, leads),
+    false,
+  );
+  assert.equal(
+    callAlreadyInCrm({ id: "pending-full", leadName: "Valeria Ríos", title: "Impromptu Google Meet Meeting" }, leads),
     true,
   );
   assert.equal(

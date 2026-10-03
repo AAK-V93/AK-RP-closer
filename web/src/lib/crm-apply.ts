@@ -16,7 +16,7 @@ import {
   type ExtractorJson,
 } from "@/lib/extractor";
 import { followupIsClosed } from "@/lib/crm-followups";
-import { findMatchingLead } from "@/lib/lead-match";
+import { matchLeadForFiling } from "@/lib/lead-match";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
 import {
   deadlineDaysForPago,
@@ -348,6 +348,7 @@ export async function applyExtractorToCrm(
   const saldo = moneyOk ? parsed.saldo_pendiente : null;
 
   let leadId: string | null = null;
+  let leaveUnclassified = false;
   const catalogOpen = offersCatalogOpen(offerRefs);
   const acceptedOffer = catalogOpen ? applyProductoGuard(parsed, offerRefs).producto : "";
   if (!catalogOpen) parsed.producto = null;
@@ -357,7 +358,23 @@ export async function applyExtractorToCrm(
   let matched = acceptedOffer ? offers.find((offer) => offer.productName === acceptedOffer) || null : null;
   if (parsed.cliente_real && !isNonSalesCall(parsed.estado_agenda)) {
     const leads = await prisma.lead.findMany({ where: { userId } });
-    const existing = findMatchingLead(leads, parsed.cliente_real);
+    const linked = matchLeadForFiling(leads, parsed.cliente_real);
+    if (linked.kind === "ambiguous" || (followupOnly && linked.kind === "none")) {
+      if (!followupOnly && linked.kind === "ambiguous") leaveUnclassified = true;
+      else if (followupOnly) {
+        return {
+          callRecordId,
+          leadId: null,
+          parsed,
+          summary: extractorOneLiner(parsed),
+          unclassified: linked.kind === "ambiguous",
+        };
+      }
+    }
+    const existing = linked.kind === "one" ? linked.lead : null;
+    if (leaveUnclassified) {
+      delete (parsed as ExtractorJson & { lead_id?: string }).lead_id;
+    } else {
     offerName = keptOfferName(acceptedOffer, existing?.offerName, offerRefs);
     matched = acceptedOffer ? offers.find((offer) => offer.productName === acceptedOffer) || null : null;
     const status = leadStatusFromAgenda(parsed.estado_agenda);
@@ -413,7 +430,7 @@ export async function applyExtractorToCrm(
 
     if (followupOnly) {
       await stampLeadOnCall(prisma, userId, callRecordId, lead.id);
-      return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed) };
+      return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed), unclassified: false };
     }
 
     if (moneyOk && cash && cash > 0) {
@@ -435,10 +452,11 @@ export async function applyExtractorToCrm(
       recordedAt: callAt,
       estado: parsed.estado_agenda,
     });
+    }
   }
 
   if (followupOnly) {
-    return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed) };
+    return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed), unclassified: false };
   }
 
   const summary = extractorOneLiner(parsed);
@@ -460,9 +478,9 @@ export async function applyExtractorToCrm(
       offerName: keptOfferName(acceptedOffer, row.offerName, offerRefs),
       trainsBot: trainsBot(parsed.estado_agenda),
       summary,
-      filingStatus: "confirmed",
+      filingStatus: leaveUnclassified ? "pending" : "confirmed",
       filingJson: parsed as unknown as Prisma.InputJsonValue,
-      confirmedAt: new Date(),
+      confirmedAt: leaveUnclassified ? null : new Date(),
       estadoAgenda: parsed.estado_agenda || "",
       ventaTotal: venta,
       cashCollected: cash,
@@ -471,7 +489,7 @@ export async function applyExtractorToCrm(
     },
   });
 
-  return { callRecordId, leadId, parsed, summary };
+  return { callRecordId, leadId, parsed, summary, unclassified: leaveUnclassified };
 }
 
 async function spawnAlertsFromExtractor(
@@ -857,7 +875,8 @@ export async function repairMissingFollowups(prisma: PrismaClient, userId: strin
       if (!proximo && !requiere) continue;
       const key = cliente.toLowerCase();
       if (seen.has(key)) continue;
-      const lead = findMatchingLead(leads, cliente);
+      const linked = matchLeadForFiling(leads, cliente);
+      const lead = linked.kind === "one" ? linked.lead : null;
       if (lead && covered.has(lead.id)) {
         seen.add(key);
         continue;
