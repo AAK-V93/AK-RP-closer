@@ -4,7 +4,8 @@ import type { PrismaClient } from "@prisma/client";
 import { applyExtractorToCrm } from "./crm-apply";
 import { emptyExtractor } from "./extractor";
 import { formatCrmStamp } from "./crm-time";
-import { callAlreadyInCrm, filingNamesFullyMatch, matchLeadForFiling } from "./lead-match";
+import { applyCrmChatUpdate } from "./file-call";
+import { callAlreadyInCrm, filingNamesFullyMatch, matchLeadForFiling, samePersonName } from "./lead-match";
 
 const leydis = {
   id: "leydis",
@@ -23,6 +24,8 @@ const carlos = {
 };
 
 test("a shared first name is not a full-name match", () => {
+  assert.equal(samePersonName("María José Vélez", "Maria Leydis Palacios Murillo"), false);
+  assert.equal(samePersonName("Maria Leydis Palacios Murillo", "María José Vélez"), false);
   assert.equal(
     filingNamesFullyMatch("Maria Leydis Palacios Murillo", "María José Vélez"),
     false,
@@ -61,8 +64,21 @@ test("a shared first name is not a full-name match", () => {
   );
 });
 
-test("a first name does not hide the call as already in the CRM", () => {
+test("a unique first name is already in the CRM and a shared one is not", () => {
   const leads = [leydis, carlos];
+  assert.equal(
+    callAlreadyInCrm({ id: "valeria", leadName: "Valeria", title: "Impromptu Google Meet Meeting" }, [
+      { id: "valeria", name: "Valeria Ríos", company: "" },
+    ]),
+    true,
+  );
+  assert.equal(
+    callAlreadyInCrm({ id: "maria", leadName: "María", title: "Impromptu Google Meet Meeting" }, [
+      leydis,
+      { id: "mj", name: "María José Vélez", company: "" },
+    ]),
+    false,
+  );
   assert.equal(
     callAlreadyInCrm({ id: "mj", leadName: "María José Vélez", title: "Llamada 03/10" }, leads),
     false,
@@ -96,6 +112,41 @@ test("a mismatched call does not overwrite the other lead's acuerdo or notas", a
   assert.equal(firstOnly.writes.some((line) => line.startsWith("create:")), false);
   assert.ok(firstOnly.writes.includes("call:pending"));
   assert.equal(carlos.nextStep, "Acuerdo de Carlos Ramírez");
+});
+
+test("chat update resolves one first name and does not write when two share it", async () => {
+  const writes: string[] = [];
+  const edson = { id: "edson", name: "Edson", company: "", nextStep: "", lastSummary: "", offerName: "" };
+  const kim = { id: "kim", name: "Kimlen García", company: "", nextStep: "viejo", lastSummary: "", offerName: "" };
+  const kim2 = { id: "kim2", name: "Kimlen Soto", company: "", nextStep: "otro", lastSummary: "", offerName: "" };
+  let leads = [edson, kim];
+  const prisma = {
+    $queryRawUnsafe: async () => [],
+    lead: {
+      findMany: async () => leads,
+      update: async ({ where, data }: { where: { id: string }; data: { nextStep?: string; amountPaid?: string } }) => {
+        writes.push(`update:${where.id}:${data.nextStep || ""}:${data.amountPaid || ""}`);
+        return { id: where.id, ...data };
+      },
+      create: async () => {
+        writes.push("create");
+        throw new Error("no debe crear");
+      },
+    },
+    leadAlert: { findMany: async () => [] },
+    userOffer: { findMany: async () => [] },
+  } as unknown as PrismaClient;
+  const paid = await applyCrmChatUpdate(prisma, "user-1", { name: "Edson", amountPaid: "2000" });
+  assert.equal(paid && "id" in paid ? paid.id : "", "edson");
+  const one = await applyCrmChatUpdate(prisma, "user-1", { name: "Kimlen", nextStep: "llamar el lunes" });
+  assert.equal(one && "id" in one ? one.id : "", "kim");
+  assert.ok(writes.includes("update:kim:llamar el lunes:"));
+  leads = [edson, kim, kim2];
+  const shared = await applyCrmChatUpdate(prisma, "user-1", { name: "Kimlen", nextStep: "otro" });
+  assert.equal(shared, null);
+  assert.equal(writes.includes("create"), false);
+  assert.equal(writes.filter((line) => line.startsWith("update:kim:")).length, 1);
+  assert.equal(writes.some((line) => line.startsWith("update:kim2")), false);
 });
 
 test("formatCrmStamp keeps a Bogotá clock time", () => {

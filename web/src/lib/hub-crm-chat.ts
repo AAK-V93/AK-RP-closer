@@ -297,12 +297,15 @@ function looksLikeLeadUpdate(text: string) {
 }
 
 function unclearLeadUpdate(text: string, leads: ChatLead[]): ChatTurn | null {
+  if (!looksLikeLeadUpdate(text)) return null;
   if (/[?¿]/.test(text) && !LEAD_UPDATE_HINT.test(fold(text))) return null;
   if (isChatRequest(text) && !/\b(se llama|pag[oó]|producto de|oferta de)\b/i.test(text)) return null;
   const mention = leadMention(text, leads);
-  if (mention.kind !== "clarify") return null;
-  if (!looksLikeLeadUpdate(text)) return null;
-  return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
+  if (mention.kind === "clarify") return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
+  if (mention.kind === "none" && /^(?:con\s+)?\S+\s+(?:me\s+)?(?:pag|qued)/i.test(text)) {
+    return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+  }
+  return null;
 }
 
 function recall(text: string, ctx: ChatContext): ChatTurn | null {
@@ -432,6 +435,22 @@ function schedule(text: string, ctx: ChatContext): ChatTurn | null {
         to: when,
       },
     ],
+  };
+  return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
+}
+
+/** «Kimlen quedó en llamar el lunes» keeps the closer's words as the acuerdo. */
+function spokenAgreement(text: string, ctx: ChatContext): ChatTurn | null {
+  const match = text.match(/^(?:con\s+)?(.+?)\s+qued(?:o|ó|aron|aste|[eé])(?:\s+en)?\s+(.+)$/i);
+  if (!match) return null;
+  const lead = leadInMessage(ctx.leads, match[1]) || leadInMessage(ctx.leads, text);
+  if (!lead) return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+  const step = tidyName(match[2]);
+  if (!step || fold(step) === fold(lead.nextStep)) return null;
+  const proposal: ChatProposal = {
+    leadId: lead.id,
+    leadName: lead.name,
+    changes: [{ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step }],
   };
   return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
 }
@@ -905,6 +924,7 @@ export function interpretCrmChat(text: string, ctx: ChatContext): ChatTurn {
     offerEdit(raw, ctx) ||
     recall(raw, ctx) ||
     schedule(raw, ctx) ||
+    spokenAgreement(raw, ctx) ||
     clearPayment(raw, ctx) ||
     payment(raw, ctx) ||
     askFacts(raw, ctx) ||

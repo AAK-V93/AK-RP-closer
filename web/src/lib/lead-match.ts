@@ -115,6 +115,34 @@ export function matchLeadForFiling<T extends { name: string; aliases?: readonly 
   return { kind: "none" };
 }
 
+/** A bare first name that belongs to exactly one lead. Shared first names do not count. */
+function uniqueFirstNameLead<T extends { name: string }>(leads: readonly T[], name: string) {
+  const parts = significantTokens(name);
+  if (parts.length !== 1) return null;
+  const first = parts[0];
+  if (first.length < 3) return null;
+  const hits = leads.filter((lead) => significantTokens(lead.name)[0] === first);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * Chat may resolve a unique first name. Filing stays on `matchLeadForFiling`.
+ * Two leads with the same first name stay ambiguous and must not be written.
+ */
+export function matchLeadForChat<T extends { name: string; aliases?: readonly string[] | null }>(
+  leads: readonly T[],
+  name: string,
+): FilingMatch<T> {
+  const full = matchLeadForFiling(leads, name);
+  if (full.kind === "one") return full;
+  const parts = significantTokens(name);
+  if (parts.length !== 1) return full;
+  const first = parts[0];
+  const hits = leads.filter((lead) => significantTokens(lead.name)[0] === first);
+  if (hits.length === 1) return { kind: "one", lead: hits[0] };
+  return { kind: "ambiguous" };
+}
+
 /** Match "Juan" to "Juan Pérez", or same company + first name. Not used to file a call. */
 export function findMatchingLead<T extends NamedLead>(
   leads: T[],
@@ -271,6 +299,7 @@ export function callAlreadyInCrm(
     .filter((value) => value && !isBlankMeetingLabel(value));
   const names = [...identity, ...prose];
   if (names.some((name) => matchLeadForFiling(named, name).kind === "one")) return true;
+  if (names.some((name) => uniqueFirstNameLead(named, name))) return true;
   const blob = normalizePersonName(names.join(" "));
   if (
     blob &&
