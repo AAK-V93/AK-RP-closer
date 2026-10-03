@@ -136,7 +136,7 @@ function leadNameFromEvent(summary: string) {
     .replace(/zoom|meet|google|llamada|call|reunion|reunión|with|con/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return cleaned.slice(0, 80) || summary.slice(0, 80);
+  return cleaned || summary.trim();
 }
 
 export async function saveCalendarRefresh(

@@ -3,6 +3,7 @@ import {
   parseCommercial,
   savedBonusNames,
 } from "@/lib/offer-commercial";
+import { clipVisible } from "@/lib/visible-text";
 
 export type PracticeOfferGlance = {
   blurb: string;
@@ -16,10 +17,7 @@ function tidy(value: string | null | undefined) {
 }
 
 function clip(value: string, max = 160) {
-  if (value.length <= max) return value;
-  const cut = value.slice(0, max);
-  const space = cut.lastIndexOf(" ");
-  return `${(space > 80 ? cut.slice(0, space) : cut).trim()}…`;
+  return clipVisible(value, max);
 }
 
 /** One or two lines. The stored description is often the whole PDF. */

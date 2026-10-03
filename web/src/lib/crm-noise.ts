@@ -3,6 +3,7 @@ import { isInternalMeetingTitle, isInternalParticipantLabel } from "@/lib/call-i
 import { isGenericMeetingTitle } from "@/lib/fathom-import";
 import { callAlreadyInCrm, type CrmLeadRef, samePersonName } from "@/lib/lead-match";
 import { zonedParts } from "@/lib/crm-time";
+import { clipVisible, ellipsisCut } from "@/lib/visible-text";
 
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
@@ -54,10 +55,12 @@ function summaryTitle(summary?: string | null) {
   let text = String(summary || "").replace(/\s+/g, " ").trim();
   if (text.length < 12 || /sin t[ií]tulo/i.test(text)) return "";
   text = text.replace(/^(?:hola|buenas|buenos d[ií]as|hey|ey)[,!.\s]+/i, "");
-  const words = text.split(" ").filter(Boolean).slice(0, 8);
+  const words = text.split(" ").filter(Boolean);
   if (words.length < 3) return "";
-  const snippet = words.join(" ");
-  return snippet.length > 72 ? `${snippet.slice(0, 69).trim()}…` : snippet;
+  const limited = words.slice(0, 8);
+  const snippet = limited.join(" ");
+  if (words.length > 8) return snippet.length > 72 ? clipVisible(snippet, 72) : ellipsisCut(snippet);
+  return snippet.length > 72 ? clipVisible(snippet, 72) : snippet;
 }
 
 /** Untitled calls: the lead if linked, otherwise the date and duration, or the summary. */

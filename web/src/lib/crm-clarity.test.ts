@@ -425,7 +425,7 @@ test("llamadas list and detail replace an Impromptu title", () => {
       leadName: "",
       summary: "Hola, revisamos el plan de pagos y la fecha de inicio del programa",
     }),
-    "revisamos el plan de pagos y la fecha",
+    "revisamos el plan de pagos y la fecha…",
   );
   assert.equal(
     durationMinutesFromTranscript("00:00:00 Hola\nseguimos\n00:32:10 cierre de la llamada"),

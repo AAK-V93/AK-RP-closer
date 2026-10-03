@@ -2,6 +2,7 @@ import { calendarDaysBetween } from "@/lib/crm-time";
 import { normalizePersonName } from "@/lib/lead-match";
 import { countedSale } from "@/lib/stated-deal";
 import { plainStatus } from "@/lib/plain-labels";
+import { clipVisible } from "@/lib/visible-text";
 
 export const DINERO_EN_JUEGO_NOTE =
   "Dinero en juego es el saldo abierto de cada lead con un próximo seguimiento. Cada persona cuenta una vez. Un año, un teléfono o el texto del precio no entran.";
@@ -475,9 +476,11 @@ function objectionLabel(raw: string) {
   if (/no asist|no se present/.test(folded)) return "la inasistencia";
   const short = raw.split("/")[0]?.trim().replace(/[.?!…]+$/g, "") || "";
   if (!short || /^otro$/i.test(short)) return "";
-  const clipped = short.length <= 42 ? short : short.slice(0, 42).replace(/\s+\S*$/, "").trim();
+  const clipped = short.length <= 42 ? short : clipVisible(short, 42);
   if (!clipped) return "";
-  return clipped.charAt(0).toLowerCase() + clipped.slice(1);
+  const mark = clipped.endsWith("…") ? "…" : "";
+  const body = mark ? clipped.slice(0, -1) : clipped;
+  return body.charAt(0).toLowerCase() + body.slice(1) + mark;
 }
 
 /** Only fields that are already on the filing. An empty set stays the generic step. */

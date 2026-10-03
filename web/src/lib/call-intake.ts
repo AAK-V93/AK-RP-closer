@@ -165,10 +165,10 @@ export function externalCalendarLeadName(
     (row) => !row.self && !row.resource && row.responseStatus !== "declined",
   );
   const named = others.find((row) => row.displayName?.trim());
-  if (named?.displayName) return named.displayName.trim().slice(0, 80);
+  if (named?.displayName) return named.displayName.trim();
   const email = others[0]?.email?.trim();
   if (!email) return null;
-  return email.split("@")[0].replace(/[._]+/g, " ").slice(0, 80);
+  return email.split("@")[0].replace(/[._]+/g, " ").trim();
 }
 
 export function shouldKeepCalendarEvent(args: {

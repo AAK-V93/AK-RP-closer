@@ -682,4 +682,25 @@ test("retomar el contacto only when the filing has no structured next step", () 
   const empty = deskLinesFromFilings([{ ...base, name: "Otto" }], today);
   assert.match(empty[0]?.reason || "", /retomar el contacto/);
   assert.doesNotMatch(empty[0]?.reason || "", /objeción|oferta de|decisión/);
+  const named = deskLinesFromFilings(
+    [{ ...base, name: "Iris", offerName: "Mentoría de Alto Valor para Equipos Comerciales" }],
+    today,
+  );
+  assert.match(
+    named[0]?.reason || "",
+    /reenviar la oferta de Mentoría de Alto Valor para Equipos Comerciales/,
+  );
+  const custom = deskLinesFromFilings(
+    [
+      {
+        ...base,
+        name: "Paz",
+        objection: "Quiere pensarlo con el equipo comercial de la empresa antes de firmar",
+      },
+    ],
+    today,
+  );
+  const customReason = custom[0]?.reason || "";
+  assert.match(customReason, /resolver la objeción de .+…/);
+  assert.doesNotMatch(customReason, / (el|de|la|los|las)…/);
 });

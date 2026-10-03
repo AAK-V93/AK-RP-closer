@@ -1,3 +1,5 @@
+import { clipVisible } from "@/lib/visible-text";
+
 export const TRANSCRIPT_EXTENSIONS = [".txt", ".md", ".vtt", ".srt", ".csv", ".pdf"];
 export const MAX_TRANSCRIPT_BYTES = 6 * 1024 * 1024;
 export const UPLOAD_CHUNK_BYTES = 3_500_000;
@@ -13,8 +15,8 @@ export function isTranscriptFilename(name: string) {
 }
 
 export function transcriptTitle(name: string) {
-  const base = transcriptBaseName(name).replace(/\.[^.]+$/, "");
-  return base.slice(0, 120) || "Transcripción";
+  const base = transcriptBaseName(name).replace(/\.[^.]+$/, "").trim();
+  return clipVisible(base, 120) || "Transcripción";
 }
 
 export function partitionTranscriptUploads<T extends { name: string; size: number }>(files: T[]) {

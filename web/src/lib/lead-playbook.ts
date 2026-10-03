@@ -1,4 +1,5 @@
 import { generateGeminiJson } from "@/lib/gemini";
+import { clipVisible } from "@/lib/visible-text";
 
 export type TalkStyle = "rambler" | "scattered" | "terse" | "storyteller";
 
@@ -122,9 +123,9 @@ function parseLeadTypes(raw: unknown): LeadType[] {
   return raw.slice(0, 6).map((item) => {
     const row = (item || {}) as Partial<LeadType> & Record<string, unknown>;
     return {
-      name: String(row.name || "Tipo de lead").slice(0, 80),
+      name: String(row.name || "Tipo de lead").trim() || "Tipo de lead",
       talkStyle: parseTalkStyle(row.talkStyle),
-      commonSituation: String(row.commonSituation || "").slice(0, 280),
+      commonSituation: clipVisible(String(row.commonSituation || ""), 280),
       commonPhrases: Array.isArray(row.commonPhrases)
         ? row.commonPhrases.map(String).slice(0, 8)
         : [],
@@ -134,7 +135,7 @@ function parseLeadTypes(raw: unknown): LeadType[] {
       heldRelevant: Array.isArray(row.heldRelevant)
         ? row.heldRelevant.map(String).slice(0, 8)
         : ["dinero real", "quién decide", "dolor de fondo"],
-      howTheyExpress: String(row.howTheyExpress || "").slice(0, 280),
+      howTheyExpress: clipVisible(String(row.howTheyExpress || ""), 280),
     };
   });
 }

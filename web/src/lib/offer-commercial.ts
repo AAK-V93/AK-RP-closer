@@ -1,6 +1,7 @@
 import { parseFollowupScripts, type FollowupScript } from "@/lib/followup-scripts";
 import { bonusesFromOfferText, commissionCitedInSource } from "@/lib/offer-amounts";
 import { isPriceLabel, isUnspecifiedOfferName, preferOfferName } from "@/lib/offer-name";
+import { clipVisible } from "@/lib/visible-text";
 
 export type CommissionTier = {
   when: string;
@@ -283,7 +284,7 @@ export function commissionSummary(rule: CommissionRuleInput | null): string {
       })
       .join(" · ");
   }
-  if (rule.notes) return rule.notes.length > 240 ? `${rule.notes.slice(0, 237)}…` : rule.notes;
+  if (rule.notes) return clipVisible(rule.notes, 240);
   if (rule.pctBase > 0) {
     const base = `${Math.round(rule.pctBase * 1000) / 10}%`;
     if (rule.umbralAcumuladoUsd > 0) {
