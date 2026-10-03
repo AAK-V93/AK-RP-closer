@@ -1580,3 +1580,197 @@ test("the hub thread read keeps the newest lines", async () => {
   assert.equal(loaded.messages[0]?.content, "linea 10");
   assert.equal(loaded.messages.at(-1)?.content, "linea 89");
 });
+
+test("quedamos keeps the closer's words and does not rewrite them as Vernos", () => {
+  const turn = interpretCrmChat("Diego Huamán: quedamos en que el viernes me avisaba", {
+    ...ctx,
+    leads: [...leads, diego],
+  });
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  const acuerdo = turn.proposal.changes.find((change) => change.field === "nextStep");
+  assert.equal(acuerdo?.to, "quedamos en que el viernes me avisaba");
+  assert.equal(turn.proposal.changes.some((change) => /vernos/i.test(change.to)), false);
+  assert.equal("nextStepAt" in Object.fromEntries(turn.proposal.changes.map((change) => [change.field, true])), false);
+});
+
+test("quedé, quedaron, acordamos and nos comprometimos keep the user's acuerdo", () => {
+  const kimlen = {
+    id: "kimlen",
+    name: "Kimlen García",
+    offerName: "",
+    nextStep: "",
+    lastSummary: "",
+    amountPaid: "",
+  };
+  const cases = [
+    ["Kimlen quedé en llamar el lunes", "llamar el lunes"],
+    ["Kimlen quedaron en llamar el lunes", "llamar el lunes"],
+    ["Kimlen acordamos llamar el lunes", "acordamos llamar el lunes"],
+    ["Kimlen nos comprometimos a llamar el lunes", "nos comprometimos a llamar el lunes"],
+  ] as const;
+  for (const [text, acuerdo] of cases) {
+    const turn = interpretCrmChat(text, { ...ctx, leads: [...leads, kimlen] });
+    assert.equal(turn.kind, "confirm", text);
+    if (turn.kind !== "confirm") continue;
+    assert.equal(turn.proposal.changes.find((change) => change.field === "nextStep")?.to, acuerdo, text);
+    assert.equal(turn.proposal.changes.some((change) => /vernos/i.test(change.to)), false, text);
+  }
+});
+
+test("an unchanged acuerdo is not proposed and nothing is saved", () => {
+  const same = interpretCrmChat("Diego Huamán quedó en llamar el jueves", {
+    ...ctx,
+    leads: [...leads, diego],
+  });
+  assert.equal(same.kind, "answer");
+  if (same.kind === "answer") {
+    assert.match(same.reply, /No cambié nada/);
+    assert.equal("proposal" in same, false);
+  }
+  const patch = proposalFromLoosePatch(
+    { nextStep: "Llamar el jueves", nextStepAt: "2026-10-07 15:00" },
+    { ...ctx, leads: [...leads, diego] },
+    "Diego Huamán sigue igual",
+  );
+  assert.equal(patch.kind, "answer");
+  if (patch.kind === "answer") {
+    assert.match(patch.reply, /No cambié nada/);
+    assert.equal("proposal" in patch, false);
+  }
+});
+
+test("a payment without an amount asks how much and writes nothing", () => {
+  const turn = interpretCrmChat("Carlos me pagó la reserva", ctx);
+  assert.equal(turn.kind, "answer");
+  if (turn.kind !== "answer") return;
+  assert.match(turn.reply, /¿Cuánto pagó Carlos Ramírez\?/);
+  assert.equal("proposal" in turn, false);
+  const shared = interpretCrmChat("Carlos me pagó la reserva", {
+    ...ctx,
+    leads: [
+      ...leads,
+      {
+        id: "carlos-2",
+        name: "Carlos Quito",
+        offerName: "",
+        nextStep: "",
+        lastSummary: "",
+        amountPaid: "",
+      },
+    ],
+  });
+  assert.equal(shared.kind, "answer");
+  if (shared.kind === "answer") {
+    assert.match(shared.reply, /¿Te refieres a Carlos Ramírez o a Carlos Quito\?/);
+    assert.equal("proposal" in shared, false);
+  }
+});
+
+test("a named missing payer is not the same as a payment with no name", () => {
+  const missing = interpretCrmChat("Nadie me pagó 500", ctx);
+  assert.equal(missing.kind, "answer");
+  if (missing.kind === "answer") {
+    assert.match(missing.reply, /No encontré ese lead\. No cambié nada\./);
+    assert.doesNotMatch(missing.reply, /¿Quién pagó\?/);
+  }
+  const unnamed = interpretCrmChat("me pagó 500", ctx);
+  assert.equal(unnamed.kind, "answer");
+  if (unnamed.kind === "answer") {
+    assert.match(unnamed.reply, /¿Quién pagó\?/);
+    assert.doesNotMatch(unnamed.reply, /No encontré ese lead/);
+  }
+  const bare = interpretCrmChat("pagó 500", ctx);
+  assert.equal(bare.kind, "answer");
+  if (bare.kind === "answer") assert.match(bare.reply, /¿Quién pagó\?/);
+});
+
+test("the proposal shows the CRM próximo, including a date stored as UTC midnight", () => {
+  const midnight = {
+    ...diego,
+    nextStepAt: new Date("2026-10-09T00:00:00.000Z"),
+  };
+  const fromCrm = proposalFromLoosePatch(
+    { nextStepAt: "2026-10-10 15:00" },
+    {
+      ...ctx,
+      leads: [...leads, midnight],
+      calls: [
+        ...ctx.calls,
+        { leadName: "Diego Huamán", acuerdo: "", notas: "", proximo: "2026-10-09 15:00" },
+      ],
+    },
+    "Diego Huamán el sábado a las 3",
+  );
+  assert.equal(fromCrm.kind, "confirm");
+  if (fromCrm.kind === "confirm") {
+    assert.equal(
+      fromCrm.proposal.changes.find((change) => change.field === "nextStepAt")?.from,
+      "2026-10-09 15:00",
+    );
+    assert.doesNotMatch(fromCrm.reply, /2026-10-08/);
+  }
+  const fromInstant = proposalFromLoosePatch(
+    { nextStepAt: "2026-10-10" },
+    { ...ctx, leads: [...leads, midnight] },
+    "Diego Huamán el sábado",
+  );
+  assert.equal(fromInstant.kind, "confirm");
+  if (fromInstant.kind === "confirm") {
+    assert.equal(
+      fromInstant.proposal.changes.find((change) => change.field === "nextStepAt")?.from,
+      "2026-10-09",
+    );
+    assert.doesNotMatch(fromInstant.reply, /2026-10-08 19:00/);
+  }
+});
+
+test("a date-only save is that Bogotá calendar day and a clock is Bogotá wall time", async () => {
+  let stored: Date | null = null;
+  let filingProximo = "";
+  const prisma = {
+    lead: {
+      findFirst: async () => ({
+        id: "diego",
+        name: "Diego Huamán",
+        offerName: "",
+        nextStep: "",
+        nextStepAt: null,
+        lastSummary: "",
+        amountPaid: "",
+      }),
+      update: async ({ data }: { data: { nextStepAt?: Date } }) => {
+        stored = data.nextStepAt || null;
+        return data;
+      },
+    },
+    callRecord: {
+      findFirst: async () => ({
+        id: "call-1",
+        filingJson: {},
+        leadName: "Diego Huamán",
+        recordedAt: new Date("2026-10-01T15:00:00.000Z"),
+        createdAt: new Date("2026-10-01T15:00:00.000Z"),
+      }),
+      update: async (args: { data?: { filingJson?: { proximo_seguimiento?: string } } }) => {
+        filingProximo = String(args.data?.filingJson?.proximo_seguimiento || "");
+      },
+    },
+  } as unknown as PrismaClient;
+  const day = await applyChatProposal(prisma, "user-1", {
+    leadId: "diego",
+    leadName: "Diego Huamán",
+    changes: [{ field: "nextStepAt", label: "Próximo seguimiento", from: "", to: "2026-10-09" }],
+  });
+  assert.match(day.reply, /Listo/);
+  assert.equal(stored?.toISOString(), "2026-10-09T05:00:00.000Z");
+  assert.equal(filingProximo, "2026-10-09");
+  const clock = await applyChatProposal(prisma, "user-1", {
+    leadId: "diego",
+    leadName: "Diego Huamán",
+    changes: [{ field: "nextStepAt", label: "Próximo seguimiento", from: "", to: "2026-10-09 15:00" }],
+  });
+  assert.match(clock.reply, /Listo/);
+  assert.equal(stored?.toISOString(), "2026-10-09T20:00:00.000Z");
+  assert.equal(filingProximo, "2026-10-09 15:00");
+});
