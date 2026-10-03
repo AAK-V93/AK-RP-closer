@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { ensureCrmTables, ensureFathomTables } from "@/lib/prisma";
 import { EMPTY_TRANSCRIPT_MARK, isUsableTranscript } from "@/lib/fathom-import";
-import { durationMinutesFromTranscript, isInternalNoise, visibleCallTitle } from "@/lib/crm-noise";
+import { durationMinutesFromTranscript, placeLibraryCall, visibleCallTitle } from "@/lib/crm-noise";
 import { fileCallQuietly } from "@/lib/file-call";
 import { listPendingFilings, reviewPendingCall } from "@/lib/call-intelligence";
-import { callAlreadyInCrm, type CrmLeadRef } from "@/lib/lead-match";
+import { crmLeadRefs, filingLeadId, type CrmLeadRef } from "@/lib/lead-match";
 
 export async function GET() {
   try {
@@ -18,7 +18,7 @@ export async function GET() {
       /* optional */
     }
 
-    const [fathom, uploads, tags, leadRows] = await Promise.all([
+    const [fathom, uploads, tags, leadRows, threads, alerts] = await Promise.all([
       auth.prisma.fathomRecording.findMany({
         where: { userId: auth.userId },
         orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
@@ -44,14 +44,29 @@ export async function GET() {
         where: { userId: auth.userId },
         select: { id: true, name: true, company: true, telefono: true, email: true },
       }),
+      auth.prisma.followupThread.findMany({
+        where: { userId: auth.userId },
+        select: { leadId: true, creadoDesdeCallRecordId: true },
+      }),
+      auth.prisma.leadAlert.findMany({
+        where: { userId: auth.userId },
+        select: { leadId: true, callRecordId: true },
+      }),
     ]);
-    const crmLeads: CrmLeadRef[] = leadRows.map((lead) => ({
-      id: lead.id,
-      name: lead.name,
-      company: lead.company,
-      telefono: lead.telefono,
-      email: lead.email,
-    }));
+    const crmLeads: CrmLeadRef[] = crmLeadRefs(
+      leadRows.map((lead) => ({
+        id: lead.id,
+        name: lead.name,
+        company: lead.company,
+        telefono: lead.telefono,
+        email: lead.email,
+      })),
+      [
+        ...threads.map((row) => ({ leadId: row.leadId, callId: row.creadoDesdeCallRecordId })),
+        ...alerts.map((row) => ({ leadId: row.leadId, callId: row.callRecordId })),
+        ...tags.map((row) => ({ leadId: filingLeadId(row.filingJson), callId: row.id })),
+      ],
+    );
 
     const tagKey = (source: string, id: string) => `${source}:${id}`;
     const tagMap = new Map(
@@ -67,28 +82,29 @@ export async function GET() {
           const rawTitle = tag?.title || row.title;
           const when = row.recordedAt || tag?.recordedAt || row.syncedAt || null;
           const date = when ? new Date(when).toISOString() : null;
-          const inCrm = callAlreadyInCrm(
-            { id: tag?.id, leadName, title: rawTitle, summary: tag?.summary, filingJson: tag?.filingJson },
-            crmLeads,
-          );
+          const title = visibleCallTitle({
+            title: rawTitle,
+            leadName,
+            date: when,
+            durationMinutes: durationMinutesFromTranscript(row.transcriptText),
+            summary: tag?.summary,
+          });
+          const placed = placeLibraryCall({
+            id: tag?.id,
+            leadName,
+            title: rawTitle,
+            summary: tag?.summary,
+            label: title,
+            filingJson: tag?.filingJson,
+            callType: tag?.callType,
+            leads: crmLeads,
+          });
           return {
             id: row.id,
             source: "fathom" as const,
-            title: visibleCallTitle({
-              title: rawTitle,
-              leadName,
-              date: when,
-              durationMinutes: durationMinutesFromTranscript(row.transcriptText),
-              summary: tag?.summary,
-            }),
-            inCrm,
-            interna:
-              !inCrm &&
-              isInternalNoise({
-                cliente: leadName || rawTitle,
-                estadoAgenda: tag?.callType,
-                title: rawTitle,
-              }),
+            title,
+            inCrm: placed.inCrm,
+            interna: placed.interna,
             date,
             callType: tag?.callType || "",
             result: tag?.result || "",
@@ -113,28 +129,29 @@ export async function GET() {
         const rawTitle = tag?.title || row.title;
         const when = tag?.recordedAt || row.createdAt;
         const date = when.toISOString();
-        const inCrm = callAlreadyInCrm(
-          { id: tag?.id, leadName, title: rawTitle, summary: tag?.summary, filingJson: tag?.filingJson },
-          crmLeads,
-        );
+        const title = visibleCallTitle({
+          title: rawTitle,
+          leadName,
+          date: when,
+          durationMinutes: durationMinutesFromTranscript(row.transcriptText),
+          summary: tag?.summary,
+        });
+        const placed = placeLibraryCall({
+          id: tag?.id,
+          leadName,
+          title: rawTitle,
+          summary: tag?.summary,
+          label: title,
+          filingJson: tag?.filingJson,
+          callType: tag?.callType,
+          leads: crmLeads,
+        });
         return {
           id: row.id,
           source: "upload" as const,
-          title: visibleCallTitle({
-            title: rawTitle,
-            leadName,
-            date: when,
-            durationMinutes: durationMinutesFromTranscript(row.transcriptText),
-            summary: tag?.summary,
-          }),
-          inCrm,
-          interna:
-            !inCrm &&
-            isInternalNoise({
-              cliente: leadName || rawTitle,
-              estadoAgenda: tag?.callType,
-              title: rawTitle,
-            }),
+          title,
+          inCrm: placed.inCrm,
+          interna: placed.interna,
           date,
           callType: tag?.callType || "",
           result: tag?.result || "",

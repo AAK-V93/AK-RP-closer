@@ -15,16 +15,18 @@ import { derivedPaso, operacionGlance } from "./crm-glance";
 import {
   AHORA_TAB_NOTE,
   COBRADO_PERIOD_NOTE,
-  PERIODO_TAB_NOTE,
   cobradoPeriodLine,
+  periodoTabNote,
   seguimientosHeader,
 } from "./crm-period-copy";
 import {
   durationMinutesFromTranscript,
   hiddenInternalCount,
+  internasSinCliente,
   isInternalNoise,
   joinDistinct,
   linkedToCrmLead,
+  placeLibraryCall,
   visibleCallTitle,
 } from "./crm-noise";
 import { callAlreadyInCrm } from "./lead-match";
@@ -470,6 +472,71 @@ test("a call already in the CRM is not waiting to be classified", () => {
   );
 });
 
+test("CRM leads stay out of llamadas internas o sin cliente", () => {
+  const leads = [
+    { id: "valeria", name: "Valeria Ríos QA6" },
+    { id: "carlos", name: "Carlos Ramírez" },
+    { id: "alejandro", name: "Alejandro" },
+    { id: "sofia", name: "Sofía Mamani" },
+    { id: "diego", name: "Diego Huamán" },
+    { id: "andrea", name: "Andrea Quispe" },
+    { id: "victor", name: "Víctor/Jubher" },
+    { id: "lucia", name: "Lucía Torres", callIds: ["call-lucia"] },
+    { id: "edson", name: "Edson" },
+  ];
+  const rows = [
+    { id: "valeria", title: "Valeria Ríos 29/9", leadName: "", callType: "INTERNA" },
+    { id: "carlos", title: "Carlos Ramírez 30/9", leadName: "", callType: "PRACTICA" },
+    { id: "alejandro", title: "Alejandro", leadName: "", callType: "INTERNA" },
+    { id: "sofia", title: "Impromptu Google Meet Meeting", leadName: "Sofía Mamani", callType: "INTERNA" },
+    { id: "diego", title: "Roleplay de cierre", leadName: "Diego Huamán", callType: "PRACTICA" },
+    { id: "andrea", title: "Andrea Quispe", leadName: "", callType: "NO_COMERCIAL" },
+    { id: "victor", title: "Víctor/Jubher", leadName: "", callType: "INTERNA" },
+    { id: "lucia", title: "Impromptu Google Meet Meeting", leadName: "", callType: "INTERNA", recordId: "call-lucia" },
+    { id: "equipo", title: "Coaching interno", leadName: "", callType: "INTERNA" },
+    { id: "dennis", title: "Dennis Sanchez Solorzano", leadName: "", callType: "" },
+  ];
+  const placed = rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    leadName: row.leadName,
+    ...placeLibraryCall({
+      id: row.recordId || row.id,
+      leadName: row.leadName,
+      title: row.title,
+      label: row.leadName || row.title,
+      callType: row.callType,
+      leads,
+    }),
+  }));
+  const internas = internasSinCliente(placed);
+  for (const name of [
+    "Valeria Ríos",
+    "Carlos Ramírez",
+    "Alejandro",
+    "Sofía Mamani",
+    "Diego Huamán",
+    "Andrea Quispe",
+    "Víctor/Jubher",
+    "Lucía Torres",
+  ]) {
+    assert.equal(
+      internas.some((row) => `${row.title} ${row.leadName}`.includes(name)),
+      false,
+      name,
+    );
+  }
+  assert.equal(internas.some((row) => row.id === "lucia"), false);
+  assert.equal(internas.some((row) => row.id === "valeria"), false);
+  assert.equal(placed.find((row) => row.id === "equipo")?.interna, true);
+  assert.equal(internas.some((row) => row.id === "equipo"), true);
+  assert.equal(placed.find((row) => row.id === "dennis")?.inCrm, false);
+  assert.equal(
+    internasSinCliente([{ id: "sale", interna: false, inCrm: true, title: "Valeria Ríos" }]).length,
+    0,
+  );
+});
+
 test("cobrado este mes and cobrado total are named apart, and seguimientos shows the saldo", () => {
   assert.equal(
     cobradoPeriodLine("USD 0", "USD 1.066"),
@@ -482,7 +549,12 @@ test("cobrado este mes and cobrado total are named apart, and seguimientos shows
   assert.match(COBRADO_PERIOD_NOTE, /fecha en el mes/);
   assert.match(COBRADO_PERIOD_NOTE, /Cobrado total suma todos los pagos/);
   assert.match(AHORA_TAB_NOTE, /cobrado este mes/);
-  assert.match(PERIODO_TAB_NOTE, /este mes, el mes anterior y el total/i);
+  assert.equal(
+    periodoTabNote(new Date("2026-10-02T18:00:00.000Z")),
+    "Cada fila compara octubre, septiembre y el total. No es la lista de lo que toca hoy.",
+  );
+  assert.match(periodoTabNote(new Date("2026-10-01T04:59:00.000Z")), /septiembre, agosto/);
+  assert.match(periodoTabNote(new Date("2026-10-01T05:00:00.000Z")), /octubre, septiembre/);
   assert.equal(
     seguimientosHeader("Todo al día", "USD 531"),
     "Todo al día · Saldo por cobrar USD 531",

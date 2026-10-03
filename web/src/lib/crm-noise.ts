@@ -1,7 +1,7 @@
 import { isNonSalesCall } from "@/lib/call-kind";
 import { isInternalMeetingTitle, isInternalParticipantLabel } from "@/lib/call-intake";
 import { isGenericMeetingTitle } from "@/lib/fathom-import";
-import { samePersonName } from "@/lib/lead-match";
+import { callAlreadyInCrm, type CrmLeadRef, samePersonName } from "@/lib/lead-match";
 import { zonedParts } from "@/lib/crm-time";
 
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -126,4 +126,47 @@ export function isInternalNoise(args: {
 
 export function hiddenInternalCount<T extends { interna?: boolean }>(rows: T[]) {
   return rows.filter((row) => row.interna).length;
+}
+
+/**
+ * A call belongs in «internas o sin cliente» only when it is internal noise
+ * and it is not already a CRM lead. Practice-typed rows of a lead stay with the lead.
+ */
+export function placeLibraryCall(args: {
+  id?: string;
+  leadName?: string | null;
+  title?: string | null;
+  summary?: string | null;
+  label?: string | null;
+  filingJson?: unknown;
+  callType?: string | null;
+  leads: CrmLeadRef[];
+}) {
+  const inCrm = callAlreadyInCrm(
+    {
+      id: args.id,
+      leadName: args.leadName,
+      title: args.title,
+      summary: args.summary,
+      label: args.label,
+      filingJson: args.filingJson,
+    },
+    args.leads,
+  );
+  const cliente = [args.leadName, args.label, args.title]
+    .map((value) => realClientName(value))
+    .find((value) => value && !/^llamada del\b/i.test(value) && !/^llamada sin t[ií]tulo$/i.test(value)) || "";
+  const interna =
+    !inCrm &&
+    isInternalNoise({
+      cliente,
+      estadoAgenda: args.callType,
+      title: args.title,
+    });
+  return { inCrm, interna };
+}
+
+/** The expandable list. CRM leads never belong here, even when the call is marked internal. */
+export function internasSinCliente<T extends { interna?: boolean; inCrm?: boolean }>(rows: T[]) {
+  return rows.filter((row) => row.interna && !row.inCrm);
 }

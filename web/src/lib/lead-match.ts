@@ -112,6 +112,54 @@ export type CrmLeadRef = {
   callIds?: string[];
 };
 
+const MONTH_WORD =
+  "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|sept|oct|nov|dic";
+
+/** "Valeria Ríos 29/9" and "Víctor/Jubher" still name the person. */
+function nameCandidates(value: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  const pieces = new Set<string>();
+  const add = (text: string) => {
+    const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+    if (cleaned.length >= 3) pieces.add(cleaned);
+  };
+  const stripped = raw
+    .replace(/\b\d{1,2}\s*[\/.\-]\s*\d{1,2}(?:\s*[\/.\-]\s*\d{2,4})?\b/g, " ")
+    .replace(new RegExp(`\\b\\d{1,2}\\s+(?:de\\s+)?(?:${MONTH_WORD})(?:\\s+(?:de\\s+)?\\d{2,4})?\\b`, "ig"), " ")
+    .replace(/\(\s*qa[^)]*\)/gi, " ");
+  add(raw);
+  add(stripped);
+  for (const part of raw.split(/\s*[/|]\s*/)) add(part);
+  return [...pieces];
+}
+
+function isBlankMeetingLabel(value: string) {
+  return /^(impromptu|google meet|zoom|llamada sin titulo|sin titulo)/i.test(value.trim());
+}
+
+/** Threads, alerts and filing.lead_id point at the call record, not the lead name. */
+export function crmLeadRefs(leads: CrmLeadRef[], links: Array<{ leadId?: string | null; callId?: string | null }>) {
+  const extra = new Map<string, string[]>();
+  for (const link of links) {
+    const leadId = String(link.leadId || "").trim();
+    const callId = String(link.callId || "").trim();
+    if (!leadId || !callId) continue;
+    const list = extra.get(leadId) || [];
+    list.push(callId);
+    extra.set(leadId, list);
+  }
+  return leads.map((lead) => ({
+    ...lead,
+    callIds: [...(lead.callIds || []), ...(extra.get(lead.id) || [])],
+  }));
+}
+
+export function filingLeadId(filingJson: unknown) {
+  if (!filingJson || typeof filingJson !== "object") return "";
+  return String((filingJson as { lead_id?: unknown }).lead_id || "").trim();
+}
+
 /** A pending call whose prospect is already a CRM lead, by id, call id, name or phone. */
 export function callAlreadyInCrm(
   call: {
@@ -119,6 +167,8 @@ export function callAlreadyInCrm(
     leadName?: string | null;
     title?: string | null;
     summary?: string | null;
+    /** Title the screen actually shows, when it differs from the raw meeting title. */
+    label?: string | null;
     filingJson?: unknown;
   },
   leads: CrmLeadRef[],
@@ -140,9 +190,13 @@ export function callAlreadyInCrm(
     name: lead.name,
     company: lead.company || "",
   }));
-  const names = [filing.cliente_real, call.leadName, call.title, call.summary, filing.notas_crm, filing.summary]
+  const identity = [filing.cliente_real, call.leadName, call.title, call.label]
+    .flatMap((value) => nameCandidates(String(value || "")))
+    .filter((value) => !isBlankMeetingLabel(value));
+  const prose = [call.summary, filing.notas_crm, filing.summary]
     .map((value) => String(value || "").trim())
-    .filter((value) => value && !/^(impromptu|google meet|zoom|llamada sin titulo|sin titulo)/i.test(value));
+    .filter((value) => value && !isBlankMeetingLabel(value));
+  const names = [...identity, ...prose];
   if (names.some((name) => findMatchingLead(named, name))) return true;
   const blob = normalizePersonName(names.join(" "));
   if (

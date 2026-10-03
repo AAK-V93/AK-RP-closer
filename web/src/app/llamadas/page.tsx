@@ -9,7 +9,7 @@ import { CalendarConnectPanel } from "@/components/calendar-connect-panel";
 import { Button } from "@/components/ui/button";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
-import { joinDistinct } from "@/lib/crm-noise";
+import { internasSinCliente, joinDistinct } from "@/lib/crm-noise";
 import { formatCrmDate } from "@/lib/crm-time";
 import { countPhrase, plainStatus } from "@/lib/plain-labels";
 
@@ -122,6 +122,9 @@ export default function LlamadasPage() {
       setReviewing(false);
     }
   };
+
+  const internas = internasSinCliente(calls);
+  const primary = calls.filter((row) => !internas.includes(row));
 
   return (
     <AppShell wide>
@@ -282,19 +285,7 @@ export default function LlamadasPage() {
               <p className="text-sm text-destructive">{auditError}</p>
             )}
             <div className="space-y-2">
-              {calls.some((row) => row.interna && !row.inCrm) && (
-                <Button
-                  size="sm"
-                  className="min-h-11"
-                  variant={showInternas ? "primary" : "outline"}
-                  onClick={() => setShowInternas((value) => !value)}
-                >
-                  {showInternas
-                    ? "Ocultar llamadas internas o sin cliente"
-                    : `Mostrar llamadas internas o sin cliente (${calls.filter((row) => row.interna && !row.inCrm).length})`}
-                </Button>
-              )}
-              {(showInternas ? calls.filter((row) => !row.inCrm || !row.interna) : calls.filter((row) => !row.interna)).map((row) => (
+              {primary.map((row) => (
                 <div
                   key={`${row.source}-${row.id}`}
                   className="rounded-xl border border-separator1 bg-bg1 px-3 py-2 flex items-start justify-between gap-3"
@@ -372,12 +363,101 @@ export default function LlamadasPage() {
                   </div>
                 </div>
               ))}
+              {internas.length > 0 && (
+                <Button
+                  size="sm"
+                  className="min-h-11"
+                  variant={showInternas ? "primary" : "outline"}
+                  onClick={() => setShowInternas((value) => !value)}
+                >
+                  {showInternas
+                    ? "Ocultar llamadas internas o sin cliente"
+                    : `Mostrar llamadas internas o sin cliente (${internas.length})`}
+                </Button>
+              )}
+              {showInternas &&
+                internas.map((row) => (
+                  <div
+                    key={`${row.source}-${row.id}`}
+                    className="rounded-xl border border-separator1 bg-bg1 px-3 py-2 flex items-start justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm truncate">{row.title}</p>
+                      <p className="text-xs text-fg3">
+                        {joinDistinct([
+                          shownDate(row.date),
+                          row.leadName,
+                          row.offerName,
+                          row.callType ? plainStatus(row.callType) : "",
+                          row.result ? plainStatus(row.result) : "",
+                        ]) || row.source}
+                        {row.trainsBot ? " · entra a la práctica" : ""}
+                      </p>
+                      {auditingId === row.id && (
+                        <p className="text-xs text-fg3">Analizando la llamada… puede tardar unos segundos</p>
+                      )}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      {row.analyzed ? (
+                        <Button asChild size="sm" variant="ghost">
+                          <Link href={row.href}>Coach</Link>
+                        </Button>
+                      ) : row.source === "upload" ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={auditingId === row.id}
+                          onClick={async () => {
+                            setAuditingId(row.id);
+                            setAuditError(null);
+                            try {
+                              const response = await fetch("/api/qc-report", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ uploadId: row.id }),
+                              });
+                              const data = await response.json();
+                              if (!response.ok) {
+                                throw new Error(data.error || "No se pudo auditar");
+                              }
+                              await loadCalls();
+                              if (data.sessionId) {
+                                window.location.href = `/coach/${data.sessionId}`;
+                              }
+                            } catch (error) {
+                              setAuditError(
+                                error instanceof Error
+                                  ? error.message
+                                  : "No se pudo auditar",
+                              );
+                            } finally {
+                              setAuditingId(null);
+                            }
+                          }}
+                        >
+                          {auditingId === row.id ? "Analizando…" : "Auditar"}
+                        </Button>
+                      ) : null}
+                      <Button asChild size="sm" variant="outline">
+                        <Link
+                          href={
+                            row.result === "cerro" || isNonSalesCall(row.callType)
+                              ? `/practicar?mode=compose&focus=${encodeURIComponent(row.leadName || row.title)}`
+                              : `/practicar?mode=replay&call=${encodeURIComponent(`${row.source}:${row.id}`)}`
+                          }
+                        >
+                          {row.result === "cerro" || isNonSalesCall(row.callType)
+                            ? "Prospecto nuevo"
+                            : "Recrear"}
+                        </Link>
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               {calls.length === 0 && (
                 <p className="text-sm text-fg3">Aún no hay llamadas. Conecta las grabaciones o súbelas.</p>
               )}
-              {calls.length > 0 &&
-                !showInternas &&
-                calls.every((row) => row.interna && !row.inCrm) && (
+              {primary.length === 0 && internas.length > 0 && !showInternas && (
                 <p className="text-sm text-fg3">
                   Solo hay llamadas internas o sin cliente. Ábrelas con el botón de arriba.
                 </p>
