@@ -521,6 +521,30 @@ function shortenAgreement(note: string) {
   return null;
 }
 
+/** A stored objection, not the generic «Otro». Combined with the agreement when both exist. */
+function imperativeForObjection(raw: string | undefined, agreement: string) {
+  const folded = foldDesk(String(raw || ""));
+  if (!folded || /^otro\b/.test(folded)) return null;
+  const agree = foldDesk(agreement);
+  const proposal = /propuest|oferta|evalu/.test(agree);
+  if (/consult/.test(folded)) {
+    if (/pareja/.test(folded)) return "preguntar si ya lo consultó con su pareja y qué decidió";
+    if (/socio/.test(folded)) return "preguntar si ya lo consultó con su socio y qué decidió";
+    return "preguntar si ya lo consultó y qué decidió";
+  }
+  if (/precio|dinero/.test(folded)) {
+    return proposal ? "preguntar si el precio de la propuesta le cierra" : "resolver la objeción de precio";
+  }
+  if (/tiempo|ocupad/.test(folded)) return "preguntar si ya tiene el tiempo";
+  if (/confia|informacion/.test(folded)) return "preguntar si ya confía en la propuesta";
+  if (/momento/.test(folded)) return "preguntar si ya es el momento";
+  if (/otra persona|ya compro/.test(folded)) return "preguntar si sigue con la otra opción";
+  if (/no asist|no se present/.test(folded)) return "reagendar la llamada";
+  const label = objectionLabel(String(raw || ""));
+  if (!label) return null;
+  return `resolver la objeción de ${label}`;
+}
+
 /** The agreement is the next step. A date that already passed becomes a reagendar. Summaries are ignored. */
 export function nextDeskStep(
   note: string,
@@ -529,6 +553,8 @@ export function nextDeskStep(
   extra?: { objection?: string; offerName?: string; temperature?: string },
 ) {
   const clean = note.trim().replace(/[.?!…]+$/g, "").trim();
+  const fromObjection = imperativeForObjection(extra?.objection, clean);
+  if (fromObjection) return fromObjection;
   const mentioned = clean ? mentionedDay(clean, today) : null;
   if (mentioned && mentioned.key < today.slice(0, 10)) {
     return `tenían reunión el ${mentioned.label}, reagendar`;
@@ -667,17 +693,33 @@ function reasonSentence(reason: string) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** One period at the end. The cut is always a whole word, near 120 characters. */
+function finishDeskLine(prefix: string, body: string) {
+  const shown = body.charAt(0).toUpperCase() + body.slice(1);
+  return `${prefix}${shown}.`;
+}
+
+/**
+ * Near 120 characters, but the step (and the offer name inside it) stays whole.
+ * Drop the last-contact phrase first, then the other prefixes.
+ */
 export function deskCallLine(index: number, name: string, reason: string) {
   const sentence = reasonSentence(reason);
-  const full = `${index}. ${name}. ${sentence}`;
+  const prefix = `${index}. ${name}. `;
+  const full = `${prefix}${sentence}`;
   if (full.length <= 119) return `${full}.`;
-  const min = `${index}. ${name}.`.length;
-  let clipped = full.slice(0, 118);
-  const space = clipped.lastIndexOf(" ");
-  if (space > min) clipped = clipped.slice(0, space);
-  clipped = clipped.trimEnd().replace(/[.,;:\s]+$/g, "");
-  return `${clipped}…`;
+  const parts = sentence.split(", ");
+  const step = parts[parts.length - 1] || sentence;
+  const optional = parts.slice(0, -1);
+  const withoutContact = optional.filter((part) => !/contacto/i.test(part));
+  const attempts = [withoutContact];
+  for (let size = withoutContact.length - 1; size >= 0; size -= 1) {
+    attempts.push(withoutContact.slice(withoutContact.length - size));
+  }
+  for (const kept of attempts) {
+    const body = kept.length ? `${kept.join(", ")}, ${step}` : step;
+    if (`${prefix}${body}`.length <= 119) return finishDeskLine(prefix, body);
+  }
+  return finishDeskLine(prefix, step);
 }
 
 /** «¿Qué tengo pendiente hoy?»: siempre dice lo de hoy y si hay cobros. */

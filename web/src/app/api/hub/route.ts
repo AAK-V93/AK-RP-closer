@@ -18,6 +18,9 @@ import {
   answerCrmChat,
   chatFailureReply,
   crmReadFailureReply,
+  guardCoachReply,
+  OFFER_PASTE_TEXT,
+  offerPasteReplyAllowed,
   recognizedCrmQuestion,
   exactOfferName,
   leadInMessage,
@@ -46,6 +49,7 @@ import {
   loadThread,
 } from "@/lib/chat-threads";
 import { crmDashboard } from "@/lib/crm-metrics";
+import { retryRead } from "@/lib/read-retry";
 import { labelCrmProse, presentChatState } from "@/lib/plain-labels";
 import { analyzeCardStatus, coachCardStatus, followupCardStatus } from "@/lib/home-desk";
 import { projectionFromDashboard, projectCommission } from "@/lib/crm-projection";
@@ -164,33 +168,8 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("hub GET", error);
     return NextResponse.json(
-      {
-        error: "No se pudo cargar el inicio",
-        messages: [],
-        snapshot: {
-          home: {
-            phase: "a",
-            hasOffer: false,
-            hasRealCalls: false,
-            fathomConnected: false,
-            autoIngest: false,
-            fathomCount: 0,
-            uploadCount: 0,
-            canPractice: false,
-            showCrm: false,
-            missingCrm: null,
-            lastUnanalyzed: null,
-          },
-          pendingCalls: [],
-          alertsDue: [],
-          monthlyGoalUsd: null,
-          needsMonthlyGoal: false,
-          projection: null,
-          pendingOfferExtract: null,
-          needsPushPrompt: false,
-        },
-      },
-      { status: 200 },
+      { error: "No se pudo cargar el inicio", messages: [], snapshot: null },
+      { status: 503 },
     );
   }
 }
@@ -683,12 +662,36 @@ export async function POST(request: Request) {
       });
     }
     if (live.missingCrm && !body.start) {
+      const pasteDecision = offerPasteReplyAllowed({
+        text: userText,
+        offersUnreadable: Boolean(live.home?.offersUnreadable),
+        missingCrm: true,
+      });
+      if (!pasteDecision.allow && !looksLikeOfferBlob(userText)) {
+        console.warn(
+          JSON.stringify({
+            route: "POST /api/hub",
+            reason: `blocked:${pasteDecision.reason}`,
+          }),
+        );
+        const coachLine = await appendHubLines(
+          prisma,
+          userId,
+          userText,
+          crmReadFailureReply(),
+        );
+        return NextResponse.json({
+          message: coachLine,
+          actions: [],
+        });
+      }
       if (!looksLikeOfferBlob(userText)) {
         const coachLine = await appendHubLines(
           prisma,
           userId,
           userText,
-          "Pega todo junto: qué vendes, precios, cómo paga el lead y cómo te pagan comisión (puede depender del plazo o la forma de pago). O súbelo en Ofertas. No hace falta ir dato por dato.",
+          OFFER_PASTE_TEXT,
+          true,
         );
         const fresh = await hubSnapshot(prisma, userId);
         return NextResponse.json({
@@ -958,11 +961,25 @@ async function hubSnapshot(
   weekStart.setUTCHours(0, 0, 0, 0);
   const heavyPromise = Promise.all([
     timed(timings, "offers", () =>
-      prisma.userOffer.findMany({
-        where: { userId },
-        orderBy: { updatedAt: "desc" },
-        select: { productName: true, commercial: true },
-      }),
+      retryRead(
+        "hub offers",
+        () =>
+          prisma.userOffer.findMany({
+            where: { userId },
+            orderBy: { updatedAt: "desc" },
+            select: { productName: true, commercial: true },
+          }),
+        (rows) => rows.length === 0,
+      ).then(
+        (rows) => ({ rows, unreadable: false as const }),
+        (error) => {
+          console.error("hub offers failed", error);
+          return {
+            rows: [] as { productName: string; commercial: unknown }[],
+            unreadable: true as const,
+          };
+        },
+      ),
     ),
     timed(timings, "dashboard", () => crmDashboard(prisma, userId, { scripts: false, timings })),
     timed(timings, "leads", () =>
@@ -1019,7 +1036,7 @@ async function hubSnapshot(
     home,
     offers: [] as string[],
     canPractice: home.canPractice,
-    readyCrm: false,
+    readyCrm: Boolean(home.hasOffer && !home.missingCrm),
     missingCrm: home.missingCrm,
     fathomCount: home.fathomCount,
     uploadCount: home.uploadCount,
@@ -1063,8 +1080,9 @@ async function hubSnapshot(
     return empty;
   }
   try {
-    const [offers, dash, leads, pendingCalls, recentAuto, analyzedThisWeek, callCount] =
+    const [offerRead, dash, leads, pendingCalls, recentAuto, analyzedThisWeek, callCount] =
       await heavyPromise;
+    const offers = offerRead.rows;
     const unclassified = pendingCalls.length;
     let goalBundle = goalSeed;
     try {
@@ -1098,8 +1116,10 @@ async function hubSnapshot(
       home,
       offers: offers.map((row) => row.productName).filter(Boolean),
       canPractice: home.canPractice,
-      readyCrm: userHasReadyCrm(offers),
-      missingCrm: home.missingCrm,
+      readyCrm: offerRead.unreadable
+        ? Boolean(home.hasOffer && !home.missingCrm)
+        : userHasReadyCrm(offers),
+      missingCrm: offerRead.unreadable ? null : home.missingCrm,
       fathomCount: home.fathomCount,
       uploadCount: home.uploadCount,
       now: dash.now,
@@ -1161,8 +1181,17 @@ async function appendHubLines(
   userId: string,
   userText: string | null,
   reply: string,
+  allowOfferPaste = false,
 ) {
-  const shown = labelCrmProse(reply);
+  const shown = labelCrmProse(guardCoachReply(userText || "", reply, allowOfferPaste));
+  if (shown.includes("Pega todo junto")) {
+    console.warn(
+      JSON.stringify({
+        route: "POST /api/hub",
+        reason: "returned-offer-paste",
+      }),
+    );
+  }
   try {
     const loaded = await loadThread(prisma, userId, THREAD_HUB);
     const incoming: { role: "user" | "coach"; content: string }[] = [];

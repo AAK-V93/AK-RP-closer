@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { practiceOfferGlance, shortOfferBlurb } from "./practice-offer-glance";
+import { practiceOfferGlance, practiceOfferLoadState, shortOfferBlurb } from "./practice-offer-glance";
 
 test("the practice drawer does not repeat the raw PDF", () => {
   const raw =
@@ -44,4 +44,11 @@ test("the glance lists prices and a bonus count", () => {
   assert.equal(glance.bonusCount, 10);
   assert.equal(glance.bonusNames[0], "Bono 1");
   assert.ok(glance.blurb.length < 200);
+});
+
+test("a failed practice offer read is not an empty offer", () => {
+  assert.equal(practiceOfferLoadState({ ok: false, offer: undefined }), "error");
+  assert.equal(practiceOfferLoadState({ ok: false, offer: { id: "x" } }), "error");
+  assert.equal(practiceOfferLoadState({ ok: true, offer: null }), "empty");
+  assert.equal(practiceOfferLoadState({ ok: true, offer: { id: "circulo" } }), "ready");
 });

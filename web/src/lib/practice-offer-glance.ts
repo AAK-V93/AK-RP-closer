@@ -43,6 +43,13 @@ export function shortOfferBlurb(input: {
   return clip(sentences.slice(0, 2).join(" "));
 }
 
+/** A failed workspace read is not an empty offer. */
+export function practiceOfferLoadState(input: { ok: boolean; offer?: unknown }) {
+  if (!input.ok) return "error" as const;
+  if (!input.offer) return "empty" as const;
+  return "ready" as const;
+}
+
 export function practiceOfferGlance(input: {
   productName?: string | null;
   productDescription?: string | null;

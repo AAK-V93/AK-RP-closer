@@ -574,20 +574,62 @@ test("a long agreement becomes a short imperative and the line cuts on a whole w
   const line = calls.split("\n").find((row) => row.startsWith("1. Elber")) || "";
   assert.match(line, /, esperar su respuesta a la propuesta/);
   assert.doesNotMatch(line, /, [A-ZÁÉÍÓÚÑ]/);
-  const source =
-    "1. Elber. Vencido hace 12 días, último contacto el 20/9/2026, " +
-    `${"palabra ".repeat(20)}final`;
+  const step = `${"palabra ".repeat(20)}final`;
   const clipped = deskCallLine(
     1,
     "Elber",
-    "vencido hace 12 días, último contacto el 20/9/2026, " + `${"palabra ".repeat(20)}final`,
+    "vencido hace 12 días, último contacto el 20/9/2026, " + step,
   );
-  assert.ok(clipped.endsWith("…"));
-  assert.ok(clipped.length <= 120, clipped);
-  const body = clipped.slice(0, -1);
-  assert.equal(source.startsWith(body), true);
-  assert.match(source[body.length] || "", /^$|[\s.,;:]/);
-  assert.doesNotMatch(clipped, /palabr…/);
+  assert.equal(clipped.endsWith("…"), false);
+  assert.match(clipped, /final\.$/);
+  assert.doesNotMatch(clipped, /palabr…|último contacto/);
+  assert.equal(clipped.toLowerCase().includes(step.trim().toLowerCase()), true);
+});
+
+test("a call line keeps the offer name and drops the contact before the step", () => {
+  const line = deskCallLine(
+    3,
+    "Maria Patricia",
+    "vencido hace 48 días, último contacto el 15/8/2026, reenviar la oferta de Círculo Millonario y el plan",
+  );
+  assert.match(line, /Círculo Millonario/);
+  assert.doesNotMatch(line, /Círculo…|…/);
+  assert.doesNotMatch(line, /último contacto/);
+  assert.match(line, /reenviar la oferta de Círculo Millonario y el plan/);
+  const jessica = deskCallLine(
+    1,
+    "Jessica",
+    "vencido hace 48 días, último contacto el 15/8/2026, reenviar la oferta de Círculo Millonario con el plan de pagos completo",
+  );
+  assert.match(jessica, /Círculo Millonario/);
+  assert.doesNotMatch(jessica, /…/);
+  assert.match(jessica, /plan de pagos completo/);
+});
+
+test("a real objection drives the step ahead of the agreement", () => {
+  const today = "2026-10-03";
+  const note = "El cliente evaluará la propuesta enviada y dará una respuesta";
+  const base = {
+    proximo: "2026-09-20",
+    step: "SEGUIMIENTO",
+    closed: false,
+    note,
+    lastContact: "2026-09-20",
+  };
+  const elber = deskLinesFromFilings(
+    [{ ...base, name: "Elber", objection: "Necesita consultarlo con alguien" }],
+    today,
+  );
+  assert.match(elber[0]?.reason || "", /preguntar si ya lo consultó y qué decidió/);
+  assert.doesNotMatch(elber[0]?.reason || "", /esperar su respuesta/);
+  const partner = deskLinesFromFilings(
+    [{ ...base, name: "Ana", objection: "Lo consulta con su pareja" }],
+    today,
+  );
+  assert.match(partner[0]?.reason || "", /consultó con su pareja/);
+  const other = deskLinesFromFilings([{ ...base, name: "Luis", objection: "Otro" }], today);
+  assert.match(other[0]?.reason || "", /esperar su respuesta a la propuesta/);
+  assert.doesNotMatch(other[0]?.reason || "", /reenviar/);
 });
 
 test("retomar el contacto only when the filing has no structured next step", () => {

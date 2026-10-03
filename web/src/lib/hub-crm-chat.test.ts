@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { PrismaClient } from "@prisma/client";
 import { missingOfferSetupPhrase } from "./offer-commercial";
+import { getHomeState } from "./home-state";
+import { retryRead } from "./read-retry";
 import {
   answerCrmChat,
   applyChatProposal,
@@ -16,6 +18,9 @@ import {
   formatMoneyStats,
   looksLikeOfferSetup,
   recognizedCrmQuestion,
+  guardCoachReply,
+  offerPasteReplyAllowed,
+  OFFER_PASTE_TEXT,
   interpretCrmChat,
   loadLeadTranscript,
   looksLikeFilingAnswer,
@@ -1109,8 +1114,137 @@ test("who to call uses the filing objection and leaves an empty row generic", as
 
 test("the hub paste cannot run for a recognized CRM question", () => {
   const route = readFileSync(new URL("../app/api/hub/route.ts", import.meta.url), "utf8");
-  const guard = route.indexOf("recognizedCrmQuestion");
-  const paste = route.indexOf("Pega todo junto");
+  const chat = readFileSync(new URL("./hub-crm-chat.ts", import.meta.url), "utf8");
+  const screen = readFileSync(new URL("../components/home-screen.tsx", import.meta.url), "utf8");
+  const hubChat = readFileSync(new URL("../components/hub-chat.tsx", import.meta.url), "utf8");
+  const guard = route.indexOf("recognizedCrmQuestion(userText)");
+  const paste = route.lastIndexOf("OFFER_PASTE_TEXT");
   assert.ok(guard > 0 && paste > guard);
   assert.equal(route.includes("loadLiveGuides"), false);
+  assert.match(route, /returned-offer-paste/);
+  assert.match(route, /status: 503/);
+  assert.doesNotMatch(route, /phase: "a"/);
+  assert.match(chat, /Pega todo junto/);
+  assert.match(screen, /offersUnreadable/);
+  assert.match(hubChat, /chatSendReady/);
+  const pending = "¿Qué tengo pendiente hoy?";
+  assert.equal(recognizedCrmQuestion(pending), true);
+  assert.deepEqual(
+    offerPasteReplyAllowed({ text: pending, offersUnreadable: true, missingCrm: true }),
+    { allow: false, reason: "offers-unreadable" },
+  );
+  assert.equal(
+    offerPasteReplyAllowed({ text: pending, offersUnreadable: false, missingCrm: true }).allow,
+    false,
+  );
+  assert.equal(
+    offerPasteReplyAllowed({ text: "¿y el precio?", offersUnreadable: false, missingCrm: true }).reason,
+    "question",
+  );
+  assert.equal(
+    offerPasteReplyAllowed({
+      text: "te mando la oferta luego",
+      offersUnreadable: false,
+      missingCrm: true,
+    }).allow,
+    true,
+  );
+  assert.equal(guardCoachReply(pending, OFFER_PASTE_TEXT, true).includes("Pega todo junto"), false);
+  assert.equal(guardCoachReply(pending, OFFER_PASTE_TEXT, false).includes("Pega todo junto"), false);
+  assert.match(guardCoachReply(pending, OFFER_PASTE_TEXT), /No pude leer tus datos del CRM/);
+  assert.equal(
+    guardCoachReply("te mando la oferta luego", OFFER_PASTE_TEXT, true),
+    OFFER_PASTE_TEXT,
+  );
+});
+
+test("an offers read that fails or comes back empty after an error is not no-offer", async () => {
+  const orig = console.error;
+  console.error = () => undefined;
+  try {
+    let calls = 0;
+    const recovered = await retryRead(
+      "home offers",
+      async () => {
+        calls += 1;
+        if (calls === 1) throw new Error("cold");
+        return [{ productName: "Círculo Millonario" }];
+      },
+      (rows) => rows.length === 0,
+    );
+    assert.equal(recovered[0]?.productName, "Círculo Millonario");
+    assert.equal(calls, 2);
+
+    calls = 0;
+    await assert.rejects(() =>
+      retryRead(
+        "home offers",
+        async () => {
+          calls += 1;
+          if (calls === 1) throw new Error("cold");
+          return [];
+        },
+        (rows) => rows.length === 0,
+      ),
+    );
+
+    calls = 0;
+    await assert.rejects(() =>
+      retryRead(
+        "home offers",
+        async () => {
+          calls += 1;
+          if (calls === 1) return [];
+          throw new Error("recheck");
+        },
+        (rows) => rows.length === 0,
+      ),
+    );
+
+    const empty = await retryRead(
+      "home offers",
+      async () => [] as { productName: string }[],
+      (rows) => rows.length === 0,
+    );
+    assert.deepEqual(empty, []);
+  } finally {
+    console.error = orig;
+  }
+});
+
+test("a cold offers failure does not open onboarding or the paste", async () => {
+  const orig = console.error;
+  console.error = () => undefined;
+  let reads = 0;
+  const prisma = {
+    userOffer: {
+      findMany: async () => {
+        reads += 1;
+        if (reads === 1) return [];
+        throw new Error("cold offers");
+      },
+    },
+    fathomConnection: { findUnique: async () => ({ webhookId: "w" }) },
+    fathomRecording: { count: async () => 2 },
+    $queryRaw: async () => [],
+    clientTranscript: { count: async () => 0 },
+    callRecord: { count: async () => 4 },
+  };
+  try {
+    const home = await getHomeState(prisma as unknown as PrismaClient, "user-1");
+    assert.equal(home.offersUnreadable, true);
+    assert.equal(home.missingCrm, null);
+    assert.equal(home.hasOffer, true);
+    assert.notEqual(home.phase, "a");
+    const pending = "¿Qué tengo pendiente hoy?";
+    const decision = offerPasteReplyAllowed({
+      text: pending,
+      offersUnreadable: home.offersUnreadable,
+      missingCrm: Boolean(home.missingCrm),
+    });
+    assert.equal(decision.allow, false);
+    assert.equal(guardCoachReply(pending, OFFER_PASTE_TEXT, decision.allow).includes("Pega todo junto"), false);
+  } finally {
+    console.error = orig;
+  }
 });

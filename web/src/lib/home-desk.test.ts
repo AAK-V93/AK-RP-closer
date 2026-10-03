@@ -93,6 +93,8 @@ test("the practice card keeps the drill off the hub payload", () => {
   assert.equal(hub.includes("practiceCardFromGuides"), false);
   assert.match(screen, /\/api\/hub\/practice/);
   assert.match(screen, /Elige con quién practicar/);
+  assert.match(screen, /line-clamp-2/);
+  assert.doesNotMatch(screen, /phase \|\| "a"/);
   assert.match(practice, /practiceCardFromGuides/);
   assert.match(practice, /select: \{ productName: true, playbook: true \}/);
 });

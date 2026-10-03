@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
 import { nextMissingCrmField } from "@/lib/offer-commercial";
+import { retryRead } from "@/lib/read-retry";
 
 export type HomePhase = "a" | "b" | "c";
 
@@ -15,6 +16,8 @@ export type HomeState = {
   canPractice: boolean;
   showCrm: boolean;
   missingCrm: { offerId: string; field: string; question: string } | null;
+  /** The offers query failed. This is not the same as having no offer. */
+  offersUnreadable: boolean;
   lastUnanalyzed: { id: string; title: string } | null;
 };
 
@@ -58,12 +61,23 @@ export async function getHomeState(
   prisma: PrismaClient,
   userId: string,
 ): Promise<HomeState> {
-  const [offers, fathom, uploadCount, filed] = await Promise.all([
-    prisma.userOffer.findMany({
-      where: { userId },
-      orderBy: { updatedAt: "desc" },
-      select: { id: true, productName: true, commercial: true },
-    }),
+  const [offerRead, fathom, uploadCount, filed] = await Promise.all([
+    retryRead(
+      "home offers",
+      () =>
+        prisma.userOffer.findMany({
+          where: { userId },
+          orderBy: { updatedAt: "desc" },
+          select: { id: true, productName: true, commercial: true },
+        }),
+      (rows) => rows.length === 0,
+    ).then(
+      (rows) => ({ rows, unreadable: false as const }),
+      (error) => {
+        console.error("home offers failed", error);
+        return { rows: [], unreadable: true as const };
+      },
+    ),
     fathomHomeBits(prisma, userId).catch(() => ({
       fathomConnected: false,
       autoIngest: false,
@@ -78,18 +92,30 @@ export async function getHomeState(
       },
     }),
   ]);
-  const hasOffer = offers.some((row) => row.productName.trim());
+  const offers = offerRead.rows;
+  const offersUnreadable = offerRead.unreadable;
+  const hasOffer = offersUnreadable || offers.some((row) => row.productName.trim());
   const { fathomCount, lastUnanalyzed, fathomConnected, autoIngest } = fathom;
   const hasRealCalls = fathomCount > 0 || uploadCount > 0 || filed > 0;
 
-  const phase: HomePhase = hasOffer && hasRealCalls ? "c" : hasOffer ? "b" : "a";
-  const missingCrm = nextMissingCrmField(
-    offers.map((row) => ({
-      id: row.id,
-      productName: row.productName,
-      commercial: row.commercial,
-    })),
-  );
+  const phase: HomePhase = offersUnreadable
+    ? hasRealCalls
+      ? "c"
+      : "b"
+    : hasOffer && hasRealCalls
+      ? "c"
+      : hasOffer
+        ? "b"
+        : "a";
+  const missingCrm = offersUnreadable
+    ? null
+    : nextMissingCrmField(
+        offers.map((row) => ({
+          id: row.id,
+          productName: row.productName,
+          commercial: row.commercial,
+        })),
+      );
 
   return {
     phase,
@@ -102,6 +128,7 @@ export async function getHomeState(
     canPractice: hasOffer,
     showCrm: phase === "c",
     missingCrm,
+    offersUnreadable,
     lastUnanalyzed,
   };
 }
