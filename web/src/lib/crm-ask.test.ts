@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { answerCrmFollowups, type CrmAskRow } from "./crm-ask";
 
@@ -85,4 +86,16 @@ test("empty CRM does not invent a follow-up", () => {
     answerCrmFollowups([], "¿a quién hoy?", { now }),
     "No hay seguimientos abiertos en el CRM.",
   );
+});
+
+test("the ask panel is a side column at 1200px and a 64px bar below that", () => {
+  const ask = readFileSync(new URL("../components/crm-ask.tsx", import.meta.url), "utf8");
+  const crm = readFileSync(new URL("../app/crm/page.tsx", import.meta.url), "utf8");
+  assert.match(ask, /min-width: 1200px/);
+  assert.equal(ask.includes("min-width: 1280px"), false);
+  assert.match(ask, /min-\[1200px\]:sticky min-\[1200px\]:top-4/);
+  assert.match(ask, /flex h-16 max-h-16 min-w-0 items-center gap-2 border-t border-separator1 px-3 min-\[1200px\]:hidden/);
+  assert.match(ask, /min-\[1200px\]:hidden/);
+  assert.match(crm, /min-\[1200px\]:grid min-\[1200px\]:grid-cols-\[minmax\(0,1fr\)_320px\]/);
+  assert.equal(crm.includes("xl:grid xl:grid-cols-[minmax(0,1fr)_320px]"), false);
 });
