@@ -7,6 +7,8 @@ import {
   deskLinesFromFilings,
   followupSnapshot,
   formatPendingDesk,
+  formatPendingToday,
+  formatWhoToCall,
   isMeetingFollowup,
   moneyInPlay,
   type OperacionFollowupSource,
@@ -407,7 +409,7 @@ test("a closed sale with balance is cobro, and the repeated description is dropp
   );
 });
 
-test("the desk lists overdue and today with name, step and date", () => {
+test("the desk ranks money ahead of an older call and never says only seguimiento", () => {
   const lines = deskLinesFromFilings(
     [
       {
@@ -419,12 +421,22 @@ test("the desk lists overdue and today with name, step and date", () => {
         venta: 1597,
         cash: 533,
         saldo: 1064,
+        note: "seguimiento",
       },
       {
         name: "Carlos Ramírez",
         proximo: "2026-09-20",
         step: "DECISION",
         closed: false,
+        note: "prometió decidir el viernes",
+        lastContact: "2026-09-20",
+      },
+      {
+        name: "Ana Quispe",
+        proximo: "2026-09-29",
+        step: "SEGUIMIENTO",
+        closed: false,
+        lastContact: "2026-09-28",
       },
       {
         name: "Lucía",
@@ -435,8 +447,23 @@ test("the desk lists overdue and today with name, step and date", () => {
     ],
     "2026-10-02",
   );
-  assert.equal(lines.length, 2);
-  assert.equal(lines[0]?.name, "Carlos Ramírez");
-  assert.equal(formatPendingDesk(lines).includes("Valeria Ríos — Cobro de la siguiente cuota — 2026-10-02"), true);
-  assert.match(formatPendingDesk(lines), /1 vencido · 1 pendiente de hoy/);
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0]?.name, "Valeria Ríos");
+  assert.equal(lines[0]?.reason, "cuota de 1.064 vence hoy");
+  assert.equal(lines[1]?.name, "Carlos Ramírez");
+  assert.equal(lines[1]?.reason, "prometió decidir el viernes");
+  assert.match(lines[2]?.reason || "", /último contacto el 28\/9\/2026/);
+  for (const line of lines) {
+    assert.notEqual(line.reason.trim().toLowerCase(), "seguimiento");
+  }
+  const today = formatPendingToday(lines, 8);
+  const calls = formatWhoToCall(lines);
+  assert.match(today, /1 seguimiento vencido|2 seguimientos vencidos|3 seguimientos vencidos/);
+  assert.match(today, /8 llamadas por clasificar/);
+  assert.match(today, /Valeria Ríos \(cuota de 1\.064 vence hoy\)/);
+  assert.match(calls, /^Llama hoy, en este orden:/);
+  assert.match(calls, /1\. Valeria Ríos\. Cuota de 1\.064 vence hoy\./);
+  assert.match(calls, /2\. Carlos Ramírez\. Prometió decidir el viernes\./);
+  assert.notEqual(today, calls);
+  assert.equal(formatPendingDesk(lines, 8), today);
 });

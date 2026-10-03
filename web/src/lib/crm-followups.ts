@@ -338,6 +338,8 @@ export type DeskFiling = {
   venta?: number | null;
   cash?: number | null;
   saldo?: number | null;
+  note?: string;
+  lastContact?: string;
 };
 
 export type DeskLine = {
@@ -345,7 +347,68 @@ export type DeskLine = {
   step: string;
   date: string;
   estado: "VENCIDO" | "HOY";
+  amount: number;
+  lateDays: number;
+  reason: string;
+  kind: "cobro" | "llamada";
 };
+
+function moneyEs(amount: number) {
+  return String(Math.round(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+function shortDay(iso: string) {
+  const [year, month, day] = iso.slice(0, 10).split("-");
+  if (!year || !month || !day) return iso;
+  return `${Number(day)}/${Number(month)}/${year}`;
+}
+
+function daysBetween(due: string, today: string) {
+  const start = Date.parse(`${due.slice(0, 10)}T00:00:00Z`);
+  const end = Date.parse(`${today.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  return Math.max(0, Math.round((end - start) / 86_400_000));
+}
+
+function bareFollowup(value: string) {
+  const text = value.trim().toLowerCase();
+  return !text || text === "—" || text === "seguimiento" || text === "seguimientos";
+}
+
+function deskReason(args: {
+  owes: boolean;
+  amount: number;
+  lateDays: number;
+  note: string;
+  step: string;
+  due: string;
+  lastContact: string;
+}) {
+  if (args.owes && args.amount > 0) {
+    const money = moneyEs(args.amount);
+    if (args.lateDays > 0) {
+      const days = args.lateDays === 1 ? "1 día" : `${args.lateDays} días`;
+      return `cuota de ${money} vencida hace ${days}`;
+    }
+    return `cuota de ${money} vence hoy`;
+  }
+  if (!bareFollowup(args.note)) return args.note.trim();
+  const stage = bareFollowup(args.step) ? "Seguimiento" : args.step.trim();
+  const when = args.lastContact || args.due;
+  return `${stage}, último contacto el ${shortDay(when)}`;
+}
+
+/** Money first, then how late, then a cobro ahead of a plain call. */
+export function prioritizeDesk(lines: DeskLine[]) {
+  const stage = (row: DeskLine) => (row.kind === "cobro" ? 2 : 1);
+  return [...lines].sort(
+    (a, b) =>
+      (b.amount || 0) - (a.amount || 0) ||
+      (b.lateDays || 0) - (a.lateDays || 0) ||
+      stage(b) - stage(a) ||
+      a.name.localeCompare(b.name, "es"),
+  );
+}
 
 /** One open follow-up per person, only today and overdue. Newest call wins. */
 export function deskLinesFromFilings(rows: DeskFiling[], today: string): DeskLine[] {
@@ -368,35 +431,101 @@ export function deskLinesFromFilings(rows: DeskFiling[], today: string): DeskLin
   for (const row of chosen.values()) {
     const estado = followupEstado(row.due, today);
     if (estado === "PRÓXIMO") continue;
-    const owes =
-      (row.saldo || 0) > 0 || ((row.venta || 0) > (row.cash || 0) && (row.venta || 0) > 0);
+    const saldo = row.saldo || 0;
+    const gap = (row.venta || 0) > (row.cash || 0) ? (row.venta || 0) - (row.cash || 0) : 0;
+    const amount = saldo > 0 ? saldo : gap;
+    const owes = amount > 0;
     const labeled = plainStatus(row.step);
     const step = closedSale(row.estadoAgenda)
       ? owes
         ? "Cobro de la siguiente cuota"
         : "Bienvenida"
       : labeled === "—"
-        ? "seguimiento"
+        ? "Seguimiento"
         : labeled;
-    lines.push({ name: row.name.trim(), step, date: row.due, estado });
+    const lateDays = estado === "VENCIDO" ? Math.max(1, daysBetween(row.due, today)) : 0;
+    const note = String(row.note || "").trim();
+    lines.push({
+      name: row.name.trim(),
+      step,
+      date: row.due,
+      estado,
+      amount,
+      lateDays,
+      kind: owes ? "cobro" : "llamada",
+      reason: deskReason({
+        owes,
+        amount,
+        lateDays,
+        note,
+        step,
+        due: row.due,
+        lastContact: String(row.lastContact || "").slice(0, 10),
+      }),
+    });
   }
-  return lines.sort(
-    (a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name, "es"),
-  );
+  return prioritizeDesk(lines);
 }
 
-export function formatPendingDesk(lines: DeskLine[]) {
-  if (!lines.length) return "Hoy no tienes pendientes ni vencidos.";
+function reasonSentence(reason: string) {
+  const text = reason.trim();
+  if (!text) return "Seguimiento, sin nota de último contacto.";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** «¿Qué tengo pendiente hoy?»: cobros, llamadas y lo que falta clasificar. */
+export function formatPendingToday(lines: DeskLine[], unclassified = 0) {
   const overdue = lines.filter((row) => row.estado === "VENCIDO");
-  const today = lines.filter((row) => row.estado === "HOY");
-  const head = [
-    overdue.length === 1 ? "1 vencido" : overdue.length ? `${overdue.length} vencidos` : "",
-    today.length === 1 ? "1 pendiente de hoy" : today.length ? `${today.length} pendientes de hoy` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const body = lines.map((row) => `· ${row.name} — ${row.step} — ${row.date}`).join("\n");
-  return `${head}.\n${body}`;
+  const dueToday = lines.filter((row) => row.estado === "HOY");
+  const cobros = lines.filter((row) => row.kind === "cobro");
+  const llamadas = lines.filter((row) => row.kind !== "cobro");
+  if (!lines.length && unclassified <= 0) return "Hoy no tienes pendientes ni vencidos.";
+  const parts: string[] = [];
+  if (overdue.length) {
+    parts.push(overdue.length === 1 ? "1 seguimiento vencido" : `${overdue.length} seguimientos vencidos`);
+  }
+  if (dueToday.length) {
+    parts.push(dueToday.length === 1 ? "1 cosa para hoy" : `${dueToday.length} cosas para hoy`);
+  }
+  let text = parts.length
+    ? `Hoy tienes ${parts.join(" y ")}.`
+    : "Hoy no tienes seguimientos vencidos ni nada para hoy.";
+  if (cobros.length) {
+    const saldo = cobros.reduce((sum, row) => sum + (row.amount || 0), 0);
+    const who = cobros.length === 1 ? "1 es un cobro" : `${cobros.length} son cobros`;
+    text += saldo > 0 ? ` ${who}, USD ${moneyEs(saldo)} por cobrar.` : ` ${who}.`;
+  }
+  if (llamadas.length) {
+    text += llamadas.length === 1 ? " 1 es una llamada." : ` ${llamadas.length} son llamadas.`;
+  }
+  if (unclassified > 0) {
+    text +=
+      unclassified === 1
+        ? " También tienes 1 llamada por clasificar."
+        : ` También tienes ${unclassified} llamadas por clasificar.`;
+  }
+  const top = prioritizeDesk(lines).slice(0, 3);
+  if (top.length) {
+    text += ` Lo más urgente: ${top.map((row) => `${row.name} (${row.reason})`).join("; ")}.`;
+  }
+  return text;
+}
+
+/** «¿A quién llamo hoy?»: las 7 llamadas con más dinero, atraso y etapa. */
+export function formatWhoToCall(lines: DeskLine[]) {
+  const ranked = prioritizeDesk(lines);
+  const shown = ranked.slice(0, 7);
+  if (!shown.length) return "Hoy no tienes a quién llamar. No hay vencidos ni nada pactado para hoy.";
+  const body = shown
+    .map((row, index) => `${index + 1}. ${row.name}. ${reasonSentence(row.reason)}.`)
+    .join("\n");
+  const rest = ranked.length - shown.length;
+  const more = rest > 0 ? `\nQuedan ${rest} más después de estas.` : "";
+  return `Llama hoy, en este orden:\n${body}${more}`;
+}
+
+export function formatPendingDesk(lines: DeskLine[], unclassified = 0) {
+  return formatPendingToday(lines, unclassified);
 }
 
 /** Segunda reunión and any other meeting follow-up, not a call. */

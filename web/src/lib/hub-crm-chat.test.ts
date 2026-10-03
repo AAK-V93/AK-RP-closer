@@ -8,6 +8,7 @@ import {
   asksForMoneyStats,
   bareMoneyPeriod,
   asksForPendingDesk,
+  deskQuestionKind,
   chatCapabilitiesReply,
   cobradoFromCalls,
   formatMoneyStats,
@@ -827,26 +828,53 @@ test("chat Cobrado comes from the call when the lead field is empty", () => {
   assert.doesNotMatch(turn.reply, /«—»/);
 });
 
-test("pending desk questions list overdue and today, not the offer paste", () => {
+test("pending today is a summary and who to call is a ranked list", () => {
   assert.equal(asksForPendingDesk("¿Qué tengo pendiente hoy?"), true);
   assert.equal(asksForPendingDesk("¿qué tengo hoy?"), true);
   assert.equal(asksForPendingDesk("pendientes"), true);
   assert.equal(asksForPendingDesk("¿a quién llamo hoy?"), true);
   assert.equal(asksForPendingDesk("No tengo ningún cambio pendiente. ¿Qué quieres actualizar?"), false);
-  const turn = interpretCrmChat("¿Qué tengo pendiente hoy?", {
-    ...ctx,
-    desk: [
-      { name: "Valeria Ríos", step: "Cobro de la siguiente cuota", date: "2026-10-09", estado: "HOY" },
-      { name: "Carlos Ramírez", step: "Seguimiento", date: "2026-09-20", estado: "VENCIDO" },
-    ],
-  });
-  assert.equal(turn.kind, "answer");
-  if (turn.kind !== "answer") return;
-  assert.match(turn.reply, /1 vencido/);
-  assert.match(turn.reply, /1 pendiente de hoy/);
-  assert.match(turn.reply, /Valeria Ríos — Cobro de la siguiente cuota — 2026-10-09/);
-  assert.match(turn.reply, /Carlos Ramírez — Seguimiento — 2026-09-20/);
-  assert.doesNotMatch(turn.reply, /Pega todo junto/);
+  assert.equal(deskQuestionKind("¿Qué tengo pendiente hoy?"), "summary");
+  assert.equal(deskQuestionKind("¿a quién llamo hoy?"), "calls");
+  assert.equal(deskQuestionKind("¿a quién escribo hoy?"), "calls");
+  const desk = [
+    {
+      name: "Valeria Ríos",
+      step: "Cobro de la siguiente cuota",
+      date: "2026-10-09",
+      estado: "HOY" as const,
+      amount: 533,
+      lateDays: 0,
+      kind: "cobro" as const,
+      reason: "cuota de 533 vence hoy",
+    },
+    {
+      name: "Carlos Ramírez",
+      step: "Decisión",
+      date: "2026-09-20",
+      estado: "VENCIDO" as const,
+      amount: 0,
+      lateDays: 19,
+      kind: "llamada" as const,
+      reason: "prometió decidir el viernes",
+    },
+  ];
+  const summary = interpretCrmChat("¿Qué tengo pendiente hoy?", { ...ctx, desk, unclassified: 8 });
+  const calls = interpretCrmChat("¿a quién llamo hoy?", { ...ctx, desk, unclassified: 8 });
+  assert.equal(summary.kind, "answer");
+  assert.equal(calls.kind, "answer");
+  if (summary.kind !== "answer" || calls.kind !== "answer") return;
+  assert.match(summary.reply, /1 seguimiento vencido/);
+  assert.match(summary.reply, /1 cosa para hoy/);
+  assert.match(summary.reply, /8 llamadas por clasificar/);
+  assert.match(summary.reply, /Valeria Ríos \(cuota de 533 vence hoy\)/);
+  assert.match(calls.reply, /^Llama hoy, en este orden:/);
+  assert.match(calls.reply, /1\. Valeria Ríos\. Cuota de 533 vence hoy\./);
+  assert.match(calls.reply, /Prometió decidir el viernes/);
+  assert.doesNotMatch(calls.reply, /por clasificar/);
+  assert.notEqual(summary.reply, calls.reply);
+  assert.doesNotMatch(summary.reply, /Pega todo junto/);
+  assert.doesNotMatch(calls.reply, /Pega todo junto/);
 });
 
 const moneyBrief = {

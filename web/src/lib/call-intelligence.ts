@@ -19,7 +19,8 @@ import {
 } from "@/lib/offer-resolve";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { visibleCallTitle } from "@/lib/crm-noise";
-import { callAlreadyInCrm, type CrmLeadRef } from "@/lib/lead-match";
+import { classifiablePending } from "@/lib/classify-queue";
+import { type CrmLeadRef } from "@/lib/lead-match";
 import { labelCrmProse } from "@/lib/plain-labels";
 import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
 import { inferCallDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
@@ -502,11 +503,27 @@ export async function archiveSilentNonSalesPendings(
   return archived;
 }
 
+function archiveAfterResponse(prisma: PrismaClient, userId: string) {
+  const run = () => archiveSilentNonSalesPendings(prisma, userId).catch((error) => {
+    console.error("archive pending", error);
+  });
+  void import("next/server")
+    .then(({ after }) => {
+      try {
+        after(() => {
+          void run();
+        });
+      } catch {
+        /* no request scope */
+      }
+    })
+    .catch(() => undefined);
+}
+
 export async function listPendingFilings(prisma: PrismaClient, userId: string) {
-  const offers = await loadOffersForCrm(prisma, userId);
-  const readyCrm = userHasReadyCrm(offers);
-  await archiveSilentNonSalesPendings(prisma, userId);
-  const [leads, threads, alerts] = await Promise.all([
+  archiveAfterResponse(prisma, userId);
+  const [offers, leads, threads, alerts, rows] = await Promise.all([
+    loadOffersForCrm(prisma, userId),
     prisma.lead.findMany({
       where: { userId },
       select: { id: true, name: true, company: true, telefono: true, email: true },
@@ -519,7 +536,28 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
       where: { userId },
       select: { leadId: true, callRecordId: true },
     }),
+    prisma.callRecord.findMany({
+      where: { userId, filingStatus: "pending" },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        source: true,
+        sourceId: true,
+        title: true,
+        callType: true,
+        result: true,
+        leadName: true,
+        offerName: true,
+        summary: true,
+        estadoAgenda: true,
+        filingJson: true,
+        recordedAt: true,
+        createdAt: true,
+      },
+    }),
   ]);
+  const readyCrm = userHasReadyCrm(offers);
   const callIds = new Map<string, string[]>();
   const addCall = (leadId: string, callId: string) => {
     if (!leadId || !callId) return;
@@ -537,38 +575,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
     email: lead.email,
     callIds: callIds.get(lead.id) || [],
   }));
-  const rows = await prisma.callRecord.findMany({
-    where: { userId, filingStatus: "pending" },
-    orderBy: { createdAt: "desc" },
-    take: 200,
-  });
-  return rows
-    .filter((row) => {
-      if (isNonSalesCall(row.estadoAgenda) || isInternalMeetingTitle(row.title)) {
-        return false;
-      }
-      if (callAlreadyInCrm({ ...row, summary: row.summary }, refs)) return false;
-      if (isExtractorJson(row.filingJson)) {
-        const parsed = parseExtractorJson(row.filingJson);
-        if (isNonSalesCall(parsed.estado_agenda)) return false;
-        if (
-          callAlreadyInCrm(
-            {
-              id: row.id,
-              leadName: parsed.cliente_real || row.leadName,
-              title: row.title,
-              summary: row.summary || parsed.notas_crm,
-              filingJson: { ...parsed, lead_id: (parsed as { lead_id?: string }).lead_id },
-            },
-            refs,
-          )
-        ) {
-          return false;
-        }
-      }
-      return true;
-    })
-    .map((row) => {
+  return classifiablePending(rows, refs).map((row) => {
     if (isExtractorJson(row.filingJson)) {
       const parsed = enrichExtractorFollowup(parseExtractorJson(row.filingJson), {
         callAt: row.recordedAt,

@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { EMPTY_TRANSCRIPT_MARK, isUsableTranscript } from "@/lib/fathom-import";
+import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
 import { nextMissingCrmField } from "@/lib/offer-commercial";
 
 export type HomePhase = "a" | "b" | "c";
@@ -34,20 +34,23 @@ async function fathomHomeBits(prisma: PrismaClient, userId: string) {
     prisma.fathomRecording.count({
       where: { userId, ...usableFathomWhere },
     }),
-    prisma.fathomRecording.findFirst({
-      where: { userId, practiceSessionId: null, ...usableFathomWhere },
-      orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
-      select: { id: true, title: true, transcriptText: true },
-    }),
+    prisma.$queryRaw<{ id: string; title: string }[]>`
+      SELECT "id", "title"
+      FROM "FathomRecording"
+      WHERE "userId" = ${userId}
+        AND "practiceSessionId" IS NULL
+        AND char_length(btrim("transcriptText")) >= 80
+        AND "transcriptText" <> ${EMPTY_TRANSCRIPT_MARK}
+      ORDER BY "recordedAt" DESC NULLS LAST, "syncedAt" DESC
+      LIMIT 1
+    `,
   ]);
+  const last = pending[0];
   return {
     fathomConnected: Boolean(connection),
     autoIngest: Boolean(connection?.webhookId),
     fathomCount,
-    lastUnanalyzed:
-      pending && isUsableTranscript(pending.transcriptText)
-        ? { id: pending.id, title: pending.title }
-        : null,
+    lastUnanalyzed: last ? { id: last.id, title: last.title } : null,
   };
 }
 

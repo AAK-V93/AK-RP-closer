@@ -40,7 +40,7 @@ import { crmDashboard } from "@/lib/crm-metrics";
 import { labelCrmProse, presentChatState } from "@/lib/plain-labels";
 import { analyzeCardStatus, coachCardStatus, followupCardStatus } from "@/lib/home-desk";
 import { loadLiveGuides } from "@/lib/live-guide";
-import { loadCommissionProjection, projectCommission } from "@/lib/crm-projection";
+import { projectionFromDashboard, projectCommission } from "@/lib/crm-projection";
 import {
   applyCommercialAnswer,
   looksLikeOfferBlob,
@@ -893,21 +893,70 @@ async function hubSnapshot(
   userId: string,
   timings?: ServerTiming[],
 ) {
-  const [home, prefsRow] = await Promise.all([
-    timed(timings, "home", () => getHomeState(prisma, userId)),
-    timed(timings, "prefs", () =>
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { crmPrefs: true },
+  const homePromise = timed(timings, "home", () => getHomeState(prisma, userId));
+  const prefsPromise = timed(timings, "prefs", () =>
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { crmPrefs: true },
+    }),
+  );
+  const weekStart = new Date();
+  const weekday = weekStart.getUTCDay();
+  weekStart.setUTCDate(weekStart.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
+  weekStart.setUTCHours(0, 0, 0, 0);
+  const heavyPromise = Promise.all([
+    timed(timings, "workspace", () => getWorkspace(prisma, userId, null, { corpus: false })),
+    timed(timings, "dashboard", () => crmDashboard(prisma, userId, { scripts: false, timings })),
+    timed(timings, "leads", () =>
+      prisma.lead.findMany({
+        where: { userId },
+        orderBy: { updatedAt: "desc" },
+        take: 12,
+        select: { name: true, status: true, offerName: true, nextStep: true },
+      }),
+    ),
+    timed(timings, "filings", () => listPendingFilings(prisma, userId)),
+    timed(timings, "recent", () =>
+      prisma.callRecord.findMany({
+        where: {
+          userId,
+          filingStatus: "confirmed",
+          confirmedAt: { gte: new Date(Date.now() - 36 * 3600 * 1000) },
+        },
+        orderBy: { confirmedAt: "desc" },
+        take: 3,
+        select: { summary: true },
+      }),
+    ),
+    timed(timings, "analyzed", () =>
+      prisma.callRecord.count({
+        where: {
+          userId,
+          filingStatus: "confirmed",
+          confirmedAt: { gte: weekStart },
+          estadoAgenda: { notIn: ["INTERNA", "NO_COMERCIAL"] },
+        },
+      }),
+    ),
+    timed(timings, "guides", () => loadLiveGuides(prisma, userId)),
+    timed(timings, "callCount", () =>
+      prisma.callRecord.count({
+        where: {
+          userId,
+          source: { in: ["fathom", "upload", "qc"] },
+          filingStatus: { not: "skipped" },
+        },
       }),
     ),
   ]);
+  void heavyPromise.catch(() => undefined);
+  const [home, prefsRow] = await Promise.all([homePromise, prefsPromise]);
   const prefs = parseCrmPrefs(prefsRow?.crmPrefs);
   const pendingOfferExtract = readPendingOfferExtract(prefsRow?.crmPrefs);
   const goalSeed = {
     monthlyGoalUsd: prefs.monthlyGoalUsd,
     needsMonthlyGoal: home.hasOffer && prefs.monthlyGoalUsd == null,
-    projection: null as Awaited<ReturnType<typeof loadCommissionProjection>>["projection"],
+    projection: null as ReturnType<typeof projectionFromDashboard>["projection"],
   };
   const empty = {
     home,
@@ -953,56 +1002,24 @@ async function hubSnapshot(
   };
   timings?.push({ name: "phase", dur: 0, desc: home.phase });
   if (home.phase !== "c") {
+    void heavyPromise.catch((error) => console.error("hub snapshot idle", error));
     return empty;
   }
   try {
-    const weekStart = new Date();
-    const weekday = weekStart.getUTCDay();
-    weekStart.setUTCDate(weekStart.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
-    weekStart.setUTCHours(0, 0, 0, 0);
-    const [workspace, dash, leads, pendingCalls, recentAuto, unclassified, analyzedThisWeek, guides] =
-      await Promise.all([
-        timed(timings, "workspace", () => getWorkspace(prisma, userId, null, { corpus: false })),
-        timed(timings, "dashboard", () => crmDashboard(prisma, userId, { timings })),
-        timed(timings, "leads", () =>
-          prisma.lead.findMany({
-            where: { userId },
-            orderBy: { updatedAt: "desc" },
-            take: 12,
-          }),
-        ),
-        timed(timings, "filings", () => listPendingFilings(prisma, userId)),
-        timed(timings, "recent", () =>
-          prisma.callRecord.findMany({
-            where: {
-              userId,
-              filingStatus: "confirmed",
-              confirmedAt: { gte: new Date(Date.now() - 36 * 3600 * 1000) },
-            },
-            orderBy: { confirmedAt: "desc" },
-            take: 3,
-          }),
-        ),
-        timed(timings, "unclassified", () =>
-          prisma.callRecord.count({
-            where: { userId, filingStatus: "pending" },
-          }),
-        ),
-        timed(timings, "analyzed", () =>
-          prisma.callRecord.count({
-            where: {
-              userId,
-              filingStatus: "confirmed",
-              confirmedAt: { gte: weekStart },
-              estadoAgenda: { notIn: ["INTERNA", "NO_COMERCIAL"] },
-            },
-          }),
-        ),
-        timed(timings, "guides", () => loadLiveGuides(prisma, userId)),
-      ]);
+    const [workspace, dash, leads, pendingCalls, recentAuto, analyzedThisWeek, guides, callCount] =
+      await heavyPromise;
+    const unclassified = pendingCalls.length;
     let goalBundle = goalSeed;
     try {
-      goalBundle = await timed(timings, "projection", () => loadCommissionProjection(prisma, userId, dash));
+      goalBundle = projectionFromDashboard({
+        monthlyGoalUsd: prefs.monthlyGoalUsd,
+        hasOffer: home.hasOffer,
+        callCount,
+        dash,
+        listPrice: dash.projectionSeed?.listPrice || 0,
+        commission: dash.projectionSeed?.commission || null,
+      });
+      timings?.push({ name: "projection", dur: 0, desc: "in-memory" });
     } catch (error) {
       console.error("hub projection", error);
     }

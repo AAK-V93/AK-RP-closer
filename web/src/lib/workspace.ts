@@ -5,6 +5,7 @@ import {
   ensureFathomTables,
   ensureWorkspaceTables,
   ensureCoachTables,
+  ensureReadIndexes,
 } from "@/lib/prisma";
 import {
   EMPTY_TRANSCRIPT_MARK,
@@ -34,6 +35,7 @@ export async function getWorkspacePrisma() {
     ensureFathomTables(prisma).catch(() => undefined),
     ensureCrmTables(prisma).catch(() => undefined),
     ensureCoachTables(prisma).catch(() => undefined),
+    ensureReadIndexes(prisma).catch(() => undefined),
   ]);
   return prisma;
 }
