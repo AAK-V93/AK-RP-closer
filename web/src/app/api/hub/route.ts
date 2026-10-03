@@ -4,6 +4,7 @@ import { getToken } from "next-auth/jwt";
 import { authOptions } from "@/lib/auth";
 import { generateGeminiJson } from "@/lib/gemini";
 import { HUB_SYSTEM_PROMPT } from "@/lib/hub-prompt";
+import { canonicalOfferName, leadMention, stripFalseListo } from "@/lib/producto-guard";
 import { getWorkspacePrisma } from "@/lib/workspace";
 import {
   ensureCoachTables,
@@ -24,8 +25,6 @@ import {
   offerPasteReplyAllowed,
   recognizedCrmQuestion,
   visibleHubThread,
-  exactOfferName,
-  leadInMessage,
   isChatCancel,
   looksLikeFilingAnswer,
   messageTargetsOtherLead,
@@ -356,7 +355,7 @@ export async function POST(request: Request) {
         prisma,
         userId,
         userText,
-        crmReply || "Listo, cancelé eso. No cambié nada.",
+        crmReply || "Cancelé eso. No cambié nada.",
       );
       const fresh = await hubSnapshot(prisma, userId);
       return NextResponse.json({
@@ -554,7 +553,7 @@ export async function POST(request: Request) {
       const field = pending.field || "revision";
       let value = userText;
       if (field === "producto") {
-        const hit = exactOfferName(live.offers || [], userText);
+        const hit = canonicalOfferName(userText, live.offerRefs?.length ? live.offerRefs : live.offers || []);
         if (!hit) {
           const names = (live.offers || []).filter(Boolean).join(", ") || "ninguna";
           const coachLine = await appendHubLines(
@@ -835,10 +834,11 @@ ${userText}`;
         }
       }
     }
+    let wroteExactLead = false;
+    let wroteLeadName = "";
     if (parsed.commissionPaid?.name) {
-      const namedPaid = leadInMessage(chatLeads, userText);
-      if (namedPaid) parsed.commissionPaid.name = namedPaid.name;
-      else parsed.commissionPaid.name = "";
+      const namedPaid = leadMention(userText, chatLeads);
+      parsed.commissionPaid.name = namedPaid.kind === "exact" ? namedPaid.lead.name : "";
     }
     if (parsed.commissionPaid?.name) {
       const amount = Number(parsed.commissionPaid.amount || 0);
@@ -866,12 +866,18 @@ ${userText}`;
             estado: cobrada >= row.generada - 0.5 ? "COBRADA" : "PARCIAL",
           },
         });
+        wroteExactLead = true;
+        wroteLeadName = parsed.commissionPaid.name;
       }
     }
     if (parsed.crm?.agendaAt && /agend/i.test(userText)) {
-      const named = leadInMessage(chatLeads, userText);
+      const namedMention = leadMention(userText, chatLeads);
+      const named = namedMention.kind === "exact" ? namedMention.lead : null;
       const when = new Date(parsed.crm.agendaAt);
-      const offerName = exactOfferName(live.offers || [], parsed.crm.offerName || "");
+      const offerName = canonicalOfferName(
+        parsed.crm.offerName || "",
+        live.offerRefs?.length ? live.offerRefs : live.offers || [],
+      );
       if (named && !Number.isNaN(when.getTime())) {
         await prisma.callRecord.create({
           data: {
@@ -890,6 +896,8 @@ ${userText}`;
           },
         });
         await upsertLeadForAgenda(prisma, userId, named.name, offerName);
+        wroteExactLead = true;
+        wroteLeadName = named.name;
       }
     }
     if (parsed.projection?.metaUsd) {
@@ -900,14 +908,23 @@ ${userText}`;
       const proj = await projectCommission(prisma, userId, {
         metaUsd: parsed.projection.metaUsd,
         until,
-        offerName: parsed.crm?.offerName,
+        offerName: canonicalOfferName(
+          parsed.crm?.offerName || "",
+          live.offerRefs?.length ? live.offerRefs : live.offers || [],
+        ),
       });
       parsed.reply = proj.reply;
     }
     if (parsed.crm) {
       const loose = proposalFromLoosePatch(
         parsed.crm,
-        { leads: chatLeads, calls: [], pending: null, offers: live.offers || [] },
+        {
+          leads: chatLeads,
+          calls: [],
+          pending: null,
+          offers: live.offers || [],
+          offerRefs: live.offerRefs || [],
+        },
         userText,
       );
       if (loose.kind === "confirm") {
@@ -918,6 +935,7 @@ ${userText}`;
       }
     }
     parsed.reply = replyForNamedLead(String(parsed.reply || ""), userText, chatLeads);
+    parsed.reply = stripFalseListo(String(parsed.reply || ""), wroteExactLead, wroteLeadName);
     const reply = [canned.join(" "), String(parsed.reply || "").trim()]
       .filter(Boolean)
       .join(" ") || "¿Qué quieres hacer ahora?";
@@ -1049,6 +1067,7 @@ async function hubSnapshot(
   const empty = {
     home,
     offers: [] as string[],
+    offerRefs: [] as { productName: string; aliases: string[] }[],
     canPractice: home.canPractice,
     readyCrm: Boolean(home.hasOffer && !home.missingCrm),
     missingCrm: home.missingCrm,
@@ -1129,6 +1148,12 @@ async function hubSnapshot(
     return {
       home,
       offers: offers.map((row) => row.productName).filter(Boolean),
+      offerRefs: offers
+        .filter((row) => row.productName)
+        .map((row) => ({
+          productName: row.productName,
+          aliases: parseCommercial(row.commercial).aliases,
+        })),
       canPractice: home.canPractice,
       readyCrm: offerRead.unreadable
         ? Boolean(home.hasOffer && !home.missingCrm)

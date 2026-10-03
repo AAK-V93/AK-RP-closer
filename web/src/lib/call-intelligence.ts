@@ -12,6 +12,7 @@ import {
 import { emptyExtractor, enrichExtractorFollowup, runExtractor } from "@/lib/extractor";
 import { userHasReadyCrm } from "@/lib/offer-commercial";
 import { canonicalProducto, canonicalTipo } from "@/lib/call-normalize";
+import { applyProductoGuard } from "@/lib/producto-guard";
 import {
   offerLearningHint,
   offerSignals,
@@ -146,6 +147,13 @@ export async function classifyAndFileCall(
     const names = offers.map((offer) => offer.productName);
     parsed.producto = canonicalProducto(resolution.producto, names) || null;
     parsed.confianza.producto = parsed.producto ? resolution.confidence : 0;
+    applyProductoGuard(
+      parsed,
+      offers.map((offer) => ({
+        productName: offer.productName,
+        aliases: offer.commercial?.aliases,
+      })),
+    );
     parsed.tipo_seguimiento = canonicalTipo(parsed.tipo_seguimiento) || null;
   }
   const nonSales = isNonSalesCall(parsed.estado_agenda);

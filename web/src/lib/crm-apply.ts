@@ -20,11 +20,11 @@ import { findMatchingLead } from "@/lib/lead-match";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
 import {
   deadlineDaysForPago,
-  matchOfferName,
   parseCommercial,
   type OfferForCrm,
   userHasReadyCrm,
 } from "@/lib/offer-commercial";
+import { applyProductoGuard, planProductoWrite, type OfferRef } from "@/lib/producto-guard";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { addDays, parseCrmPrefs, parseFollowupDate, patchCrmPref } from "@/lib/crm-prefs";
 import { canonicalTipo } from "@/lib/call-normalize";
@@ -327,8 +327,11 @@ export async function applyExtractorToCrm(
     (await prisma.user.findUnique({ where: { id: userId }, select: { crmPrefs: true } }))
       ?.crmPrefs,
   );
-  const matched = matchOfferName(offers, parsed.producto);
-  const offerName = matched?.productName || (parsed.producto === "OTROS" ? "" : parsed.producto || "");
+  const offerRefs: OfferRef[] = offers.map((offer) => ({
+    productName: offer.productName,
+    aliases: offer.commercial?.aliases,
+  }));
+  applyProductoGuard(parsed, offerRefs);
   const row = await prisma.callRecord.findFirst({
     where: { id: callRecordId, userId },
   });
@@ -341,16 +344,21 @@ export async function applyExtractorToCrm(
   const saldo = moneyOk ? parsed.saldo_pendiente : null;
 
   let leadId: string | null = null;
+  let offerName = parsed.producto || "";
+  let matched = offerName ? offers.find((offer) => offer.productName === offerName) || null : null;
   if (parsed.cliente_real && !isNonSalesCall(parsed.estado_agenda)) {
     const leads = await prisma.lead.findMany({ where: { userId } });
     const existing = findMatchingLead(leads, parsed.cliente_real);
+    const kept = planProductoWrite(existing?.offerName || "", offerRefs).producto;
+    offerName = parsed.producto || kept || "";
+    matched = offerName ? offers.find((offer) => offer.productName === offerName) || null : null;
     const status = leadStatusFromAgenda(parsed.estado_agenda);
     const nextAt =
       parseFollowupDate(parsed.proximo_seguimiento, callAt) ||
       (parsed.requiere_seguimiento ? followupInstant(callAt, prefs.followupGraceDays) : null);
     const data = {
       company: existing?.company || "",
-      offerName: offerName || existing?.offerName || "",
+      offerName,
       status,
       lastSummary: parsed.notas_crm || existing?.lastSummary || "",
       nextStep: parsed.acuerdo_seguimiento || existing?.nextStep || "",
@@ -441,7 +449,7 @@ export async function applyExtractorToCrm(
                 ? "pendiente"
                 : "pendiente",
       leadName: parsed.cliente_real || row.leadName,
-      offerName: offerName || row.offerName,
+      offerName: offerName || planProductoWrite(row.offerName || "", offerRefs).producto || "",
       trainsBot: trainsBot(parsed.estado_agenda),
       summary,
       filingStatus: "confirmed",

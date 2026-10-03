@@ -107,7 +107,7 @@ test("recall returns the saved agreement for the named lead", () => {
 
 test("a meeting time is a confirmation for that lead", () => {
   const turn = interpretCrmChat(
-    "Con Sofia quedamos de vernos el viernes 9 de octubre a las 5 pm",
+    "Con Sofía Mamani quedamos de vernos el viernes 9 de octubre a las 5 pm",
     ctx,
   );
   assert.equal(turn.kind, "confirm");
@@ -119,14 +119,57 @@ test("a meeting time is a confirmation for that lead", () => {
   );
 });
 
+test("a partial first name asks before any update", () => {
+  const turn = interpretCrmChat(
+    "Con Sofia quedamos de vernos el viernes 9 de octubre a las 5 pm",
+    ctx,
+  );
+  assert.equal(turn.kind, "answer");
+  if (turn.kind !== "answer") return;
+  assert.match(turn.reply, /Sofía Mamani/);
+  assert.match(turn.reply, /No cambié nada/);
+  assert.doesNotMatch(turn.reply, /^Listo/i);
+});
+
 test("a payment names Carlos and not Edson", () => {
-  const turn = interpretCrmChat("Carlos me pagó la reserva de 2000 USD", ctx);
+  const turn = interpretCrmChat("Carlos Ramírez me pagó la reserva de 2000 USD", ctx);
   assert.equal(turn.kind, "confirm");
   if (turn.kind !== "confirm") return;
   assert.equal(turn.proposal.leadId, "carlos");
   assert.equal(turn.proposal.changes[0]?.to, "2000");
   assert.match(turn.reply, /Carlos Ramírez/);
   assert.doesNotMatch(turn.reply, /Edson/);
+});
+
+test("a first name that is not the full lead does not write the payment", () => {
+  const turn = interpretCrmChat("Carlos me pagó la reserva de 2000 USD", ctx);
+  assert.equal(turn.kind, "answer");
+  if (turn.kind !== "answer") return;
+  assert.match(turn.reply, /Carlos Ramírez/);
+  assert.match(turn.reply, /No cambié nada/);
+  assert.doesNotMatch(turn.reply, /^Listo/i);
+  assert.doesNotMatch(turn.reply, /Edson/);
+});
+
+test("Etsson asks about Edson and does not write", () => {
+  const turn = interpretCrmChat("Etsson me pagó la reserva de 2000 USD", ctx);
+  assert.equal(turn.kind, "answer");
+  if (turn.kind !== "answer") return;
+  assert.match(turn.reply, /Edson/);
+  assert.match(turn.reply, /No cambié nada/);
+  assert.doesNotMatch(turn.reply, /^Listo/i);
+  assert.equal("proposal" in turn, false);
+});
+
+test("a request for the follow-up list is answered and not saved on a lead", () => {
+  const turn = interpretCrmChat(
+    "Porfa, dame la lista de seguimientos entera, con fecha y todo lo que tengas",
+    ctx,
+  );
+  assert.equal(turn.kind, "answer");
+  if (turn.kind !== "answer") return;
+  assert.doesNotMatch(turn.reply, /^Listo/i);
+  assert.equal("proposal" in turn, false);
 });
 
 test("sí applies the stored proposal and no drops it", () => {
@@ -228,11 +271,13 @@ test("free text is not saved as an offer", async () => {
     ...ctx,
     offers: ["Círculo Millonario", "Fertilidad Consciente"],
   });
-  assert.equal(turn.kind, "answer");
-  if (turn.kind !== "answer") return;
-  assert.match(turn.reply, /no es una oferta/);
-  assert.match(turn.reply, /Fertilidad Consciente/);
-  assert.match(turn.reply, /No cambié nada/);
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.proposal.leadId, "edson");
+  assert.equal(turn.proposal.changes[0]?.field, "nextStep");
+  assert.match(turn.proposal.changes[0]?.to || "", /Quedamos en que el viernes/);
+  assert.equal(turn.proposal.changes.some((change) => change.field === "offer"), false);
+  assert.match(turn.reply, /¿Confirmo\?/);
 
   const { prisma, calls } = fakeCrm();
   const result = await applyChatProposal(
@@ -252,9 +297,14 @@ test("free text is not saved as an offer", async () => {
     },
     ["Círculo Millonario", "Fertilidad Consciente"],
   );
-  assert.match(result.reply, /no es una oferta/);
+  assert.match(result.reply, /Listo/);
+  assert.match(result.reply, /Sofía Mamani/);
+  assert.match(result.reply, /Acuerdo/);
+  assert.match(result.reply, /Quedamos en que el viernes/);
+  assert.doesNotMatch(result.reply, /Producto/);
   assert.equal(result.ok, true);
-  assert.equal(calls.some((call) => call.startsWith("lead:")), false);
+  assert.ok(calls.some((call) => call.startsWith("step:Quedamos")));
+  assert.equal(calls.some((call) => call.startsWith("offer:")), false);
 });
 
 test("a real offer can be confirmed for that lead only", () => {
@@ -330,20 +380,40 @@ test("a loose model patch follows the lead named in this message", () => {
   const turn = proposalFromLoosePatch(
     {
       name: "Edson",
-      offerName: "Quedamos en que el viernes",
+      offerName: "Quedamos en que el viernes me avisaba",
       amountPaid: "2000",
     },
     { ...ctx, offers: ["Círculo Millonario"] },
     "Carlos me pagó la reserva de 2000 USD",
   );
+  assert.equal(turn.kind, "answer");
+  if (turn.kind !== "answer") return;
+  assert.match(turn.reply, /Carlos Ramírez/);
+  assert.match(turn.reply, /No cambié nada/);
+  assert.doesNotMatch(turn.reply, /^Listo/i);
+  assert.doesNotMatch(turn.reply, /Edson/);
+});
+
+test("an agreement in offerName becomes the acuerdo of the exact lead", () => {
+  const turn = proposalFromLoosePatch(
+    {
+      offerName: "Quedamos en que el viernes me avisaba",
+      amountPaid: "2000",
+    },
+    { ...ctx, offers: ["Círculo Millonario"] },
+    "Edson me pagó la reserva de 2000 USD",
+  );
   assert.equal(turn.kind, "confirm");
   if (turn.kind !== "confirm") return;
-  assert.equal(turn.proposal.leadId, "carlos");
+  assert.equal(turn.proposal.leadId, "edson");
   assert.equal(turn.proposal.changes.some((change) => change.field === "offer"), false);
   assert.equal(turn.proposal.changes.some((change) => change.field === "cash"), true);
-  assert.match(turn.reply, /Carlos Ramírez/);
-  assert.match(turn.reply, /no es una oferta/);
-  assert.doesNotMatch(turn.reply, /Edson/);
+  assert.equal(
+    turn.proposal.changes.find((change) => change.field === "nextStep")?.to,
+    "Quedamos en que el viernes me avisaba",
+  );
+  assert.match(turn.reply, /Edson/);
+  assert.doesNotMatch(turn.reply, /Carlos/);
 });
 
 test("a reply about another lead is replaced with the one named now", () => {
@@ -385,10 +455,16 @@ function fakeCrm(opts?: { failUpdate?: boolean }) {
         name: "Sofía Mamani",
         offerName: "Círculo Millonario",
       }),
-      update: async ({ data }: { data: { name?: string; amountPaid?: string } }) => {
+      update: async ({
+        data,
+      }: {
+        data: { name?: string; amountPaid?: string; nextStep?: string; offerName?: string };
+      }) => {
         if (opts?.failUpdate) throw new Error("Transactions are not supported");
         calls.push(`lead:${data.name || ""}`);
         if (data.amountPaid != null) calls.push(`paid:${data.amountPaid}`);
+        if (data.nextStep != null) calls.push(`step:${data.nextStep}`);
+        if (data.offerName != null) calls.push(`offer:${data.offerName}`);
         return data;
       },
     },
@@ -545,9 +621,9 @@ test("clearing Carlos's cash asks before writing zero", async () => {
     leads: ctx.leads.map((lead) => (lead.id === "carlos" ? { ...lead, amountPaid: "2000" } : lead)),
   };
   for (const sample of [
-    "Carlos no ha pagado nada",
-    "pon el cash de Carlos en 0",
-    "borra el pago de Carlos",
+    "Carlos Ramírez no ha pagado nada",
+    "pon el cash de Carlos Ramírez en 0",
+    "borra el pago de Carlos Ramírez",
   ]) {
     const turn = interpretCrmChat(sample, paid);
     assert.equal(turn.kind, "confirm", sample);
@@ -558,6 +634,12 @@ test("clearing Carlos's cash asks before writing zero", async () => {
     assert.equal(turn.proposal.changes[0]?.label, "Cobrado");
     assert.match(turn.reply, /Cobrado/);
     assert.match(turn.reply, /¿Confirmo\?/);
+  }
+  const fuzzy = interpretCrmChat("Carlos no ha pagado nada", paid);
+  assert.equal(fuzzy.kind, "answer");
+  if (fuzzy.kind === "answer") {
+    assert.match(fuzzy.reply, /Carlos Ramírez/);
+    assert.doesNotMatch(fuzzy.reply, /^Listo/i);
   }
 
   const { prisma, calls } = fakeCrm();
