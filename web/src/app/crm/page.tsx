@@ -598,7 +598,7 @@ export default function CrmPage() {
         ) : !data ? (
           <CrmSkeleton />
         ) : (
-          <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-4">
+          <div className="pb-16 min-[1200px]:grid min-[1200px]:grid-cols-[minmax(0,1fr)_320px] min-[1200px]:items-start min-[1200px]:gap-4 min-[1200px]:pb-0">
           <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden">
             {!data.readyCrm && (
               <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2">
