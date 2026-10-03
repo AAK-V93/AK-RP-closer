@@ -11,7 +11,7 @@ import {
   markPracticeLeaving,
   resetPracticeRoom,
 } from "./practice-room";
-import { practiceWarmMetadata, practiceWarmRoomName } from "./practice-dispatch";
+import { practiceWarmMetadata, practiceWarmRoomName, practiceAgentName } from "./practice-dispatch";
 import {
   formatPracticeTimings,
   isPracticeQaRequest,
@@ -295,6 +295,8 @@ test("the page-load warm room is not a practice dispatch", () => {
   assert.equal(practiceWarmMetadata(), '{"warm":true}');
   assert.equal(practiceWarmRoomName("user-1", 60_000), "warm-user1-1");
   assert.match(practiceWarmRoomName("abc", 0), /^warm-abc-0$/);
+  assert.equal(practiceAgentName({}), "closer-trainer");
+  assert.equal(practiceAgentName({ LIVEKIT_AGENT_NAME: " closer-trainer-preview " }), "closer-trainer-preview");
 });
 
 test("the practice clock starts at the click and voz waits for audio", () => {
