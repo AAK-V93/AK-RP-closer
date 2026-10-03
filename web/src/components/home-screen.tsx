@@ -28,7 +28,7 @@ import {
 } from "@/lib/offer-save";
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
-import { invalidateHub, loadHub } from "@/lib/hub-client";
+import { HUB_RETRY_MS, hubLoadRetry, invalidateHub, loadHub } from "@/lib/hub-client";
 
 export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSnapshot | null }) {
   const [snapshot, setSnapshot] = useState<HubSnapshot | null>(initialSnapshot);
@@ -36,16 +36,42 @@ export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSn
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const retryAttempt = useRef(0);
+  const retryTimer = useRef<number | null>(null);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+
   const load = (force = false) =>
     loadHub({ force })
       .then((data) => {
+        retryAttempt.current = 0;
+        setError(null);
         setSnapshot((data.snapshot as HubSnapshot | null) || null);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Error"))
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "No pude cargar el inicio.");
+        const mode = hubLoadRetry({
+          attempt: retryAttempt.current,
+          hasSnapshot: Boolean(snapshotRef.current?.home),
+        });
+        if (mode === "auto") {
+          retryAttempt.current += 1;
+          retryTimer.current = window.setTimeout(() => {
+            retryTimer.current = null;
+            setLoading(true);
+            void load(true);
+          }, HUB_RETRY_MS);
+        }
+      })
       .finally(() => setLoading(false));
 
   useEffect(() => {
     void load();
+    return () => {
+      if (retryTimer.current) window.clearTimeout(retryTimer.current);
+    };
+    // Mount only. A later snapshot must not start another GET.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) {
@@ -57,7 +83,7 @@ export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSn
     return (
       <div className="space-y-3">
         <p className="text-sm text-destructive">
-          {error || "No pude cargar el inicio. Recarga la página."}
+          {error || "No pude cargar el inicio. Pulsa Reintentar."}
         </p>
         <Button
           type="button"
@@ -602,9 +628,11 @@ function ConfiguredC({
 
 function HomeRow({ href, title, status }: { href: string; title: string; status: string }) {
   return (
-    <Link href={href} className="flex items-baseline justify-between gap-4 py-4">
+    <Link href={href} className="flex items-start justify-between gap-4 py-4">
       <span className="shrink-0 text-fg0">{title}</span>
-      <span className="min-w-0 line-clamp-2 text-right text-sm text-fg3">{status}</span>
+      <div className="min-w-0">
+        <p className="line-clamp-2 text-right text-sm text-fg3">{status}</p>
+      </div>
     </Link>
   );
 }

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { chatSendReady, createHubCache, hubChatPostBody, type HubGet } from "./hub-client";
+import {
+  chatSendReady,
+  createHubCache,
+  hubChatPostBody,
+  hubLoadRetry,
+  type HubGet,
+} from "./hub-client";
 
 function fakeFetch(calls: string[]) {
   return async (input: string) => {
@@ -63,6 +70,34 @@ test("a failed hub read is not cached as an empty home", async () => {
   assert.equal(calls.length, 1);
   await cache.load(fakeFetch(calls));
   assert.equal(calls.length, 2);
+});
+
+test("a failed hub load retries once before asking for a button", () => {
+  assert.equal(hubLoadRetry({ attempt: 0, hasSnapshot: false }), "auto");
+  assert.equal(hubLoadRetry({ attempt: 1, hasSnapshot: false }), "manual");
+  assert.equal(hubLoadRetry({ attempt: 0, hasSnapshot: true }), "ready");
+  const chat = readFileSync(new URL("../components/hub-chat.tsx", import.meta.url), "utf8");
+  assert.match(chat, /HUB_RETRY_MS/);
+  assert.match(chat, /Reintentar/);
+  assert.match(chat, /inputsLocked \|\| recording/);
+  assert.doesNotMatch(chat, /disabled=\{!canSend \|\| sending \|\| !draft/);
+});
+
+test("a remembered turn survives the next read inside the fresh window", async () => {
+  let clock = 8_000;
+  const cache = createHubCache(() => clock);
+  const calls: string[] = [];
+  await cache.load(fakeFetch(calls));
+  cache.rememberLines([
+    { id: "u", role: "user", content: "¿Qué tengo pendiente hoy?" },
+    { id: "c", role: "coach", content: "Hoy tienes 0 para hoy, sin cobros pendientes." },
+  ]);
+  clock += 1_000;
+  const again = await cache.load(fakeFetch(calls));
+  assert.equal(calls.length, 1);
+  const text = (again.messages || []).map((line) => line.content).join("\n");
+  assert.match(text, /¿Qué tengo pendiente hoy\?/);
+  assert.match(text, /sin cobros pendientes/);
 });
 
 test("the first chat message waits until the hub has loaded", () => {

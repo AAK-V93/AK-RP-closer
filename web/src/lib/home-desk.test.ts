@@ -94,6 +94,9 @@ test("the practice card keeps the drill off the hub payload", () => {
   assert.match(screen, /\/api\/hub\/practice/);
   assert.match(screen, /Elige con quién practicar/);
   assert.match(screen, /line-clamp-2/);
+  assert.match(screen, /min-w-0/);
+  assert.match(screen, /items-start justify-between/);
+  assert.doesNotMatch(screen, /items-baseline justify-between gap-4 py-4[\s\S]{0,120}line-clamp-2/);
   assert.doesNotMatch(screen, /phase \|\| "a"/);
   assert.match(practice, /practiceCardFromGuides/);
   assert.match(practice, /select: \{ productName: true, playbook: true \}/);

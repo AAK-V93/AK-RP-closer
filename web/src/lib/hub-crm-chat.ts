@@ -544,17 +544,72 @@ export function offerPasteReplyAllowed(args: {
   return { allow: true, reason: "missing-offer" };
 }
 
+/** A new closer with a confirmed empty offer, not a failed CRM read. */
+export function offerOnboardingReply() {
+  return "Para empezar, agrega tu oferta: pégala en un solo bloque aquí o súbela en Ofertas. Con eso armo la práctica y el CRM.";
+}
+
+export function blockedOfferPasteReply(args: {
+  text: string;
+  offersUnreadable: boolean;
+  missingCrm: boolean;
+}) {
+  const decision = offerPasteReplyAllowed(args);
+  if (decision.allow) return null;
+  if (
+    args.missingCrm &&
+    !args.offersUnreadable &&
+    !recognizedCrmQuestion(args.text) &&
+    !asksForPendingDesk(args.text) &&
+    (decision.reason === "question" || decision.reason === "empty")
+  ) {
+    return offerOnboardingReply();
+  }
+  return crmReadFailureReply();
+}
+
 /** Last gate. The paste survives only when this call explicitly allows it. */
-export function guardCoachReply(userText: string, reply: string, allowPaste = false) {
+export function guardCoachReply(
+  userText: string,
+  reply: string,
+  allowPaste = false,
+  paste?: { offersUnreadable?: boolean; missingCrm?: boolean },
+) {
   if (!reply.includes("Pega todo junto")) return reply;
-  if (!allowPaste) return crmReadFailureReply();
-  const decision = offerPasteReplyAllowed({
-    text: userText,
-    offersUnreadable: false,
-    missingCrm: true,
-  });
-  if (!decision.allow) return crmReadFailureReply();
-  return reply;
+  const offersUnreadable = Boolean(paste?.offersUnreadable);
+  const missingCrm = allowPaste || Boolean(paste?.missingCrm);
+  if (allowPaste && !offersUnreadable) {
+    const decision = offerPasteReplyAllowed({
+      text: userText,
+      offersUnreadable: false,
+      missingCrm: true,
+    });
+    if (decision.allow) return reply;
+  }
+  return (
+    blockedOfferPasteReply({ text: userText, offersUnreadable, missingCrm }) ||
+    crmReadFailureReply()
+  );
+}
+
+export type HubHistoryLine = { role: "user" | "coach"; content: string };
+
+/** Read-time only. A stored paste that answered a CRM question stays in the DB. */
+export function visibleHubThread<T extends HubHistoryLine>(lines: T[]): T[] {
+  let pendingUser = "";
+  const shown: T[] = [];
+  for (const line of lines) {
+    if (line.role === "user") {
+      pendingUser = line.content;
+      shown.push(line);
+      continue;
+    }
+    const paste = line.content.includes("Pega todo junto");
+    const crm = recognizedCrmQuestion(pendingUser) || asksForPendingDesk(pendingUser);
+    if (paste && crm) continue;
+    shown.push(line);
+  }
+  return shown;
 }
 
 export function crmReadFailureReply() {
