@@ -94,12 +94,29 @@ test("the practice card keeps the drill off the hub payload", () => {
   assert.match(screen, /\/api\/hub\/practice/);
   assert.match(screen, /Elige con quién practicar/);
   assert.match(screen, /line-clamp-2/);
+  assert.match(screen, /title=\{status\}/);
   assert.match(screen, /min-w-0/);
   assert.match(screen, /items-start justify-between/);
   assert.doesNotMatch(screen, /items-baseline justify-between gap-4 py-4[\s\S]{0,120}line-clamp-2/);
   assert.doesNotMatch(screen, /phase \|\| "a"/);
   assert.match(practice, /practiceCardFromGuides/);
   assert.match(practice, /select: \{ productName: true, playbook: true \}/);
+});
+
+test("the practice row keeps the full drill so line-clamp can ellipsize", () => {
+  const drill =
+    "Reconoce, Relaciona y Devuelve la pregunta durante el silencio y relaciona el dolor con el precio antes de pedir la decisión";
+  const card = practiceCardFromGuides([{ drills: [drill], ready: true }]);
+  assert.equal(card.practiceStatus, drill);
+  assert.ok(card.practiceStatus.length > 90);
+  assert.equal(card.practiceStatus.endsWith("…"), false);
+  assert.equal(card.practiceStatus.endsWith(" el"), false);
+  assert.equal(
+    card.practiceHref,
+    `/practicar?focus=${encodeURIComponent(drill)}`,
+  );
+  const source = readFileSync(new URL("./home-desk.ts", import.meta.url), "utf8");
+  assert.equal(source.includes("clipWords"), false);
 });
 
 test("quick follow-up chips land on real days", () => {

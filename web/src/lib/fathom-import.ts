@@ -49,9 +49,9 @@ export function displayCallTitle(args: {
 }) {
   const lead = String(args.leadName || "").trim();
   const offer = String(args.offerName || "").trim();
-  if (lead && offer) return `${lead} · ${offer}`.slice(0, 120);
-  if (lead) return lead.slice(0, 120);
-  if (offer) return offer.slice(0, 120);
+  if (lead && offer) return `${lead} · ${offer}`;
+  if (lead) return lead;
+  if (offer) return offer;
   const fallback = String(args.fallback || "").trim();
   return fallback || "Llamada sin título";
 }

@@ -228,7 +228,7 @@ function packFromLines(args: {
 
 function guessLeadName(title: string) {
   const cleaned = title.replace(/impromptu|meeting|zoom|meet|llamada/gi, "").trim();
-  return cleaned.slice(0, 80) || "Lead";
+  return cleaned || "Lead";
 }
 
 function offerMatches(

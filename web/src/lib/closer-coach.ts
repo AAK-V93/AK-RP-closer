@@ -1,5 +1,6 @@
 import { CallEvaluation, CriterionScore } from "@/data/evaluation";
 import type { QcCallReport } from "@/data/qc-report";
+import { clipVisible } from "@/lib/visible-text";
 
 export type CoachNotes = {
   level: number;
@@ -32,17 +33,19 @@ export function mergeCoachNotes(
   if (!incoming || typeof incoming !== "object") return current;
   return {
     level: clampLevel(incoming.level ?? current.level),
-    niche: String(incoming.niche || current.niche).slice(0, 80),
+    niche: clipVisible(String(incoming.niche || current.niche), 80),
     strengths: asStringList(incoming.strengths, current.strengths),
     weaknesses: asStringList(incoming.weaknesses, current.weaknesses),
     recurringErrors: asStringList(incoming.recurringErrors, current.recurringErrors),
-    nextSkill: String(incoming.nextSkill || current.nextSkill).slice(0, 280),
-    recommendedExercise: String(
-      incoming.recommendedExercise ?? current.recommendedExercise,
-    ).slice(0, 600),
-    lastSessionSummary: String(
-      incoming.lastSessionSummary ?? current.lastSessionSummary,
-    ).slice(0, 800),
+    nextSkill: clipVisible(String(incoming.nextSkill || current.nextSkill), 280),
+    recommendedExercise: clipVisible(
+      String(incoming.recommendedExercise ?? current.recommendedExercise),
+      600,
+    ),
+    lastSessionSummary: clipVisible(
+      String(incoming.lastSessionSummary ?? current.lastSessionSummary),
+      800,
+    ),
     transferReady: Boolean(
       incoming.transferReady ?? current.transferReady,
     ),
@@ -178,7 +181,7 @@ export function compactTrainingEvidence(rows: SessionRow[], limit = 16) {
         .map((c) => ({
           criterio: c.label || c.id,
           score: c.score,
-          feedback: (c.feedback || "").slice(0, 180),
+          feedback: clipVisible(c.feedback || "", 180),
         })),
       fortalezas: (evaluation.strengths || []).slice(0, 3),
       debilidades: (evaluation.improvements || []).slice(0, 4),

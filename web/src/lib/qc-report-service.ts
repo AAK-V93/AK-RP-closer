@@ -5,6 +5,7 @@ import { generateGeminiJson } from "@/lib/gemini";
 import { buildQcReportPrompt } from "@/lib/qc-prompt";
 import { matchKnownOffer } from "@/data/offer-cases";
 import { displayCallTitle } from "@/lib/fathom-import";
+import { clipVisible } from "@/lib/visible-text";
 import {
   compactTranscriptText,
   formatParsedTranscript,
@@ -238,7 +239,7 @@ export async function saveQcPracticeSession(
       callSection: "qc_transcript",
       productName:
         callDisplayName(args.report, args.productName) ||
-        args.report.headline.slice(0, 80),
+        clipVisible(args.report.headline, 80),
       difficulty: "real",
       language: "es",
       overallScore: args.report.overallScore,
@@ -258,7 +259,7 @@ export async function saveQcPracticeSession(
           label: "Pitch y objeciones",
           score: args.report.pitch.blockScore,
           maxScore: 10,
-          feedback: args.report.pitch.summary.slice(0, 280),
+          feedback: clipVisible(args.report.pitch.summary, 280),
         },
       ] as Prisma.InputJsonValue,
       scored: true,

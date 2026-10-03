@@ -15,6 +15,18 @@ test("the practice drawer does not repeat the raw PDF", () => {
   assert.ok(blurb.length < 200);
 });
 
+test("a clipped offer blurb ends on the ellipsis, not a dangling word", () => {
+  const blurb = shortOfferBlurb({
+    productName: "Oferta",
+    productDescription:
+      "El programa acompaña el ciclo con tres precios y diez bonos incluidos en el documento completo que sigue por páginas y páginas de detalle comercial antes de cerrar la propuesta con el cliente.",
+    pitchSummary: "",
+  });
+  assert.match(blurb, /…$/);
+  assert.doesNotMatch(blurb, / (el|de|la|en|con)…$/);
+  assert.ok(!blurb.toLowerCase().includes("oferta el programa"));
+});
+
 test("a short pitch wins over the document", () => {
   assert.equal(
     shortOfferBlurb({

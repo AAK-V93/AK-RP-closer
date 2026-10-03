@@ -5,6 +5,7 @@ import { isExtractorJson, parseExtractorJson } from "@/lib/extractor";
 import { parsePlaybook } from "@/lib/lead-playbook";
 import { countPhrase } from "@/lib/plain-labels";
 import { PLAIN_SPANISH_RULE } from "@/lib/closer-spanish";
+import { clipVisible } from "@/lib/visible-text";
 
 export const LIVE_GUIDE_MIN_CALLS = 15;
 
@@ -130,7 +131,7 @@ async function buildGuideForOffer(
   const byPay = new Map<string, { closed: number; total: number }>();
   for (const row of calls) {
     const parsed = isExtractorJson(row.filingJson) ? parseExtractorJson(row.filingJson) : null;
-    const pay = (parsed?.modo_pago || "sin modo").slice(0, 80);
+    const pay = clipVisible(parsed?.modo_pago || "sin modo", 80);
     const cur = byPay.get(pay) || { closed: 0, total: 0 };
     cur.total += 1;
     if (row.estadoAgenda === "CIERRE VENTA") cur.closed += 1;

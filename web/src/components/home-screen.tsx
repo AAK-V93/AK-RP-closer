@@ -631,7 +631,9 @@ function HomeRow({ href, title, status }: { href: string; title: string; status:
     <Link href={href} className="flex items-start justify-between gap-4 py-4">
       <span className="shrink-0 text-fg0">{title}</span>
       <div className="min-w-0">
-        <p className="line-clamp-2 text-right text-sm text-fg3">{status}</p>
+        <p className="line-clamp-2 text-right text-sm text-fg3" title={status}>
+          {status}
+        </p>
       </div>
     </Link>
   );

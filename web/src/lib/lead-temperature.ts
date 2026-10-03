@@ -1,3 +1,5 @@
+import { clipVisible } from "@/lib/visible-text";
+
 export type TemperatureLevel = "alto" | "medio" | "bajo";
 
 export type TemperatureInput = {
@@ -40,7 +42,7 @@ export function leadTemperature(input: TemperatureInput): {
 
 export function temperatureAction(level: TemperatureLevel, recomendacion: string) {
   const tip = recomendacion.trim();
-  if (tip) return tip.length > 140 ? `${tip.slice(0, 137)}…` : tip;
+  if (tip) return clipVisible(tip, 140);
   if (level === "alto") return "Ataca ahora: hay intención y dinero en juego.";
   if (level === "medio") return "Retoma con un mensaje de valor.";
   return "Lleva días sin responder: llamada en frío o audio.";

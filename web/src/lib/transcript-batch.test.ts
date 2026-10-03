@@ -19,6 +19,9 @@ test("a folder keeps transcripts and drops video", () => {
   assert.equal(split.chunks.length, 1);
   assert.equal(isTranscriptFilename("audio.m4a"), false);
   assert.equal(transcriptTitle("carpeta/Sol Valverde.vtt"), "Sol Valverde");
+  const long = transcriptTitle(`${"reunion con el equipo comercial ".repeat(8).trim()}.vtt`);
+  assert.match(long, /…$/);
+  assert.doesNotMatch(long, / (el|de|la)…$/);
 });
 
 test("more than twenty transcripts stay in one upload, split only by size", () => {
