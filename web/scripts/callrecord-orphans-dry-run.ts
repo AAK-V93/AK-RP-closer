@@ -1,6 +1,7 @@
 /**
- * Cuenta filas huérfanas de cada llave foránea que todavía no está en producción:
- * CallRecord.userId (migración 1) y las de 2_missing_constraints.
+ * Cuenta filas huérfanas. Las 7 llaves que producción todavía no tiene son
+ * CallRecord.userId (migración 1) y las 6 de 2_missing_constraints.
+ * Las otras 12 ya están validadas; su conteo queda como información.
  * Solo lectura. No escribe, y --apply no está permitido.
  * Una columna nullable solo cuenta filas con valor que no existe en el padre.
  *

@@ -15,16 +15,12 @@ function tableBlock(sql: string, table: string) {
   return sql.slice(start, end === -1 ? undefined : end);
 }
 
-const missingForeignKeys = [
+/** Already validated in production. Plain ADD CONSTRAINT inside 0_init. */
+const presentForeignKeys = [
   ["ClientTranscript_offerId_fkey", "SET NULL"],
   ["Lead_userId_fkey", "CASCADE"],
-  ["ExtractorFeedback_userId_fkey", "CASCADE"],
   ["LeadAlert_userId_fkey", "CASCADE"],
   ["LeadAlert_leadId_fkey", "CASCADE"],
-  ["LeadAlert_threadId_fkey", "SET NULL"],
-  ["FollowupThread_userId_fkey", "CASCADE"],
-  ["FollowupThread_leadId_fkey", "CASCADE"],
-  ["FollowupTouch_threadId_fkey", "CASCADE"],
   ["CommissionRule_userId_fkey", "CASCADE"],
   ["CommissionRule_offerId_fkey", "SET NULL"],
   ["Commission_userId_fkey", "CASCADE"],
@@ -33,8 +29,20 @@ const missingForeignKeys = [
   ["FollowupLibraryScript_packId_fkey", "CASCADE"],
   ["FollowupStar_userId_fkey", "CASCADE"],
   ["FollowupStar_packId_fkey", "CASCADE"],
+] as const;
+
+/** Not in production yet. Migration 1 is CallRecord; these six are migration 2. */
+const missingForeignKeys = [
+  ["ExtractorFeedback_userId_fkey", "CASCADE"],
+  ["LeadAlert_threadId_fkey", "SET NULL"],
+  ["FollowupThread_userId_fkey", "CASCADE"],
+  ["FollowupThread_leadId_fkey", "CASCADE"],
+  ["FollowupTouch_threadId_fkey", "CASCADE"],
   ["PushSubscription_userId_fkey", "CASCADE"],
 ] as const;
+
+const updatedAtWithoutDefault = ["FathomConnection", "FollowupPack", "Lead", "UserOffer"];
+const updatedAtWithDefault = ["FollowupThread", "PushSubscription"];
 
 const orphanLabels = [
   "CallRecord.userId",
@@ -58,29 +66,56 @@ const orphanLabels = [
   "PushSubscription.userId",
 ];
 
-test("0_init matches the hot-push and later migrations add the missing constraints", () => {
+function updatedAtLine(sql: string, table: string) {
+  return tableBlock(sql, table)
+    .split("\n")
+    .find((line) => line.includes('"updatedAt"'));
+}
+
+test("0_init matches production and later migrations add only what is missing", () => {
   const baseline = read("../../prisma/migrations/0_init/migration.sql");
   const callRecordFk = read("../../prisma/migrations/1_callrecord_user_fk/migration.sql");
   const missing = read("../../prisma/migrations/2_missing_constraints/migration.sql");
+  const defaults = read("../../prisma/migrations/3_updatedat_defaults/migration.sql");
   const lock = read("../../prisma/migrations/migration_lock.toml");
   const schema = read("../../prisma/schema.prisma");
 
+  assert.equal(presentForeignKeys.length, 12);
+  assert.equal(missingForeignKeys.length, 6);
   assert.match(lock, /provider = "postgresql"/);
   assert.match(baseline, /CREATE TABLE "CallRecord"/);
   assert.match(baseline, /"filingStatus" TEXT NOT NULL DEFAULT 'confirmed'/);
   assert.match(baseline, /"filingJson" JSONB NOT NULL DEFAULT '\{\}'/);
-  assert.match(tableBlock(baseline, "Lead"), /"updatedAt" TIMESTAMP\(3\) NOT NULL DEFAULT CURRENT_TIMESTAMP/);
-  const coachUpdated = tableBlock(baseline, "CoachProfile")
-    .split("\n")
-    .find((line) => line.includes('"updatedAt"'));
-  assert.equal(coachUpdated?.includes("DEFAULT"), false);
+  assert.equal(baseline.includes("NOT VALID"), false);
+  assert.equal(updatedAtLine(baseline, "CoachProfile")?.includes("DEFAULT"), false);
+  for (const table of updatedAtWithoutDefault) {
+    const line = updatedAtLine(baseline, table);
+    assert.ok(line, table);
+    assert.equal(line.includes("DEFAULT"), false, table);
+  }
+  for (const table of updatedAtWithDefault) {
+    assert.match(
+      tableBlock(baseline, table),
+      /"updatedAt" TIMESTAMP\(3\) NOT NULL DEFAULT CURRENT_TIMESTAMP/,
+      table,
+    );
+  }
   assert.match(baseline, /FathomConnection_userId_fkey/);
   assert.match(baseline, /ClientTranscript_userId_fkey/);
   assert.match(baseline, /CREATE INDEX "CallRecord_userId_estadoAgenda_idx"/);
   assert.match(baseline, /CREATE INDEX "CallRecord_userId_filingStatus_idx"/);
-  assert.equal(baseline.includes("CallRecord_userId_recordedAt_idx"), false);
+  assert.match(baseline, /CREATE INDEX "CallRecord_userId_recordedAt_idx"/);
   assert.equal(baseline.includes("LeadAlert_threadId_idx"), false);
   assert.equal(baseline.includes("CallRecord_userId_fkey"), false);
+  for (const [name, onDelete] of presentForeignKeys) {
+    assert.match(
+      baseline,
+      new RegExp(
+        `ADD CONSTRAINT "${name}" FOREIGN KEY .+ ON DELETE ${onDelete} ON UPDATE CASCADE;`,
+      ),
+      name,
+    );
+  }
   for (const [name] of missingForeignKeys) {
     assert.equal(baseline.includes(name), false, name);
   }
@@ -90,14 +125,18 @@ test("0_init matches the hot-push and later migrations add the missing constrain
   assert.match(callRecordFk, /^COMMIT;$/m);
   assert.match(callRecordFk, /VALIDATE CONSTRAINT "CallRecord_userId_fkey"/);
   assert.ok(callRecordFk.indexOf("NOT VALID") < callRecordFk.indexOf("VALIDATE CONSTRAINT"));
+  assert.equal(callRecordFk.includes("DROP CONSTRAINT"), false);
 
   const missingSql = missing
     .split("\n")
     .filter((line) => !line.trim().startsWith("--"))
     .join("\n");
-  assert.match(missingSql, /CREATE INDEX IF NOT EXISTS "CallRecord_userId_recordedAt_idx"/);
+  assert.equal(missingSql.includes("CallRecord_userId_recordedAt_idx"), false);
   assert.match(missingSql, /CREATE INDEX IF NOT EXISTS "LeadAlert_threadId_idx"/);
   assert.equal(/CONCURRENTLY/i.test(missingSql), false);
+  for (const [name] of presentForeignKeys) {
+    assert.equal(missing.includes(name), false, name);
+  }
   for (const [name, onDelete] of missingForeignKeys) {
     const addAt = missing.indexOf(`ADD CONSTRAINT "${name}"`);
     const validateAt = missing.indexOf(`VALIDATE CONSTRAINT "${name}"`);
@@ -105,7 +144,22 @@ test("0_init matches the hot-push and later migrations add the missing constrain
     const between = missing.slice(addAt, validateAt);
     assert.match(between, new RegExp(`ON DELETE ${onDelete} ON UPDATE CASCADE NOT VALID`));
     assert.match(between, /^COMMIT;$/m);
+    assert.match(missing, new RegExp(`DROP CONSTRAINT IF EXISTS "${name}"`));
   }
+
+  for (const table of updatedAtWithoutDefault) {
+    assert.match(
+      defaults,
+      new RegExp(
+        `ALTER TABLE "${table}" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;`,
+      ),
+      table,
+    );
+  }
+  assert.equal(defaults.includes("FollowupThread"), false);
+  assert.equal(defaults.includes("PushSubscription"), false);
+  assert.equal(defaults.includes("CoachProfile"), false);
+  assert.equal(/NOT VALID|DROP CONSTRAINT|CREATE INDEX/i.test(defaults), false);
 
   assert.match(schema, /callRecords\s+CallRecord\[\]/);
   assert.match(schema, /@@index\(\[userId, recordedAt\]\)/);

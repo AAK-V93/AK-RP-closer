@@ -1,7 +1,10 @@
--- Hand-edited snapshot of what production has after the ensure* hot-push.
--- This is not the full schema.prisma datamodel. Do not regenerate it with
--- prisma migrate diff --from-empty. Indexes and foreign keys that ensure*
--- never created are added later, in 2_missing_constraints.
+-- Snapshot of production (Postgres 17) before _prisma_migrations exists.
+-- Tables from the ensure* hot-push, plus 12 foreign keys and
+-- CallRecord_userId_recordedAt_idx that an older db push already created
+-- and validated. This is not the full schema.prisma datamodel. Do not
+-- regenerate it with prisma migrate diff --from-empty.
+-- Still missing in production: 1_callrecord_user_fk, 2_missing_constraints,
+-- and 3_updatedat_defaults.
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
@@ -71,7 +74,7 @@ CREATE TABLE "FathomConnection" (
     "webhookSecretEnc" TEXT NOT NULL DEFAULT '',
     "webhookToken" TEXT NOT NULL DEFAULT '',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "FathomConnection_pkey" PRIMARY KEY ("id")
 );
@@ -104,7 +107,7 @@ CREATE TABLE "UserOffer" (
     "commercial" JSONB NOT NULL DEFAULT '{}',
     "includeFathom" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "UserOffer_pkey" PRIMARY KEY ("id")
 );
@@ -172,7 +175,7 @@ CREATE TABLE "Lead" (
     "razonNoCierre" TEXT NOT NULL DEFAULT '',
     "etapaPerdida" TEXT NOT NULL DEFAULT '',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Lead_pkey" PRIMARY KEY ("id")
 );
@@ -292,7 +295,7 @@ CREATE TABLE "FollowupPack" (
     "tags" TEXT NOT NULL DEFAULT '',
     "visibility" TEXT NOT NULL DEFAULT 'public',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "FollowupPack_pkey" PRIMARY KEY ("id")
 );
@@ -375,6 +378,9 @@ CREATE INDEX "ClientTranscript_userId_createdAt_idx" ON "ClientTranscript"("user
 
 -- CreateIndex
 CREATE INDEX "ClientTranscript_offerId_idx" ON "ClientTranscript"("offerId");
+
+-- CreateIndex
+CREATE INDEX "CallRecord_userId_recordedAt_idx" ON "CallRecord"("userId", "recordedAt");
 
 -- CreateIndex
 CREATE INDEX "CallRecord_userId_estadoAgenda_idx" ON "CallRecord"("userId", "estadoAgenda");
@@ -462,4 +468,40 @@ ALTER TABLE "UserOffer" ADD CONSTRAINT "UserOffer_userId_fkey" FOREIGN KEY ("use
 
 -- AddForeignKey
 ALTER TABLE "ClientTranscript" ADD CONSTRAINT "ClientTranscript_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ClientTranscript" ADD CONSTRAINT "ClientTranscript_offerId_fkey" FOREIGN KEY ("offerId") REFERENCES "UserOffer"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Lead" ADD CONSTRAINT "Lead_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeadAlert" ADD CONSTRAINT "LeadAlert_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeadAlert" ADD CONSTRAINT "LeadAlert_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CommissionRule" ADD CONSTRAINT "CommissionRule_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CommissionRule" ADD CONSTRAINT "CommissionRule_offerId_fkey" FOREIGN KEY ("offerId") REFERENCES "UserOffer"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Commission" ADD CONSTRAINT "Commission_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Commission" ADD CONSTRAINT "Commission_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FollowupPack" ADD CONSTRAINT "FollowupPack_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FollowupLibraryScript" ADD CONSTRAINT "FollowupLibraryScript_packId_fkey" FOREIGN KEY ("packId") REFERENCES "FollowupPack"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FollowupStar" ADD CONSTRAINT "FollowupStar_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FollowupStar" ADD CONSTRAINT "FollowupStar_packId_fkey" FOREIGN KEY ("packId") REFERENCES "FollowupPack"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
