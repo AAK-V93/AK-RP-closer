@@ -9,6 +9,8 @@ import {
   formatPendingDesk,
   formatPendingToday,
   formatWhoToCall,
+  deskAgreement,
+  deskCallLine,
   isMeetingFollowup,
   moneyInPlay,
   type OperacionFollowupSource,
@@ -409,7 +411,7 @@ test("a closed sale with balance is cobro, and the repeated description is dropp
   );
 });
 
-test("the desk ranks money ahead of an older call and never says only seguimiento", () => {
+test("the desk shows days late, a next step, and never a bare seguimiento", () => {
   const lines = deskLinesFromFilings(
     [
       {
@@ -449,21 +451,91 @@ test("the desk ranks money ahead of an older call and never says only seguimient
   );
   assert.equal(lines.length, 3);
   assert.equal(lines[0]?.name, "Valeria Ríos");
-  assert.equal(lines[0]?.reason, "cuota de 1.064 vence hoy");
+  assert.match(lines[0]?.reason || "", /para hoy/);
+  assert.match(lines[0]?.reason || "", /cuota de 1\.064 vence hoy/);
   assert.equal(lines[1]?.name, "Carlos Ramírez");
-  assert.equal(lines[1]?.reason, "prometió decidir el viernes");
+  assert.match(lines[1]?.reason || "", /vencido hace 12 días/);
+  assert.match(lines[1]?.reason || "", /último contacto el 20\/9\/2026/);
+  assert.match(lines[1]?.reason || "", /prometió decidir el viernes/);
+  assert.match(lines[2]?.reason || "", /vencido hace 3 días/);
   assert.match(lines[2]?.reason || "", /último contacto el 28\/9\/2026/);
+  assert.match(lines[2]?.reason || "", /retomar el contacto/);
   for (const line of lines) {
     assert.notEqual(line.reason.trim().toLowerCase(), "seguimiento");
+    assert.doesNotMatch(line.reason, /transcri/);
   }
   const today = formatPendingToday(lines, 8);
   const calls = formatWhoToCall(lines);
-  assert.match(today, /1 seguimiento vencido|2 seguimientos vencidos|3 seguimientos vencidos/);
+  assert.match(today, /2 seguimientos vencidos/);
+  assert.match(today, /1 para hoy/);
+  assert.match(today, /1 cobro/);
   assert.match(today, /8 llamadas por clasificar/);
-  assert.match(today, /Valeria Ríos \(cuota de 1\.064 vence hoy\)/);
-  assert.match(calls, /^Llama hoy, en este orden:/);
-  assert.match(calls, /1\. Valeria Ríos\. Cuota de 1\.064 vence hoy\./);
-  assert.match(calls, /2\. Carlos Ramírez\. Prometió decidir el viernes\./);
+  assert.match(calls, /más dinero primero/);
+  assert.match(calls, /sin monto, más días vencido y luego la etapa/);
+  assert.match(calls, /1\. Valeria Ríos\./);
+  assert.match(calls, /Vencido hace 12 días/);
   assert.notEqual(today, calls);
   assert.equal(formatPendingDesk(lines, 8), today);
+  assert.doesNotMatch(calls, /\.\./);
+});
+
+test("a past meeting is rewritten and a zero day still names today and cobros", () => {
+  assert.equal(
+    deskAgreement({
+      acuerdo_seguimiento: "",
+      notas_crm: "Llamada comercial incompleta, se corta la transcripción",
+      summary: "se corta la transcripción",
+    } as { acuerdo_seguimiento?: string }),
+    "",
+  );
+  const lines = deskLinesFromFilings(
+    [
+      {
+        name: "Ricardo",
+        proximo: "2026-09-26",
+        step: "SEGUIMIENTO",
+        closed: false,
+        note: "Reunirse el 26 de septiembre a las 11:00. Llamada comercial incompleta, se corta la transcripción y sigue el resumen de toda la llamada con mucho más texto del que cabe en una línea.",
+        lastContact: "2026-09-20",
+      },
+      {
+        name: "Nuria Solís",
+        proximo: "2026-09-28",
+        step: "DECISION",
+        closed: false,
+        lastContact: "2026-09-28",
+      },
+      {
+        name: "Ana Quispe",
+        proximo: "2026-09-28",
+        step: "SEGUIMIENTO",
+        closed: false,
+        lastContact: "2026-09-28",
+      },
+    ],
+    "2026-10-03",
+  );
+  assert.equal(lines[0]?.name, "Ricardo");
+  assert.match(lines[0]?.reason || "", /vencido hace 7 días/);
+  assert.match(lines[0]?.reason || "", /tenían reunión el 26 sep, reagendar/);
+  assert.doesNotMatch(lines[0]?.reason || "", /transcri/);
+  assert.equal(lines[1]?.name, "Nuria Solís");
+  assert.match(lines[1]?.reason || "", /vencido hace 5 días/);
+  assert.match(lines[1]?.reason || "", /pedir la decisión/);
+  assert.equal(lines[2]?.name, "Ana Quispe");
+  const calls = formatWhoToCall(lines);
+  for (const line of calls.split("\n").slice(1)) {
+    assert.ok(line.length <= 120, line);
+    assert.doesNotMatch(line, /\.\./);
+  }
+  assert.equal(
+    deskCallLine(1, "Ricardo", "vencido hace 7 días."),
+    "1. Ricardo. Vencido hace 7 días.",
+  );
+  const onlyLate = formatPendingToday(
+    lines.filter((row) => row.kind !== "cobro"),
+    0,
+  );
+  assert.match(onlyLate, /0 para hoy/);
+  assert.match(onlyLate, /sin cobros pendientes/);
 });

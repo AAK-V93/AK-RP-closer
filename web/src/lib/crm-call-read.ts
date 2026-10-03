@@ -231,33 +231,23 @@ function parseCobros(value: unknown) {
   return [];
 }
 
-async function selectCalls(prisma: PrismaClient, userId: string, confirmedOnly: boolean) {
-  if (confirmedOnly) {
-    return prisma.$queryRaw<DashboardCallRow[]>`
-      SELECT ${CALL_COLUMNS}
-      FROM "CallRecord"
-      WHERE "userId" = ${userId}
-        AND "filingStatus" = 'confirmed'
-    `;
-  }
+async function selectDashboardCalls(prisma: PrismaClient, userId: string) {
   return prisma.$queryRaw<DashboardCallRow[]>`
     SELECT ${CALL_COLUMNS}
     FROM "CallRecord"
     WHERE "userId" = ${userId}
       AND "filingStatus" <> 'skipped'
-    ORDER BY "recordedAt" DESC NULLS FIRST, "createdAt" DESC
+    ORDER BY "recordedAt" DESC NULLS LAST, "createdAt" DESC
     LIMIT 2000
   `;
 }
 
-/** Confirmed calls (all of them) and the newest 2.000 that are not skipped. */
+/** Newest 2.000 calls that are not skipped. Confirmed rows are the money set. */
 export async function loadDashboardCalls(prisma: PrismaClient, userId: string) {
-  const [confirmed, recent] = await Promise.all([
-    selectCalls(prisma, userId, true),
-    selectCalls(prisma, userId, false),
-  ]);
+  const rows = await selectDashboardCalls(prisma, userId);
+  const mapped = rows.map(dashboardCallFromRow);
   return {
-    calls: confirmed.map(dashboardCallFromRow),
-    allCalls: recent.map(dashboardCallFromRow),
+    calls: mapped.filter((row) => row.filingStatus === "confirmed"),
+    allCalls: mapped,
   };
 }

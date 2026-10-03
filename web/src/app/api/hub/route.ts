@@ -1,11 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { getToken } from "next-auth/jwt";
 import { authOptions } from "@/lib/auth";
 import { generateGeminiJson } from "@/lib/gemini";
 import { HUB_SYSTEM_PROMPT } from "@/lib/hub-prompt";
-import { getWorkspace, getWorkspacePrisma } from "@/lib/workspace";
-import { closerSpanish } from "@/lib/closer-spanish";
-import { ensureCrmTables } from "@/lib/prisma";
+import { getWorkspacePrisma } from "@/lib/workspace";
+import {
+  ensureCoachTables,
+  ensureCrmTables,
+  ensureFathomTables,
+  ensureReadIndexes,
+  ensureWorkspaceTables,
+  getPrisma,
+} from "@/lib/prisma";
 import { type CrmChatPatch } from "@/lib/file-call";
 import {
   answerCrmChat,
@@ -39,12 +46,12 @@ import {
 import { crmDashboard } from "@/lib/crm-metrics";
 import { labelCrmProse, presentChatState } from "@/lib/plain-labels";
 import { analyzeCardStatus, coachCardStatus, followupCardStatus } from "@/lib/home-desk";
-import { loadLiveGuides } from "@/lib/live-guide";
 import { projectionFromDashboard, projectCommission } from "@/lib/crm-projection";
 import {
   applyCommercialAnswer,
   looksLikeOfferBlob,
   parseCommercial,
+  userHasReadyCrm,
   type ExtractedOffer,
 } from "@/lib/offer-commercial";
 import { isOfferExtractConfirm, offerBatchRecap } from "@/lib/offer-extract";
@@ -84,44 +91,74 @@ async function timed<T>(timings: ServerTiming[] | undefined, name: string, run: 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const timings: ServerTiming[] = [];
+  const origin = performance.now();
+  const mark = (name: string, started: number, desc?: string) => {
+    timings.push({
+      name,
+      dur: Math.round(performance.now() - started),
+      ...(desc ? { desc } : {}),
+    });
+  };
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const authStarted = performance.now();
+    const token = await getToken({
+      req: request,
+      secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
+    });
+    mark("auth", authStarted, "jwt");
+    const userId = typeof token?.sub === "string" ? token.sub : "";
+    if (!userId) {
       return NextResponse.json({ error: "Inicia sesión" }, { status: 401 });
     }
-    const timings: ServerTiming[] = [];
-    const mark = (name: string, started: number) => {
-      timings.push({ name, dur: Math.round(performance.now() - started) });
-    };
     const prismaStarted = performance.now();
-    const prisma = await getWorkspacePrisma();
-    mark("prisma", prismaStarted);
+    const prisma = getPrisma();
+    mark("prisma", prismaStarted, "client");
     if (!prisma) return NextResponse.json({ error: "DB" }, { status: 503 });
     const ensureStarted = performance.now();
-    try {
-      await ensureCrmTables(prisma);
-    } catch (error) {
-      console.error("hub GET ensureCrm", error);
-    }
+    await Promise.all([
+      ensureWorkspaceTables(prisma),
+      ensureFathomTables(prisma).catch(() => undefined),
+      ensureCrmTables(prisma).catch(() => undefined),
+      ensureCoachTables(prisma).catch(() => undefined),
+      ensureReadIndexes(prisma).catch(() => undefined),
+    ]);
     mark("ensure", ensureStarted);
 
     const threadStarted = performance.now();
-    const threadPromise = loadThread(prisma, session.user.id, THREAD_HUB)
+    const threadPromise = loadThread(prisma, userId, THREAD_HUB)
       .catch((error) => {
         console.error("hub GET thread", error);
         return null;
       })
       .finally(() => mark("thread", threadStarted));
-    const snapshot = await hubSnapshot(prisma, session.user.id, timings);
+    const snapshot = await hubSnapshot(prisma, userId, timings);
     const loaded = await threadPromise;
     const messages = (loaded?.messages || []).map((line) =>
       line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
     );
-    return NextResponse.json(
-      { messages, snapshot },
-      { headers: { "Server-Timing": formatServerTiming(timings) } },
+    const serializeStarted = performance.now();
+    const payload = JSON.stringify({ messages, snapshot });
+    mark("serialize", serializeStarted, `${payload.length}b`);
+    mark("total", origin);
+    const dur = (name: string) => timings.find((row) => row.name === name)?.dur || 0;
+    const wave = Math.max(
+      ...["home", "user", "offers", "dashboard", "leads", "filings", "recent", "analyzed", "callCount", "thread", "projection"].map(
+        dur,
+      ),
     );
+    timings.push({
+      name: "gap",
+      dur: Math.max(0, dur("total") - dur("auth") - dur("prisma") - dur("ensure") - wave - dur("serialize")),
+      desc: "fuera de las etapas",
+    });
+    return new NextResponse(payload, {
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "Server-Timing": formatServerTiming(timings),
+      },
+    });
   } catch (error) {
     console.error("hub GET", error);
     return NextResponse.json(
@@ -894,7 +931,7 @@ async function hubSnapshot(
   timings?: ServerTiming[],
 ) {
   const homePromise = timed(timings, "home", () => getHomeState(prisma, userId));
-  const prefsPromise = timed(timings, "prefs", () =>
+  const prefsPromise = timed(timings, "user", () =>
     prisma.user.findUnique({
       where: { id: userId },
       select: { crmPrefs: true },
@@ -905,7 +942,13 @@ async function hubSnapshot(
   weekStart.setUTCDate(weekStart.getUTCDate() - (weekday === 0 ? 6 : weekday - 1));
   weekStart.setUTCHours(0, 0, 0, 0);
   const heavyPromise = Promise.all([
-    timed(timings, "workspace", () => getWorkspace(prisma, userId, null, { corpus: false })),
+    timed(timings, "offers", () =>
+      prisma.userOffer.findMany({
+        where: { userId },
+        orderBy: { updatedAt: "desc" },
+        select: { productName: true, commercial: true },
+      }),
+    ),
     timed(timings, "dashboard", () => crmDashboard(prisma, userId, { scripts: false, timings })),
     timed(timings, "leads", () =>
       prisma.lead.findMany({
@@ -938,7 +981,6 @@ async function hubSnapshot(
         },
       }),
     ),
-    timed(timings, "guides", () => loadLiveGuides(prisma, userId)),
     timed(timings, "callCount", () =>
       prisma.callRecord.count({
         where: {
@@ -1006,7 +1048,7 @@ async function hubSnapshot(
     return empty;
   }
   try {
-    const [workspace, dash, leads, pendingCalls, recentAuto, analyzedThisWeek, guides, callCount] =
+    const [offers, dash, leads, pendingCalls, recentAuto, analyzedThisWeek, callCount] =
       await heavyPromise;
     const unclassified = pendingCalls.length;
     let goalBundle = goalSeed;
@@ -1023,9 +1065,6 @@ async function hubSnapshot(
     } catch (error) {
       console.error("hub projection", error);
     }
-    const drill = closerSpanish(
-      guides.flatMap((guide) => guide.drills).find((item) => item.trim()) || "",
-    );
     const desk = {
       unclassified,
       analyzeStatus: analyzeCardStatus(unclassified),
@@ -1033,23 +1072,21 @@ async function hubSnapshot(
         dash.now.seguimientosHoy || 0,
         dash.now.seguimientosVencidos || 0,
       ),
-      practiceHref: drill
-        ? `/practicar?focus=${encodeURIComponent(drill)}`
-        : "/practicar",
-      practiceStatus: drill ? drill.slice(0, 90) : "Elige con quién practicar",
+      practiceHref: "/practicar",
+      practiceStatus: "Elige con quién practicar",
       coachStatus: coachCardStatus({
-        newPattern: guides.some((guide) => guide.ready),
+        newPattern: false,
         analyzedThisWeek,
       }),
     };
     return {
       home,
-      offers: workspace.offers.map((row) => row.productName),
-      canPractice: workspace.canPractice,
-      readyCrm: workspace.readyCrm,
+      offers: offers.map((row) => row.productName).filter(Boolean),
+      canPractice: home.canPractice,
+      readyCrm: userHasReadyCrm(offers),
       missingCrm: home.missingCrm,
-      fathomCount: workspace.fathomCount,
-      uploadCount: workspace.uploadCount,
+      fathomCount: home.fathomCount,
+      uploadCount: home.uploadCount,
       now: dash.now,
       pipelineDetalle: dash.pipelineDetalle,
       comisionResumen: dash.comisionResumen,

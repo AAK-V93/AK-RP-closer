@@ -689,12 +689,14 @@ export async function ensureCoachTables(prisma: PrismaClient) {
 
 const READ_INDEX_NAMES = [
   "CallRecord_userId_filingStatus_idx",
+  "CallRecord_userId_filingStatus_recordedAt_idx",
   "CallRecord_userId_filingStatus_confirmedAt_idx",
   "LeadAlert_userId_resolvedAt_idx",
 ] as const;
 
 const READ_INDEX_SQL = [
   `CREATE INDEX IF NOT EXISTS "CallRecord_userId_filingStatus_idx" ON "CallRecord"("userId", "filingStatus")`,
+  `CREATE INDEX IF NOT EXISTS "CallRecord_userId_filingStatus_recordedAt_idx" ON "CallRecord"("userId", "filingStatus", "recordedAt")`,
   `CREATE INDEX IF NOT EXISTS "CallRecord_userId_filingStatus_confirmedAt_idx" ON "CallRecord"("userId", "filingStatus", "confirmedAt")`,
   `CREATE INDEX IF NOT EXISTS "LeadAlert_userId_resolvedAt_idx" ON "LeadAlert"("userId", "resolvedAt")`,
 ] as const;
@@ -716,6 +718,7 @@ export async function ensureReadIndexes(prisma: PrismaClient) {
           WHERE schemaname = 'public'
             AND indexname IN (
               'CallRecord_userId_filingStatus_idx',
+              'CallRecord_userId_filingStatus_recordedAt_idx',
               'CallRecord_userId_filingStatus_confirmedAt_idx',
               'LeadAlert_userId_resolvedAt_idx'
             )

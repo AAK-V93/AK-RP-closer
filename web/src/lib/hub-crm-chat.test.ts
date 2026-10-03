@@ -865,11 +865,14 @@ test("pending today is a summary and who to call is a ranked list", () => {
   assert.equal(calls.kind, "answer");
   if (summary.kind !== "answer" || calls.kind !== "answer") return;
   assert.match(summary.reply, /1 seguimiento vencido/);
-  assert.match(summary.reply, /1 cosa para hoy/);
+  assert.match(summary.reply, /1 para hoy/);
+  assert.match(summary.reply, /1 cobro/);
   assert.match(summary.reply, /8 llamadas por clasificar/);
-  assert.match(summary.reply, /Valeria Ríos \(cuota de 533 vence hoy\)/);
-  assert.match(calls.reply, /^Llama hoy, en este orden:/);
+  assert.match(summary.reply, /Valeria Ríos \(Cuota de 533 vence hoy\)/);
+  assert.match(calls.reply, /Llama hoy, en este orden/);
+  assert.match(calls.reply, /más dinero primero/);
   assert.match(calls.reply, /1\. Valeria Ríos\. Cuota de 533 vence hoy\./);
+  assert.doesNotMatch(calls.reply, /\.\./);
   assert.match(calls.reply, /Prometió decidir el viernes/);
   assert.doesNotMatch(calls.reply, /por clasificar/);
   assert.notEqual(summary.reply, calls.reply);
