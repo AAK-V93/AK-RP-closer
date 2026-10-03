@@ -24,7 +24,7 @@ import {
   type OfferForCrm,
   userHasReadyCrm,
 } from "@/lib/offer-commercial";
-import { applyProductoGuard, planProductoWrite, type OfferRef } from "@/lib/producto-guard";
+import { applyProductoGuard, keptOfferName, offersCatalogOpen, type OfferRef } from "@/lib/producto-guard";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
 import { addDays, parseCrmPrefs, parseFollowupDate, patchCrmPref } from "@/lib/crm-prefs";
 import { canonicalTipo } from "@/lib/call-normalize";
@@ -314,6 +314,11 @@ async function stampLeadOnCall(
   });
 }
 
+function filingProducto(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  return String((value as { producto?: unknown }).producto || "").trim();
+}
+
 export async function applyExtractorToCrm(
   prisma: PrismaClient,
   userId: string,
@@ -331,7 +336,6 @@ export async function applyExtractorToCrm(
     productName: offer.productName,
     aliases: offer.commercial?.aliases,
   }));
-  applyProductoGuard(parsed, offerRefs);
   const row = await prisma.callRecord.findFirst({
     where: { id: callRecordId, userId },
   });
@@ -344,14 +348,18 @@ export async function applyExtractorToCrm(
   const saldo = moneyOk ? parsed.saldo_pendiente : null;
 
   let leadId: string | null = null;
-  let offerName = parsed.producto || "";
-  let matched = offerName ? offers.find((offer) => offer.productName === offerName) || null : null;
+  const catalogOpen = offersCatalogOpen(offerRefs);
+  const acceptedOffer = catalogOpen ? applyProductoGuard(parsed, offerRefs).producto : "";
+  if (!catalogOpen) parsed.producto = null;
+  const previousProducto = filingProducto(row.filingJson);
+  if (!acceptedOffer && previousProducto) parsed.producto = previousProducto;
+  let offerName = acceptedOffer;
+  let matched = acceptedOffer ? offers.find((offer) => offer.productName === acceptedOffer) || null : null;
   if (parsed.cliente_real && !isNonSalesCall(parsed.estado_agenda)) {
     const leads = await prisma.lead.findMany({ where: { userId } });
     const existing = findMatchingLead(leads, parsed.cliente_real);
-    const kept = planProductoWrite(existing?.offerName || "", offerRefs).producto;
-    offerName = parsed.producto || kept || "";
-    matched = offerName ? offers.find((offer) => offer.productName === offerName) || null : null;
+    offerName = keptOfferName(acceptedOffer, existing?.offerName, offerRefs);
+    matched = acceptedOffer ? offers.find((offer) => offer.productName === acceptedOffer) || null : null;
     const status = leadStatusFromAgenda(parsed.estado_agenda);
     const nextAt =
       parseFollowupDate(parsed.proximo_seguimiento, callAt) ||
@@ -449,7 +457,7 @@ export async function applyExtractorToCrm(
                 ? "pendiente"
                 : "pendiente",
       leadName: parsed.cliente_real || row.leadName,
-      offerName: offerName || planProductoWrite(row.offerName || "", offerRefs).producto || "",
+      offerName: keptOfferName(acceptedOffer, row.offerName, offerRefs),
       trainsBot: trainsBot(parsed.estado_agenda),
       summary,
       filingStatus: "confirmed",

@@ -12,7 +12,7 @@ import {
 import { emptyExtractor, enrichExtractorFollowup, runExtractor } from "@/lib/extractor";
 import { userHasReadyCrm } from "@/lib/offer-commercial";
 import { canonicalProducto, canonicalTipo } from "@/lib/call-normalize";
-import { applyProductoGuard } from "@/lib/producto-guard";
+import { applyProductoGuard, keptOfferName, offersCatalogOpen } from "@/lib/producto-guard";
 import {
   offerLearningHint,
   offerSignals,
@@ -32,6 +32,11 @@ import {
   matchesLearnedNonCommercial,
   recordExtractorFeedback,
 } from "@/lib/extractor-feedback";
+
+function filingProducto(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  return String((value as { producto?: unknown }).producto || "").trim();
+}
 
 export type SpeakerRole = { name: string; role: "closer" | "lead" };
 
@@ -135,6 +140,11 @@ export async function classifyAndFileCall(
     }),
     { transcript: args.transcript, callAt: recordedAt },
   );
+  const offerRefs = offers.map((offer) => ({
+    productName: offer.productName,
+    aliases: offer.commercial?.aliases,
+  }));
+  let acceptedOffer = "";
   if (!isNonSalesCall(parsed.estado_agenda)) {
     const resolution = resolveOfferAssignment({
       offers: offerSignals(offers),
@@ -147,13 +157,9 @@ export async function classifyAndFileCall(
     const names = offers.map((offer) => offer.productName);
     parsed.producto = canonicalProducto(resolution.producto, names) || null;
     parsed.confianza.producto = parsed.producto ? resolution.confidence : 0;
-    applyProductoGuard(
-      parsed,
-      offers.map((offer) => ({
-        productName: offer.productName,
-        aliases: offer.commercial?.aliases,
-      })),
-    );
+    const catalogOpen = offersCatalogOpen(offerRefs);
+    acceptedOffer = catalogOpen ? applyProductoGuard(parsed, offerRefs).producto : "";
+    if (!catalogOpen) parsed.producto = null;
     parsed.tipo_seguimiento = canonicalTipo(parsed.tipo_seguimiento) || null;
   }
   const nonSales = isNonSalesCall(parsed.estado_agenda);
@@ -164,6 +170,16 @@ export async function classifyAndFileCall(
   const title = pasted
     ? pastedCallTitle(args.transcript, recordedAt || new Date(), parsed.cliente_real || "")
     : args.title;
+
+  const previous = await prisma.callRecord.findFirst({
+    where: { userId, source: args.source, sourceId: args.sourceId },
+    select: { offerName: true, filingJson: true },
+  });
+  if (!acceptedOffer) {
+    const previousProducto = filingProducto(previous?.filingJson);
+    if (previousProducto) parsed.producto = previousProducto;
+  }
+  const offerName = keptOfferName(acceptedOffer, previous?.offerName, offerRefs);
 
   const row = await prisma.callRecord.upsert({
     where: {
@@ -181,7 +197,7 @@ export async function classifyAndFileCall(
       callType: parsed.estado_agenda || "",
       result: "",
       leadName: parsed.cliente_real || "",
-      offerName: parsed.producto || "",
+      offerName,
       trainsBot: trainsBotFromType(parsed.estado_agenda || ""),
       recordedAt: recordedAt || new Date(),
       summary,
@@ -198,7 +214,7 @@ export async function classifyAndFileCall(
       title,
       callType: parsed.estado_agenda || "",
       leadName: parsed.cliente_real || "",
-      offerName: parsed.producto || "",
+      offerName,
       trainsBot: trainsBotFromType(parsed.estado_agenda || ""),
       recordedAt: recordedAt || undefined,
       summary,

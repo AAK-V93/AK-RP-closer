@@ -6,16 +6,13 @@
  *   npx tsx scripts/producto-dry-run.ts
  *   npx tsx scripts/producto-dry-run.ts --apply
  *
+ * Un usuario sin ofertas guardadas se salta: no se lista ni se borra.
  * --apply hace un update por fila. Sin transacción, sin updateMany y sin escrituras anidadas.
  */
 import { Prisma } from "@prisma/client";
 import { parseCommercial } from "../src/lib/offer-commercial";
 import { getPrisma } from "../src/lib/prisma";
-import {
-  planCallProductoRepair,
-  planLeadProductoRepair,
-  type OfferRef,
-} from "../src/lib/producto-guard";
+import { planUserProductoDryRun, type OfferRef } from "../src/lib/producto-guard";
 
 const apply = process.argv.includes("--apply");
 
@@ -32,7 +29,9 @@ async function main() {
   }
   const users = await prisma.user.findMany({ select: { id: true, email: true } });
   let listed = 0;
+  let skipped = 0;
   for (const user of users) {
+    const who = user.email || user.id;
     const offerRows = await prisma.userOffer.findMany({
       where: { userId: user.id },
       select: { productName: true, commercial: true },
@@ -47,41 +46,44 @@ async function main() {
       where: { userId: user.id },
       select: { id: true, name: true, offerName: true, nextStep: true, lastSummary: true },
     });
-    for (const lead of leads) {
-      const repair = planLeadProductoRepair(lead, offers);
-      if (!repair) continue;
-      listed += 1;
-      console.log(
-        [user.email || user.id, repair.leadName, repair.current, repair.proposal, "lead"].join("\t"),
-      );
-      if (!apply) continue;
-      await prisma.lead.update({ where: { id: repair.id }, data: repair.data });
-    }
     const calls = await prisma.callRecord.findMany({
       where: { userId: user.id },
       select: { id: true, leadName: true, offerName: true, filingJson: true },
     });
-    for (const call of calls) {
-      const filing = filingOf(call.filingJson);
-      const repair = planCallProductoRepair(
-        {
+    const plan = planUserProductoDryRun({
+      offers,
+      leads,
+      calls: calls.map((call) => {
+        const filing = filingOf(call.filingJson);
+        return {
           id: call.id,
           leadName: call.leadName,
           offerName: call.offerName,
           producto: String(filing.producto || ""),
           acuerdo: String(filing.acuerdo_seguimiento || ""),
           notas: String(filing.notas_crm || ""),
-        },
-        offers,
+        };
+      }),
+    });
+    if (plan.skipped) {
+      skipped += 1;
+      console.log(`${who}\t${plan.note}`);
+      continue;
+    }
+    console.log(`${who}\tofertas: ${plan.offers.join(", ")}`);
+    for (const line of plan.lines) {
+      listed += 1;
+      console.log(
+        [who, line.leadName, line.current, line.action, line.proposal, line.source].join("\t"),
       );
-      if (!repair) continue;
-      for (const row of repair.rows) {
-        listed += 1;
-        console.log(
-          [user.email || user.id, row.leadName, row.current, row.proposal, "llamada"].join("\t"),
-        );
-      }
-      if (!apply) continue;
+    }
+    if (!apply) continue;
+    for (const repair of plan.leads) {
+      await prisma.lead.update({ where: { id: repair.id }, data: repair.data });
+    }
+    for (const repair of plan.calls) {
+      const call = calls.find((row) => row.id === repair.id);
+      if (!call) continue;
       const next = filingOf(call.filingJson);
       next.producto = repair.producto;
       if (repair.acuerdo) next.acuerdo_seguimiento = repair.acuerdo;
@@ -96,11 +98,11 @@ async function main() {
     }
   }
   if (apply) {
-    console.log(`Aplicado: ${listed} filas, un update por fila.`);
+    console.log(`Aplicado: ${listed} filas, un update por fila. Usuarios saltados: ${skipped}.`);
     return;
   }
   console.log(
-    `Dry-run: ${listed} filas. No escribí nada. Para aplicar, después de confirmar: npx tsx scripts/producto-dry-run.ts --apply`,
+    `Dry-run: ${listed} filas. Usuarios saltados (sin ofertas): ${skipped}. No escribí nada. Para aplicar, después de confirmar: npx tsx scripts/producto-dry-run.ts --apply`,
   );
 }
 

@@ -803,6 +803,12 @@ function offerEdit(text: string, ctx: ChatContext): ChatTurn | null {
       reply: "Eso es una petición al chat, no un dato del lead. No cambié nada.",
     };
   }
+  if (plan.action === "unread") {
+    return {
+      kind: "answer",
+      reply: "No toqué Producto: no hay ofertas guardadas para comparar. No cambié nada.",
+    };
+  }
   const lead = leadInMessage(ctx.leads, match[1] || "") || leadInMessage(ctx.leads, text);
   if (plan.action === "acuerdo") {
     if (!lead) return { kind: "answer", reply: "¿De quién es ese acuerdo? Dime el nombre del cliente." };
@@ -934,6 +940,15 @@ export function proposalFromLoosePatch(
   const exactOffer = offerPlan?.producto || "";
   if (!lead) {
     if (offerPlan?.action === "request") return { kind: "none" };
+    if (offerPlan?.action === "unread") {
+      if (patch.name || patch.nextStep || patch.amountPaid || patch.lastSummary) {
+        return { kind: "answer", reply: "¿De quién? Dime el nombre del cliente." };
+      }
+      return {
+        kind: "answer",
+        reply: "No toqué Producto: no hay ofertas guardadas para comparar. No cambié nada.",
+      };
+    }
     if (offerPlan?.action === "acuerdo") {
       return { kind: "answer", reply: "¿De quién es ese acuerdo? Dime el nombre del cliente." };
     }
@@ -951,6 +966,8 @@ export function proposalFromLoosePatch(
   const changes: ChatChange[] = [];
   let warning = "";
   if (offerPlan?.action === "request") {
+    warning = "";
+  } else if (offerPlan?.action === "unread") {
     warning = "";
   } else if (offerPlan?.action === "acuerdo" && offerPlan.acuerdo) {
     const step = tidyName(String(patch.nextStep || "")) || offerPlan.acuerdo;
@@ -1172,10 +1189,13 @@ export async function applyChatProposal(
     const callsNeedRename = Boolean(nameChange && fromName !== nextName);
     if (!Object.keys(data).length && !callsNeedRename) {
       if (cashSkipNote) return { ok: true, reply: cashSkipNote, remember: cashRemember };
+      const skippedAction = skippedOffer ? planProductoWrite(skippedOffer, offers).action : "";
       const because = skippedOffer
-        ? planProductoWrite(skippedOffer, offers).action === "request"
+        ? skippedAction === "request"
           ? "Eso es una petición al chat, no un dato del lead. No cambié nada."
-          : `«${skippedOffer}» no es una oferta. No cambié nada.`
+          : skippedAction === "unread"
+            ? "No toqué Producto: no hay ofertas guardadas para comparar. No cambié nada."
+            : `«${skippedOffer}» no es una oferta. No cambié nada.`
         : "No hay un cambio válido para guardar. No cambié nada.";
       return { ok: true, reply: because };
     }
@@ -1255,7 +1275,9 @@ export async function applyChatProposal(
       })
       .join("; ");
     const offerNote = skippedOffer
-      ? ` No toqué Producto/Oferta: «${skippedOffer}» no está en tus ofertas.`
+      ? planProductoWrite(skippedOffer, offers).action === "unread"
+        ? " No toqué Producto: no hay ofertas guardadas para comparar."
+        : ` No toqué Producto/Oferta: «${skippedOffer}» no está en tus ofertas.`
       : "";
     const cashNote = cashSkipNote ? ` ${cashSkipNote}` : "";
     return {

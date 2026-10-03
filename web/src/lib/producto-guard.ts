@@ -2,7 +2,7 @@
 
 export type OfferRef = { productName: string; aliases?: string[] };
 
-export type ProductoAction = "keep" | "alias" | "acuerdo" | "request" | "clear";
+export type ProductoAction = "keep" | "alias" | "acuerdo" | "request" | "clear" | "unread";
 
 export type ProductoPlan = {
   producto: string;
@@ -174,8 +174,18 @@ function emptyPlan(action: ProductoAction, acuerdo = ""): ProductoPlan {
   return { producto: "", acuerdo, ignore: action === "request", action };
 }
 
-/** Accept producto only when it is a saved offer (accent/case or a declared alias). */
+export function offersCatalogOpen(offers: ReadonlyArray<string | OfferRef>) {
+  return asOfferRefs(offers).length > 0;
+}
+
+/**
+ * New producto only. A rejected value returns "" so the caller can keep the stored offerName.
+ * An empty catalog is "unread": it is not a clear, and nothing should be blanked.
+ */
 export function planProductoWrite(raw: string, offers: ReadonlyArray<string | OfferRef>): ProductoPlan {
+  if (!offersCatalogOpen(offers)) {
+    return { producto: "", acuerdo: "", ignore: true, action: "unread" };
+  }
   const text = String(raw || "").trim();
   const folded = foldProducto(text);
   if (!folded || /^(otros|null|n\/a|na|sin oferta|sin producto)$/.test(folded)) {
@@ -204,17 +214,32 @@ export function canonicalOfferName(raw: string, offers: ReadonlyArray<string | O
   return planProductoWrite(raw, offers).producto;
 }
 
+/** Canonical new offer, or the stored string when the new value is rejected or the catalog is empty. */
+export function keptOfferName(
+  incoming: string | null | undefined,
+  stored: string | null | undefined,
+  offers: ReadonlyArray<string | OfferRef>,
+) {
+  const existing = String(stored || "");
+  if (!offersCatalogOpen(offers)) return existing;
+  return planProductoWrite(incoming || "", offers).producto || existing;
+}
+
 export function describeProductoPlan(plan: ProductoPlan) {
   if (plan.action === "keep") return "dejar";
   if (plan.action === "alias") return `mapear a «${plan.producto}»`;
   if (plan.action === "acuerdo") return "mover el texto a acuerdo";
   if (plan.action === "request") return "borrar (petición al chat)";
+  if (plan.action === "unread") return "no se toca (sin catálogo de ofertas)";
   return "borrar (no es una oferta)";
 }
 
 export function applyProductoGuard<
   T extends { producto: string | null; acuerdo_seguimiento?: string | null; confianza?: { producto?: number } },
 >(parsed: T, offers: ReadonlyArray<string | OfferRef>) {
+  if (!offersCatalogOpen(offers)) {
+    return { producto: "", acuerdo: "", ignore: true, action: "unread" as const };
+  }
   const plan = planProductoWrite(parsed.producto || "", offers);
   if (plan.producto) {
     parsed.producto = plan.producto;
@@ -309,7 +334,7 @@ export function planLeadProductoRepair(
   const current = String(lead.offerName || "").trim();
   if (!current) return null;
   const plan = planProductoWrite(current, offers);
-  if (plan.action === "keep") return null;
+  if (plan.action === "keep" || plan.action === "unread") return null;
   const data: LeadProductoRepair["data"] = { offerName: plan.producto };
   if (plan.action === "acuerdo" && plan.acuerdo) {
     const step = String(lead.nextStep || "").trim();
@@ -362,7 +387,7 @@ export function planCallProductoRepair(
   const productoText = String(call.producto || "").trim();
   const offerPlan = offerText ? planProductoWrite(offerText, offers) : null;
   const productoPlan = productoText ? planProductoWrite(productoText, offers) : null;
-  if (offerPlan && offerPlan.action !== "keep") {
+  if (offerPlan && offerPlan.action !== "keep" && offerPlan.action !== "unread") {
     rows.push({
       leadName: call.leadName,
       current: offerText,
@@ -370,7 +395,12 @@ export function planCallProductoRepair(
       proposal: describeProductoPlan(offerPlan),
     });
   }
-  if (productoPlan && productoPlan.action !== "keep" && productoText !== offerText) {
+  if (
+    productoPlan &&
+    productoPlan.action !== "keep" &&
+    productoPlan.action !== "unread" &&
+    productoText !== offerText
+  ) {
     rows.push({
       leadName: call.leadName,
       current: productoText,
@@ -401,4 +431,66 @@ export function planCallProductoRepair(
     }
   }
   return repair;
+}
+
+export type DryRunLine = {
+  leadName: string;
+  current: string;
+  action: ProductoAction;
+  proposal: string;
+  source: "lead" | "llamada";
+};
+
+export type UserProductoDryRun =
+  | { skipped: true; note: string }
+  | {
+      skipped: false;
+      offers: string[];
+      lines: DryRunLine[];
+      leads: LeadProductoRepair[];
+      calls: CallProductoRepair[];
+    };
+
+/** Per user. No saved offers means skip: nothing is listed and nothing is cleared. */
+export function planUserProductoDryRun(input: {
+  offers: ReadonlyArray<string | OfferRef>;
+  leads: { id: string; name: string; offerName: string; nextStep?: string; lastSummary?: string }[];
+  calls: {
+    id: string;
+    leadName: string;
+    offerName: string;
+    producto?: string;
+    acuerdo?: string;
+    notas?: string;
+  }[];
+}): UserProductoDryRun {
+  const refs = asOfferRefs(input.offers);
+  if (!refs.length) {
+    return { skipped: true, note: "Sin ofertas guardadas: no se revisa ni se borra." };
+  }
+  const leads = input.leads
+    .map((lead) => planLeadProductoRepair(lead, refs))
+    .filter((row): row is LeadProductoRepair => Boolean(row));
+  const calls = input.calls
+    .map((call) => planCallProductoRepair(call, refs))
+    .filter((row): row is CallProductoRepair => Boolean(row));
+  const lines: DryRunLine[] = [
+    ...leads.map((row) => ({
+      leadName: row.leadName,
+      current: row.current,
+      action: row.action,
+      proposal: row.proposal,
+      source: "lead" as const,
+    })),
+    ...calls.flatMap((call) =>
+      call.rows.map((row) => ({
+        leadName: row.leadName,
+        current: row.current,
+        action: row.action,
+        proposal: row.proposal,
+        source: "llamada" as const,
+      })),
+    ),
+  ];
+  return { skipped: false, offers: refs.map((offer) => offer.productName), lines, leads, calls };
 }

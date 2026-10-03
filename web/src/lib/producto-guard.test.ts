@@ -3,11 +3,13 @@ import test from "node:test";
 import {
   canonicalOfferName,
   isChatRequest,
+  keptOfferName,
   leadClarifyReply,
   leadMention,
   planCallProductoRepair,
   planLeadProductoRepair,
   planProductoWrite,
+  planUserProductoDryRun,
   stripFalseListo,
 } from "./producto-guard";
 
@@ -149,4 +151,79 @@ test("the dry-run classifier maps, moves or clears without writing", () => {
   assert.equal(call?.offerName, "");
   assert.equal(call?.producto, "");
   assert.equal(call?.acuerdo, "Quedamos en que el viernes me avisaba");
+});
+
+test("an empty offer list keeps the existing offerName", () => {
+  assert.equal(keptOfferName("MENTORIAS", "Círculo Millonario", []), "Círculo Millonario");
+  assert.equal(
+    keptOfferName("Quedamos en que el viernes me avisaba", "Equipo Millonario", []),
+    "Equipo Millonario",
+  );
+  const unread = planProductoWrite("MENTORIAS", []);
+  assert.equal(unread.action, "unread");
+  assert.equal(unread.producto, "");
+  assert.equal(
+    planLeadProductoRepair(
+      { id: "1", name: "Ana", offerName: "Círculo Millonario", nextStep: "", lastSummary: "" },
+      [],
+    ),
+    null,
+  );
+});
+
+test("a rejected new producto keeps the existing valid offerName", () => {
+  assert.equal(keptOfferName("MENTORIAS", "Círculo Millonario", offers), "Círculo Millonario");
+  assert.equal(
+    keptOfferName("Quedamos en que el viernes me avisaba", "Círculo Millonario", offers),
+    "Círculo Millonario",
+  );
+  assert.equal(keptOfferName("equipo", "Círculo Millonario", offers), "Equipo Millonario");
+  assert.equal(keptOfferName("", "Círculo Millonario", offers), "Círculo Millonario");
+});
+
+test("a user with no offers is skipped by the dry-run planner", () => {
+  const skipped = planUserProductoDryRun({
+    offers: [],
+    leads: [
+      { id: "1", name: "Edson", offerName: "Quedamos en que el viernes me avisaba" },
+      { id: "2", name: "Kimlen", offerName: "Porfa, dame la lista de seguimientos entera" },
+    ],
+    calls: [{ id: "c", leadName: "Edson", offerName: "MENTORIAS", producto: "MENTORIAS" }],
+  });
+  assert.equal(skipped.skipped, true);
+  if (!skipped.skipped) return;
+  assert.match(skipped.note, /Sin ofertas guardadas/);
+  assert.equal("lines" in skipped, false);
+
+  const listed = planUserProductoDryRun({
+    offers,
+    leads: [
+      {
+        id: "1",
+        name: "Edson",
+        offerName: "Quedamos en que el viernes me avisaba",
+        nextStep: "",
+        lastSummary: "",
+      },
+      {
+        id: "2",
+        name: "Kimlen",
+        offerName: "Porfa, dame la lista de seguimientos entera",
+        nextStep: "",
+        lastSummary: "",
+      },
+      { id: "3", name: "Ana", offerName: "MENTORIAS", nextStep: "", lastSummary: "" },
+    ],
+    calls: [],
+  });
+  assert.equal(listed.skipped, false);
+  if (listed.skipped) return;
+  assert.deepEqual(listed.offers, ["Círculo Millonario", "Equipo Millonario"]);
+  const byName = Object.fromEntries(listed.lines.map((line) => [line.leadName, line]));
+  assert.equal(byName.Edson?.action, "acuerdo");
+  assert.equal(byName.Edson?.proposal, "mover el texto a acuerdo");
+  assert.equal(byName.Kimlen?.action, "request");
+  assert.equal(byName.Kimlen?.proposal, "borrar (petición al chat)");
+  assert.equal(byName.Ana?.action, "clear");
+  assert.equal(byName.Ana?.proposal, "borrar (no es una oferta)");
 });
