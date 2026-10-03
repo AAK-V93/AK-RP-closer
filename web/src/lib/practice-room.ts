@@ -349,6 +349,7 @@ export function guardPracticeRoom(room: GuardedRoom) {
       const key = connectKey(args);
       attempt.generation += 1;
       if (attempt.inflight?.key === key) return attempt.inflight.promise;
+      const slot: { current?: Promise<unknown> } = {};
       const promise = (async () => {
         try {
           return await originalConnect(...args);
@@ -356,9 +357,10 @@ export function guardPracticeRoom(room: GuardedRoom) {
           if (isUserPracticeDisconnect(error)) return undefined;
           throw error;
         } finally {
-          if (attempt.inflight?.promise === promise) attempt.inflight = null;
+          if (attempt.inflight?.promise === slot.current) attempt.inflight = null;
         }
       })();
+      slot.current = promise;
       attempt.inflight = { key, promise };
       return promise;
     };
