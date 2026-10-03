@@ -32,6 +32,7 @@ model User {
   followupStars FollowupStar[]
   pushSubs     PushSubscription[]
   extractorFeedback ExtractorFeedback[]
+  callRecords  CallRecord[]
 }
 
 model CoachProfile {
@@ -89,7 +90,7 @@ model FathomConnection {
   webhookSecretEnc  String            @default("")
   webhookToken      String            @default("")
   createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  updatedAt   DateTime           @default(now()) @updatedAt
   recordings FathomRecording[]
 
   @@index([webhookToken])
@@ -125,7 +126,7 @@ model UserOffer {
   commercial         Json               @default("{}")
   includeFathom      Boolean            @default(false)
   createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  updatedAt          DateTime           @default(now()) @updatedAt
   transcripts        ClientTranscript[]
   commissionRules    CommissionRule[]
 
@@ -150,6 +151,7 @@ model ClientTranscript {
 model CallRecord {
   id                String    @id @default(cuid())
   userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   source            String
   sourceId          String    @default("")
   title             String
@@ -201,7 +203,7 @@ model Lead {
   razonNoCierre String      @default("")
   etapaPerdida  String      @default("")
   createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  updatedAt     DateTime    @default(now()) @updatedAt
   alerts        LeadAlert[]
   followupThreads FollowupThread[]
   commissions   Commission[]
@@ -270,7 +272,7 @@ model FollowupThread {
   meetingAt                DateTime?
   creadoDesdeCallRecordId  String          @default("")
   createdAt                DateTime        @default(now())
-  updatedAt                DateTime        @updatedAt
+  updatedAt                DateTime        @default(now()) @updatedAt
   touches                  FollowupTouch[]
   alerts                   LeadAlert[]
 
@@ -336,7 +338,7 @@ model FollowupPack {
   tags        String                  @default("")
   visibility  String                  @default("public")
   createdAt   DateTime                @default(now())
-  updatedAt   DateTime                @updatedAt
+  updatedAt   DateTime                @default(now()) @updatedAt
   scripts     FollowupLibraryScript[]
   stars       FollowupStar[]
 
@@ -382,7 +384,7 @@ model PushSubscription {
   auth      String
   userAgent String   @default("")
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@index([userId])
 }
