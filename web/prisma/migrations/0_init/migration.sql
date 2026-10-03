@@ -1,3 +1,7 @@
+-- Hand-edited snapshot of what production has after the ensure* hot-push.
+-- This is not the full schema.prisma datamodel. Do not regenerate it with
+-- prisma migrate diff --from-empty. Indexes and foreign keys that ensure*
+-- never created are added later, in 2_missing_constraints.
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
@@ -373,9 +377,6 @@ CREATE INDEX "ClientTranscript_userId_createdAt_idx" ON "ClientTranscript"("user
 CREATE INDEX "ClientTranscript_offerId_idx" ON "ClientTranscript"("offerId");
 
 -- CreateIndex
-CREATE INDEX "CallRecord_userId_recordedAt_idx" ON "CallRecord"("userId", "recordedAt");
-
--- CreateIndex
 CREATE INDEX "CallRecord_userId_estadoAgenda_idx" ON "CallRecord"("userId", "estadoAgenda");
 
 -- CreateIndex
@@ -407,9 +408,6 @@ CREATE INDEX "LeadAlert_userId_resolvedAt_idx" ON "LeadAlert"("userId", "resolve
 
 -- CreateIndex
 CREATE INDEX "LeadAlert_userId_resolvedAt_notifiedAt_idx" ON "LeadAlert"("userId", "resolvedAt", "notifiedAt");
-
--- CreateIndex
-CREATE INDEX "LeadAlert_threadId_idx" ON "LeadAlert"("threadId");
 
 -- CreateIndex
 CREATE INDEX "FollowupThread_userId_estado_idx" ON "FollowupThread"("userId", "estado");
@@ -464,58 +462,4 @@ ALTER TABLE "UserOffer" ADD CONSTRAINT "UserOffer_userId_fkey" FOREIGN KEY ("use
 
 -- AddForeignKey
 ALTER TABLE "ClientTranscript" ADD CONSTRAINT "ClientTranscript_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ClientTranscript" ADD CONSTRAINT "ClientTranscript_offerId_fkey" FOREIGN KEY ("offerId") REFERENCES "UserOffer"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Lead" ADD CONSTRAINT "Lead_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ExtractorFeedback" ADD CONSTRAINT "ExtractorFeedback_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "LeadAlert" ADD CONSTRAINT "LeadAlert_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "LeadAlert" ADD CONSTRAINT "LeadAlert_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "LeadAlert" ADD CONSTRAINT "LeadAlert_threadId_fkey" FOREIGN KEY ("threadId") REFERENCES "FollowupThread"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FollowupThread" ADD CONSTRAINT "FollowupThread_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FollowupThread" ADD CONSTRAINT "FollowupThread_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FollowupTouch" ADD CONSTRAINT "FollowupTouch_threadId_fkey" FOREIGN KEY ("threadId") REFERENCES "FollowupThread"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CommissionRule" ADD CONSTRAINT "CommissionRule_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CommissionRule" ADD CONSTRAINT "CommissionRule_offerId_fkey" FOREIGN KEY ("offerId") REFERENCES "UserOffer"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Commission" ADD CONSTRAINT "Commission_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Commission" ADD CONSTRAINT "Commission_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FollowupPack" ADD CONSTRAINT "FollowupPack_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FollowupLibraryScript" ADD CONSTRAINT "FollowupLibraryScript_packId_fkey" FOREIGN KEY ("packId") REFERENCES "FollowupPack"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FollowupStar" ADD CONSTRAINT "FollowupStar_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FollowupStar" ADD CONSTRAINT "FollowupStar_packId_fkey" FOREIGN KEY ("packId") REFERENCES "FollowupPack"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "PushSubscription" ADD CONSTRAINT "PushSubscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
