@@ -629,8 +629,12 @@ function ConfiguredC({
 
 function HomeRow({ href, title, status }: { href: string; title: string; status: string }) {
   return (
-    <Link href={href} className="flex items-start justify-between gap-4 py-4" title={status}>
-      <span className="shrink-0 text-fg0">{title}</span>
+    <Link
+      href={href}
+      className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-4 py-4"
+      title={status}
+    >
+      <span className="text-fg0">{title}</span>
       <DeskRowStatus status={status} />
     </Link>
   );

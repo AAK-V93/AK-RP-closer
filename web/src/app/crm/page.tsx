@@ -879,11 +879,11 @@ function CrmListFilters({
   return (
     <div className="flex flex-wrap items-end gap-2">
       <label className="w-full space-y-1 sm:w-auto">
-        <span className="block text-[11px] uppercase tracking-wide text-fg3">Nombre</span>
+        <span className="block text-sm text-fg3">Nombre</span>
         <Input
           value={filter.q}
           placeholder="Buscar"
-          className="h-11 min-h-11 w-full min-w-0 sm:w-44"
+          className="h-11 min-h-11 w-full min-w-0 sm:w-44 lg:h-11 lg:min-h-11"
           onChange={(event) => onChange({ ...filter, q: event.target.value })}
         />
       </label>
