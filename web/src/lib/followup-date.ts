@@ -155,7 +155,8 @@ export function inferFollowupDate(text: string, callAt?: Date | string | null) {
         : utcDay(new Date());
   if (Number.isNaN(base.getTime())) return null;
 
-  const appointed = dayMonthWithClock(raw, base) || weekdayWithClock(raw, base);
+  const appointed =
+    dayMonthWithClock(raw, base) || weekdayAndDay(raw, base) || weekdayWithClock(raw, base);
   if (appointed) return appointed;
 
   const iso = parseIsoLike(raw);
@@ -226,6 +227,46 @@ function dayMonthWithClock(raw: string, base: Date) {
       date = new Date(Date.UTC(year, month, day));
     }
     return `${isoDay(date)} ${clock}`;
+  }
+  return null;
+}
+
+/** «viernes 9» / «miércoles 7» is that day-of-month when it falls on the weekday, not merely the next weekday. */
+function weekdayAndDay(raw: string, base: Date) {
+  const folded = fold(raw);
+  const re =
+    /\b(?:el|este|para\s+el)?\s*(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s+(\d{1,2})\b/g;
+  let hit: RegExpExecArray | null;
+  while ((hit = re.exec(folded))) {
+    const idx = WEEKDAYS[hit[1]];
+    const dayNum = Number(hit[2]);
+    if (idx == null || dayNum < 1 || dayNum > 31) continue;
+    const date = upcomingWeekdayDate(base, idx, dayNum);
+    if (!date) continue;
+    return withClock(isoDay(date), raw);
+  }
+  return null;
+}
+
+function upcomingWeekdayDate(base: Date, weekday: number, dayNum: number) {
+  let year = base.getUTCFullYear();
+  let month = base.getUTCMonth();
+  for (let i = 0; i < 14; i += 1) {
+    const date = new Date(Date.UTC(year, month, dayNum, 12, 0, 0));
+    if (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month &&
+      date.getUTCDate() === dayNum &&
+      date.getUTCDay() === weekday &&
+      date.getTime() >= base.getTime() - 36 * 3600 * 1000
+    ) {
+      return date;
+    }
+    month += 1;
+    if (month > 11) {
+      month = 0;
+      year += 1;
+    }
   }
   return null;
 }

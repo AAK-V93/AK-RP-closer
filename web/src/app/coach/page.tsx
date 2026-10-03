@@ -48,7 +48,7 @@ export default function CoachPage() {
 
   return (
     <AppShell>
-      <div className="space-y-8">
+      <div className="min-w-0 max-w-full space-y-8 overflow-x-hidden">
         <div>
           <h1 className="text-2xl font-light">Tu coaching</h1>
           <p className="text-sm text-fg3 mt-1">

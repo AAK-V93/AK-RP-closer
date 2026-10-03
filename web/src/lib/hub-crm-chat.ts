@@ -301,7 +301,7 @@ function offerList(ctx: ChatContext) {
 const LEAD_UPDATE_HINT =
   /\b(se llama|pag(?:ar(?:a|e)?|o|amos|aron|ad[oa]|ue)|qued(?:amos|aron|aste|o|e)|acordamos|comprometimos|oferta|producto|cash|borra|elimina|quita|anula|reserva|cuota|abono|avisaba|acuerdo|agende)\b/;
 
-const UNCHANGED_REPLY = "Nada cambia. No cambié nada.";
+const UNCHANGED_REPLY = "No cambié nada: ya estaba así.";
 
 function looksLikeLeadUpdate(text: string) {
   return LEAD_UPDATE_HINT.test(fold(text));
@@ -367,6 +367,27 @@ function formatLeadNextStep(value: Date | string | null | undefined) {
     return proximoFromInstant(value) || formatCrmStamp(value);
   }
   return formatCrmStamp(value);
+}
+
+/** Hour already on the CRM row. A date-only edit keeps it, and the confirmation prints it. */
+function previousFollowupClock(lead: ChatLead, calls: ChatCall[]) {
+  return shownFollowup(lead, calls).match(/(\d{2}:\d{2})\s*$/)?.[1] || "";
+}
+
+function stampKeepingClock(when: string, lead: ChatLead, calls: ChatCall[]) {
+  const text = when.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const clock = previousFollowupClock(lead, calls);
+  return clock ? `${text} ${clock}` : text;
+}
+
+/**
+ * A bare weekday inside «en que el viernes me avisaba» is the story, not a new
+ * follow-up. A day number or a clock in that acuerdo is a date to propose.
+ */
+function acuerdoFollowup(step: string, now?: Date) {
+  if (/\ben que\b/.test(fold(step)) && !/\d/.test(step)) return null;
+  return inferFollowupDate(step, now || new Date());
 }
 
 /** Date-only stays on that Bogotá calendar day. A clock is Bogotá wall time. */
@@ -500,7 +521,7 @@ function schedule(text: string, ctx: ChatContext): ChatTurn | null {
       field: "nextStepAt",
       label: "Próximo seguimiento",
       from: shownFollowup(lead, ctx.calls),
-      to: when,
+      to: stampKeepingClock(when, lead, ctx.calls),
     },
   ]);
 }
@@ -525,8 +546,50 @@ function spokenAgreement(text: string, ctx: ChatContext): ChatTurn | null {
   const at = source.toLowerCase().indexOf(verb.toLowerCase());
   const step = keepVerb && at >= 0 ? tidyName(source.slice(at)) : rest;
   if (!step) return null;
-  return proposalTurn(lead.id, lead.name, [
+  const changes: ChatChange[] = [
     { field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step },
+  ];
+  if (fold(step) !== fold(lead.nextStep)) {
+    const when = acuerdoFollowup(step, ctx.now);
+    if (when) {
+      changes.push({
+        field: "nextStepAt",
+        label: "Próximo seguimiento",
+        from: shownFollowup(lead, ctx.calls),
+        to: stampKeepingClock(when, lead, ctx.calls),
+      });
+    }
+  }
+  return proposalTurn(lead.id, lead.name, changes);
+}
+
+/** «próximo seguimiento el…», «llámalo el…», «agenda para el…» move Próximo seguimiento. */
+function moveFollowup(text: string, ctx: ChatContext): ChatTurn | null {
+  const match = text.match(
+    /^(?:con\s+)?(?:(.+?)\s*[:,]?\s+)?(?:pr[oó]ximo\s+seguimiento|seguimiento|ll[aá]malo|agenda(?:r)?\s+para)\s+((?:el|este|para(?:\s+el)?|hoy|ma[nñ]ana)\b.+)$/i,
+  );
+  if (!match) return null;
+  const prefix = (match[1] || "").replace(/[:\s]+$/g, "").trim();
+  if (prefix.split(/\s+/).filter(Boolean).length > 6) return null;
+  const when = inferFollowupDate(match[2], ctx.now || new Date());
+  if (!when) return null;
+  const mention = leadMention(prefix || text, ctx.leads);
+  if (mention.kind === "clarify") {
+    return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
+  }
+  if (mention.kind !== "exact") {
+    if (prefix) return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+    return { kind: "answer", reply: "¿De quién es el seguimiento? Dime el nombre." };
+  }
+  const lead = ctx.leads.find((row) => row.id === mention.lead.id);
+  if (!lead) return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+  return proposalTurn(lead.id, lead.name, [
+    {
+      field: "nextStepAt",
+      label: "Próximo seguimiento",
+      from: shownFollowup(lead, ctx.calls),
+      to: stampKeepingClock(when, lead, ctx.calls),
+    },
   ]);
 }
 
@@ -1009,6 +1072,7 @@ export function interpretCrmChat(text: string, ctx: ChatContext): ChatTurn {
     recall(raw, ctx) ||
     schedule(raw, ctx) ||
     spokenAgreement(raw, ctx) ||
+    moveFollowup(raw, ctx) ||
     clearPayment(raw, ctx) ||
     payment(raw, ctx) ||
     askFacts(raw, ctx) ||
@@ -1108,15 +1172,22 @@ export function proposalFromLoosePatch(
     else changes.push({ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step });
   }
   const when = String(patch.nextStepAt || "").trim();
-  if (when && /^\d{4}-\d{2}-\d{2}/.test(when)) {
+  const inferred =
+    when && /^\d{4}-\d{2}-\d{2}/.test(when)
+      ? when
+      : step && fold(step) !== fold(lead.nextStep)
+        ? acuerdoFollowup(step, ctx.now) || ""
+        : "";
+  if (inferred && /^\d{4}-\d{2}-\d{2}/.test(inferred)) {
+    const stamped = stampKeepingClock(inferred, lead, ctx.calls);
     const fromWhen = shownFollowup(lead, ctx.calls);
-    if (fold(fromWhen) === fold(when)) same = true;
+    if (fold(fromWhen) === fold(stamped)) same = true;
     else {
       changes.push({
         field: "nextStepAt",
         label: "Próximo seguimiento",
         from: fromWhen,
-        to: when,
+        to: stamped,
       });
     }
   }
