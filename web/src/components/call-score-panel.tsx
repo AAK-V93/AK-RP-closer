@@ -12,6 +12,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { COVERAGE_LABELS, formatClock, formatMinutes } from "@/lib/call-timing";
+import { closerSpanishDeep } from "@/lib/closer-spanish";
 
 export type { CallEvaluation };
 
@@ -42,10 +43,11 @@ export function CallScorePanel({
 
   if (!evaluation) return null;
 
+  const view = closerSpanishDeep(evaluation);
   const criticalIds = new Set(
     RUBRIC_CRITERIA.filter((c) => c.critical).map((c) => c.id),
   );
-  const file = evaluation.prospectFile;
+  const file = view.prospectFile;
 
   return (
     <Card className={cn(
@@ -57,21 +59,21 @@ export function CallScorePanel({
           <CardTitle className="text-lg">Reporte de la llamada</CardTitle>
           <div className="flex items-center gap-3 mt-2">
             <span className="text-3xl font-bold text-primary">
-              {Math.round(evaluation.overallScore)}
+              {Math.round(view.overallScore)}
             </span>
             <span className="text-sm text-fg3">/ 100</span>
           </div>
-          <Progress value={evaluation.overallScore} className="mt-2 h-2" />
-          {evaluation.outcomeSummary && (
-            <p className="text-sm text-fg2 mt-3">{evaluation.outcomeSummary}</p>
+          <Progress value={view.overallScore} className="mt-2 h-2" />
+          {view.outcomeSummary && (
+            <p className="text-sm text-fg2 mt-3">{view.outcomeSummary}</p>
           )}
-          {evaluation.saved ? (
+          {view.saved ? (
             <div className="mt-3 flex flex-wrap gap-2">
               <Button asChild size="sm" variant="primary">
                 <Link
                   href={
-                    evaluation.sessionId
-                      ? `/coach/${evaluation.sessionId}`
+                    view.sessionId
+                      ? `/coach/${view.sessionId}`
                       : "/coach"
                   }
                 >
@@ -81,17 +83,17 @@ export function CallScorePanel({
               <Button asChild size="sm" variant="outline">
                 <Link
                   href={`/practicar?focus=${encodeURIComponent(
-                    evaluation.improvements?.[0] ||
-                      evaluation.coachingTips?.[0] ||
+                    view.improvements?.[0] ||
+                      view.coachingTips?.[0] ||
                       "el momento que falló",
                   )}`}
                 >
                   Practicar esto otra vez
                 </Link>
               </Button>
-              {evaluation.sessionId && onDeleted && (
+              {view.sessionId && onDeleted && (
                 <DeleteAnalysisButton
-                  sessionId={evaluation.sessionId}
+                  sessionId={view.sessionId}
                   onDeleted={onDeleted}
                   label="Borrar este análisis"
                 />
@@ -114,7 +116,7 @@ export function CallScorePanel({
       </CardHeader>
 
       <CardContent className="space-y-6 text-sm">
-        {evaluation.timing && (
+        {view.timing && (
           <section>
             <h3 className="font-semibold flex items-center gap-2 mb-2">
               <Target className="h-4 w-4" />
@@ -123,38 +125,38 @@ export function CallScorePanel({
             <div className="rounded-lg bg-bg0 border border-separator1 p-3 space-y-2">
               <p>
                 <span className="text-fg3">Duración: </span>
-                {formatClock(evaluation.timing.totalSec)}
+                {formatClock(view.timing.totalSec)}
               </p>
-              <p>{COVERAGE_LABELS[evaluation.timing.coverage]}</p>
+              <p>{COVERAGE_LABELS[view.timing.coverage]}</p>
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <p>
                   Descubrimiento
                   <br />
                   <span className="text-base font-light">
-                    {formatMinutes(evaluation.timing.phases.discovery)}
+                    {formatMinutes(view.timing.phases.discovery)}
                   </span>
                 </p>
                 <p>
                   Presentación
                   <br />
                   <span className="text-base font-light">
-                    {formatMinutes(evaluation.timing.phases.pitch)}
+                    {formatMinutes(view.timing.phases.pitch)}
                   </span>
                 </p>
                 <p>
                   Cierre
                   <br />
                   <span className="text-base font-light">
-                    {formatMinutes(evaluation.timing.phases.close)}
+                    {formatMinutes(view.timing.phases.close)}
                   </span>
                 </p>
               </div>
-              {evaluation.timing.goal.set && (
+              {view.timing.goal.set && (
                 <div className="pt-2 border-t border-separator1 space-y-1">
                   <p className="font-medium">
-                    Meta: {evaluation.timing.goal.met ? "cumplida" : "no cumplida"}
+                    Meta: {view.timing.goal.met ? "cumplida" : "no cumplida"}
                   </p>
-                  {evaluation.timing.goal.checks.map((check) => (
+                  {view.timing.goal.checks.map((check) => (
                     <p key={check.label} className="text-xs text-fg2">
                       {check.met ? "✓" : "✕"} {check.label}:{" "}
                       {formatMinutes(check.actualSec)} vs{" "}
@@ -199,7 +201,7 @@ export function CallScorePanel({
             Criterios
           </h3>
           <div className="space-y-2">
-            {evaluation.criteria.map((c) => (
+            {view.criteria.map((c) => (
               <div
                 key={c.id}
                 className="flex flex-col gap-1 p-2 rounded-lg bg-bg0 border border-separator1"
@@ -223,14 +225,14 @@ export function CallScorePanel({
           </div>
         </section>
 
-        {evaluation.objections?.length > 0 && (
+        {view.objections?.length > 0 && (
           <section>
             <h3 className="font-semibold flex items-center gap-2 mb-2">
               <MessageSquareWarning className="h-4 w-4" />
               Objeciones
             </h3>
             <div className="space-y-3">
-              {evaluation.objections.map((o, i) => (
+              {view.objections.map((o, i) => (
                 <div
                   key={i}
                   className="p-3 rounded-lg bg-bg0 border border-separator1 space-y-1"
@@ -254,14 +256,14 @@ export function CallScorePanel({
           </section>
         )}
 
-        {evaluation.discoveryGaps?.length > 0 && (
+        {view.discoveryGaps?.length > 0 && (
           <section>
             <h3 className="font-semibold flex items-center gap-2 mb-2">
               <Link2 className="h-4 w-4" />
               Huecos de descubrimiento que alimentaron objeciones
             </h3>
             <div className="space-y-3">
-              {evaluation.discoveryGaps.map((g, i) => (
+              {view.discoveryGaps.map((g, i) => (
                 <div
                   key={i}
                   className="p-3 rounded-lg bg-bg0 border border-separator1 space-y-1"
@@ -277,39 +279,39 @@ export function CallScorePanel({
           </section>
         )}
 
-        {evaluation.strengths.length > 0 && (
+        {view.strengths.length > 0 && (
           <section>
             <h3 className="font-semibold flex items-center gap-2 mb-2 text-green-600">
               <TrendingUp className="h-4 w-4" />
               Fortalezas
             </h3>
             <ul className="list-disc pl-5 space-y-1 text-fg2">
-              {evaluation.strengths.map((s, i) => (
+              {view.strengths.map((s, i) => (
                 <li key={i}>{s}</li>
               ))}
             </ul>
           </section>
         )}
 
-        {evaluation.improvements.length > 0 && (
+        {view.improvements.length > 0 && (
           <section>
             <h3 className="font-semibold mb-2">Áreas de mejora</h3>
             <ul className="list-disc pl-5 space-y-1 text-fg2">
-              {evaluation.improvements.map((s, i) => (
+              {view.improvements.map((s, i) => (
                 <li key={i}>{s}</li>
               ))}
             </ul>
           </section>
         )}
 
-        {evaluation.coachingTips.length > 0 && (
+        {view.coachingTips.length > 0 && (
           <section>
             <h3 className="font-semibold flex items-center gap-2 mb-2">
               <Lightbulb className="h-4 w-4" />
               Consejos para la próxima práctica
             </h3>
             <ul className="space-y-2">
-              {evaluation.coachingTips.map((tip, i) => (
+              {view.coachingTips.map((tip, i) => (
                 <li
                   key={i}
                   className="p-2 rounded-lg bg-primary/5 border border-primary/20 text-fg2"

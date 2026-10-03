@@ -123,9 +123,9 @@ Tu trabajo ahora:
    - top 3 debilidades que más me están costando cierres
    - errores recurrentes (los que se repiten en varias llamadas)
    - plan de entrenamiento de 2 semanas (qué practicar cada semana)
-   - drills concretos (texto aquí o mandarme al agente de voz de práctica con sección, dificultad y foco)
+   - ejercicios concretos (texto aquí o mandarme al agente de voz de práctica con sección, dificultad y foco)
    - métrica de éxito: qué debería verse distinto en la próxima llamada real
 
-No me des teoría genérica. Prioriza desempeño observado. Si hay huecos de discovery que alimentan objeciones de dinero, conéctalos explícitamente.
+No me des teoría genérica. Prioriza desempeño observado. Si hay huecos de descubrimiento que alimentan objeciones de dinero, conéctalos explícitamente.
 
-Termina con el siguiente drill que debo hacer HOY.`;
+Termina con el siguiente ejercicio que debo hacer HOY. Escribe en español claro: presentación de la oferta, descubrimiento, ejercicio, Reconoce, Relaciona y Devuelve la pregunta, Publicidad pagada. No uses pitch, discovery, drill, Acknowledge, Associate, Ask Back ni Paid Media.`;

@@ -122,6 +122,9 @@ async def entrypoint(ctx: JobContext):
     job_meta = _load_metadata(getattr(getattr(ctx, "job", None), "metadata", "") or "")
     room_name = getattr(getattr(ctx, "room", None), "name", "") or ""
     if is_warm_job(room_name, job_meta):
+        # Wakes an idle process only. A ~20s browser connect is this worker
+        # cold-starting (no idle process, Gemini import), not a reason to set
+        # LIVEKIT_PREDISPATCH.
         logger.info("warm job; leaving without starting the model")
         return
 

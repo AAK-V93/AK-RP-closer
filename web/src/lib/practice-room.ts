@@ -281,11 +281,35 @@ export function scrubUnpublishedLocalTracks(room: { localParticipant: GuardedPar
   }
 }
 
+type ConnectAttempt = {
+  generation: number;
+  inflight: { key: string; promise: Promise<unknown> } | null;
+};
+
+const connectAttempts = new WeakMap<object, ConnectAttempt>();
+
+function connectAttempt(room: object): ConnectAttempt {
+  const existing = connectAttempts.get(room);
+  if (existing) return existing;
+  const created = { generation: 0, inflight: null };
+  connectAttempts.set(room, created);
+  return created;
+}
+
+function connectKey(args: unknown[]) {
+  return `${String(args[0] ?? "")}\0${String(args[1] ?? "")}`;
+}
+
 /**
  * LiveKit's disconnect(stopTracks) calls unpublishTrack on every local track,
  * including ones still in pendingPublishPromises. That awaits the publish and
  * then warns "track was not unpublished because no publication was found".
  * The room's connect() rejection ("Client initiated disconnect") is the same cancel.
+ *
+ * React Strict Mode unmounts the room effect while the socket is still
+ * CONNECTING, then connects again. Closing that socket is what the browser
+ * reports as "WebSocket is closed before the connection is established".
+ * Disconnect waits one microtask and is dropped if connect() runs again.
  */
 export function guardPracticeRoom(room: GuardedRoom) {
   if (room.__practiceGuarded) return;
@@ -308,20 +332,35 @@ export function guardPracticeRoom(room: GuardedRoom) {
   if (room.disconnect) {
     const originalDisconnect = room.disconnect.bind(room);
     room.disconnect = async (stopTracks?: boolean) => {
+      const attempt = connectAttempt(room);
+      const generation = attempt.generation;
+      await Promise.resolve();
+      if (attempt.generation !== generation) return;
       markPracticeLeaving(room);
       scrubUnpublishedLocalTracks(room);
+      attempt.inflight = null;
       return originalDisconnect(stopTracks);
     };
   }
   if (room.connect) {
     const originalConnect = room.connect.bind(room);
-    room.connect = async (...args: unknown[]) => {
-      try {
-        return await originalConnect(...args);
-      } catch (error) {
-        if (isUserPracticeDisconnect(error)) return undefined;
-        throw error;
-      }
+    room.connect = (...args: unknown[]) => {
+      const attempt = connectAttempt(room);
+      const key = connectKey(args);
+      attempt.generation += 1;
+      if (attempt.inflight?.key === key) return attempt.inflight.promise;
+      const promise = (async () => {
+        try {
+          return await originalConnect(...args);
+        } catch (error) {
+          if (isUserPracticeDisconnect(error)) return undefined;
+          throw error;
+        } finally {
+          if (attempt.inflight?.promise === promise) attempt.inflight = null;
+        }
+      })();
+      attempt.inflight = { key, promise };
+      return promise;
     };
   }
   const log = room.log;

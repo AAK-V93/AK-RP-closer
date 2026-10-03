@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { closerSpanish } from "@/lib/closer-spanish";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -148,7 +149,7 @@ export function TrainingSetupForm() {
 
   useEffect(() => {
     if (!focus) return;
-    dispatch({ type: "SET_TRAINING", payload: { practiceFocus: focus } });
+    dispatch({ type: "SET_TRAINING", payload: { practiceFocus: closerSpanish(focus) } });
   }, [dispatch, focus]);
 
   useEffect(() => {
@@ -353,7 +354,7 @@ export function TrainingSetupForm() {
             </Button>
             {trainingState.training.practiceFocus && practiceKind === "compose" && (
               <p className="text-xs text-primary">
-                Objetivo: {trainingState.training.practiceFocus}
+                Objetivo: {closerSpanish(trainingState.training.practiceFocus)}
               </p>
             )}
           </div>

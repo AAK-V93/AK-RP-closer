@@ -5,7 +5,7 @@ import type {
   QcBlockNote,
   QcCallReport,
 } from "@/data/qc-report";
-import { closerSpanish } from "@/lib/closer-spanish";
+import { closerSpanishDeep } from "@/lib/closer-spanish";
 
 function Section({
   kicker,
@@ -53,7 +53,7 @@ function Block({
       )}
       {note.feedback && (
         <p>
-          <span className="text-fg3">Feedback. </span>
+          <span className="text-fg3">Comentario. </span>
           {note.feedback}
         </p>
       )}
@@ -78,12 +78,13 @@ function List({ items }: { items: string[] }) {
 }
 
 export function QcReportView({
-  report,
+  report: raw,
   authenticated,
 }: {
   report: QcCallReport;
   authenticated?: boolean;
 }) {
+  const report = closerSpanishDeep(raw);
   const q = report.prospectFile.qualification;
   const notes = report.prospectNotes;
 
@@ -176,7 +177,7 @@ export function QcReportView({
       </Section>
 
       <Section kicker="Presentación de la oferta" title={`Nota del bloque, ${report.pitch.blockScore}/10`}>
-        <p className="text-sm">{closerSpanish(report.pitch.summary)}</p>
+        <p className="text-sm">{report.pitch.summary}</p>
       </Section>
 
       <Section kicker="Objeciones" title="Cómo se gestionaron">

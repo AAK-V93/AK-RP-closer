@@ -4,6 +4,7 @@ import { generateGeminiJson } from "@/lib/gemini";
 import { isExtractorJson, parseExtractorJson } from "@/lib/extractor";
 import { parsePlaybook } from "@/lib/lead-playbook";
 import { countPhrase } from "@/lib/plain-labels";
+import { PLAIN_SPANISH_RULE } from "@/lib/closer-spanish";
 
 export const LIVE_GUIDE_MIN_CALLS = 15;
 
@@ -168,7 +169,9 @@ async function buildGuideForOffer(
   let generated: Partial<LiveGuide> = {};
   try {
     const raw = await generateGeminiJson(
-      `Eres un coach de cierre high-ticket. SOLO usa estas cifras. Si no alcanza para una afirmación, no la inventes. Escribe en español: ejercicio, no drill; descubrimiento, no discovery; presentación de la oferta, no pitch. No uses Paid Media ni Acknowledge.
+      `Eres un coach de cierre de alto valor. SOLO usa estas cifras. Si no alcanza para una afirmación, no la inventes.
+${PLAIN_SPANISH_RULE}
+La clave JSON "drills" se queda en inglés; el texto de cada ejercicio va en español.
 Responde JSON:
 {
   "closingTypes": [{"type":"","approach":"","closed":0,"total":0}],

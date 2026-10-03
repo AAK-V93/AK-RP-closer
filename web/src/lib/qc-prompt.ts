@@ -1,4 +1,5 @@
 import { AAA_EVALUATOR_BRIEF } from "@/data/rubric";
+import { PLAIN_SPANISH_RULE } from "@/lib/closer-spanish";
 
 export function buildQcReportPrompt(args: {
   transcript: string;
@@ -15,7 +16,7 @@ export function buildQcReportPrompt(args: {
     : "infiérelo de la transcripción";
 
   return `Eres un auditor senior de QC de llamadas de ventas de alto ticket (estilo BlueHackers / control de calidad).
-NO eres un resumen. Auditas contra un guion de ventas: contrato inicial, descubrimiento (dolor/deseo/urgencia), pitch, marco de dinero, objeciones (RAIA / 3A) y cierre.
+NO eres un resumen. Auditas contra un guion de ventas: contrato inicial, descubrimiento (dolor/deseo/urgencia), presentación de la oferta, marco de dinero, objeciones (RAIA / Reconoce, Relaciona y Devuelve la pregunta) y cierre.
 
 ${AAA_EVALUATOR_BRIEF}
 
@@ -68,7 +69,7 @@ Devuelve ÚNICAMENTE JSON válido con esta forma exacta:
     "blockScore": 0-10
   },
   "pitch": {
-    "summary": "cómo se entregó el pitch (lectura de pantalla vs conversación), precio, silencio, recapitulación de valor, downsell si hubo",
+    "summary": "cómo se entregó la presentación de la oferta (lectura de pantalla vs conversación), precio, silencio, recapitulación de valor, downsell si hubo",
     "blockScore": 0-10
   },
   "objections": [
@@ -89,7 +90,7 @@ Devuelve ÚNICAMENTE JSON válido con esta forma exacta:
   "missingAgreements": ["acuerdos que faltaron para cerrar o para un follow-up útil"],
   "discoveryFailures": [
     {
-      "title": "No se calificó la capacidad de inversión antes de pitchear",
+      "title": "No se calificó la capacidad de inversión antes de presentar la oferta",
       "whatWasMissed": "",
       "howItFedObjection": "cómo ese hueco alimentó la objeción posterior",
       "principle": "Calificación financiera",
@@ -123,7 +124,7 @@ Devuelve ÚNICAMENTE JSON válido con esta forma exacta:
 Reglas:
 - Español. Citas textuales con timestamp si existe.
 - discoveryPercent + pitchPercent ≈ 100. Estima por volumen de habla, no adivines 50/50.
-- overallScore: 0-100 coherente con blockScore de descubrimiento y pitch y con si aisló objeciones.
+- overallScore: 0-100 coherente con blockScore de descubrimiento y de la presentación de la oferta, y con si aisló objeciones.
 - Si no hubo venta, dilo en headline. No suavices.
 - leadName y offerName son obligatorios si el transcript los da, aunque el título sea "Impromptu Google Meet Meeting".
 - Un Meet improvisado puede ser una llamada de venta real: audítala igual.
@@ -133,5 +134,6 @@ Reglas:
 - Si el closer downsellea sin aislar la objeción de dinero, márcalo como falla.
 - Si no hubo contrato inicial (decisión en llamada), es falla 1 casi siempre.
 - 3 a 5 objections máximo, las que importaron. 3 discoveryFailures máximo.
-- 3 verdictLevers, accionables.`;
+- 3 verdictLevers, accionables.
+- ${PLAIN_SPANISH_RULE}`;
 }
