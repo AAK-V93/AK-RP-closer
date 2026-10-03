@@ -447,7 +447,29 @@ function ConfiguredC({
   onLiveSnapshot: (next: HubSnapshot) => void;
 }) {
   const desk = snapshot?.desk;
+  const [practice, setPractice] = useState<{
+    practiceHref: string;
+    practiceStatus: string;
+    newPattern: boolean;
+  } | null>(null);
   const [savingGoal, setSavingGoal] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/hub/practice")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { practiceHref?: string; practiceStatus?: string; newPattern?: boolean } | null) => {
+        if (cancelled || !data?.practiceStatus) return;
+        setPractice({
+          practiceHref: data.practiceHref || "/practicar",
+          practiceStatus: data.practiceStatus,
+          newPattern: Boolean(data.newPattern),
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const saveGoal = async (usd: number) => {
     setSavingGoal(true);
     try {
@@ -521,16 +543,22 @@ function ConfiguredC({
         <div className="mt-1 divide-y divide-separator1 border-t border-separator1">
           <HomeRow href="/llamadas" title="Analizar" status={desk?.analyzeStatus || "Todo al día"} />
           <HomeRow
-            href={desk?.practiceHref || "/practicar"}
+            href={practice?.practiceHref || desk?.practiceHref || "/practicar"}
             title="Práctica"
-            status={desk?.practiceStatus || "Elige con quién practicar"}
+            status={practice?.practiceStatus || desk?.practiceStatus || "Elige con quién practicar"}
           />
           <HomeRow
             href="/crm#seguimientos"
             title="Seguimientos"
             status={desk?.followupStatus || "Todo al día"}
           />
-          <HomeRow href="/coach" title="Coach" status={desk?.coachStatus || "Sin novedades"} />
+          <HomeRow
+            href="/coach"
+            title="Coach"
+            status={
+              practice?.newPattern ? "Nuevo patrón detectado" : desk?.coachStatus || "Sin novedades"
+            }
+          />
           <HomeRow href="/ofertas" title="Oferta" status="Precios, pagos y comisión" />
         </div>
       </div>

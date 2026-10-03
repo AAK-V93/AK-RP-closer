@@ -1,3 +1,5 @@
+import { closerSpanish } from "@/lib/closer-spanish";
+
 export function analyzeCardStatus(unclassified: number) {
   if (unclassified > 0) return `${unclassified} sin clasificar`;
   return "Todo al día";
@@ -22,4 +24,24 @@ export function coachCardStatus(args: {
     return `${n} llamada${n === 1 ? "" : "s"} analizada${n === 1 ? "" : "s"} esta semana`;
   }
   return "Sin novedades";
+}
+
+function clipWords(value: string, max: number) {
+  const clean = value.trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return (space > 24 ? cut.slice(0, space) : cut).trim();
+}
+
+/** First-paint fallback until the light practice endpoint returns a drill. */
+export function practiceCardFromGuides(guides: { drills?: string[]; ready?: boolean }[]) {
+  const drill = closerSpanish(
+    guides.flatMap((guide) => guide.drills || []).find((item) => item.trim()) || "",
+  );
+  return {
+    practiceHref: drill ? `/practicar?focus=${encodeURIComponent(drill)}` : "/practicar",
+    practiceStatus: drill ? clipWords(drill, 90) : "Elige con quién practicar",
+    newPattern: guides.some((guide) => Boolean(guide.ready)),
+  };
 }

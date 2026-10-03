@@ -539,3 +539,76 @@ test("a past meeting is rewritten and a zero day still names today and cobros", 
   assert.match(onlyLate, /0 para hoy/);
   assert.match(onlyLate, /sin cobros pendientes/);
 });
+
+test("a long agreement becomes a short imperative and the line cuts on a whole word", () => {
+  const lines = deskLinesFromFilings(
+    [
+      {
+        name: "Elber",
+        proximo: "2026-09-20",
+        step: "SEGUIMIENTO",
+        closed: false,
+        note: "El cliente evaluará la propuesta enviada y dará una respuesta",
+        lastContact: "2026-09-20",
+      },
+    ],
+    "2026-10-03",
+  );
+  assert.match(lines[0]?.reason || "", /esperar su respuesta a la propuesta/);
+  assert.doesNotMatch(lines[0]?.reason || "", /evaluará|respu…/);
+  const asked = deskLinesFromFilings(
+    [
+      {
+        name: "Elber",
+        proximo: "2026-09-20",
+        step: "SEGUIMIENTO",
+        closed: false,
+        note: "El cliente ya evaluó la propuesta",
+        lastContact: "2026-09-20",
+      },
+    ],
+    "2026-10-03",
+  );
+  assert.match(asked[0]?.reason || "", /preguntar si ya evaluó la propuesta/);
+  const calls = formatWhoToCall(lines);
+  const line = calls.split("\n").find((row) => row.startsWith("1. Elber")) || "";
+  assert.match(line, /, esperar su respuesta a la propuesta/);
+  assert.doesNotMatch(line, /, [A-ZÁÉÍÓÚÑ]/);
+  const source =
+    "1. Elber. Vencido hace 12 días, último contacto el 20/9/2026, " +
+    `${"palabra ".repeat(20)}final`;
+  const clipped = deskCallLine(
+    1,
+    "Elber",
+    "vencido hace 12 días, último contacto el 20/9/2026, " + `${"palabra ".repeat(20)}final`,
+  );
+  assert.ok(clipped.endsWith("…"));
+  assert.ok(clipped.length <= 120, clipped);
+  const body = clipped.slice(0, -1);
+  assert.equal(source.startsWith(body), true);
+  assert.match(source[body.length] || "", /^$|[\s.,;:]/);
+  assert.doesNotMatch(clipped, /palabr…/);
+});
+
+test("retomar el contacto only when the filing has no structured next step", () => {
+  const today = "2026-10-03";
+  const base = {
+    proximo: "2026-09-28",
+    step: "SEGUIMIENTO",
+    closed: false,
+    lastContact: "2026-09-20",
+  };
+  const price = deskLinesFromFilings(
+    [{ ...base, name: "Ana", objection: "Precio / No tiene dinero", offerName: "Círculo" }],
+    today,
+  );
+  assert.match(price[0]?.reason || "", /resolver la objeción de precio/);
+  assert.doesNotMatch(price[0]?.reason || "", /reenviar/);
+  const offer = deskLinesFromFilings([{ ...base, name: "Luis", offerName: "Mentoría" }], today);
+  assert.match(offer[0]?.reason || "", /reenviar la oferta de Mentoría/);
+  const hot = deskLinesFromFilings([{ ...base, name: "Nora", temperature: "alto" }], today);
+  assert.match(hot[0]?.reason || "", /pedir la decisión/);
+  const empty = deskLinesFromFilings([{ ...base, name: "Otto" }], today);
+  assert.match(empty[0]?.reason || "", /retomar el contacto/);
+  assert.doesNotMatch(empty[0]?.reason || "", /objeción|oferta de|decisión/);
+});

@@ -17,6 +17,8 @@ import { type CrmChatPatch } from "@/lib/file-call";
 import {
   answerCrmChat,
   chatFailureReply,
+  crmReadFailureReply,
+  recognizedCrmQuestion,
   exactOfferName,
   leadInMessage,
   isChatCancel,
@@ -384,6 +386,19 @@ export async function POST(request: Request) {
       const crmReply = await answerCrmChat(prisma, userId, userText);
       if (crmReply) {
         const coachLine = await appendHubLines(prisma, userId, userText, crmReply);
+        return NextResponse.json({
+          message: coachLine,
+          actions: [],
+        });
+      }
+      if (recognizedCrmQuestion(userText)) {
+        console.error("crm chat fell through", userText.slice(0, 160));
+        const coachLine = await appendHubLines(
+          prisma,
+          userId,
+          userText,
+          crmReadFailureReply(),
+        );
         return NextResponse.json({
           message: coachLine,
           actions: [],

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { PrismaClient } from "@prisma/client";
 import { missingOfferSetupPhrase } from "./offer-commercial";
@@ -10,9 +11,11 @@ import {
   asksForPendingDesk,
   deskQuestionKind,
   chatCapabilitiesReply,
+  crmReadFailureReply,
   cobradoFromCalls,
   formatMoneyStats,
   looksLikeOfferSetup,
+  recognizedCrmQuestion,
   interpretCrmChat,
   loadLeadTranscript,
   looksLikeFilingAnswer,
@@ -973,4 +976,141 @@ test("an unknown question lists what the chat can do; an offer paste does not", 
 test("a bare no is not a filing answer", () => {
   assert.equal(looksLikeFilingAnswer("no"), false);
   assert.equal(looksLikeFilingAnswer("cancela"), false);
+});
+
+function coldDeskPrisma(failTimes: number) {
+  let tries = 0;
+  return {
+    user: {
+      findUnique: async () => {
+        tries += 1;
+        if (tries <= failTimes) throw new Error("cold neon timeout");
+        return { crmPrefs: null };
+      },
+    },
+    lead: { findMany: async () => [] },
+    callRecord: { findMany: async () => [] },
+    userOffer: { findMany: async () => [] },
+    followupThread: { findMany: async () => [] },
+    leadAlert: { findMany: async () => [] },
+    waves: () => tries,
+  };
+}
+
+test("a cold failed pending read retries once and never pastes the offer", async () => {
+  const db = coldDeskPrisma(1);
+  const errors: unknown[] = [];
+  const orig = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args);
+  };
+  try {
+    const reply = await answerCrmChat(
+      db as unknown as PrismaClient,
+      "user-1",
+      "¿Qué tengo pendiente hoy?",
+    );
+    assert.match(reply || "", /0 para hoy/);
+    assert.match(reply || "", /sin cobros pendientes/);
+    assert.doesNotMatch(reply || "", /Pega todo junto/);
+    assert.equal(db.waves(), 2);
+    assert.ok(errors.some((row) => JSON.stringify(row).includes("crm chat read")));
+  } finally {
+    console.error = orig;
+  }
+});
+
+test("a cold read that fails twice answers in Spanish", async () => {
+  const db = coldDeskPrisma(5);
+  const orig = console.error;
+  console.error = () => undefined;
+  try {
+    const reply = await answerCrmChat(
+      db as unknown as PrismaClient,
+      "user-1",
+      "¿Qué tengo pendiente hoy?",
+    );
+    assert.equal(reply, crmReadFailureReply());
+    assert.match(reply || "", /No pude leer tus datos del CRM/);
+    assert.doesNotMatch(reply || "", /Pega todo junto/);
+    assert.equal(db.waves(), 2);
+  } finally {
+    console.error = orig;
+  }
+});
+
+test("an empty cold read still answers the desk", async () => {
+  const db = coldDeskPrisma(0);
+  const reply = await answerCrmChat(
+    db as unknown as PrismaClient,
+    "user-1",
+    "¿Qué tengo pendiente hoy?",
+  );
+  assert.match(reply || "", /Hoy tienes 0 para hoy/);
+  assert.match(reply || "", /sin cobros pendientes/);
+  assert.doesNotMatch(reply || "", /Pega todo junto/);
+  assert.equal(recognizedCrmQuestion("¿Qué tengo pendiente hoy?"), true);
+  assert.equal(db.waves(), 1);
+});
+
+test("who to call uses the filing objection and leaves an empty row generic", async () => {
+  const prisma = {
+    user: { findUnique: async () => ({ crmPrefs: null }) },
+    lead: { findMany: async () => [] },
+    userOffer: { findMany: async () => [] },
+    callRecord: {
+      findMany: async () => [
+        {
+          leadName: "Ana Quispe",
+          offerName: "Círculo Millonario",
+          title: "Ana",
+          summary: "esto es un resumen que no debe salir",
+          filingJson: {
+            cliente_real: "Ana Quispe",
+            tipo_seguimiento: "SEGUIMIENTO",
+            proximo_seguimiento: "2026-09-01",
+            acuerdo_seguimiento: "",
+            razon_no_cierre: "Precio / No tiene dinero",
+          },
+          source: "fathom",
+          sourceId: "a",
+          cashCollected: null,
+          recordedAt: new Date("2026-08-01T15:00:00.000Z"),
+        },
+        {
+          leadName: "Otto Nulo",
+          offerName: "",
+          title: "Otto",
+          summary: "tampoco este resumen",
+          filingJson: {
+            cliente_real: "Otto Nulo",
+            tipo_seguimiento: "SEGUIMIENTO",
+            proximo_seguimiento: "2026-09-02",
+            acuerdo_seguimiento: "",
+          },
+          source: "fathom",
+          sourceId: "b",
+          cashCollected: null,
+          recordedAt: new Date("2026-08-02T15:00:00.000Z"),
+        },
+      ],
+    },
+  };
+  const reply = await answerCrmChat(
+    prisma as unknown as PrismaClient,
+    "user-1",
+    "¿a quién llamo hoy?",
+  );
+  assert.match(reply || "", /resolver la objeción de precio/);
+  assert.match(reply || "", /retomar el contacto/);
+  assert.doesNotMatch(reply || "", /resumen/);
+  assert.doesNotMatch(reply || "", /Pega todo junto/);
+});
+
+test("the hub paste cannot run for a recognized CRM question", () => {
+  const route = readFileSync(new URL("../app/api/hub/route.ts", import.meta.url), "utf8");
+  const guard = route.indexOf("recognizedCrmQuestion");
+  const paste = route.indexOf("Pega todo junto");
+  assert.ok(guard > 0 && paste > guard);
+  assert.equal(route.includes("loadLiveGuides"), false);
 });

@@ -117,12 +117,22 @@ export function prismaErrorCode(error: unknown): string {
   return "UNKNOWN";
 }
 
+/** A cold Neon blip, not a missing table. Missing relations still mean "run DDL". */
+export function isTransientDbError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  if (/relation .* does not exist|column .* does not exist|42P01|42703/i.test(message)) return false;
+  return /timeout|timed out|can't reach|ECONNREFUSED|ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|P1001|P1002|P1008|P1017|Connection terminated|fetch failed|socket hang up/i.test(
+    message,
+  );
+}
+
 /** One round trip per probe. A hit means this process can skip the DDL chain. */
 async function schemaAlreadyThere(prisma: PrismaClient, probes: string[]) {
   try {
     await Promise.all(probes.map((sql) => prisma.$queryRawUnsafe(sql)));
     return true;
-  } catch {
+  } catch (error) {
+    if (isTransientDbError(error)) throw error;
     return false;
   }
 }
