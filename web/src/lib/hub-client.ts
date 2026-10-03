@@ -32,6 +32,19 @@ export function createHubCache(now: () => number = () => Date.now()) {
     cached = null;
   }
 
+  function rememberLines(lines: NonNullable<HubGet["messages"]>) {
+    if (!lines.length) return;
+    const prev = cached?.data.messages || [];
+    cached = {
+      at: cached?.at ?? now(),
+      data: {
+        messages: [...prev, ...lines],
+        snapshot: cached?.data.snapshot,
+        error: cached?.data.error,
+      },
+    };
+  }
+
   function load(fetchImpl: FetchLike, opts?: { force?: boolean }) {
     const force = Boolean(opts?.force);
     if (!force && cached && now() - cached.at < FRESH_MS) {
@@ -39,7 +52,7 @@ export function createHubCache(now: () => number = () => Date.now()) {
     }
     if (inflight && (!force || inflightForce)) return inflight;
     inflightForce = force;
-    const run = fetchImpl("/api/hub")
+    const run = fetchImpl("/api/hub", { cache: "no-store" })
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok || data.snapshot == null) {
@@ -58,7 +71,7 @@ export function createHubCache(now: () => number = () => Date.now()) {
     return run;
   }
 
-  return { load, remember, invalidate };
+  return { load, remember, rememberLines, invalidate };
 }
 
 const shared = createHubCache();
@@ -73,6 +86,19 @@ export function rememberHub(data: HubGet) {
 
 export function invalidateHub() {
   shared.invalidate();
+}
+
+export function rememberHubLines(lines: NonNullable<HubGet["messages"]>) {
+  shared.rememberLines(lines);
+}
+
+export const HUB_RETRY_MS = 1500;
+
+/** One automatic retry, then a manual button. A snapshot already on screen can stay usable. */
+export function hubLoadRetry(args: { attempt: number; hasSnapshot: boolean }) {
+  if (args.hasSnapshot) return "ready" as const;
+  if (args.attempt < 1) return "auto" as const;
+  return "manual" as const;
 }
 
 /** The first chat send waits until a real hub snapshot has loaded. */

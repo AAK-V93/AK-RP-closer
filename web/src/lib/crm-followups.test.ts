@@ -606,6 +606,35 @@ test("a call line keeps the offer name and drops the contact before the step", (
   assert.match(jessica, /plan de pagos completo/);
 });
 
+test("a missed meeting outranks the objection and keeps the offer name", () => {
+  const today = "2026-10-03";
+  const note = "Reunirse el 26 de septiembre a las 11:00.";
+  const base = {
+    proximo: "2026-09-26",
+    step: "SEGUIMIENTO",
+    closed: false,
+    note,
+    objection: "Necesita consultarlo con alguien",
+    estadoAgenda: "REPROGRAMA",
+    lastContact: "2026-09-20",
+  };
+  const short = deskLinesFromFilings([{ ...base, name: "Ricardo" }], today);
+  assert.match(short[0]?.reason || "", /tenían reunión el 26 sep, reagendar y preguntar si ya lo consultó/);
+  const calls = formatWhoToCall(short);
+  const shortLine = calls.split("\n").find((row) => row.startsWith("1. Ricardo")) || "";
+  assert.match(shortLine, /reagendar y preguntar si ya lo consultó/);
+  assert.doesNotMatch(shortLine, /…/);
+  const long = deskLinesFromFilings(
+    [{ ...base, name: "Ricardo Verastegui", offerName: "Círculo Millonario" }],
+    today,
+  );
+  const longCalls = formatWhoToCall(long);
+  const longLine = longCalls.split("\n").find((row) => row.includes("Ricardo Verastegui")) || "";
+  assert.match(longLine, /tenían reunión el 26 sep, reagendar/);
+  assert.doesNotMatch(longLine, /…|Círculo…/);
+  assert.match(long[0]?.reason || "", /Círculo Millonario|reagendar/);
+});
+
 test("a real objection drives the step ahead of the agreement", () => {
   const today = "2026-10-03";
   const note = "El cliente evaluará la propuesta enviada y dará una respuesta";

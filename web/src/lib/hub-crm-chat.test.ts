@@ -5,6 +5,7 @@ import type { PrismaClient } from "@prisma/client";
 import { missingOfferSetupPhrase } from "./offer-commercial";
 import { getHomeState } from "./home-state";
 import { retryRead } from "./read-retry";
+import { loadThread } from "./chat-threads";
 import {
   answerCrmChat,
   applyChatProposal,
@@ -18,9 +19,12 @@ import {
   formatMoneyStats,
   looksLikeOfferSetup,
   recognizedCrmQuestion,
+  blockedOfferPasteReply,
   guardCoachReply,
+  offerOnboardingReply,
   offerPasteReplyAllowed,
   OFFER_PASTE_TEXT,
+  visibleHubThread,
   interpretCrmChat,
   loadLeadTranscript,
   looksLikeFilingAnswer,
@@ -1123,6 +1127,16 @@ test("the hub paste cannot run for a recognized CRM question", () => {
   assert.equal(route.includes("loadLiveGuides"), false);
   assert.match(route, /returned-offer-paste/);
   assert.match(route, /status: 503/);
+  assert.match(route, /visibleHubThread/);
+  assert.match(route, /cache-control": "no-store"/);
+  assert.match(route, /blockedOfferPasteReply/);
+  const crmBlock = route.slice(route.indexOf("if (crmReply)"), route.indexOf("if (recognizedCrmQuestion"));
+  assert.match(crmBlock, /appendHubLines/);
+  const failBlock = route.slice(
+    route.indexOf("if (recognizedCrmQuestion(userText))"),
+    route.indexOf("if (structuredOnly)"),
+  );
+  assert.match(failBlock, /appendHubLines/);
   assert.doesNotMatch(route, /phase: "a"/);
   assert.match(chat, /Pega todo junto/);
   assert.match(screen, /offersUnreadable/);
@@ -1247,4 +1261,76 @@ test("a cold offers failure does not open onboarding or the paste", async () => 
   } finally {
     console.error = orig;
   }
+});
+
+test("a stored paste under a CRM question is hidden and a new turn is kept", () => {
+  const paste =
+    "Pega todo junto: qué vendes, precios, cómo paga el lead y cómo te pagan comisión.";
+  const lines = visibleHubThread([
+    { role: "user" as const, content: "¿Qué tengo pendiente hoy?" },
+    { role: "coach" as const, content: paste },
+    { role: "user" as const, content: "¿a quién llamo hoy?" },
+    { role: "coach" as const, content: "1. Ana. Vencido hace 2 días, retomar el contacto." },
+    { role: "user" as const, content: "te dejo la oferta luego" },
+    { role: "coach" as const, content: paste },
+  ]);
+  assert.equal(lines.length, 5);
+  assert.equal(lines[0]?.content, "¿Qué tengo pendiente hoy?");
+  assert.doesNotMatch(lines.map((line) => line.content).join("\n"), /Pega todo junto[\s\S]*retomar/);
+  assert.match(lines[2]?.content || "", /retomar el contacto/);
+  assert.match(lines[4]?.content || "", /Pega todo junto/);
+});
+
+test("a new user question is onboarding, a failed read stays the CRM error", () => {
+  const start = "¿cómo empiezo?";
+  const onboard = blockedOfferPasteReply({
+    text: start,
+    offersUnreadable: false,
+    missingCrm: true,
+  });
+  assert.equal(onboard, offerOnboardingReply());
+  assert.doesNotMatch(onboard || "", /No pude leer tus datos del CRM|Pega todo junto/);
+  assert.match(
+    blockedOfferPasteReply({ text: start, offersUnreadable: true, missingCrm: false }) || "",
+    /No pude leer tus datos del CRM/,
+  );
+  assert.match(
+    guardCoachReply(start, OFFER_PASTE_TEXT, false, { missingCrm: true, offersUnreadable: false }),
+    /agrega tu oferta/,
+  );
+  assert.match(
+    guardCoachReply("¿Qué tengo pendiente hoy?", OFFER_PASTE_TEXT, false, {
+      missingCrm: true,
+    }),
+    /No pude leer tus datos del CRM/,
+  );
+});
+
+test("the hub thread read keeps the newest lines", async () => {
+  const rows = Array.from({ length: 90 }, (_, index) => ({
+    id: `m${index}`,
+    role: index % 2 === 0 ? "user" : "coach",
+    content: `linea ${index}`,
+    createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
+  }));
+  let order: unknown;
+  let take = 0;
+  const prisma = {
+    coachProfile: {
+      findUnique: async () => ({ id: "profile-1", userId: "user-1", notes: {} }),
+    },
+    coachMessage: {
+      findMany: async (args: { orderBy?: { createdAt?: string }; take?: number }) => {
+        order = args.orderBy;
+        take = args.take || 0;
+        return [...rows].reverse().slice(0, args.take);
+      },
+    },
+  };
+  const loaded = await loadThread(prisma as unknown as PrismaClient, "user-1", "hub");
+  assert.deepEqual(order, { createdAt: "desc" });
+  assert.equal(take, 80);
+  assert.equal(loaded.messages.length, 80);
+  assert.equal(loaded.messages[0]?.content, "linea 10");
+  assert.equal(loaded.messages.at(-1)?.content, "linea 89");
 });

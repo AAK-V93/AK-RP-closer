@@ -7,7 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { ExtractedOffer } from "@/lib/offer-commercial";
 import type { CommissionProjection } from "@/lib/crm-projection";
-import { chatSendReady, loadHub, rememberHub, type HubGet } from "@/lib/hub-client";
+import {
+  chatSendReady,
+  HUB_RETRY_MS,
+  hubLoadRetry,
+  loadHub,
+  rememberHub,
+  rememberHubLines,
+  type HubGet,
+} from "@/lib/hub-client";
 
 type Line = { id: string; role: "user" | "coach"; content: string };
 type Action = { type?: string; href: string; label: string };
@@ -82,6 +90,8 @@ export function HubChat({
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const hadHome = Boolean(initialSnapshot?.home);
+  const retryAttempt = useRef(0);
+  const retryTimer = useRef<number | null>(null);
 
   const applyPayload = (data: {
     message?: Line;
@@ -104,37 +114,60 @@ export function HubChat({
     if (data.message || data.snapshot) onSnapshot?.(data.snapshot);
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    loadHub()
+  const reloadChat = (force = false) => {
+    if (retryTimer.current) {
+      window.clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+    setLoading(true);
+    setError(null);
+    return loadHub(force ? { force: true } : undefined)
       .then((data) => {
-        if (cancelled) return;
+        retryAttempt.current = 0;
         if (data.snapshot) {
           setSnapshot(data.snapshot as HubSnapshot);
           setHubResolved(true);
-        } else {
+        } else if (!hadHome) {
           setHubResolved(false);
         }
         if (Array.isArray(data.messages)) setMessages(data.messages);
       })
-      .catch((e) => {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : "Error");
+      .catch(() => {
+        const mode = hubLoadRetry({ attempt: retryAttempt.current, hasSnapshot: hadHome });
+        setError(
+          mode === "auto"
+            ? "No pude cargar el chat. Reintento en un momento."
+            : "No pude cargar el chat. Pulsa Reintentar.",
+        );
         setHubResolved(hadHome);
+        if (mode === "auto") {
+          retryAttempt.current += 1;
+          retryTimer.current = window.setTimeout(() => {
+            retryTimer.current = null;
+            void reloadChat(true);
+          }, HUB_RETRY_MS);
+        }
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    void reloadChat();
     return () => {
-      cancelled = true;
+      if (retryTimer.current) window.clearTimeout(retryTimer.current);
     };
-  }, [hadHome]);
+    // Mount only. hadHome is the snapshot this chat opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
 
-  const postHub = async (body: Record<string, unknown>) => {
+  const postHub = async (
+    body: Record<string, unknown>,
+    userLine?: Line,
+  ) => {
     setSending(true);
     setError(null);
     const controller = new AbortController();
@@ -162,6 +195,8 @@ export function HubChat({
         ]);
         return;
       }
+      const stored = [userLine, data.message].filter((line): line is Line => Boolean(line?.content));
+      if (stored.length) rememberHubLines(stored);
       applyPayload(data);
     } catch (e) {
       const aborted = e instanceof Error && e.name === "AbortError";
@@ -177,11 +212,9 @@ export function HubChat({
 
   const sendText = async (text: string) => {
     if (!text || sending || !chatSendReady({ loading, hubResolved })) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: `u-${Date.now()}`, role: "user", content: text },
-    ]);
-    await postHub({ message: text });
+    const userLine: Line = { id: `u-${Date.now()}`, role: "user", content: text };
+    setMessages((prev) => [...prev, userLine]);
+    await postHub({ message: text }, userLine);
   };
 
   const onSubmit = async (event: FormEvent) => {
@@ -252,6 +285,8 @@ export function HubChat({
 
   const dock = variant === "dock";
   const canSend = chatSendReady({ loading, hubResolved });
+  const inputsLocked = !canSend || sending;
+  const showRetry = hubLoadRetry({ attempt: retryAttempt.current, hasSnapshot: hadHome }) === "manual";
 
   return (
     <div
@@ -307,6 +342,11 @@ export function HubChat({
       )}
       <form onSubmit={onSubmit} className="p-3 border-t border-separator1 space-y-2">
         {error && <p className="text-xs text-destructive">{error}</p>}
+        {error && showRetry && (
+          <Button type="button" variant="outline" size="sm" onClick={() => void reloadChat(true)}>
+            Reintentar
+          </Button>
+        )}
         <div className="flex gap-2">
           <Textarea
             value={draft}
@@ -320,18 +360,18 @@ export function HubChat({
             rows={2}
             placeholder="Cerré con Ana, agendé a Juan el jueves, me pagaron…"
             className="min-h-[44px] text-sm"
-            disabled={!canSend || sending || recording}
+            disabled={inputsLocked || recording}
           />
           <Button
             type="button"
             variant={recording ? "destructive" : "outline"}
-            disabled={!canSend || sending}
+            disabled={inputsLocked && !recording}
             onClick={() => void toggleMic()}
             aria-label={recording ? "Detener" : "Grabar"}
           >
             {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
-          <Button type="submit" variant="primary" disabled={!canSend || sending || !draft.trim()}>
+          <Button type="submit" variant="primary" disabled={inputsLocked || recording}>
             <Send className="h-4 w-4" />
           </Button>
         </div>

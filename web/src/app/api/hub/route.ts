@@ -16,12 +16,14 @@ import {
 import { type CrmChatPatch } from "@/lib/file-call";
 import {
   answerCrmChat,
+  blockedOfferPasteReply,
   chatFailureReply,
   crmReadFailureReply,
   guardCoachReply,
   OFFER_PASTE_TEXT,
   offerPasteReplyAllowed,
   recognizedCrmQuestion,
+  visibleHubThread,
   exactOfferName,
   leadInMessage,
   isChatCancel,
@@ -141,8 +143,10 @@ export async function GET(request: NextRequest) {
       .finally(() => mark("thread", threadStarted));
     const snapshot = await hubSnapshot(prisma, userId, timings);
     const loaded = await threadPromise;
-    const messages = (loaded?.messages || []).map((line) =>
-      line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
+    const messages = visibleHubThread(
+      (loaded?.messages || []).map((line) =>
+        line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
+      ),
     );
     const serializeStarted = performance.now();
     const payload = JSON.stringify({ messages, snapshot });
@@ -162,6 +166,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse(payload, {
       headers: {
         "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
         "Server-Timing": formatServerTiming(timings),
       },
     });
@@ -678,7 +683,11 @@ export async function POST(request: Request) {
           prisma,
           userId,
           userText,
-          crmReadFailureReply(),
+          blockedOfferPasteReply({
+            text: userText,
+            offersUnreadable: Boolean(live.home?.offersUnreadable),
+            missingCrm: true,
+          }) || crmReadFailureReply(),
         );
         return NextResponse.json({
           message: coachLine,
@@ -921,6 +930,11 @@ ${userText}`;
       userId,
       body.start ? null : userText,
       reply,
+      false,
+      {
+        offersUnreadable: Boolean(live.home?.offersUnreadable),
+        missingCrm: Boolean(live.missingCrm),
+      },
     );
     let fresh: Awaited<ReturnType<typeof hubSnapshot>> | null = live;
     try {
@@ -1182,8 +1196,9 @@ async function appendHubLines(
   userText: string | null,
   reply: string,
   allowOfferPaste = false,
+  paste?: { offersUnreadable?: boolean; missingCrm?: boolean },
 ) {
-  const shown = labelCrmProse(guardCoachReply(userText || "", reply, allowOfferPaste));
+  const shown = labelCrmProse(guardCoachReply(userText || "", reply, allowOfferPaste, paste));
   if (shown.includes("Pega todo junto")) {
     console.warn(
       JSON.stringify({

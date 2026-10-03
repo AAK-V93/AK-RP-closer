@@ -119,30 +119,35 @@ export async function loadThread(
 ) {
   const existing = await prisma.coachProfile.findUnique({ where: { userId } });
   if (existing) {
-    const rows = await prisma.coachMessage.findMany({
-      where: { profileId: existing.id, thread },
-      orderBy: { createdAt: "asc" },
-      take: 80,
-    });
-    if (rows.length > 0) {
+    const messages = await readLatestThread(prisma, existing.id, thread);
+    if (messages.length > 0) {
       return {
         profile: existing,
         notes: parseStoredNotes(existing.notes),
-        messages: rows.map(toLine),
+        messages,
       };
     }
   }
   const profile = await getOrCreateCoachProfile(prisma, userId);
-  const rows = await prisma.coachMessage.findMany({
-    where: { profileId: profile.id, thread },
-    orderBy: { createdAt: "asc" },
-    take: 80,
-  });
   return {
     profile,
     notes: parseStoredNotes(profile.notes),
-    messages: rows.map(toLine),
+    messages: await readLatestThread(prisma, profile.id, thread),
   };
+}
+
+/** Newest 80, oldest of that window first. A warm read is still one query. */
+async function readLatestThread(
+  prisma: PrismaClient,
+  profileId: string,
+  thread: typeof THREAD_COACH | typeof THREAD_HUB,
+) {
+  const rows = await prisma.coachMessage.findMany({
+    where: { profileId, thread },
+    orderBy: { createdAt: "desc" },
+    take: 80,
+  });
+  return rows.reverse().map(toLine);
 }
 
 export async function saveCoachNotes(

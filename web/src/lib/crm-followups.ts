@@ -545,20 +545,44 @@ function imperativeForObjection(raw: string | undefined, agreement: string) {
   return `resolver la objeción de ${label}`;
 }
 
-/** The agreement is the next step. A date that already passed becomes a reagendar. Summaries are ignored. */
+function pastMeetingStep(
+  note: string,
+  today: string,
+  extra?: { due?: string; step?: string; estado?: string },
+) {
+  const day = today.slice(0, 10);
+  const mentioned = note ? mentionedDay(note, today) : null;
+  if (mentioned && mentioned.key < day) {
+    return `tenían reunión el ${mentioned.label}, reagendar`;
+  }
+  const blob = foldDesk(`${extra?.step || ""} ${extra?.estado || ""}`);
+  const due = String(extra?.due || "").slice(0, 10);
+  if (/reuni|reprogram/.test(blob) && /^\d{4}-\d{2}-\d{2}$/.test(due) && due < day) {
+    const label = mentionedDay(due, today)?.label || due;
+    return `tenían reunión el ${label}, reagendar`;
+  }
+  return null;
+}
+
+/** The agreement is the next step. A missed meeting outranks an objection. Summaries are ignored. */
 export function nextDeskStep(
   note: string,
   step: string,
   today: string,
-  extra?: { objection?: string; offerName?: string; temperature?: string },
+  extra?: {
+    objection?: string;
+    offerName?: string;
+    temperature?: string;
+    due?: string;
+    estado?: string;
+  },
 ) {
   const clean = note.trim().replace(/[.?!…]+$/g, "").trim();
+  const past = pastMeetingStep(clean, today, { ...extra, step });
   const fromObjection = imperativeForObjection(extra?.objection, clean);
+  if (past && fromObjection) return `${past} y ${fromObjection}`;
+  if (past) return past;
   if (fromObjection) return fromObjection;
-  const mentioned = clean ? mentionedDay(clean, today) : null;
-  if (mentioned && mentioned.key < today.slice(0, 10)) {
-    return `tenían reunión el ${mentioned.label}, reagendar`;
-  }
   const shortened = shortenAgreement(clean);
   if (shortened) return shortened;
   if (!clean || bareFollowup(clean) || clean.length > 80 || /transcri/i.test(clean)) {
@@ -575,6 +599,8 @@ function deskReason(args: {
   step: string;
   lastContact: string;
   today: string;
+  due?: string;
+  estado?: string;
   objection?: string;
   offerName?: string;
   temperature?: string;
@@ -595,6 +621,8 @@ function deskReason(args: {
           objection: args.objection,
           offerName: args.offerName,
           temperature: args.temperature,
+          due: args.due,
+          estado: args.estado,
         });
   return [late, contact, next].filter(Boolean).join(", ");
 }
@@ -669,6 +697,8 @@ export function deskLinesFromFilings(rows: DeskFiling[], today: string): DeskLin
         step,
         lastContact: String(row.lastContact || "").slice(0, 10),
         today,
+        due: row.due,
+        estado: row.estadoAgenda,
         objection: row.objection,
         offerName: row.offerName,
         temperature: row.temperature,
@@ -698,28 +728,58 @@ function finishDeskLine(prefix: string, body: string) {
   return `${prefix}${shown}.`;
 }
 
+function splitDeskSentence(sentence: string) {
+  const prefixes: string[] = [];
+  const stepParts: string[] = [];
+  let inStep = false;
+  for (const part of sentence.split(", ")) {
+    const meta = /contacto/i.test(part) || /^(vencido|para hoy)\b/i.test(part);
+    if (!inStep && meta) prefixes.push(part);
+    else {
+      inStep = true;
+      stepParts.push(part);
+    }
+  }
+  return { prefixes, step: stepParts.join(", ") };
+}
+
+/** A missed meeting can drop the objection tail when the full step does not fit. */
+function meetingStepVariants(step: string) {
+  if (!/^ten[ií]an reuni[oó]n/i.test(step)) return [step];
+  const short = step.split(/ y /i)[0] || step;
+  return short !== step ? [step, short] : [step];
+}
+
+function joinDesk(prefixes: string[], step: string) {
+  return prefixes.length ? `${prefixes.join(", ")}, ${step}` : step;
+}
+
 /**
- * Near 120 characters, but the step (and the offer name inside it) stays whole.
- * Drop the last-contact phrase first, then the other prefixes.
+ * Near 120 characters. The step and the offer name stay whole.
+ * Drop the last-contact phrase first. A missed meeting keeps reagendar
+ * ahead of a long objection tail when both do not fit.
  */
 export function deskCallLine(index: number, name: string, reason: string) {
   const sentence = reasonSentence(reason);
   const prefix = `${index}. ${name}. `;
   const full = `${prefix}${sentence}`;
   if (full.length <= 119) return `${full}.`;
-  const parts = sentence.split(", ");
-  const step = parts[parts.length - 1] || sentence;
-  const optional = parts.slice(0, -1);
-  const withoutContact = optional.filter((part) => !/contacto/i.test(part));
-  const attempts = [withoutContact];
-  for (let size = withoutContact.length - 1; size >= 0; size -= 1) {
-    attempts.push(withoutContact.slice(withoutContact.length - size));
+  const { prefixes, step } = splitDeskSentence(sentence);
+  const variants = meetingStepVariants(step || sentence);
+  const contactless = prefixes.filter((part) => !/contacto/i.test(part));
+  const lateOnly = contactless.filter((part) => /^(vencido|para hoy)\b/i.test(part));
+  const fits = (body: string) => `${prefix}${body}`.length <= 119;
+  for (const variant of variants) {
+    const bodies = [
+      joinDesk(prefixes, variant),
+      joinDesk(contactless, variant),
+      joinDesk(lateOnly, variant),
+    ];
+    for (const body of bodies) {
+      if (fits(body)) return finishDeskLine(prefix, body);
+    }
   }
-  for (const kept of attempts) {
-    const body = kept.length ? `${kept.join(", ")}, ${step}` : step;
-    if (`${prefix}${body}`.length <= 119) return finishDeskLine(prefix, body);
-  }
-  return finishDeskLine(prefix, step);
+  return finishDeskLine(prefix, variants[0] || sentence);
 }
 
 /** «¿Qué tengo pendiente hoy?»: siempre dice lo de hoy y si hay cobros. */
