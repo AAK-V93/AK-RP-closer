@@ -340,6 +340,12 @@ export type DeskFiling = {
   saldo?: number | null;
   note?: string;
   lastContact?: string;
+  /** razon_no_cierre already stored on the filing. */
+  objection?: string;
+  /** producto on the filing, or the call's offer name. */
+  offerName?: string;
+  /** temperatura only when the filing or the call already has it. */
+  temperature?: string;
 };
 
 export type DeskLine = {
@@ -459,17 +465,80 @@ function mentionedDay(note: string, today: string) {
   return { key, label: `${day} ${MONTH_SHORT[month]}` };
 }
 
+function objectionLabel(raw: string) {
+  const folded = foldDesk(raw);
+  if (/precio|dinero/.test(folded)) return "precio";
+  if (/momento/.test(folded)) return "el momento";
+  if (/consult/.test(folded)) return "consultarlo";
+  if (/confia|informacion/.test(folded)) return "confianza";
+  if (/otra persona|ya compro/.test(folded)) return "que ya compró con otra persona";
+  if (/no asist|no se present/.test(folded)) return "la inasistencia";
+  const short = raw.split("/")[0]?.trim().replace(/[.?!…]+$/g, "") || "";
+  if (!short || /^otro$/i.test(short)) return "";
+  const clipped = short.length <= 42 ? short : short.slice(0, 42).replace(/\s+\S*$/, "").trim();
+  if (!clipped) return "";
+  return clipped.charAt(0).toLowerCase() + clipped.slice(1);
+}
+
+/** Only fields that are already on the filing. An empty set stays the generic step. */
+function concreteFallback(
+  step: string,
+  extra?: { objection?: string; offerName?: string; temperature?: string },
+) {
+  const staged = actionForStage(step);
+  if (staged !== "retomar el contacto") return staged;
+  const objection = objectionLabel(String(extra?.objection || ""));
+  if (objection) return `resolver la objeción de ${objection}`;
+  const offer = String(extra?.offerName || "").trim();
+  if (offer && !/^(otros|null|sin oferta)$/i.test(offer)) return `reenviar la oferta de ${offer}`;
+  const temp = foldDesk(String(extra?.temperature || ""));
+  if (temp === "alto" || temp === "caliente") return "pedir la decisión";
+  if (temp === "medio") return "retomar con un mensaje concreto";
+  if (temp === "bajo" || temp === "frio") return "llamar en frío";
+  return staged;
+}
+
+/**
+ * A long or third-person agreement becomes one short imperative.
+ * Unknown prose is left alone so the caller can use a real field instead.
+ */
+function shortenAgreement(note: string) {
+  const clean = note.trim().replace(/[.?!…]+$/g, "").trim();
+  if (!clean) return null;
+  const folded = foldDesk(clean);
+  const narrative = /^(el|la|los|las)\s+(cliente|lead)\b/.test(folded);
+  if (!narrative && clean.length <= 60) return null;
+  if (/evalu/.test(folded) && /propuest/.test(folded)) {
+    if (/\bevaluara\b|\bdara\b|\besperar\b/.test(folded)) return "esperar su respuesta a la propuesta";
+    return "preguntar si ya evaluó la propuesta";
+  }
+  if (/propuest/.test(folded) && /respuest/.test(folded)) return "esperar su respuesta a la propuesta";
+  if (/precio/.test(folded)) return "resolver la objeción de precio";
+  if (/decidir|decision/.test(folded)) return "pedir la decisión";
+  if (/\breuni/.test(folded)) return "confirmar la reunión";
+  if (/cuota|\bcobr|\bpago\b/.test(folded)) return "cobrar la cuota";
+  if (/oferta|propuest/.test(folded)) return "preguntar si ya evaluó la propuesta";
+  return null;
+}
+
 /** The agreement is the next step. A date that already passed becomes a reagendar. Summaries are ignored. */
-export function nextDeskStep(note: string, step: string, today: string) {
+export function nextDeskStep(
+  note: string,
+  step: string,
+  today: string,
+  extra?: { objection?: string; offerName?: string; temperature?: string },
+) {
   const clean = note.trim().replace(/[.?!…]+$/g, "").trim();
   const mentioned = clean ? mentionedDay(clean, today) : null;
   if (mentioned && mentioned.key < today.slice(0, 10)) {
     return `tenían reunión el ${mentioned.label}, reagendar`;
   }
+  const shortened = shortenAgreement(clean);
+  if (shortened) return shortened;
   if (!clean || bareFollowup(clean) || clean.length > 80 || /transcri/i.test(clean)) {
-    return actionForStage(step);
+    return concreteFallback(step, extra);
   }
-  return clean;
+  return clean.charAt(0).toLowerCase() + clean.slice(1);
 }
 
 function deskReason(args: {
@@ -480,6 +549,9 @@ function deskReason(args: {
   step: string;
   lastContact: string;
   today: string;
+  objection?: string;
+  offerName?: string;
+  temperature?: string;
 }) {
   const late =
     args.lateDays > 0
@@ -493,7 +565,11 @@ function deskReason(args: {
       ? args.lateDays > 0
         ? `cobrar la cuota de ${moneyEs(args.amount)}`
         : `cuota de ${moneyEs(args.amount)} vence hoy`
-      : nextDeskStep(args.note, args.step, args.today);
+      : nextDeskStep(args.note, args.step, args.today, {
+          objection: args.objection,
+          offerName: args.offerName,
+          temperature: args.temperature,
+        });
   return [late, contact, next].filter(Boolean).join(", ");
 }
 
@@ -567,24 +643,40 @@ export function deskLinesFromFilings(rows: DeskFiling[], today: string): DeskLin
         step,
         lastContact: String(row.lastContact || "").slice(0, 10),
         today,
+        objection: row.objection,
+        offerName: row.offerName,
+        temperature: row.temperature,
       }),
     });
   }
   return prioritizeDesk(lines);
 }
 
+function lowerStepAfterComma(reason: string) {
+  const parts = reason.split(", ");
+  if (parts.length < 2) return reason;
+  const last = parts[parts.length - 1] || "";
+  if (!last) return reason;
+  parts[parts.length - 1] = last.charAt(0).toLowerCase() + last.slice(1);
+  return parts.join(", ");
+}
+
 function reasonSentence(reason: string) {
-  const text = reason.trim().replace(/[.?!…]+$/g, "").trim();
+  const text = lowerStepAfterComma(reason).trim().replace(/[.?!…]+$/g, "").trim();
   if (!text) return "Sin siguiente paso";
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** One period at the end, and the whole line stays near 120 characters. */
+/** One period at the end. The cut is always a whole word, near 120 characters. */
 export function deskCallLine(index: number, name: string, reason: string) {
   const sentence = reasonSentence(reason);
   const full = `${index}. ${name}. ${sentence}`;
   if (full.length <= 119) return `${full}.`;
-  const clipped = full.slice(0, 119).trimEnd().replace(/[.,;:\s]+$/g, "");
+  const min = `${index}. ${name}.`.length;
+  let clipped = full.slice(0, 118);
+  const space = clipped.lastIndexOf(" ");
+  if (space > min) clipped = clipped.slice(0, space);
+  clipped = clipped.trimEnd().replace(/[.,;:\s]+$/g, "");
   return `${clipped}…`;
 }
 

@@ -2,8 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { followupRepairIsCurrent, runFollowupRepairIfStale } from "./crm-apply";
+import { isTransientDbError } from "./prisma";
 
 const latest = new Date("2026-09-02T15:00:00.000Z");
+
+test("a cold connection error is not a missing schema", () => {
+  assert.equal(isTransientDbError(new Error("Can't reach database server at ep-cold")), true);
+  assert.equal(isTransientDbError(new Error("P1001: timeout")), true);
+  assert.equal(isTransientDbError(new Error('relation "LeadAlert" does not exist')), false);
+  assert.equal(isTransientDbError(new Error('column "threadId" does not exist')), false);
+});
 
 test("a repair watermark covers calls that are not newer", () => {
   assert.equal(followupRepairIsCurrent(null, null), true);

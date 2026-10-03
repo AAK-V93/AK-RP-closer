@@ -510,6 +510,24 @@ export function looksLikeOfferSetup(text: string) {
   return /\b(comision|precio de lista|como te pagan|que vendes|datos de pago)\b/.test(fold(raw));
 }
 
+/** A CRM or desk question must never fall through to the offer paste. */
+export function recognizedCrmQuestion(text: string) {
+  const raw = text.trim();
+  if (!raw || looksLikeOfferBlob(raw)) return false;
+  if (asksForPendingDesk(raw) || asksForMoneyStats(raw)) return true;
+  const q = fold(raw);
+  if (/\bse llama\b/.test(q)) return true;
+  if (/\b(me pago|pago la cuota|cuota de|reserva de|abono|quedamos|recuerdo|transcript|transcrip)\b/.test(q)) {
+    return true;
+  }
+  if (/\b(que oferta|cual es la oferta|cuanto ha pagado|cuanto pago|borra el pago)\b/.test(q)) return true;
+  return false;
+}
+
+export function crmReadFailureReply() {
+  return "No pude leer tus datos del CRM. Inténtalo otra vez en un momento.";
+}
+
 export function chatCapabilitiesReply() {
   return "Puedo decirte el cobrado y lo vendido de hoy, de esta semana y de este mes, el saldo por cobrar y el dinero en juego. También los pendientes de hoy, anotar un pago o un acuerdo, y cambiar el nombre de un lead. Dime cuál.";
 }
@@ -1314,6 +1332,63 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
   };
 }
 
+async function loadCrmChatRead(prisma: PrismaClient, userId: string, raw: string) {
+  const needsClassifyCount = deskQuestionKind(raw) === "summary";
+  const load = () =>
+    Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { crmPrefs: true } }),
+      prisma.lead.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          name: true,
+          offerName: true,
+          nextStep: true,
+          lastSummary: true,
+          amountPaid: true,
+        },
+      }),
+      prisma.callRecord.findMany({
+        where: { userId, filingStatus: { not: "skipped" } },
+        orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+        take: 2000,
+        select: {
+          leadName: true,
+          offerName: true,
+          title: true,
+          summary: true,
+          filingJson: true,
+          source: true,
+          sourceId: true,
+          cashCollected: true,
+          recordedAt: true,
+        },
+      }),
+      prisma.userOffer.findMany({
+        where: { userId },
+        select: { productName: true },
+      }),
+      needsClassifyCount
+        ? listPendingFilings(prisma, userId).catch((error) => {
+            console.error("chat classify count", error);
+            return [];
+          })
+        : Promise.resolve([]),
+    ]);
+  try {
+    return await load();
+  } catch (error) {
+    console.error("crm chat read", error);
+    if (!recognizedCrmQuestion(raw)) throw error;
+    try {
+      return await load();
+    } catch (again) {
+      console.error("crm chat read retry", again);
+      throw again;
+    }
+  }
+}
+
 export async function answerCrmChat(prisma: PrismaClient, userId: string, text: string) {
   const raw = text.trim();
   if (!raw) return null;
@@ -1322,57 +1397,31 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
       return formatMoneyStats(raw, await loadChatMoney(prisma, userId));
     } catch (error) {
       console.error("chat money stats", error);
-      return chatFailureReply(error);
+      try {
+        return formatMoneyStats(raw, await loadChatMoney(prisma, userId));
+      } catch (again) {
+        console.error("chat money stats retry", again);
+        return crmReadFailureReply();
+      }
     }
   }
   if (
     raw.length > 280 &&
+    !recognizedCrmQuestion(raw) &&
     !/\b(se llama|transcript|transcrip|quedamos|pag[oó]|oferta|producto|recuerdo|cash|borra|nada)\b/i.test(
       raw,
     )
   ) {
     return null;
   }
-  const needsClassifyCount = deskQuestionKind(raw) === "summary";
-  const [user, leadRows, callRows, offerRows, pendingFilings] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { crmPrefs: true } }),
-    prisma.lead.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        name: true,
-        offerName: true,
-        nextStep: true,
-        lastSummary: true,
-        amountPaid: true,
-      },
-    }),
-    prisma.callRecord.findMany({
-      where: { userId, filingStatus: { not: "skipped" } },
-      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
-      take: 2000,
-      select: {
-        leadName: true,
-        title: true,
-        summary: true,
-        filingJson: true,
-        source: true,
-        sourceId: true,
-        cashCollected: true,
-        recordedAt: true,
-      },
-    }),
-    prisma.userOffer.findMany({
-      where: { userId },
-      select: { productName: true },
-    }),
-    needsClassifyCount
-      ? listPendingFilings(prisma, userId).catch((error) => {
-          console.error("chat classify count", error);
-          return [];
-        })
-      : Promise.resolve([]),
-  ]);
+  let loaded: Awaited<ReturnType<typeof loadCrmChatRead>>;
+  try {
+    loaded = await loadCrmChatRead(prisma, userId, raw);
+  } catch (error) {
+    if (recognizedCrmQuestion(raw)) return crmReadFailureReply();
+    throw error;
+  }
+  const [user, leadRows, callRows, offerRows, pendingFilings] = loaded;
   const leads: ChatLead[] = leadRows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -1393,6 +1442,9 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
         cash_collected?: number | null;
         saldo_pendiente?: number | null;
         notas_crm?: string;
+        razon_no_cierre?: string;
+        producto?: string;
+        temperatura?: string;
       };
       const proximo = String(filing.proximo_seguimiento || "");
       const venta = Number(filing.venta_total);
@@ -1404,6 +1456,9 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
         proximo,
         step: String(filing.tipo_seguimiento || filing.acuerdo_seguimiento || ""),
         note: deskAgreement(filing),
+        objection: String(filing.razon_no_cierre || "").trim(),
+        offerName: String(filing.producto || row.offerName || "").trim(),
+        temperature: String(filing.temperatura || "").trim(),
         lastContact: contacted,
         closed: followupIsClosed({
           seguimiento_resultado: filing.seguimiento_resultado,
@@ -1470,6 +1525,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
   };
   const turn = interpretCrmChat(raw, ctx);
   if (turn.kind === "none") {
+    if (recognizedCrmQuestion(raw)) return chatCapabilitiesReply();
     if (looksLikeOfferSetup(raw)) return null;
     return chatCapabilitiesReply();
   }

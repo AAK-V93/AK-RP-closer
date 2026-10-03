@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   buildExtractorPattern,
   gapWeekCounts,
   matchesLearnedNonCommercial,
 } from "./extractor-feedback";
-import { analyzeCardStatus, coachCardStatus, followupCardStatus } from "./home-desk";
+import {
+  analyzeCardStatus,
+  coachCardStatus,
+  followupCardStatus,
+  practiceCardFromGuides,
+} from "./home-desk";
 import { quickFollowupIso } from "./followup-date";
 
 test("ten Impromptu corrections become a non-commercial rule", () => {
@@ -63,6 +69,32 @@ test("gap weeks split Monday to Monday", () => {
   );
   assert.equal(counts.thisWeek, 2);
   assert.equal(counts.lastWeek, 2);
+});
+
+test("the practice card keeps the drill off the hub payload", () => {
+  const card = practiceCardFromGuides([
+    { drills: ["  ", "resolver el precio antes de cerrar"], ready: true },
+    { drills: ["otro ejercicio"], ready: false },
+  ]);
+  assert.equal(
+    card.practiceHref,
+    `/practicar?focus=${encodeURIComponent("resolver el precio antes de cerrar")}`,
+  );
+  assert.equal(card.practiceStatus, "resolver el precio antes de cerrar");
+  assert.equal(card.newPattern, true);
+  const empty = practiceCardFromGuides([{ drills: [], ready: false }]);
+  assert.equal(empty.practiceHref, "/practicar");
+  assert.equal(empty.practiceStatus, "Elige con quién practicar");
+  assert.equal(empty.newPattern, false);
+  const hub = readFileSync(new URL("../app/api/hub/route.ts", import.meta.url), "utf8");
+  const screen = readFileSync(new URL("../components/home-screen.tsx", import.meta.url), "utf8");
+  const practice = readFileSync(new URL("../app/api/hub/practice/route.ts", import.meta.url), "utf8");
+  assert.equal(hub.includes("loadLiveGuides"), false);
+  assert.equal(hub.includes("practiceCardFromGuides"), false);
+  assert.match(screen, /\/api\/hub\/practice/);
+  assert.match(screen, /Elige con quién practicar/);
+  assert.match(practice, /practiceCardFromGuides/);
+  assert.match(practice, /select: \{ productName: true, playbook: true \}/);
 });
 
 test("quick follow-up chips land on real days", () => {
