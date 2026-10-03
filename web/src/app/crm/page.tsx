@@ -41,8 +41,8 @@ import { derivedPaso, operacionGlance } from "@/lib/crm-glance";
 import {
   AHORA_TAB_NOTE,
   COBRADO_PERIOD_NOTE,
-  PERIODO_TAB_NOTE,
   SEGUIMIENTOS_SALDO_NOTE,
+  periodoTabNote,
   cobradoPeriodLine,
   seguimientosHeader,
 } from "@/lib/crm-period-copy";
@@ -1042,7 +1042,7 @@ function PeriodoSheet({
   ];
   return (
     <div className="space-y-2">
-      <p className="text-xs text-fg3">{PERIODO_TAB_NOTE}</p>
+      <p className="text-xs text-fg3">{periodoTabNote()}</p>
       {/* Mes and total both come from the payment-dated rollup shared with Período. */}
       <p className="text-sm text-fg2">
         {cobradoPeriodLine(money(rendimiento.mes.cash), money(rendimiento.acumulado.cash))}
