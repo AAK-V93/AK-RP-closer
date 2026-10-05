@@ -446,6 +446,15 @@ export function enrichExtractorFollowup(
 
 export type ExtractorGap = { field: string; question: string; options?: string[] };
 
+/** One tap for a named lead: the follow-up kind, or that nothing was left. */
+function followupKindGap(name: string): ExtractorGap {
+  return {
+    field: "tipo_seguimiento",
+    question: `¿Qué seguimiento quedó con ${name}? (segunda reunión, pago, decisión, retomar)`,
+    options: ["Segunda reunión", "Pago", "Decisión", "Retomar", "No quedó"],
+  };
+}
+
 export function extractorGap(
   parsed: ExtractorJson,
   readyCrm: boolean,
@@ -512,14 +521,11 @@ export function extractorGap(
     };
   }
   if (parsed.requiere_seguimiento === null) {
-    return {
-      field: "requiere_seguimiento",
-      question: `¿Quedó algún seguimiento con ${name}?`,
-      options: ["Sí, quedó seguimiento", "No quedó"],
-    };
+    return followupKindGap(name);
   }
   if (!readyCrm) {
     if (parsed.requiere_revision_humana) {
+      if (parsed.cliente_real && !parsed.tipo_seguimiento) return followupKindGap(name);
       if (parsed.motivo_revision) {
         return { field: "revision", question: parsed.motivo_revision };
       }
@@ -532,6 +538,7 @@ export function extractorGap(
     return null;
   }
   if (parsed.requiere_revision_humana) {
+    if (parsed.cliente_real && !parsed.tipo_seguimiento) return followupKindGap(name);
     return {
       field: "revision",
       question:

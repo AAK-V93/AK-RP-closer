@@ -52,15 +52,28 @@ test("missing follow-up date is a specific hub question, not a generic revision"
   assert.match(gap?.question || "", /cuándo/i);
 });
 
-test("a yes or no on the follow-up is two chips, and attendance is chips too", () => {
+test("a named lead gets follow-up chips, and attendance stays chips too", () => {
   const follow = emptyExtractor();
   follow.cliente_real = "Dennis Sanchez Solorzano";
   follow.estado_agenda = "SHOW";
   follow.confianza.estado_agenda = 95;
   follow.requiere_seguimiento = null;
   const gap = extractorGap(follow, true);
-  assert.equal(gap?.field, "requiere_seguimiento");
-  assert.deepEqual(gap?.options, ["Sí, quedó seguimiento", "No quedó"]);
+  assert.equal(gap?.field, "tipo_seguimiento");
+  assert.deepEqual(gap?.options, ["Segunda reunión", "Pago", "Decisión", "Retomar", "No quedó"]);
+  assert.match(gap?.question || "", /Dennis Sanchez Solorzano/);
+
+  const loose = emptyExtractor();
+  loose.cliente_real = "Yajaira";
+  loose.estado_agenda = "SHOW";
+  loose.confianza.estado_agenda = 95;
+  loose.requiere_seguimiento = false;
+  loose.requiere_revision_humana = true;
+  loose.motivo_revision = "Hace falta confirmar un dato";
+  const yajaira = extractorGap(loose, true);
+  assert.equal(yajaira?.field, "tipo_seguimiento");
+  assert.ok(yajaira?.options?.includes("Retomar"));
+  assert.ok(yajaira?.options?.includes("No quedó"));
 
   const agenda = emptyExtractor();
   agenda.cliente_real = "Ana";

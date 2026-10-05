@@ -4,12 +4,15 @@ import { test } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BibliotecaPackList } from "../app/biblioteca/pack-list";
 import { RouteError } from "../components/route-error";
+import { BUILTIN_FOLLOWUP_PACKS } from "./followup-catalog";
 import {
   LIBRARY_INTRO,
   LIBRARY_SEARCH,
   libraryKindLabel,
+  librarySituationOptions,
   librarySortLabel,
   libraryUsageLine,
+  packMatchesSituation,
 } from "./library-copy";
 import { normalizeLibraryPayload } from "./library-pack";
 
@@ -126,6 +129,28 @@ test("biblioteca copy is plain Spanish for a closer", () => {
   assert.match(html, /Publicado por Biblioteca · 8 guiones · aún sin usar/);
   assert.match(html, /Retomar contacto · WhatsApp · aún sin usar/);
   assert.doesNotMatch(html, /RETOMAR|@Biblioteca|0 usos|puntuación|estrell/);
+});
+
+test("situation filters come from guiones that exist, and a missing one stays hidden", () => {
+  const packs = BUILTIN_FOLLOWUP_PACKS.map((pack) => ({
+    title: pack.title,
+    description: pack.description,
+    tags: pack.tags,
+    items: pack.scripts.map((row) => ({ type: row.type, recomendacion: row.recomendacion })),
+  }));
+  const options = librarySituationOptions(packs);
+  assert.ok(options.some((row) => row.label === "No contesta"));
+  assert.ok(options.some((row) => row.label === "Desconfiado"));
+  assert.equal(options.some((row) => row.id === "lo-consulto"), false);
+  const noContesta = options.find((row) => row.id === "no-contesta");
+  assert.ok(noContesta);
+  assert.equal(packMatchesSituation(packs[0], noContesta.id), true);
+  assert.equal(
+    librarySituationOptions([{ title: "Vacío", items: [{ type: "RETOMAR", recomendacion: "" }] }]).some(
+      (row) => row.id === "lo-consulto",
+    ),
+    false,
+  );
 });
 
 test("the route error offers a Spanish retry instead of the white screen", () => {

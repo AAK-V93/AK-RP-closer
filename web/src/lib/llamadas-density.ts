@@ -44,6 +44,30 @@ export type ConfirmChip = { label: string; field: string; value: string };
 const FOLLOWUP_KINDS = ["Segunda reunión", "Pago", "Decisión", "Retomar"];
 const AGENDA_KINDS = ["Asistió", "No asistió", "Reprogramó", "Acordó sin pago", "Cerró"];
 
+function namedLead(value?: string | null) {
+  const lead = realClientName(value);
+  if (!lead || /^sin nombre\b/i.test(lead) || /^llamada del\b/i.test(lead)) return "";
+  return lead;
+}
+
+function isYesNo(options: string[]) {
+  return (
+    options.length > 0 &&
+    options.every((label) => /^(s[ií],?\s*qued[oó] seguimiento|no qued[oó])$/i.test(label))
+  );
+}
+
+function declineChip(field = "requiere_seguimiento"): ConfirmChip {
+  return { label: "No quedó", field, value: "No quedó" };
+}
+
+function followupChips(): ConfirmChip[] {
+  return [
+    ...FOLLOWUP_KINDS.map((label) => ({ label, field: "tipo_seguimiento", value: label })),
+    declineChip(),
+  ];
+}
+
 /**
  * One tap for the question in front of the closer.
  * A name or an amount stays a text field. Sale yes/no only when that is the question.
@@ -56,15 +80,27 @@ export function pendingPromptActions(item: {
 }): { chips: ConfirmChip[]; sale: boolean; when: boolean; freeText: boolean } {
   const field = String(item.field || "");
   const options = (item.options || []).map((option) => String(option || "").trim()).filter(Boolean);
+  const named = Boolean(namedLead(item.leadName));
   if (field === "proximo_seguimiento") {
     return { chips: [], sale: false, when: true, freeText: false };
   }
   if (field === "venta_total" || field === "cash_collected") {
     return { chips: [], sale: false, when: false, freeText: true };
   }
+  // Dennis, Leonardo, José Mauricio (sí/no) and Yajaira (caja vacía) get the same one tap.
+  if (
+    named &&
+    (field === "requiere_seguimiento" || isYesNo(options) || (field === "revision" && options.length === 0))
+  ) {
+    return { chips: followupChips(), sale: false, when: false, freeText: false };
+  }
   if (options.length > 0 && field) {
     return {
-      chips: options.map((label) => ({ label, field, value: label })),
+      chips: options.map((label) =>
+        /^no qued[oó]/i.test(label)
+          ? declineChip(field === "tipo_seguimiento" ? "requiere_seguimiento" : field)
+          : { label, field, value: label },
+      ),
       sale: false,
       when: false,
       freeText: false,

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { practiceOfferGlance, practiceOfferLoadState, shortOfferBlurb } from "./practice-offer-glance";
+import {
+  offerSwitchLabel,
+  practiceOfferGlance,
+  practiceOfferLoadState,
+  shortOfferBlurb,
+} from "./practice-offer-glance";
 
 test("the practice drawer does not repeat the raw PDF", () => {
   const raw =
@@ -56,6 +61,15 @@ test("the glance lists prices and a bonus count", () => {
   assert.equal(glance.bonusCount, 10);
   assert.equal(glance.bonusNames[0], "Bono 1");
   assert.ok(glance.blurb.length < 200);
+});
+
+test("an offer chip names the bonuses and does not end on a hanging dot", () => {
+  assert.equal(offerSwitchLabel("Círculo Millonario", 2), "Círculo Millonario · 2 bonos");
+  assert.equal(offerSwitchLabel("Fertilidad Consciente", 1), "Fertilidad Consciente · 1 bono");
+  assert.equal(offerSwitchLabel("Círculo Millonario", 0), "Círculo Millonario");
+  assert.equal(offerSwitchLabel("  ", 0), "Oferta");
+  assert.equal(offerSwitchLabel("Círculo Millonario", 0).endsWith("·"), false);
+  assert.equal(offerSwitchLabel("Círculo Millonario", 2).endsWith("·"), false);
 });
 
 test("a failed practice offer read is not an empty offer", () => {

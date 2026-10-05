@@ -18,7 +18,9 @@ import {
   LIBRARY_PUBLISHED,
   LIBRARY_SEARCH,
   libraryKindLabel,
+  librarySituationOptions,
   librarySortLabel,
+  packMatchesSituation,
 } from "@/lib/library-copy";
 import {
   normalizeLibraryPayload,
@@ -31,6 +33,8 @@ export default function BibliotecaPage() {
   const [packs, setPacks] = useState<LibraryPack[]>([]);
   const [offers, setOffers] = useState<LibraryOffer[]>([]);
   const [query, setQuery] = useState("");
+  const [situation, setSituation] = useState("");
+  const [publishOpen, setPublishOpen] = useState(false);
   const [sort, setSort] = useState<"recientes" | "estrellas" | "puntaje">("puntaje");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -55,9 +59,11 @@ export default function BibliotecaPage() {
     load().catch((e) => setError(e instanceof Error ? e.message : "No se pudo cargar la biblioteca"));
   }, [status]);
 
+  const situations = useMemo(() => librarySituationOptions(packs), [packs]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const rows = (packs ?? []).filter((pack) => {
+      if (situation && !packMatchesSituation(pack, situation)) return false;
       if (!q) return true;
       const tags = pack.tags ?? [];
       return (
@@ -72,7 +78,7 @@ export default function BibliotecaPage() {
       if (sort === "puntaje") return b.puntaje - a.puntaje || b.stars - a.stars;
       return 0;
     });
-  }, [packs, query, sort]);
+  }, [packs, query, situation, sort]);
 
   const post = async (body: Record<string, unknown>) => {
     setError(null);
@@ -114,7 +120,9 @@ export default function BibliotecaPage() {
     <AppShell>
       <div className="space-y-6">
         <div className="space-y-2">
-          <h1 className="text-2xl font-light">Biblioteca</h1>
+          <h1 className="font-display text-[32px] font-semibold leading-tight tracking-[-0.01em] text-fg0 md:text-[40px]">
+            Biblioteca
+          </h1>
           <p className="text-sm text-fg3">{LIBRARY_INTRO}</p>
         </div>
 
@@ -144,8 +152,60 @@ export default function BibliotecaPage() {
               </div>
             </div>
 
+            {situations.length > 0 && (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Situación">
+                <button
+                  type="button"
+                  aria-pressed={!situation}
+                  onClick={() => setSituation("")}
+                  className={`inline-flex h-11 min-h-11 items-center rounded-full px-3.5 text-sm font-medium ${
+                    !situation ? "bg-fg0 text-[#FBF8F2]" : "border border-separator2 bg-bg1 text-fg0"
+                  }`}
+                >
+                  Todas
+                </button>
+                {situations.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-pressed={situation === item.id}
+                    onClick={() => setSituation(situation === item.id ? "" : item.id)}
+                    className={`inline-flex h-11 min-h-11 items-center rounded-full px-3.5 text-sm font-medium ${
+                      situation === item.id ? "bg-fg0 text-[#FBF8F2]" : "border border-separator2 bg-bg1 text-fg0"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {situation && filtered.length === 0 && packs.length > 0 ? (
+              <p className="text-sm text-fg3">Ningún guion para esa situación.</p>
+            ) : (
+            <BibliotecaPackList
+              packs={filtered}
+              offers={offers ?? []}
+              onPost={async (body) => {
+                try {
+                  await post(body);
+                  if (body.action === "install") {
+                    setNotice(LIBRARY_INSTALLED);
+                  }
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "No se pudo");
+                }
+              }}
+            />
+            )}
+
+            <div className="space-y-3">
+              <Button type="button" variant={publishOpen ? "outline" : "primary"} onClick={() => setPublishOpen((open) => !open)}>
+                {publishOpen ? "Ocultar formulario" : LIBRARY_PUBLISH_TITLE}
+              </Button>
+            {publishOpen && (
             <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-3">
-              <h2 className="text-lg font-light">{LIBRARY_PUBLISH_TITLE}</h2>
+              <h2 className="font-display text-[22px] font-semibold text-fg0">{LIBRARY_PUBLISH_TITLE}</h2>
               <p className="text-xs text-fg3">
                 {LIBRARY_PUBLISH_HELP}{" "}
                 <Link href="/ofertas" className="underline">
@@ -218,21 +278,8 @@ export default function BibliotecaPage() {
                 {publishing ? "Publicando…" : "Publicar"}
               </Button>
             </div>
-
-            <BibliotecaPackList
-              packs={filtered}
-              offers={offers ?? []}
-              onPost={async (body) => {
-                try {
-                  await post(body);
-                  if (body.action === "install") {
-                    setNotice(LIBRARY_INSTALLED);
-                  }
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : "No se pudo");
-                }
-              }}
-            />
+            )}
+            </div>
           </>
         )}
 

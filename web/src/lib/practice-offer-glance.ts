@@ -5,6 +5,14 @@ import {
 } from "@/lib/offer-commercial";
 import { clipVisible } from "@/lib/visible-text";
 
+/** Chip text for the offer switcher. No trailing dot when a status is missing. */
+export function offerSwitchLabel(name: string, bonusCount: number) {
+  const clean = String(name || "").replace(/\s+/g, " ").trim() || "Oferta";
+  const count = Math.max(0, Math.trunc(Number(bonusCount) || 0));
+  if (count <= 0) return clean;
+  return `${clean} · ${count === 1 ? "1 bono" : `${count} bonos`}`;
+}
+
 export type PracticeOfferGlance = {
   blurb: string;
   prices: string[];

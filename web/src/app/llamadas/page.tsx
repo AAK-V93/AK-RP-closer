@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/app-shell";
+import { CallsSkeleton } from "@/components/page-skeleton";
 import { FathomSyncPanel } from "@/components/fathom-sync-panel";
 import { CalendarConnectPanel } from "@/components/calendar-connect-panel";
 import { Button } from "@/components/ui/button";
@@ -241,6 +242,7 @@ export default function LlamadasPage() {
   const { status } = useSession();
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [queue, setQueue] = useState<Review[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [scope, setScope] = useState<HistoryScope>("semana");
   const hasQueue = queue.length > 0;
   // Inicio's «Confirmar →» links here. The list loads after the page, so scroll once it shows.
@@ -273,7 +275,8 @@ export default function LlamadasPage() {
           setShowSetup(true);
         }
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -364,6 +367,8 @@ export default function LlamadasPage() {
           <Button asChild variant="primary">
             <Link href="/login?callbackUrl=/llamadas">Entrar</Link>
           </Button>
+        ) : !loaded ? (
+          <CallsSkeleton />
         ) : (
           <>
             {queue.length > 0 && (

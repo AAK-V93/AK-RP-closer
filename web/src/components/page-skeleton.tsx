@@ -29,6 +29,17 @@ export function CrmSkeleton() {
   );
 }
 
+export function CallsSkeleton() {
+  return (
+    <div className="space-y-3" aria-busy="true" aria-label="Cargando llamadas">
+      <Bone className="h-12" />
+      <Bone className="h-28" />
+      <Bone className="h-28" />
+      <Bone className="h-16" />
+    </div>
+  );
+}
+
 export function WorkspaceSkeleton() {
   return (
     <div className="space-y-4" aria-busy="true" aria-label="Cargando tu espacio">

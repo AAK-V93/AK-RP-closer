@@ -568,7 +568,11 @@ export function fillExtractorField(
   if (field === "venta_total" && Number.isFinite(n)) next.venta_total = n;
   if (field === "cash_collected" && Number.isFinite(n)) next.cash_collected = n;
   if (field === "modo_pago") next.modo_pago = text;
-  if (field === "tipo_seguimiento") next.tipo_seguimiento = canonicalTipo(text) || null;
+  if (field === "tipo_seguimiento") {
+    const tipo = canonicalTipo(text);
+    next.tipo_seguimiento = tipo || null;
+    if (tipo) next.requiere_seguimiento = true;
+  }
   if (field === "proximo_seguimiento") {
     next.proximo_seguimiento = inferFollowupDate(text, new Date()) || text;
     next.confianza.proximo_seguimiento = 95;

@@ -7,7 +7,8 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { CALL_SECTION_LABELS, CallSection } from "@/data/training-session";
 import type { CoachingInsights } from "@/lib/coaching";
-import type { CoachBoard } from "@/lib/coach-offers";
+import { shownPracticeOutcome, type CoachBoard } from "@/lib/coach-offers";
+import { formatBogotaDay } from "@/lib/crm-time";
 import type { LiveGuide } from "@/lib/live-guide";
 import { CloserCoachChat } from "@/components/closer-coach-chat";
 import { CoachMarkdown } from "@/components/coach-markdown";
@@ -95,27 +96,6 @@ export default function CoachPage() {
               <p className="mt-1 text-[17px] leading-snug text-fg0 md:text-2xl">{board.monthVersus}</p>
             )}
             {board.monthCalls && <p className="mt-1 text-sm text-fg2">{board.monthCalls}</p>}
-            {board.offers.length > 0 && (
-              <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-                {board.offers.map((offer) => (
-                  <li key={offer.offerName} className="rounded-xl bg-bg0 px-3 py-3">
-                    <p className="text-sm font-medium text-fg0">{offer.offerName}</p>
-                    <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-fg3">Este mes</p>
-                    <p className="mt-0.5 text-sm text-fg0">
-                      {[offer.monthVersus, offer.monthCalls].filter(Boolean).join(" · ") || "Sin llamadas este mes"}
-                    </p>
-                    {(offer.historyVersus || offer.historyCalls) && (
-                      <>
-                        <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-fg3">Histórico</p>
-                        <p className="mt-0.5 text-sm text-fg2">
-                          {[offer.historyVersus, offer.historyCalls].filter(Boolean).join(" · ")}
-                        </p>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
           </section>
         )}
 
@@ -140,6 +120,28 @@ export default function CoachPage() {
               <Link href={`/practicar?focus=${encodeURIComponent(focus)}`}>Practicar esto</Link>
             </Button>
           </section>
+        )}
+
+        {hasNumbers && board && board.offers.length > 0 && (
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {board.offers.map((offer) => (
+              <li key={offer.offerName} className="rounded-2xl border border-separator1 bg-bg1 px-3 py-3">
+                <p className="text-sm font-medium text-fg0">{offer.offerName}</p>
+                <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-fg3">Este mes</p>
+                <p className="mt-0.5 text-sm text-fg0">
+                  {[offer.monthVersus, offer.monthCalls].filter(Boolean).join(" · ") || "Sin llamadas este mes"}
+                </p>
+                {(offer.historyVersus || offer.historyCalls) && (
+                  <>
+                    <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-fg3">Histórico</p>
+                    <p className="mt-0.5 text-sm text-fg2">
+                      {[offer.historyVersus, offer.historyCalls].filter(Boolean).join(" · ")}
+                    </p>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
 
         {status === "authenticated" && (
@@ -179,15 +181,18 @@ export default function CoachPage() {
                   <Link href={`/coach/${item.id}`} className="min-w-0 flex-1">
                     <p className="font-medium">{item.productName}</p>
                     <p className="text-xs text-fg3">
-                      {item.callSection === "qc_transcript"
-                        ? "Reporte de llamada real"
-                        : closerSpanish(CALL_SECTION_LABELS[item.callSection as CallSection] ?? item.callSection)}
-                      {" · "}
-                      {new Date(item.createdAt).toLocaleString("es")}
+                      {[
+                        item.callSection === "qc_transcript"
+                          ? "Reporte de llamada real"
+                          : closerSpanish(CALL_SECTION_LABELS[item.callSection as CallSection] ?? item.callSection),
+                        formatBogotaDay(item.createdAt),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
-                    {item.outcomeSummary && (
+                    {shownPracticeOutcome(closerSpanish(item.outcomeSummary || "")) && (
                       <CoachMarkdown
-                        text={closerSpanish(item.outcomeSummary)}
+                        text={shownPracticeOutcome(closerSpanish(item.outcomeSummary || ""))}
                         className="mt-1 text-xs text-fg2"
                       />
                     )}
