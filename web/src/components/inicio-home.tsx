@@ -563,7 +563,8 @@ function PersonSheet({
   const blocks = sheetBlocks({
     agreement: row.agreement,
     nextStep: row.step,
-    when: row.whenLabel,
+    when: row.whenDate,
+    age: row.whenAge,
     messages: drafts,
     material: row.material,
     phone: row.phone,
@@ -597,7 +598,7 @@ function PersonSheet({
             </SheetDescription>
           </div>
         </div>
-        {(blocks.agreement || blocks.nextStep || blocks.when) && (
+        {(blocks.agreement || blocks.nextStep || blocks.when || blocks.age) && (
           <section className="rounded-2xl border border-[#EBD3A8] bg-[#F6E7CC] px-3.5 py-3 text-[14px] leading-snug text-[#5E3B0B]">
             {blocks.agreement && (
               <div>
@@ -605,11 +606,21 @@ function PersonSheet({
                 <p className="mt-1">{blocks.agreement}</p>
               </div>
             )}
-            {(blocks.nextStep || blocks.when) && (
+            {blocks.nextStep && (
               <div className={blocks.agreement ? "mt-2.5 border-t border-[#EBD3A8] pt-2.5" : ""}>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A4C0E]">Siguiente paso</p>
-                {blocks.nextStep && <p className="mt-1 text-fg0">{blocks.nextStep}</p>}
-                {blocks.when && <p className="mt-1 text-[13px]">{blocks.when}</p>}
+                <p className="mt-1 text-fg0">{blocks.nextStep}</p>
+              </div>
+            )}
+            {(blocks.when || blocks.age) && (
+              <div
+                className={
+                  blocks.agreement || blocks.nextStep ? "mt-2.5 border-t border-[#EBD3A8] pt-2.5" : ""
+                }
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A4C0E]">Cuándo</p>
+                {blocks.when && <p className="mt-1 text-fg0">{blocks.when}</p>}
+                {blocks.age && <p className="mt-1">{blocks.age}</p>}
               </div>
             )}
           </section>

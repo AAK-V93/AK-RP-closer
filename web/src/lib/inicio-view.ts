@@ -155,6 +155,35 @@ export function followupChip(
   return { tone: "future", label: clock ? `${dayName} ${clock}` : dayName };
 }
 
+/**
+ * The sheet's «cuándo»: the calendar day in words, plus how late it is.
+ * A late chip that only says «Hace N días» hides the date; both stay when both exist.
+ */
+export function followupWhenParts(
+  row: { proximo?: string | null; dueAt?: string | null },
+  now = new Date(),
+): { date: string; age: string } {
+  const today = zonedDayKey(now);
+  const day = followupDay(row);
+  if (!day) return { date: "", age: "" };
+  const diff = calendarDaysBetween(day, today);
+  const clock = stampClock(row.proximo);
+  const [year, month, date] = day.split("-").map(Number);
+  const short = `${date} ${MONTHS_SHORT[month - 1] || ""}`.trim();
+  const dated = year && String(year) !== today.slice(0, 4) ? `${short} ${year}` : short;
+  if (diff < 0) {
+    const late = -diff;
+    return {
+      date: dated,
+      age: late === 1 ? "Hace 1 día sin respuesta" : `Hace ${late} días sin respuesta`,
+    };
+  }
+  if (diff === 0) return { date: clock ? `Hoy ${clock}` : "Hoy", age: "" };
+  if (diff === 1) return { date: clock ? `Mañana ${clock}` : "Mañana", age: "" };
+  const dayName = `${WEEKDAYS[weekdayOf(day)]} ${dated}`;
+  return { date: clock ? `${dayName} ${clock}` : dayName, age: "" };
+}
+
 export type InicioFollowupSource = {
   id: string;
   leadId?: string;
@@ -199,6 +228,10 @@ export type InicioRow = {
   material: string[];
   agreement: string;
   whenLabel: string;
+  /** Readable date of the follow-up («23 sep», «Hoy 3:00 pm»). Empty when there is no day. */
+  whenDate: string;
+  /** «Hace N días sin respuesta» when that day is already past. Empty otherwise. */
+  whenAge: string;
 };
 
 export type InicioList = {
@@ -424,6 +457,42 @@ function usableMessage(value: string) {
   return text;
 }
 
+const THIRD_PERSON = /\b(el|la|los|las)\s+(cliente|clienta|lead|prospecto)s?\b/i;
+
+function foldEs(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+/** A note about «el cliente» is not something you paste into their WhatsApp. */
+function messageToLead(value: string) {
+  const text = usableMessage(value);
+  if (!text || THIRD_PERSON.test(text)) return "";
+  return text;
+}
+
+/**
+ * What you can say to the person. A third-person CRM note becomes a short tú line,
+ * or nothing when we would only be talking about them.
+ */
+export function secondPersonCue(step: string) {
+  const text = step.replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (!THIRD_PERSON.test(text)) return quotableStep(text);
+  const folded = foldEs(text);
+  if (/evalu/.test(folded) && /propuest/.test(folded)) return "¿ya revisaste la propuesta?";
+  if (/propuest/.test(folded) && /(respuest|decisi)/.test(folded)) return "¿ya tienes una respuesta?";
+  if (/contador/.test(folded)) return "¿lo revisaste con tu contador?";
+  if (/espos|pareja/.test(folded)) return "¿lo hablaste con tu pareja?";
+  if (/\bsocio\b/.test(folded)) return "¿lo hablaste con tu socio?";
+  if (/cuota|\bcobr|\bpago\b/.test(folded)) return "¿seguimos con el pago?";
+  if (/decisi/.test(folded)) return "¿ya tienes una decisión?";
+  if (/reuni/.test(folded)) return "¿confirmamos la reunión?";
+  return "";
+}
+
 /** A stored agreement the closer can quote. A stage word or a pending-from line is not one. */
 export function quotableStep(step: string) {
   const text = step.replace(/\s+/g, " ").trim();
@@ -439,12 +508,15 @@ export function derivedFollowupMessages(args: { name: string; offer: string; ste
   const who = firstName(args.name);
   const hi = who ? `Hola ${who}` : "Hola";
   const offer = shownOffer(args.offer);
-  const step = quotableStep(args.step);
+  const step = secondPersonCue(args.step);
   const clock =
     args.when && !/sin respuesta/i.test(args.when) && /\d/.test(args.when) ? args.when.trim() : "";
   const lines: string[] = [];
   const lower = (value: string) => value.charAt(0).toLocaleLowerCase("es") + value.slice(1).replace(/\.+$/, "");
-  if (step) {
+  if (step.startsWith("¿")) {
+    lines.push(`${hi}, ${step}`);
+    lines.push(`${hi}, te escribo para saber cómo vas. ${step.charAt(0).toLocaleUpperCase("es")}${step.slice(1)}`);
+  } else if (step) {
     lines.push(`${hi}, te escribo por lo que quedamos: ${lower(step)}. ¿Seguimos?`);
     lines.push(`${hi}, ¿cómo vas con esto? ${step.charAt(0).toLocaleUpperCase("es") + step.slice(1)}`);
   }
@@ -486,7 +558,7 @@ export function messageIdeas(args: {
     if (!text || ideas.some((item) => item.replace(/\s+/g, " ") === text.replace(/\s+/g, " "))) return;
     ideas.push(text);
   };
-  push(String(args.suggested || ""));
+  push(messageToLead(String(args.suggested || "")));
   const offer = shownOffer(args.offer);
   const vars = scriptVars(args.name, offer);
   const want = String(args.tipo || "").trim().toUpperCase();
@@ -516,7 +588,10 @@ export function messageIdeas(args: {
 export type SheetBlocks = {
   agreement: string;
   nextStep: string;
+  /** Explicit date. Hidden when empty. */
   when: string;
+  /** «Hace N días sin respuesta», only when that age exists. */
+  age?: string;
   messages: string[];
   material: string[];
   phone: string;
@@ -527,12 +602,14 @@ export function sheetBlocks(args: SheetBlocks): SheetBlocks {
   const agreement = args.agreement.trim();
   const nextStep = args.nextStep.trim();
   const when = args.when.trim();
+  const age = String(args.age || "").trim();
   const generic = /^retomar el contacto$/i.test(nextStep);
   const step = !nextStep || generic || nextStep === agreement ? "" : nextStep;
   return {
     agreement,
     nextStep: step,
     when,
+    age: age && age !== when ? age : "",
     messages: args.messages.map((item) => item.trim()).filter(Boolean).slice(0, 3),
     material: args.material.map((item) => item.trim()).filter(Boolean),
     phone: args.phone.trim(),
@@ -555,6 +632,7 @@ export function buildInicioList(args: {
     const offer = shownOffer(row.oferta);
     const step = nextStepText(row, args.now);
     const chip = followupChip(row, args.now);
+    const whenParts = followupWhenParts(row, args.now);
     const commission = rowCommission({
       enJuego: row.enJuego,
       offer,
@@ -595,6 +673,8 @@ export function buildInicioList(args: {
       material,
       agreement: agreement ? cutAtWord(agreement, 180) : "",
       whenLabel: chip.label,
+      whenDate: whenParts.date,
+      whenAge: whenParts.age,
     };
   });
   return { rows, more: Math.max(0, ranked.length - rows.length), total: ranked.length };
