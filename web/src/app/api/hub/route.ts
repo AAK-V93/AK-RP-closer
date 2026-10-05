@@ -1219,12 +1219,13 @@ async function hubSnapshot(
 }
 
 /** «Qué quedó» is the agreement written on the follow-up's call, the same one /crm shows as Acuerdo. */
-function withCallAgreement<T extends { callId?: string; cliente?: string; proximo?: string }>(
+function withCallAgreement<T extends { callId?: string; cliente?: string; proximo?: string; contexto?: string }>(
   rows: T[],
-  operacion: { id: string; acuerdo?: string }[],
+  operacion: { id: string; acuerdo?: string; notas?: string }[],
   leads: { name?: string | null; nextStep?: string | null }[],
 ) {
   const byCall = new Map(operacion.map((row) => [row.id, String(row.acuerdo || "").trim()]));
+  const noteByCall = new Map(operacion.map((row) => [row.id, String(row.notas || "").trim()]));
   const nextByName = new Map<string, string>();
   for (const lead of leads) {
     const key = foldLeadName(String(lead.name || ""));
@@ -1236,6 +1237,7 @@ function withCallAgreement<T extends { callId?: string; cliente?: string; proxim
     return {
       ...row,
       callAcuerdo: byCall.get(String(row.callId || "")) || "",
+      callNote: noteByCall.get(String(row.callId || "")) || "",
       leadNextStep: nextByName.get(foldLeadName(String(row.cliente || ""))) || "",
       proximoNote: proximo.replace(/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?/, "").trim(),
     };

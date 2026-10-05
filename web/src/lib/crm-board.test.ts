@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { answerCrmFollowups } from "./crm-ask";
-import { buildCrmBoard, pagoLabel, type CrmBoardCall, type CrmBoardFollowup } from "./crm-board";
+import { buildCrmBoard, hoyMoreCount, pagoLabel, type CrmBoardCall, type CrmBoardFollowup } from "./crm-board";
 import { compareFollowupRank, followupRankInput } from "./crm-followups";
 
 const NOW = new Date("2026-10-05T01:00:00Z");
@@ -15,6 +15,29 @@ function followup(partial: Partial<CrmBoardFollowup> & { id: string; cliente: st
     ...partial,
   };
 }
+
+test("ver más counts only the people still hidden in hoy", () => {
+  assert.equal(hoyMoreCount(19), 12);
+  assert.equal(hoyMoreCount(7), 0);
+  assert.equal(hoyMoreCount(3), 0);
+});
+
+test("a stored note is the row when the agreement is empty", () => {
+  const board = buildCrmBoard({
+    now: NOW,
+    calls: [
+      {
+        id: "c1",
+        cliente: "Elber",
+        fecha: "2026-09-23",
+        estadoAgenda: "SHOW",
+        notas: "Quedó en revisar la propuesta y dar una respuesta.",
+      },
+    ],
+    followups: [followup({ id: "e", cliente: "Elber", proximo: "2026-09-23", acuerdo: "" })],
+  });
+  assert.equal(board.hoy[0]?.leftOff, "Quedó en revisar la propuesta y dar una respuesta.");
+});
 
 test("hoy matches the shared rank and skips a later date", () => {
   const followups: CrmBoardFollowup[] = [

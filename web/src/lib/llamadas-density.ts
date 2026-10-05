@@ -1,5 +1,5 @@
 import { realClientName } from "@/lib/crm-noise";
-import { zonedDayKey, zonedMonthRange, zonedWeekRange } from "@/lib/crm-time";
+import { formatBogotaDay, zonedDayKey, zonedMonthRange, zonedWeekRange } from "@/lib/crm-time";
 import { personLikeTitle, readableTitle } from "@/lib/plain-labels";
 
 /** Default history length. A week longer than this stays behind «Ver todas». */
@@ -17,16 +17,92 @@ function dayKeyOf(value?: string | null) {
   return "";
 }
 
+const TITLE_DAY = /\b(\d{1,2}\s+[a-záéíóúñ]+(?:\s+\d{4})?)/i;
+
 /**
  * The name the closer recognizes. A stored lead beats «Llamada del 28 sep, 11:04».
- * With no name, the date title stays — it is not replaced with a guess.
+ * With no name, say so: «Sin nombre · 28 sep». Do not invent a person.
  */
-export function pendingHeading(row: { leadName?: string | null; title?: string | null }) {
+export function pendingHeading(
+  row: { leadName?: string | null; title?: string | null; date?: string | null },
+  now = new Date(),
+) {
   const lead = realClientName(row.leadName);
-  if (lead && !/^llamada del\b/i.test(lead)) return readableTitle(lead);
+  if (lead && !/^llamada del\b/i.test(lead) && !/^sin nombre\b/i.test(lead)) return readableTitle(lead);
   const fromTitle = personLikeTitle(row.title);
   if (fromTitle) return readableTitle(fromTitle);
+  const fromDate = formatBogotaDay(row.date, now);
+  if (fromDate) return `Sin nombre · ${fromDate}`;
+  const titled = String(row.title || "").match(TITLE_DAY);
+  if (titled && /llamada del\b/i.test(String(row.title || ""))) return `Sin nombre · ${titled[1]}`;
+  if (!String(row.title || "").trim()) return "Sin nombre";
   return readableTitle(row.title);
+}
+
+export type ConfirmChip = { label: string; field: string; value: string };
+
+const FOLLOWUP_KINDS = ["Segunda reunión", "Pago", "Decisión", "Retomar"];
+const AGENDA_KINDS = ["Asistió", "No asistió", "Reprogramó", "Acordó sin pago", "Cerró"];
+
+/**
+ * One tap for the question in front of the closer.
+ * A name or an amount stays a text field. Sale yes/no only when that is the question.
+ */
+export function pendingPromptActions(item: {
+  field?: string | null;
+  options?: string[] | null;
+  showToggle?: boolean;
+  leadName?: string | null;
+}): { chips: ConfirmChip[]; sale: boolean; when: boolean; freeText: boolean } {
+  const field = String(item.field || "");
+  const options = (item.options || []).map((option) => String(option || "").trim()).filter(Boolean);
+  if (field === "proximo_seguimiento") {
+    return { chips: [], sale: false, when: true, freeText: false };
+  }
+  if (field === "venta_total" || field === "cash_collected") {
+    return { chips: [], sale: false, when: false, freeText: true };
+  }
+  if (options.length > 0 && field) {
+    return {
+      chips: options.map((label) => ({ label, field, value: label })),
+      sale: false,
+      when: false,
+      freeText: false,
+    };
+  }
+  if (field === "tipo_seguimiento") {
+    return {
+      chips: FOLLOWUP_KINDS.map((label) => ({ label, field, value: label })),
+      sale: false,
+      when: false,
+      freeText: false,
+    };
+  }
+  if (field === "requiere_seguimiento") {
+    return {
+      chips: [
+        { label: "Sí, quedó seguimiento", field, value: "Sí, quedó seguimiento" },
+        { label: "No quedó", field, value: "No quedó" },
+      ],
+      sale: false,
+      when: false,
+      freeText: false,
+    };
+  }
+  if (field === "estado_agenda") {
+    return {
+      chips: AGENDA_KINDS.map((label) => ({ label, field, value: label })),
+      sale: false,
+      when: false,
+      freeText: false,
+    };
+  }
+  const asksName = field === "cliente_real";
+  const unnamed = !realClientName(item.leadName);
+  const sale = Boolean(item.showToggle) || (asksName && unnamed);
+  let freeText = asksName || field === "revision" || field === "modo_pago";
+  if (!sale && !freeText) freeText = true;
+  return { chips: [], sale, when: false, freeText };
 }
 
 /**

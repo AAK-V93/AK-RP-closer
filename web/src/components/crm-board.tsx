@@ -6,6 +6,7 @@ import { WhenChip } from "@/components/inicio-home";
 import {
   CRM_BOARD_BUCKETS,
   CRM_HOY_CAP,
+  hoyMoreCount,
   type CrmBoard,
   type CrmBoardBucket,
   type CrmBoardPeriod,
@@ -92,15 +93,19 @@ export function CrmBoardView({
   useEffect(() => {
     setExpanded(false);
   }, [bucket, query]);
+  const hoyOverflow = hoyMoreCount(board.hoy.length);
   const hoyShown = expanded ? board.hoy : board.hoy.slice(0, CRM_HOY_CAP);
-  const hoyHidden = Math.max(0, board.hoy.length - hoyShown.length);
+  const hoyHidden = expanded ? 0 : hoyOverflow;
+  // «Ver más (N)» is the rest of hoy. Más adelante is not added into that number.
   const showLater =
-    bucket !== "seguimiento" || Boolean(query.trim()) ? true : expanded && board.rows.length > 0;
+    bucket !== "seguimiento" || Boolean(query.trim())
+      ? true
+      : (expanded || hoyOverflow === 0) && board.rows.length > 0;
   const laterAll = showLater ? board.rows : [];
   const laterCap = bucket === "seguimiento" || expanded ? laterAll.length : LIST_CAP;
   const laterShown = laterAll.slice(0, laterCap);
   const laterHidden = laterAll.length - laterShown.length;
-  const more = hoyHidden + (bucket === "seguimiento" && !query.trim() && !expanded ? board.rows.length : 0) + laterHidden;
+  const more = bucket === "seguimiento" && !query.trim() ? hoyHidden : hoyHidden + laterHidden;
   const countLabel = (value: number | null) => (value == null ? "sin datos" : String(value));
   return (
     <div className="space-y-4">

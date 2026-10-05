@@ -635,7 +635,7 @@ function PersonSheet({
                   blocks.agreement || blocks.nextStep ? "mt-2.5 border-t border-[#EBD3A8] pt-2.5" : ""
                 }
               >
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A4C0E]">Cuándo</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A4C0E]">Fecha que quedó</p>
                 {blocks.when && <p className="mt-1 text-fg0">{blocks.when}</p>}
                 {blocks.age && <p className="mt-1">{blocks.age}</p>}
               </div>

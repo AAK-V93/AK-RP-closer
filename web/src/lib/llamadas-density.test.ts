@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { visibleCallTitle } from "./crm-noise";
-import { pendingHeading, sliceCallHistory } from "./llamadas-density";
+import { pendingHeading, pendingPromptActions, sliceCallHistory } from "./llamadas-density";
 
 const NOW = new Date("2026-10-05T15:00:00Z");
 
@@ -18,10 +18,47 @@ test("a lead name beats Llamada del 28 sep", () => {
     }),
     "Milagros y Ronald",
   );
-  assert.match(
+  assert.equal(
     pendingHeading({ leadName: "", title: "Llamada del 28 sep, 11:04" }),
-    /Llamada del 28 sep/,
+    "Sin nombre · 28 sep",
   );
+  assert.equal(
+    pendingHeading({ leadName: "", title: "Llamada del 28 sep, 11:04", date: "2026-09-28T16:04:00.000Z" }, NOW),
+    "Sin nombre · 28 sep",
+  );
+});
+
+test("every confirm question has a one-tap path, and a name stays text", () => {
+  const follow = pendingPromptActions({
+    field: "requiere_seguimiento",
+    options: ["Sí, quedó seguimiento", "No quedó"],
+    showToggle: false,
+    leadName: "Dennis Sanchez Solorzano",
+  });
+  assert.deepEqual(
+    follow.chips.map((chip) => chip.label),
+    ["Sí, quedó seguimiento", "No quedó"],
+  );
+  assert.equal(follow.freeText, false);
+
+  const kinds = pendingPromptActions({ field: "tipo_seguimiento", leadName: "Katherine Rodríguez" });
+  assert.deepEqual(
+    kinds.chips.map((chip) => chip.label),
+    ["Segunda reunión", "Pago", "Decisión", "Retomar"],
+  );
+
+  const who = pendingPromptActions({ field: "cliente_real", leadName: "", showToggle: false });
+  assert.equal(who.sale, true);
+  assert.equal(who.freeText, true);
+  assert.equal(who.chips.length, 0);
+
+  const sale = pendingPromptActions({ field: "", showToggle: true, leadName: "" });
+  assert.equal(sale.sale, true);
+  assert.equal(sale.freeText, false);
+
+  const amount = pendingPromptActions({ field: "venta_total", leadName: "Ana", showToggle: true });
+  assert.equal(amount.freeText, true);
+  assert.equal(amount.sale, false);
 });
 
 test("history defaults to this week, capped, with the month and the rest behind", () => {

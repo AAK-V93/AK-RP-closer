@@ -615,6 +615,7 @@ export default function CrmPage() {
         modoPago: row.modoPago,
         seguimientoResultado: row.seguimientoResultado,
         razonNoCierre: row.razonNoCierre,
+        notas: row.notas,
       })),
       followups: people.map((row) => ({
         id: row.id,

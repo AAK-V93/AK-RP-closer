@@ -206,6 +206,8 @@ export type InicioFollowupSource = {
   leadNextStep?: string;
   /** Words on proximo_seguimiento that are not just a date. */
   proximoNote?: string;
+  /** Call note already stored. Used when the agreement itself is empty. */
+  callNote?: string;
   proximaAccion?: string;
   queHacer?: string;
   contexto?: string;
@@ -265,6 +267,7 @@ function sentence(text: string) {
     .trim();
   if (!clean || /vencid/i.test(clean) || DATE_ONLY.test(clean)) return "";
   if (/^seguimientos?$/i.test(clean) || /^retomar el contacto$/i.test(clean)) return "";
+  if (/^(whatsapp|llamada|email|zoom|meet|presencial)$/i.test(clean)) return "";
   return clean.charAt(0).toLocaleUpperCase("es") + clean.slice(1);
 }
 
@@ -300,7 +303,7 @@ export function pendingFromPhrase(row: InicioFollowupSource, now = new Date()) {
   return clock ? `${kind} el ${short} a las ${clock}` : `${kind} el ${short}`;
 }
 
-/** «Qué quedó»: the call agreement, the lead's next step, then a concrete action. A dated follow-up beats the generic line. */
+/** «Qué quedó»: the call agreement, the lead's next step, then a stored note. A date alone is not the summary. */
 export function nextStepText(row: InicioFollowupSource, now = new Date()) {
   for (const candidate of [
     row.callAcuerdo,
@@ -309,6 +312,7 @@ export function nextStepText(row: InicioFollowupSource, now = new Date()) {
     row.proximaAccion,
     row.queHacer,
     row.contexto,
+    row.callNote,
     row.proximoNote,
   ]) {
     const text = sentence(String(candidate || ""));
@@ -568,8 +572,6 @@ export function derivedFollowupMessages(args: { name: string; offer: string; ste
   const hi = who ? `Hola ${who}` : "Hola";
   const offer = shownOffer(args.offer);
   const step = secondPersonCue(args.step);
-  const clock =
-    args.when && !/sin respuesta/i.test(args.when) && /\d/.test(args.when) ? args.when.trim() : "";
   const lines: string[] = [];
   const lower = (value: string) => value.charAt(0).toLocaleLowerCase("es") + value.slice(1).replace(/\.+$/, "");
   if (step.startsWith("¿")) {
@@ -586,7 +588,6 @@ export function derivedFollowupMessages(args: { name: string; offer: string; ste
         : `${hi}, ¿seguimos con ${offer}?`,
     );
   }
-  if (clock) lines.push(`${hi}, ¿seguimos ${lower(clock)}?`);
   if (lines.length < 2) {
     lines.push(`${hi}, te escribo para retomar el contacto. ¿Seguimos?`);
     lines.push(who ? `${who}, ¿retomamos el contacto?` : `${hi}, ¿retomamos el contacto?`);
@@ -635,7 +636,6 @@ export function messageIdeas(args: {
       name: args.name,
       offer,
       step: args.step || "",
-      when: args.when,
     })) {
       push(line);
       if (ideas.length >= 3) break;

@@ -11,7 +11,7 @@ import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
 import { internasSinCliente, joinDistinct } from "@/lib/crm-noise";
 import { formatBogotaDay } from "@/lib/crm-time";
-import { pendingHeading, sliceCallHistory, type HistoryScope } from "@/lib/llamadas-density";
+import { pendingHeading, pendingPromptActions, sliceCallHistory, type HistoryScope } from "@/lib/llamadas-density";
 import { plainStatus, porConfirmarLabel } from "@/lib/plain-labels";
 
 type CallRow = {
@@ -63,13 +63,32 @@ function PendingCard({
 }) {
   const [otherDate, setOtherDate] = useState("");
   const [answer, setAnswer] = useState("");
+  const prompt = pendingPromptActions(item);
+  const chipClass =
+    "inline-flex h-11 min-h-11 items-center rounded-full border border-separator2 bg-bg0 px-3.5 text-sm font-medium text-fg0 disabled:opacity-60";
   return (
     <div className="space-y-3 rounded-2xl border border-separator1 bg-bg1 p-4">
       <div>
         <p className="text-[15px] font-semibold text-fg0">{pendingHeading(item)}</p>
         <p className="text-[13px] text-fg3">{shownDate(item.date)}</p>
       </div>
-      {item.showToggle ? (
+      {item.question && <p className="text-sm text-fg1">{item.question}</p>}
+      {prompt.chips.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {prompt.chips.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSend({ action: "answer", field: chip.field, value: chip.value })}
+              className={chipClass}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {prompt.sale && (
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
@@ -90,106 +109,83 @@ function PendingCard({
             No es una venta
           </Button>
         </div>
-      ) : (
-        <div className="space-y-2">
-          {item.question && <p className="text-sm text-fg1">{item.question}</p>}
-          {Array.isArray(item.options) && item.options.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {item.options.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() =>
-                    onSend({
-                      action: "answer",
-                      field: item.field || "producto",
-                      value: option,
-                    })
-                  }
-                  className="inline-flex h-11 min-h-11 items-center rounded-full border border-separator2 bg-bg0 px-3.5 text-sm font-medium text-fg0 disabled:opacity-60"
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          ) : item.field === "proximo_seguimiento" ? (
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  ["hoy", "Hoy"],
-                  ["manana", "Mañana"],
-                  ["semana", "Esta semana"],
-                ] as const
-              ).map(([choice, label], index) => (
-                <Button
-                  key={choice}
-                  size="sm"
-                  className="min-h-11"
-                  variant={index === 0 ? "primary" : "outline"}
-                  disabled={disabled}
-                  onClick={() =>
-                    onSend({
-                      action: "answer",
-                      field: "proximo_seguimiento",
-                      value: quickFollowupIso(choice),
-                    })
-                  }
-                >
-                  {label}
-                </Button>
-              ))}
-              <input
-                type="date"
-                lang="es-CO"
-                value={otherDate}
-                onChange={(event) => setOtherDate(event.target.value)}
-                className="h-11 min-h-[44px] min-w-11 rounded-md border border-separator1 bg-bg0 px-2 text-xs lg:h-8 lg:min-h-0 lg:min-w-0"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={disabled || !otherDate}
-                onClick={() =>
-                  onSend({
-                    action: "answer",
-                    field: "proximo_seguimiento",
-                    value: otherDate,
-                  })
-                }
-              >
-                Otra fecha
-              </Button>
-            </div>
-          ) : (
-            <form
-              className="flex gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!answer.trim()) return;
+      )}
+      {prompt.when && (
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ["hoy", "Hoy"],
+              ["manana", "Mañana"],
+              ["semana", "Esta semana"],
+            ] as const
+          ).map(([choice, label], index) => (
+            <Button
+              key={choice}
+              size="sm"
+              className="min-h-11"
+              variant={index === 0 ? "primary" : "outline"}
+              disabled={disabled}
+              onClick={() =>
                 onSend({
                   action: "answer",
-                  field: item.field || "revision",
-                  value: answer.trim(),
-                });
-              }}
+                  field: "proximo_seguimiento",
+                  value: quickFollowupIso(choice),
+                })
+              }
             >
-              <input
-                value={answer}
-                onChange={(event) => setAnswer(event.target.value)}
-                className="h-11 min-h-[44px] min-w-11 flex-1 rounded-md border border-separator1 bg-bg0 px-2 text-sm lg:h-8 lg:min-h-0 lg:min-w-0"
-                placeholder="La respuesta"
-              />
-              <button
-                type="submit"
-                disabled={disabled || !answer.trim()}
-                className="inline-flex h-11 min-h-11 shrink-0 items-center justify-center rounded-[10px] bg-fg0 px-3.5 text-sm font-semibold text-[#FBF8F2] disabled:bg-[#E8E0D4] disabled:text-fg0 disabled:opacity-100"
-              >
-                {disabled ? "Guardando…" : "Guardar"}
-              </button>
-            </form>
-          )}
+              {label}
+            </Button>
+          ))}
+          <input
+            type="date"
+            lang="es-CO"
+            value={otherDate}
+            onChange={(event) => setOtherDate(event.target.value)}
+            className="h-11 min-h-[44px] min-w-11 rounded-md border border-separator1 bg-bg0 px-2 text-xs lg:h-8 lg:min-h-0 lg:min-w-0"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled || !otherDate}
+            onClick={() =>
+              onSend({
+                action: "answer",
+                field: "proximo_seguimiento",
+                value: otherDate,
+              })
+            }
+          >
+            Otra fecha
+          </Button>
         </div>
+      )}
+      {prompt.freeText && (
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!answer.trim()) return;
+            onSend({
+              action: "answer",
+              field: item.field || "revision",
+              value: answer.trim(),
+            });
+          }}
+        >
+          <input
+            value={answer}
+            onChange={(event) => setAnswer(event.target.value)}
+            className="h-11 min-h-[44px] min-w-11 flex-1 rounded-md border border-separator1 bg-bg0 px-2 text-sm lg:h-8 lg:min-h-0 lg:min-w-0"
+            placeholder={item.field === "cliente_real" ? "El nombre" : "La respuesta"}
+          />
+          <button
+            type="submit"
+            disabled={disabled || !answer.trim()}
+            className="inline-flex h-11 min-h-11 shrink-0 items-center justify-center rounded-[10px] bg-fg0 px-3.5 text-sm font-semibold text-[#FBF8F2] disabled:bg-[#E8E0D4] disabled:text-fg0 disabled:opacity-100"
+          >
+            {disabled ? "Guardando…" : "Guardar"}
+          </button>
+        </form>
       )}
     </div>
   );

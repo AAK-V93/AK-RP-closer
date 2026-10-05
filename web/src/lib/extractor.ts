@@ -466,6 +466,7 @@ export function extractorGap(
     return {
       field: "estado_agenda",
       question: `¿${name} asistió, no asistió, reprogramó, acordó o cerró?`,
+      options: ["Asistió", "No asistió", "Reprogramó", "Acordó sin pago", "Cerró"],
     };
   }
   const offerNames = (offers || []).map((offer) => offer.productName).filter(Boolean);
@@ -514,15 +515,18 @@ export function extractorGap(
     return {
       field: "requiere_seguimiento",
       question: `¿Quedó algún seguimiento con ${name}?`,
+      options: ["Sí, quedó seguimiento", "No quedó"],
     };
   }
   if (!readyCrm) {
     if (parsed.requiere_revision_humana) {
+      if (parsed.motivo_revision) {
+        return { field: "revision", question: parsed.motivo_revision };
+      }
       return {
         field: "revision",
-        question:
-          parsed.motivo_revision ||
-          `¿Se hizo la llamada con ${name}? Asistió, no asistió o reprogramó`,
+        question: `¿Se hizo la llamada con ${name}? Asistió, no asistió o reprogramó`,
+        options: ["Asistió", "No asistió", "Reprogramó"],
       };
     }
     return null;

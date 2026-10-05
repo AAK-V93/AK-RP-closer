@@ -49,3 +49,18 @@ export function isNonSalesCall(estado?: string | null) {
   const value = normalizeEstadoAgenda(estado);
   return value === "INTERNA" || value === "NO_COMERCIAL";
 }
+
+/** Spanish chips the closer taps. Empty when the words are not an agenda state. */
+export function agendaFromCloserWords(text: string) {
+  const folded = String(text || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (!folded) return "";
+  if (/no asist|no show|no se present/.test(folded)) return "NO SHOW";
+  if (/reprogram/.test(folded)) return "REPROGRAMA";
+  if (/acuerd|acordo/.test(folded)) return "ACUERDO SIN PAGO";
+  if (/\bcerr|\bcerro|cierre/.test(folded)) return "CIERRE VENTA";
+  if (/\basist|se hizo|\bshow\b/.test(folded)) return "SHOW";
+  return "";
+}

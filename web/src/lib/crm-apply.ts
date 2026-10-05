@@ -30,7 +30,7 @@ import { addDays, parseCrmPrefs, parseFollowupDate, patchCrmPref } from "@/lib/c
 import { canonicalTipo } from "@/lib/call-normalize";
 import { inferCallDate, inferFollowupDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
 import { zonedDayKey } from "@/lib/crm-time";
-import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
+import { agendaFromCloserWords, isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
 import { statusFromEstadoAgenda } from "@/lib/crm-activa";
 import { recordExtractorFeedback } from "@/lib/extractor-feedback";
 
@@ -558,7 +558,9 @@ export function fillExtractorField(
   const text = value.trim();
   const n = Number(text.replace(/[^\d.-]/g, ""));
   if (field === "cliente_real") next.cliente_real = text;
-  if (field === "estado_agenda") next.estado_agenda = normalizeEstadoAgenda(text);
+  if (field === "estado_agenda") {
+    next.estado_agenda = agendaFromCloserWords(text) || normalizeEstadoAgenda(text);
+  }
   if (field === "producto") {
     next.producto = text;
     next.confianza.producto = 95;
@@ -582,11 +584,9 @@ export function fillExtractorField(
   if (field === "revision") {
     next.requiere_revision_humana = false;
     next.motivo_revision = null;
-    if (/no show/i.test(text)) next.estado_agenda = "NO SHOW";
-    else if (/reprog/i.test(text)) next.estado_agenda = "REPROGRAMA";
-    else if (/cerr/i.test(text) || /pag/i.test(text)) next.estado_agenda = "CIERRE VENTA";
-    else if (/acuerdo/i.test(text)) next.estado_agenda = "ACUERDO SIN PAGO";
-    else if (/show/i.test(text)) next.estado_agenda = "SHOW";
+    const fromChip = agendaFromCloserWords(text);
+    if (fromChip) next.estado_agenda = fromChip;
+    else if (/pag/i.test(text)) next.estado_agenda = "CIERRE VENTA";
   }
   next.confianza = {
     ...next.confianza,
