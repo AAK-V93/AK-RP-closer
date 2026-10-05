@@ -300,7 +300,14 @@ test("phone tab bar: Inicio, Llamadas, Práctica, CRM and Más with Coach, Ofert
   const ask = readFileSync(new URL("../components/crm-ask.tsx", import.meta.url), "utf8");
   assert.match(ask, /bottom-\[calc\(4rem\+env\(safe-area-inset-bottom\)\)\] md:bottom-0/);
   const practice = readFileSync(new URL("../app/(practice)/layout.tsx", import.meta.url), "utf8");
-  assert.match(practice, /PracticeTabBar/);
+  assert.match(practice, /PracticeShell/);
+  assert.doesNotMatch(practice, /SidebarProvider/);
+  const page = readFileSync(new URL("../app/(practice)/practicar/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(page, /AuthMenu/);
+  assert.doesNotMatch(page, /PRACTICE_NAV/);
+  const practiceShell = readFileSync(new URL("../components/practice-tab-bar.tsx", import.meta.url), "utf8");
+  assert.match(practiceShell, /MobileTabBar/);
+  assert.match(practiceShell, /AppShell/);
 });
 
 test("the same rank and the same open count for Inicio and the CRM", () => {
@@ -532,6 +539,7 @@ test("the person sheet hides a block that has no real data", () => {
     material: [],
     phone: "",
   });
+  assert.equal(both.agreement, "Quedó en revisar la propuesta y dar una respuesta.");
   assert.equal(both.nextStep, "");
   assert.equal(both.when, "Pendiente desde el 23 sep");
   assert.match(both.age || "", /sin respuesta/);

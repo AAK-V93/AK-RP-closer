@@ -42,3 +42,15 @@ test("missing follow-up date is a specific hub question, not a generic revision"
   assert.equal(gap?.field, "proximo_seguimiento");
   assert.match(gap?.question || "", /cuándo/i);
 });
+
+test("the follow-up kind is four chips, not a blank the closer has to type", () => {
+  const parsed = emptyExtractor();
+  parsed.cliente_real = "Katerine Rodríguez";
+  parsed.estado_agenda = "SHOW";
+  parsed.confianza.estado_agenda = 95;
+  parsed.requiere_seguimiento = true;
+  parsed.tipo_seguimiento = null;
+  const gap = extractorGap(parsed, true);
+  assert.equal(gap?.field, "tipo_seguimiento");
+  assert.deepEqual(gap?.options, ["Segunda reunión", "Pago", "Decisión", "Retomar"]);
+});

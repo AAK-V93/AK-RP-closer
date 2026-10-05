@@ -73,3 +73,16 @@ export const voicesData: Record<VoiceId, Voice> = {
 };
 
 export const voices: Voice[] = Object.values(voicesData);
+
+/** Idle picker. Five labels; the rest stay behind «Más voces». Ids are unchanged. */
+export const CURATED_VOICE_IDS: VoiceId[] = [
+  VoiceId.CHARON,
+  VoiceId.KORE,
+  VoiceId.SULAFAT,
+  VoiceId.PUCK,
+  VoiceId.ALGENIB,
+];
+
+export function curatedVoices() {
+  return CURATED_VOICE_IDS.map((id) => voicesData[id]);
+}

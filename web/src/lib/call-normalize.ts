@@ -22,6 +22,8 @@ export function canonicalTipo(raw: string | null | undefined) {
   for (const tipo of TIPOS_SEGUIMIENTO) {
     if (foldTipo(tipo) === folded) return tipo;
   }
+  // The classify chips say «Pago». That is the pending-payment follow-up, not a new type.
+  if (folded === "pago") return "PAGO PENDIENTE";
   return "";
 }
 

@@ -12,6 +12,7 @@ import {
   followupCardStatus,
   clientPatternPhrase,
   practiceCardFromGuides,
+  spokenPracticeFocus,
 } from "./home-desk";
 import { quickFollowupIso } from "./followup-date";
 
@@ -111,7 +112,12 @@ test("the practice card keeps the drill off the hub payload", () => {
     "",
   );
   assert.equal(pattern.drill, "resolver el precio antes de cerrar");
-  assert.match(pattern.practiceHref, /focus=/);
+  assert.equal(
+    pattern.practiceHref,
+    `/practicar?focus=${encodeURIComponent("lo tengo que consultar")}`,
+  );
+  assert.equal(spokenPracticeFocus("lo tengo que consultar"), "lo tengo que consultar");
+  assert.equal(spokenPracticeFocus("resolver el precio antes de cerrar"), "");
   assert.equal(practiceCardFromGuides([{ drills: ["solo el ejercicio"], missingInLosses: [] }]).pattern, "");
   const empty = practiceCardFromGuides([{ drills: [], ready: false }]);
   assert.equal(empty.practiceHref, "/practicar");

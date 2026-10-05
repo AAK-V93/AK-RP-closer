@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { closerSpanish } from "@/lib/closer-spanish";
+import { clientPatternPhrase, spokenPracticeFocus } from "@/lib/home-desk";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -45,7 +46,7 @@ import {
   DifficultyLevel,
 } from "@/data/training-session";
 import { LANGUAGES, LanguageCode } from "@/data/languages";
-import { VoiceId, voices } from "@/data/voices";
+import { curatedVoices, VoiceId, voices, voicesData } from "@/data/voices";
 import {
   requiresPitchSummary,
   shouldShowProspectBrief,
@@ -132,6 +133,7 @@ export function TrainingSetupForm() {
     }[]
   >([]);
   const [loadingReplay, setLoadingReplay] = useState(false);
+  const [moreVoices, setMoreVoices] = useState(false);
 
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
@@ -148,11 +150,31 @@ export function TrainingSetupForm() {
   const showBrief = shouldShowProspectBrief(callSection);
   const needsPitch = requiresPitchSummary(callSection);
   const practiceKind = trainingState.training.practiceKind || "compose";
+  const kindRef = useRef(practiceKind);
+  kindRef.current = practiceKind;
 
   useEffect(() => {
     if (!focus) return;
     dispatch({ type: "SET_TRAINING", payload: { practiceFocus: closerSpanish(focus) } });
   }, [dispatch, focus]);
+
+  // No explicit call or drill: start on the line Inicio already shows.
+  useEffect(() => {
+    if (focus || callParam || modeParam === "replay") return;
+    let cancelled = false;
+    fetch("/api/hub/practice")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { pattern?: string } | null) => {
+        if (cancelled || kindRef.current === "replay") return;
+        const phrase = clientPatternPhrase(String(data?.pattern || ""));
+        if (!phrase) return;
+        dispatch({ type: "SET_TRAINING", payload: { practiceFocus: phrase, practiceKind: "compose" } });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [callParam, dispatch, focus, modeParam]);
 
   useEffect(() => {
     if (
@@ -320,15 +342,15 @@ export function TrainingSetupForm() {
 
   return (
     <Form {...form}>
-      <form className="flex flex-col md:h-full">
+      <form className="flex flex-col">
         {serverReady === false && (
           <p className="text-xs text-destructive py-2">
             Falta la configuración del servicio de voz.
           </p>
         )}
 
-        <div className="space-y-4 py-2 md:min-h-0 md:flex-grow md:overflow-y-auto md:py-4">
-          <div className="rounded-lg border border-separator1 bg-bg0 p-3 space-y-2">
+        <div className="space-y-4 py-2">
+          <div className="space-y-2 rounded-2xl border border-separator1 bg-bg0 p-3">
             <p className="text-sm font-semibold text-fg0">Tu oferta</p>
             {offers.length > 1 && (
               <select
@@ -404,9 +426,9 @@ export function TrainingSetupForm() {
                 {ready ? "Editar oferta y llamadas" : "Subir oferta y llamadas"}
               </Link>
             </Button>
-            {trainingState.training.practiceFocus && practiceKind === "compose" && (
-              <p className="text-xs text-primary">
-                Objetivo: {closerSpanish(trainingState.training.practiceFocus)}
+            {spokenPracticeFocus(trainingState.training.practiceFocus || "") && practiceKind === "compose" && (
+              <p className="text-sm text-fg0">
+                Hoy te dicen «{spokenPracticeFocus(trainingState.training.practiceFocus || "")}».
               </p>
             )}
           </div>
@@ -541,30 +563,64 @@ export function TrainingSetupForm() {
           <FormField
             control={form.control}
             name="voice"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Voz del prospecto</FormLabel>
-                <Select
-                  disabled={shouldConnect}
-                  onValueChange={field.onChange}
-                  value={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent className="max-h-60">
-                    {voices.map((voice) => (
-                      <SelectItem key={voice.id} value={voice.id}>
+            render={({ field }) => {
+              const current = voicesData[field.value as VoiceId];
+              const curated = curatedVoices();
+              const extra = current && !curated.some((voice) => voice.id === current.id) ? [current] : [];
+              return (
+                <FormItem>
+                  <FormLabel>Voz del prospecto</FormLabel>
+                  <div className="flex flex-wrap gap-2">
+                    {[...extra, ...curated].map((voice) => (
+                      <button
+                        key={voice.id}
+                        type="button"
+                        disabled={shouldConnect}
+                        aria-pressed={field.value === voice.id}
+                        onClick={() => field.onChange(voice.id)}
+                        className={
+                          field.value === voice.id
+                            ? "inline-flex h-11 min-h-11 items-center rounded-full bg-fg0 px-3 text-sm font-medium text-[#FBF8F2]"
+                            : "inline-flex h-11 min-h-11 items-center rounded-full border border-separator2 bg-bg0 px-3 text-sm text-fg0"
+                        }
+                      >
                         {voice.label}
-                      </SelectItem>
+                      </button>
                     ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
+                    <button
+                      type="button"
+                      disabled={shouldConnect}
+                      aria-expanded={moreVoices}
+                      onClick={() => setMoreVoices((open) => !open)}
+                      className="inline-flex h-11 min-h-11 items-center rounded-full border border-separator2 px-3 text-sm text-fg2"
+                    >
+                      {moreVoices ? "Menos voces" : "Más voces"}
+                    </button>
+                  </div>
+                  {moreVoices && (
+                    <Select
+                      disabled={shouldConnect}
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent className="max-h-60">
+                        {voices.map((voice) => (
+                          <SelectItem key={voice.id} value={voice.id}>
+                            {voice.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <FormMessage />
+                </FormItem>
+              );
+            }}
           />
 
           <FormField

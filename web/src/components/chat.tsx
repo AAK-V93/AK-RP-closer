@@ -35,6 +35,7 @@ import {
   nextPracticeRetry,
 } from "@/lib/practice-retry";
 import { formatPracticeTimings, practiceClockParts, practiceErrorTitle, sumPracticeTimings } from "@/lib/practice-qa";
+import { spokenPracticeFocus } from "@/lib/home-desk";
 
 export function Chat() {
   const connectionState = useConnectionState();
@@ -281,7 +282,7 @@ export function Chat() {
   const showSession = isChatRunning;
 
   return (
-    <div className="relative flex flex-col h-full min-h-0 overflow-hidden min-w-0">
+    <div className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
       <div className="shrink-0 px-3 pt-3 pb-1 md:px-4 md:pt-4">
         <ChatControls />
       </div>
@@ -295,7 +296,14 @@ export function Chat() {
             phase !== "preparing" &&
             phase !== "error" && (
             <div className="text-center max-w-md px-2 mb-4 space-y-3">
-              <h2 className="text-xl font-light">Tú abres la reunión</h2>
+              <h2 className="font-display text-2xl font-semibold tracking-[-0.01em] text-fg0">
+                Tú abres la reunión
+              </h2>
+              {spokenPracticeFocus(training.practiceFocus || "") && (
+                <p className="text-sm font-medium text-fg0">
+                  Hoy te dicen «{spokenPracticeFocus(training.practiceFocus || "")}».
+                </p>
+              )}
               <p className="text-sm text-fg2">
                 El prospecto ya está en la llamada, en silencio. No te va a
                 saludar primero. Cuando entres, hablas tú.
@@ -336,8 +344,11 @@ export function Chat() {
           )}
 
           {qaMode && (
-            <p className="mb-3 rounded-full border border-separator1 px-3 py-1 text-xs text-fg2">
-              Modo prueba (sin micrófono)
+            <p
+              data-practice-qa="1"
+              className="mb-3 max-w-md rounded-2xl border border-[#EBD3A8] bg-[#F6E7CC] px-3 py-2 text-sm text-[#5E3B0B]"
+            >
+              Modo prueba: no usa el micrófono. Sirve para revisar la pantalla.
               {stageTimings.length || liveStage || clockParts
                 ? ` · ${formatPracticeTimings(
                     liveStage ? [...stageTimings, liveStage] : stageTimings,

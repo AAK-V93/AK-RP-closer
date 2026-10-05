@@ -1,3 +1,5 @@
+import { humanizeSlashDates } from "@/lib/crm-time";
+
 const STATUS_LABELS: Record<string, string> = {
   SHOW: "Asistió",
   "NO SHOW": "No asistió",
@@ -161,22 +163,52 @@ export function porConfirmarLabel(count: number) {
 
 const SMALL_NAME = new Set(["de", "del", "la", "el", "los", "las", "y", "e", "en"]);
 
-/** «KATHERINE REINOSO» → «Katherine Reinoso». A normal title stays as written. */
-export function readableTitle(value: string | null | undefined) {
+/** «KATHERINE REINOSO» → «Katherine Reinoso». A slash date becomes «30 sep». */
+export function readableTitle(value: string | null | undefined, now = new Date()) {
   const text = String(value || "").trim();
   const letters = text.replace(/[^\p{L}]/gu, "");
-  if (letters.length < 4) return text;
-  const upper = letters.replace(/[^\p{Lu}]/gu, "");
-  if (upper.length / letters.length < 0.7) return text;
-  return text
-    .toLocaleLowerCase("es")
-    .split(/(\s+)/)
-    .map((part, index) => {
-      if (!part.trim()) return part;
-      if (index > 0 && SMALL_NAME.has(part)) return part;
-      return part.charAt(0).toLocaleUpperCase("es") + part.slice(1);
-    })
-    .join("");
+  let shown = text;
+  if (letters.length >= 4) {
+    const upper = letters.replace(/[^\p{Lu}]/gu, "");
+    if (upper.length / letters.length >= 0.7) {
+      shown = text
+        .toLocaleLowerCase("es")
+        .split(/(\s+)/)
+        .map((part, index) => {
+          if (!part.trim()) return part;
+          if (index > 0 && SMALL_NAME.has(part)) return part;
+          return part.charAt(0).toLocaleUpperCase("es") + part.slice(1);
+        })
+        .join("");
+    }
+  }
+  return humanizeSlashDates(shown, now);
+}
+
+const GENERIC_CALL_TITLE = /^(llamada|impromptu|google meet|zoom|meet|reuni[oó]n)\b/i;
+
+/** A recording title that is already a person's name, not a date or a meeting label. */
+export function personLikeTitle(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (text.length < 3 || text.length > 80) return "";
+  if (/\d/.test(text) || /[·|/]/.test(text)) return "";
+  if (GENERIC_CALL_TITLE.test(text)) return "";
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 1 || words.length > 5) return "";
+  return text;
+}
+
+/**
+ * The question uses the name already stored on the call.
+ * The extractor's other spelling (Katherine vs Katerine) is not a new person.
+ */
+export function questionWithStoredName(question: string, storedName: string, parsedName: string) {
+  const stored = storedName.trim();
+  const parsed = parsedName.trim();
+  const text = String(question || "");
+  if (!stored || !parsed || stored === parsed) return text;
+  if (!text.includes(parsed)) return text;
+  return text.split(parsed).join(stored);
 }
 
 /** "1 llamada real" / "4 llamadas reales". */
