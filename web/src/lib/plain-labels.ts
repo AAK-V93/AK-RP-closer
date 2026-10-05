@@ -153,6 +153,32 @@ export function presentChatState(value: unknown, key = ""): unknown {
   return out;
 }
 
+/** Same sentence as Inicio's banner. Llamadas must use this, not a second wording. */
+export function porConfirmarLabel(count: number) {
+  const n = Math.max(0, Math.trunc(Number(count) || 0));
+  return n === 1 ? "Tienes 1 llamada por confirmar" : `Tienes ${n} llamadas por confirmar`;
+}
+
+const SMALL_NAME = new Set(["de", "del", "la", "el", "los", "las", "y", "e", "en"]);
+
+/** «KATHERINE REINOSO» → «Katherine Reinoso». A normal title stays as written. */
+export function readableTitle(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  const letters = text.replace(/[^\p{L}]/gu, "");
+  if (letters.length < 4) return text;
+  const upper = letters.replace(/[^\p{Lu}]/gu, "");
+  if (upper.length / letters.length < 0.7) return text;
+  return text
+    .toLocaleLowerCase("es")
+    .split(/(\s+)/)
+    .map((part, index) => {
+      if (!part.trim()) return part;
+      if (index > 0 && SMALL_NAME.has(part)) return part;
+      return part.charAt(0).toLocaleUpperCase("es") + part.slice(1);
+    })
+    .join("");
+}
+
 /** "1 llamada real" / "4 llamadas reales". */
 export function countPhrase(count: number, singular: string, plural: string) {
   const n = Math.trunc(Number(count) || 0);

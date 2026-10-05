@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { AppShell } from "@/components/app-shell";
@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
 import { internasSinCliente, joinDistinct } from "@/lib/crm-noise";
-import { formatCrmDate } from "@/lib/crm-time";
-import { countPhrase, plainStatus } from "@/lib/plain-labels";
+import { formatBogotaDay } from "@/lib/crm-time";
+import { plainStatus, porConfirmarLabel, readableTitle } from "@/lib/plain-labels";
 
 type CallRow = {
   id: string;
@@ -41,8 +41,7 @@ type Review = {
 
 function shownDate(value?: string | null) {
   if (!value) return "Sin fecha";
-  const date = new Date(value);
-  return formatCrmDate(date) || "Sin fecha";
+  return formatBogotaDay(value) || "Sin fecha";
 }
 
 export default function LlamadasPage() {
@@ -62,6 +61,8 @@ export default function LlamadasPage() {
   const [auditingId, setAuditingId] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [showInternas, setShowInternas] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
+  const decidedSetup = useRef(false);
 
   const loadCalls = () =>
     fetch("/api/llamadas")
@@ -75,6 +76,12 @@ export default function LlamadasPage() {
             : [];
         setQueue(nextQueue);
         setReview(nextQueue[0] || null);
+        if (!decidedSetup.current) {
+          decidedSetup.current = true;
+          setShowSetup(nextQueue.length === 0);
+        } else if (nextQueue.length === 0) {
+          setShowSetup(true);
+        }
       })
       .catch(() => undefined);
 
@@ -134,12 +141,13 @@ export default function LlamadasPage() {
 
   return (
     <AppShell wide>
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="mx-auto max-w-3xl space-y-4">
         <div>
-          <h1 className="text-2xl font-light">Mis llamadas</h1>
-          <p className="text-sm text-fg3">
-            Una sola biblioteca. Grabaciones o archivos. De aquí salen la práctica
-            por voz, el coach y el CRM.
+          <h1 className="font-display text-[32px] font-semibold leading-tight tracking-[-0.01em] text-fg0 md:text-[40px]">
+            Mis llamadas
+          </h1>
+          <p className="mt-1 text-sm text-fg3">
+            Grabaciones y archivos. De aquí salen la práctica, el coach y el CRM.
           </p>
         </div>
 
@@ -149,146 +157,170 @@ export default function LlamadasPage() {
           </Button>
         ) : (
           <>
-            <FathomSyncPanel authenticated />
-            <CalendarConnectPanel authenticated />
-            <Button asChild variant="outline" size="sm">
-              <Link href="/ofertas">Subir archivos o pegar una transcripción</Link>
-            </Button>
             {queue.length > 0 && review && (
-              <div
-                id="por-clasificar"
-                className="scroll-mt-4 rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
-              >
-                <p className="text-[11px] uppercase tracking-wide text-fg3">
-                  {countPhrase(queue.length, "llamada por clasificar", "llamadas por clasificar")}
-                </p>
-                <ul className="space-y-1">
-                  {queue.map((item) => (
-                    <li key={item.id} className="text-sm">
-                      <span className="font-medium">{item.title}</span>
-                      <span className="text-fg3"> · {shownDate(item.date)}</span>
-                    </li>
-                  ))}
-                </ul>
-                {review.showToggle ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      className="min-h-11"
-                      variant="primary"
-                      disabled={reviewing}
-                      onClick={() => void sendReview({ action: "commercial" })}
-                    >
-                      Es comercial
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="min-h-11"
-                      variant="outline"
-                      disabled={reviewing}
-                      onClick={() => void sendReview({ action: "non_commercial" })}
-                    >
-                      No es comercial
-                    </Button>
+              <section id="por-clasificar" className="scroll-mt-4 space-y-3">
+                <div className="flex min-w-0 items-center justify-between gap-2 rounded-[14px] border border-[#EBD3A8] bg-[#F6E7CC] py-2 pl-3 pr-2 md:gap-3 md:py-3 md:pl-[18px] md:pr-3.5">
+                  <p className="min-w-0 text-[13px] font-medium text-[#5E3B0B] md:text-[15px]">
+                    {porConfirmarLabel(queue.length)}
+                  </p>
+                </div>
+                <div className="space-y-3 rounded-2xl border border-separator1 bg-bg1 p-4">
+                  <div>
+                    <p className="text-[15px] font-semibold text-fg0">{readableTitle(review.title)}</p>
+                    <p className="text-[13px] text-fg3">{shownDate(review.date)}</p>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-sm">{review.question}</p>
-                    {Array.isArray(review.options) && review.options.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {review.options.map((option) => (
+                  {review.showToggle ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        className="min-h-11"
+                        variant="primary"
+                        disabled={reviewing}
+                        onClick={() => void sendReview({ action: "commercial" })}
+                      >
+                        Sí, es una venta
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="min-h-11"
+                        variant="outline"
+                        disabled={reviewing}
+                        onClick={() => void sendReview({ action: "non_commercial" })}
+                      >
+                        No es una venta
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {review.question && <p className="text-sm text-fg1">{review.question}</p>}
+                      {Array.isArray(review.options) && review.options.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {review.options.map((option, index) => (
+                            <Button
+                              key={option}
+                              size="sm"
+                              className="min-h-11"
+                              variant={index === 0 ? "primary" : "outline"}
+                              disabled={reviewing}
+                              onClick={() =>
+                                void sendReview({
+                                  action: "answer",
+                                  field: review.field || "producto",
+                                  value: option,
+                                })
+                              }
+                            >
+                              {option}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : review.field === "proximo_seguimiento" ? (
+                        <div className="flex flex-wrap gap-2">
+                          {(
+                            [
+                              ["hoy", "Hoy"],
+                              ["manana", "Mañana"],
+                              ["semana", "Esta semana"],
+                            ] as const
+                          ).map(([choice, label], index) => (
+                            <Button
+                              key={choice}
+                              size="sm"
+                              className="min-h-11"
+                              variant={index === 0 ? "primary" : "outline"}
+                              disabled={reviewing}
+                              onClick={() =>
+                                void sendReview({
+                                  action: "answer",
+                                  field: "proximo_seguimiento",
+                                  value: quickFollowupIso(choice),
+                                })
+                              }
+                            >
+                              {label}
+                            </Button>
+                          ))}
+                          <input
+                            type="date"
+                            lang="es-CO"
+                            value={otherDate}
+                            onChange={(event) => setOtherDate(event.target.value)}
+                            className="h-11 min-h-[44px] min-w-11 rounded-md border border-separator1 bg-bg0 px-2 text-xs lg:h-8 lg:min-h-0 lg:min-w-0"
+                          />
                           <Button
-                            key={option}
                             size="sm"
-                            className="min-h-11"
                             variant="outline"
-                            disabled={reviewing}
-                            onClick={() =>
-                              void sendReview({
-                                action: "answer",
-                                field: review.field || "producto",
-                                value: option,
-                              })
-                            }
-                          >
-                            {option}
-                          </Button>
-                        ))}
-                      </div>
-                    ) : review.field === "proximo_seguimiento" ? (
-                      <div className="flex flex-wrap gap-2">
-                        {(
-                          [
-                            ["hoy", "Hoy"],
-                            ["manana", "Mañana"],
-                            ["semana", "Esta semana"],
-                          ] as const
-                        ).map(([choice, label]) => (
-                          <Button
-                            key={choice}
-                            size="sm"
-                            className="min-h-11"
-                            variant="outline"
-                            disabled={reviewing}
+                            disabled={reviewing || !otherDate}
                             onClick={() =>
                               void sendReview({
                                 action: "answer",
                                 field: "proximo_seguimiento",
-                                value: quickFollowupIso(choice),
+                                value: otherDate,
                               })
                             }
                           >
-                            {label}
+                            Otra fecha
                           </Button>
-                        ))}
-                        <input
-                          type="date"
-                          value={otherDate}
-                          onChange={(event) => setOtherDate(event.target.value)}
-                          className="h-11 min-h-[44px] min-w-11 rounded-md border border-separator1 bg-bg0 px-2 text-xs lg:h-8 lg:min-h-0 lg:min-w-0"
-                        />
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          disabled={reviewing || !otherDate}
-                          onClick={() =>
+                        </div>
+                      ) : (
+                        <form
+                          className="flex gap-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            if (!answer.trim()) return;
                             void sendReview({
                               action: "answer",
-                              field: "proximo_seguimiento",
-                              value: otherDate,
-                            })
-                          }
+                              field: review.field || "revision",
+                              value: answer.trim(),
+                            });
+                          }}
                         >
-                          Otra fecha
-                        </Button>
-                      </div>
-                    ) : (
-                      <form
-                        className="flex gap-2"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          if (!answer.trim()) return;
-                          void sendReview({
-                            action: "answer",
-                            field: review.field || "revision",
-                            value: answer.trim(),
-                          });
-                        }}
-                      >
-                        <input
-                          value={answer}
-                          onChange={(event) => setAnswer(event.target.value)}
-                          className="flex-1 h-11 min-h-[44px] min-w-11 rounded-md border border-separator1 bg-bg0 px-2 text-sm lg:h-8 lg:min-h-0 lg:min-w-0"
-                          placeholder="La respuesta"
-                        />
-                        <Button size="sm" variant="primary" disabled={reviewing || !answer.trim()}>
-                          Guardar
-                        </Button>
-                      </form>
-                    )}
-                  </div>
-                )}
-              </div>
+                          <input
+                            value={answer}
+                            onChange={(event) => setAnswer(event.target.value)}
+                            className="h-11 min-h-[44px] min-w-11 flex-1 rounded-md border border-separator1 bg-bg0 px-2 text-sm lg:h-8 lg:min-h-0 lg:min-w-0"
+                            placeholder="La respuesta"
+                          />
+                          <Button size="sm" variant="primary" disabled={reviewing || !answer.trim()}>
+                            Guardar
+                          </Button>
+                        </form>
+                      )}
+                    </div>
+                  )}
+                  {queue.length > 1 && (
+                    <p className="text-[13px] text-fg3">
+                      También:{" "}
+                      {queue
+                        .slice(1, 4)
+                        .map((item) => readableTitle(item.title))
+                        .join(", ")}
+                      {queue.length > 4 ? ` y ${queue.length - 4} más` : ""}
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
+            {showSetup ? (
+              <>
+                <FathomSyncPanel authenticated />
+                <CalendarConnectPanel authenticated />
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/ofertas">Subir archivos o pegar una transcripción</Link>
+                </Button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowSetup(true)}
+                className="flex w-full items-center justify-between gap-3 rounded-2xl border border-separator1 bg-bg1 px-4 py-3 text-left"
+              >
+                <span>
+                  <span className="block text-sm font-medium text-fg0">Grabaciones</span>
+                  <span className="block text-[13px] text-fg3">Conectar o traer el historial</span>
+                </span>
+                <span className="text-sm font-medium text-fg2">Abrir</span>
+              </button>
             )}
             {auditError && (
               <p className="text-sm text-destructive">{auditError}</p>
@@ -297,11 +329,11 @@ export default function LlamadasPage() {
               {primary.map((row) => (
                 <div
                   key={`${row.source}-${row.id}`}
-                  className="rounded-xl border border-separator1 bg-bg1 px-3 py-2 flex items-start justify-between gap-3"
+                  className="flex items-start justify-between gap-3 rounded-2xl border border-separator1 bg-bg1 px-3 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm truncate" title={row.title}>
-                      {row.title}
+                    <p className="whitespace-normal break-words text-sm" title={row.title}>
+                      {readableTitle(row.title)}
                     </p>
                     <p className="text-xs text-fg3">
                       {joinDistinct([
@@ -338,7 +370,7 @@ export default function LlamadasPage() {
                             });
                             const data = await response.json();
                             if (!response.ok) {
-                              throw new Error(data.error || "No se pudo auditar");
+                              throw new Error(data.error || "No se pudo revisar");
                             }
                             await loadCalls();
                             if (data.sessionId) {
@@ -348,14 +380,14 @@ export default function LlamadasPage() {
                             setAuditError(
                               error instanceof Error
                                 ? error.message
-                                : "No se pudo auditar",
+                                : "No se pudo revisar",
                             );
                           } finally {
                             setAuditingId(null);
                           }
                         }}
                       >
-                        {auditingId === row.id ? "Analizando…" : "Auditar"}
+                        {auditingId === row.id ? "Analizando…" : "Revisar"}
                       </Button>
                     ) : null}
                     <Button asChild size="sm" variant="outline">
@@ -390,11 +422,11 @@ export default function LlamadasPage() {
                 internas.map((row) => (
                   <div
                     key={`${row.source}-${row.id}`}
-                    className="rounded-xl border border-separator1 bg-bg1 px-3 py-2 flex items-start justify-between gap-3"
+                    className="flex items-start justify-between gap-3 rounded-2xl border border-separator1 bg-bg1 px-3 py-3"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm truncate" title={row.title}>
-                      {row.title}
+                      <p className="whitespace-normal break-words text-sm" title={row.title}>
+                      {readableTitle(row.title)}
                     </p>
                       <p className="text-xs text-fg3">
                         {joinDistinct([
@@ -431,7 +463,7 @@ export default function LlamadasPage() {
                               });
                               const data = await response.json();
                               if (!response.ok) {
-                                throw new Error(data.error || "No se pudo auditar");
+                                throw new Error(data.error || "No se pudo revisar");
                               }
                               await loadCalls();
                               if (data.sessionId) {
@@ -441,14 +473,14 @@ export default function LlamadasPage() {
                               setAuditError(
                                 error instanceof Error
                                   ? error.message
-                                  : "No se pudo auditar",
+                                  : "No se pudo revisar",
                               );
                             } finally {
                               setAuditingId(null);
                             }
                           }}
                         >
-                          {auditingId === row.id ? "Analizando…" : "Auditar"}
+                          {auditingId === row.id ? "Analizando…" : "Revisar"}
                         </Button>
                       ) : null}
                       <Button asChild size="sm" variant="outline">

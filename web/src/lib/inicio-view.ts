@@ -156,8 +156,8 @@ export function followupChip(
 }
 
 /**
- * The sheet's «cuándo»: the calendar day in words, plus how late it is.
- * A late chip that only says «Hace N días» hides the date; both stay when both exist.
+ * The sheet's «cuándo». A future or today date is the next step, with the hour
+ * only when the closer wrote one. A past day is «Pendiente desde», not a new cita.
  */
 export function followupWhenParts(
   row: { proximo?: string | null; dueAt?: string | null },
@@ -173,8 +173,9 @@ export function followupWhenParts(
   const dated = year && String(year) !== today.slice(0, 4) ? `${short} ${year}` : short;
   if (diff < 0) {
     const late = -diff;
+    const pending = clock ? `Pendiente desde el ${dated}, ${clock}` : `Pendiente desde el ${dated}`;
     return {
-      date: dated,
+      date: pending,
       age: late === 1 ? "Hace 1 día sin respuesta" : `Hace ${late} días sin respuesta`,
     };
   }
@@ -466,6 +467,25 @@ function foldEs(value: string) {
     .toLowerCase();
 }
 
+/**
+ * A stored third-person note, rewritten only when the meaning is already in the sentence.
+ * Anything else stays, so we don't invent a fact.
+ */
+export function closerFacingNote(value: string) {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (!text || !THIRD_PERSON.test(text)) return text;
+  const folded = foldEs(text);
+  if (/evalu/.test(folded) && /propuest/.test(folded)) return "Quedó en revisar la propuesta y dar una respuesta.";
+  if (/propuest/.test(folded) && /(respuest|decisi)/.test(folded)) return "Quedó en responder sobre la propuesta.";
+  if (/contador/.test(folded)) return "Quedó en revisarlo con su contador.";
+  if (/espos|pareja/.test(folded)) return "Quedó en hablarlo con su pareja.";
+  if (/\bsocio\b/.test(folded)) return "Quedó en hablarlo con su socio.";
+  if (/cuota|\bcobr|\bpago\b/.test(folded)) return "Quedó en seguir con el pago.";
+  if (/decisi/.test(folded)) return "Quedó en tomar una decisión.";
+  if (/reuni/.test(folded)) return "Quedó en confirmar la reunión.";
+  return text;
+}
+
 /** A note about «el cliente» is not something you paste into their WhatsApp. */
 function messageToLead(value: string) {
   const text = usableMessage(value);
@@ -503,6 +523,13 @@ export function quotableStep(step: string) {
   return text;
 }
 
+/** «¿ya…» after a period becomes «¿Ya…». The mark itself does not count as the capital. */
+function capitalizeLead(value: string) {
+  return value.replace(/^(¿|¡)?(\p{L})/u, (_, mark: string, letter: string) => {
+    return `${mark || ""}${letter.toLocaleUpperCase("es")}`;
+  });
+}
+
 /** Short follow-ups from the real name, offer and agreement. No phone, price or quote we don't have. */
 export function derivedFollowupMessages(args: { name: string; offer: string; step: string; when?: string }) {
   const who = firstName(args.name);
@@ -515,10 +542,10 @@ export function derivedFollowupMessages(args: { name: string; offer: string; ste
   const lower = (value: string) => value.charAt(0).toLocaleLowerCase("es") + value.slice(1).replace(/\.+$/, "");
   if (step.startsWith("¿")) {
     lines.push(`${hi}, ${step}`);
-    lines.push(`${hi}, te escribo para saber cómo vas. ${step.charAt(0).toLocaleUpperCase("es")}${step.slice(1)}`);
+    lines.push(`${hi}, te escribo para saber cómo vas. ${capitalizeLead(step)}`);
   } else if (step) {
     lines.push(`${hi}, te escribo por lo que quedamos: ${lower(step)}. ¿Seguimos?`);
-    lines.push(`${hi}, ¿cómo vas con esto? ${step.charAt(0).toLocaleUpperCase("es") + step.slice(1)}`);
+    lines.push(`${hi}, ¿cómo vas con esto? ${capitalizeLead(step)}`);
   }
   if (offer) {
     lines.push(
@@ -630,7 +657,8 @@ export function buildInicioList(args: {
   const rows = ranked.slice(0, limit).map((row) => {
     const phone = String(row.telefono || "").trim();
     const offer = shownOffer(row.oferta);
-    const step = nextStepText(row, args.now);
+    const stepSource = nextStepText(row, args.now);
+    const step = closerFacingNote(stepSource);
     const chip = followupChip(row, args.now);
     const whenParts = followupWhenParts(row, args.now);
     const commission = rowCommission({
@@ -645,7 +673,7 @@ export function buildInicioList(args: {
       offer,
       suggested: row.mensajeSugerido,
       scripts,
-      step,
+      step: stepSource,
       when: chip.label,
       tipo: String(row.hilo || row.tipo || ""),
     });
@@ -656,7 +684,9 @@ export function buildInicioList(args: {
       .map((item) => `${item.name.trim()} ya cerró ${offer}`);
     const assets = scripts.map((script) => String(script.asset || "").trim()).filter(Boolean);
     const material = [...cases, ...assets].filter((item, index, all) => all.indexOf(item) === index).slice(0, 4);
-    const agreement = sentence(String(row.callAcuerdo || row.acuerdo || row.leadNextStep || ""));
+    const agreement = closerFacingNote(
+      sentence(String(row.callAcuerdo || row.acuerdo || row.leadNextStep || "")),
+    );
     return {
       id: row.id,
       name: row.cliente.trim(),

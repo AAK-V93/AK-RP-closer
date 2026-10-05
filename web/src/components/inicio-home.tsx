@@ -12,6 +12,7 @@ import { moneyLabel } from "@/lib/crm-operacion";
 import { invalidateHub } from "@/lib/hub-client";
 import type { CommissionProjection } from "@/lib/crm-projection";
 import { listSubtitle, sheetBlocks, type ChipTone, type InicioBlock, type InicioRow } from "@/lib/inicio-view";
+import { porConfirmarLabel } from "@/lib/plain-labels";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
 
 type PracticeCard = { practiceHref: string; drill: string; pattern: string };
@@ -267,7 +268,7 @@ function ConfirmBanner({ count }: { count: number }) {
     <div className="flex min-w-0 items-center justify-between gap-2 rounded-[14px] border border-[#EBD3A8] bg-[#F6E7CC] py-2 pl-3 pr-2 md:gap-3 md:py-3 md:pl-[18px] md:pr-3.5">
       <p className="flex min-w-0 items-center gap-2.5 text-[13px] font-medium text-[#5E3B0B] md:text-[15px]">
         <Phone aria-hidden className="hidden h-4 w-4 shrink-0 md:block" />
-        {count === 1 ? "Tienes 1 llamada por confirmar" : `Tienes ${count} llamadas por confirmar`}
+        {porConfirmarLabel(count)}
       </p>
       <Link
         href="/llamadas#por-clasificar"

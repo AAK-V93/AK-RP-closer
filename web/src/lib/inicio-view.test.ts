@@ -7,6 +7,7 @@ import {
   bogotaDateLine,
   bogotaMonthName,
   buildInicioList,
+  closerFacingNote,
   cutAtWord,
   followupChip,
   followupWhenParts,
@@ -413,6 +414,27 @@ test("suggested messages come from the offer scripts, otherwise from the agreeme
   assert.equal(third.some((line) => /el cliente/i.test(line)), false);
   assert.match(third[0] || "", /Elber/);
   assert.match(third.join(" "), /propuesta/i);
+  assert.match(third[1] || "", /¿Ya revisaste la propuesta/);
+  assert.equal(
+    closerFacingNote("El cliente evaluará la propuesta enviada y dará una respuesta o decisión."),
+    "Quedó en revisar la propuesta y dar una respuesta.",
+  );
+  assert.equal(closerFacingNote("Quedó en revisarlo con su contador"), "Quedó en revisarlo con su contador");
+  const noted = buildInicioList({
+    followups: [
+      row("Elber", {
+        acuerdo: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+        proximo: "2026-09-23",
+        dueAt: "2026-09-23T18:00:00.000Z",
+      }),
+    ],
+    rules: [],
+    now: NOW,
+  });
+  assert.equal(noted.rows[0]?.step, "Quedó en revisar la propuesta y dar una respuesta.");
+  assert.equal(noted.rows[0]?.agreement, "Quedó en revisar la propuesta y dar una respuesta.");
+  assert.equal(noted.rows[0]?.whenDate, "Pendiente desde el 23 sep");
+  assert.match(noted.rows[0]?.messages.join(" ") || "", /¿Ya revisaste la propuesta/);
   const ideas = messageIdeas({
     name: "Elber",
     offer: "Círculo Millonario",
@@ -497,8 +519,10 @@ test("the person sheet hides a block that has no real data", () => {
   assert.equal(same.nextStep, "");
   assert.equal(same.agreement, "Quedó en revisarlo con su contador");
   const late = followupWhenParts({ proximo: "2026-09-23", dueAt: "2026-09-23T18:00:00.000Z" }, NOW);
-  assert.equal(late.date, "23 sep");
+  assert.equal(late.date, "Pendiente desde el 23 sep");
   assert.match(late.age, /^Hace \d+ días sin respuesta$/);
+  const lateClock = followupWhenParts({ proximo: "2026-09-23 15:00" }, NOW);
+  assert.equal(lateClock.date, "Pendiente desde el 23 sep, 3:00 pm");
   const both = sheetBlocks({
     agreement: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
     nextStep: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
@@ -509,7 +533,7 @@ test("the person sheet hides a block that has no real data", () => {
     phone: "",
   });
   assert.equal(both.nextStep, "");
-  assert.equal(both.when, "23 sep");
+  assert.equal(both.when, "Pendiente desde el 23 sep");
   assert.match(both.age || "", /sin respuesta/);
   const todayOnly = followupWhenParts({ proximo: "2026-10-04 15:00" }, NOW);
   assert.equal(todayOnly.date, "Hoy 3:00 pm");

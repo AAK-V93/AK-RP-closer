@@ -322,8 +322,65 @@ function unclearLeadUpdate(text: string, leads: ChatLead[]): ChatTurn | null {
   return null;
 }
 
+const DETAIL_CLAUSE =
+  /(?:^|\s)((?:tras|despu[eé]s de|luego de|para que|con su|con el|con la)\b.+)$/i;
+
+function agreementWords(value: string) {
+  return fold(value)
+    .split(" ")
+    .filter((word) => word.length > 2 || /\d/.test(word));
+}
+
+function wordsInOrder(needle: string, hay: string) {
+  const need = agreementWords(needle);
+  const have = agreementWords(hay);
+  if (!need.length) return false;
+  let at = 0;
+  for (const word of need) {
+    const found = have.indexOf(word, at);
+    if (found < 0) return false;
+    at = found + 1;
+  }
+  return true;
+}
+
+/**
+ * A shorter proposal must not wipe a longer acuerdo.
+ * If the new text is already inside the old one, keep the old one.
+ * If both talk about the same next step, append the detail the new text dropped.
+ */
+export function mergeAgreementText(existing: string, proposed: string) {
+  const old = existing.replace(/\s+/g, " ").trim();
+  const next = proposed.replace(/\s+/g, " ").trim();
+  if (!old) return next;
+  if (!next) return old;
+  const oldFold = fold(old);
+  const nextFold = fold(next);
+  if (!oldFold || !nextFold || oldFold === nextFold) return old;
+  if (oldFold.includes(nextFold) || (wordsInOrder(next, old) && old.length >= next.length)) return old;
+  if (nextFold.includes(oldFold)) return next;
+  const clause = old.match(DETAIL_CLAUSE);
+  if (!clause || clause.index == null) return next;
+  const extra = clause[1].replace(/\s+/g, " ").trim();
+  const extraFold = fold(extra);
+  if (!extraFold || nextFold.includes(extraFold)) return next;
+  const shared = ["llamar", "qued", "acuerdo", "revis", "pagar", "cobrar", "reun"].some(
+    (token) => oldFold.includes(token) && nextFold.includes(token),
+  );
+  if (shared) return `${next} ${extra}`.replace(/\s+/g, " ").trim();
+  return next;
+}
+
+function withMergedAgreements(changes: ChatChange[]) {
+  return changes.map((change) => {
+    if (change.field !== "nextStep") return change;
+    const to = mergeAgreementText(change.from, change.to);
+    return to === change.to ? change : { ...change, to };
+  });
+}
+
 function withoutNoops(changes: ChatChange[]) {
-  return changes.filter((change) => fold(change.from) !== fold(change.to));
+  return withMergedAgreements(changes).filter((change) => fold(change.from) !== fold(change.to));
 }
 
 function proposalTurn(leadId: string, leadName: string, changes: ChatChange[]): ChatTurn {
