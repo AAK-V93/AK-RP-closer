@@ -1,4 +1,4 @@
-import { calendarDaysBetween } from "@/lib/crm-time";
+import { calendarDaysBetween, CRM_TIMEZONE, zonedDayKey } from "@/lib/crm-time";
 import { normalizePersonName } from "@/lib/lead-match";
 import { countedSale } from "@/lib/stated-deal";
 import { plainStatus } from "@/lib/plain-labels";
@@ -379,6 +379,53 @@ export type DeskLine = {
   /** Stable tie-break. Same person and same numbers always land in the same place. */
   id?: string;
 };
+
+/**
+ * The day a follow-up is due. The written próximo wins.
+ * An instant is read in Bogotá, not as a UTC date prefix.
+ */
+export function followupCalendarDay(
+  row: { proximo?: string | null; dueAt?: string | null },
+  timeZone = CRM_TIMEZONE,
+) {
+  const written = dueDayFromProximo(row.proximo);
+  if (written) return written;
+  const raw = String(row.dueAt || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const at = new Date(raw);
+  return Number.isNaN(at.getTime()) ? "" : zonedDayKey(at, timeZone);
+}
+
+/** The sort key Inicio and «¿A quién llamo hoy?» both compare. */
+export function followupRankInput(
+  row: {
+    id?: string;
+    name?: string;
+    cliente?: string;
+    enJuego?: number;
+    amount?: number;
+    hilo?: string;
+    tipo?: string;
+    step?: string;
+    proximo?: string | null;
+    dueAt?: string | null;
+  },
+  now = new Date(),
+) {
+  const today = zonedDayKey(now);
+  const day = followupCalendarDay(row) || today;
+  const diff = calendarDaysBetween(day, today);
+  const amount = Number(row.enJuego ?? row.amount ?? 0);
+  return {
+    id: String(row.id || ""),
+    name: String(row.cliente || row.name || "").trim(),
+    amount: Number.isFinite(amount) ? amount : 0,
+    lateDays: diff < 0 ? -diff : 0,
+    step: String(row.step || row.hilo || row.tipo || ""),
+    daysAhead: diff > 0 ? diff : 0,
+  };
+}
 
 /**
  * One order for Inicio and for «¿A quién llamo hoy?».

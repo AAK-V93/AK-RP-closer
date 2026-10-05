@@ -10,6 +10,7 @@ import {
   analyzeCardStatus,
   coachCardStatus,
   followupCardStatus,
+  clientPatternPhrase,
   practiceCardFromGuides,
 } from "./home-desk";
 import { quickFollowupIso } from "./followup-date";
@@ -90,6 +91,25 @@ test("the practice card keeps the drill off the hub payload", () => {
     },
   ]);
   assert.equal(pattern.pattern, "Pierdes cierres cuando te dicen “lo tengo que consultar”");
+  assert.equal(
+    clientPatternPhrase("Manejo efectivo de la objeción de necesitar consultarlo con alguien"),
+    "lo tengo que consultar",
+  );
+  assert.equal(
+    practiceCardFromGuides([
+      {
+        drills: ["Manejo efectivo de la objeción de necesitar consultarlo con alguien"],
+        missingInLosses: ["Manejo efectivo de la objeción de necesitar consultarlo con alguien"],
+      },
+    ]).pattern,
+    "Pierdes cierres cuando te dicen “lo tengo que consultar”",
+  );
+  assert.equal(clientPatternPhrase("Manejo efectivo del silencio en el cierre"), "");
+  assert.equal(
+    practiceCardFromGuides([{ drills: ["solo el ejercicio"], missingInLosses: ["Manejo efectivo del silencio en el cierre"] }])
+      .pattern,
+    "",
+  );
   assert.equal(pattern.drill, "resolver el precio antes de cerrar");
   assert.match(pattern.practiceHref, /focus=/);
   assert.equal(practiceCardFromGuides([{ drills: ["solo el ejercicio"], missingInLosses: [] }]).pattern, "");
