@@ -33,7 +33,7 @@ import { WorkspaceSkeleton } from "@/components/page-skeleton";
 import { OfferExtractReview } from "@/components/offer-extract-review";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 import { partitionTranscriptUploads } from "@/lib/transcript-batch";
-import { countPhrase } from "@/lib/plain-labels";
+import { countPhrase, readableTitle } from "@/lib/plain-labels";
 import { pickWorkspaceOffer } from "@/lib/offer-selection";
 
 function offerSetupNote(offer?: {
@@ -104,6 +104,7 @@ export default function OfertasPage() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [scriptsOpen, setScriptsOpen] = useState(false);
+  const [callsOpen, setCallsOpen] = useState(false);
   const composerRef = useRef<HTMLDivElement | null>(null);
 
   const fillOffer = (offer: OfferRow | null) => {
@@ -114,6 +115,7 @@ export default function OfertasPage() {
     setIncludeFathom(Boolean(offer?.includeFathom));
     setCommercial(offer?.commercial || null);
     setScriptsOpen(false);
+    setCallsOpen(false);
   };
 
   const load = async (nextOfferId?: string | null) => {
@@ -392,25 +394,19 @@ export default function OfertasPage() {
   const canPractice = Boolean(workspace?.ready || workspace?.canPractice);
   const showComposer = composerOpen || !offerId || Boolean(review) || parsingDoc;
   const showAdjust = adjustOpen || !offerId;
+  const showCallUpload = callsOpen || savingTranscripts;
   const visibleScripts = scriptsOpen ? scripts : scripts.slice(0, 2);
 
   return (
     <AppShell>
       <div className="space-y-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2">
-            <h1 className="font-display text-[32px] font-semibold leading-tight tracking-[-0.01em] text-fg0 md:text-[40px]">
-              Ofertas
-            </h1>
-            <p className="max-w-xl text-sm text-fg3">
-              Precios, comisión y guiones de la oferta que estás viendo.
-            </p>
-          </div>
-          {canPractice && (
-            <Button asChild variant="primary" className="min-h-11 shrink-0">
-              <Link href="/practicar">Ir a practicar</Link>
-            </Button>
-          )}
+        <div className="space-y-2">
+          <h1 className="font-display text-[32px] font-semibold leading-tight tracking-[-0.01em] text-fg0 md:text-[40px]">
+            Ofertas
+          </h1>
+          <p className="max-w-xl text-sm text-fg3">
+            Precios, comisión y guiones de la oferta que estás viendo.
+          </p>
         </div>
         {savedNote && (
           <p
@@ -461,7 +457,14 @@ export default function OfertasPage() {
 
         {offerId && (
           <section className="space-y-4 rounded-2xl border border-separator1 bg-bg1 p-4 sm:p-5" aria-label="Datos de la oferta">
-            <h2 className="font-display text-[22px] font-semibold text-fg0">{productName || "Oferta"}</h2>
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <h2 className="font-display text-[22px] font-semibold text-fg0">{productName || "Oferta"}</h2>
+              {canPractice && (
+                <Button asChild variant="primary" className="min-h-11 w-auto shrink-0">
+                  <Link href="/practicar">Ir a practicar</Link>
+                </Button>
+              )}
+            </div>
             {glance.blurb ? <p className="text-sm text-fg2">{glance.blurb}</p> : null}
             {glance.prices.length > 0 ? (
               <div className="space-y-1">
@@ -740,102 +743,119 @@ export default function OfertasPage() {
             </div>
           )}
 
-        <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
-          <h2 className="font-display text-[22px] font-semibold text-fg0">Llamadas de esta oferta</h2>
-          <p className="text-sm text-fg3">
-            Sube la carpeta de transcripciones de esta oferta (.txt, .vtt, .srt, .md, .csv, .pdf).
-            El video no entra. No hay tope de archivos: se mandan todas y cada una pasa al CRM.
-            Deja esta pestaña abierta hasta que diga listo.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href="/llamadas#conectar-fathom">Traer llamadas grabadas</Link>
-            </Button>
-            <label className="inline-flex">
-              <Button type="button" variant="outline" size="sm" asChild disabled={savingTranscripts}>
-                <span>
-                  <Upload className="h-4 w-4" />
-                  Subir carpeta
-                </span>
-              </Button>
-              <input
-                type="file"
-                className="hidden"
-                disabled={savingTranscripts}
-                {...({
-                  webkitdirectory: "",
-                  directory: "",
-                  multiple: true,
-                } as InputHTMLAttributes<HTMLInputElement>)}
-                onChange={(event) => {
-                  void uploadTranscripts(event.target.files);
-                  event.target.value = "";
-                }}
-              />
-            </label>
-            <label className="inline-flex">
-              <Button type="button" variant="outline" size="sm" asChild disabled={savingTranscripts}>
-                <span>Elegir archivos</span>
-              </Button>
-              <input
-                type="file"
-                className="hidden"
-                multiple
-                disabled={savingTranscripts}
-                accept=".txt,.md,.vtt,.srt,.pdf,.csv,text/plain,application/pdf"
-                onChange={(event) => {
-                  void uploadTranscripts(event.target.files);
-                  event.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-          {uploadNote && <p className="text-sm text-fg2">{uploadNote}</p>}
-          <div className="space-y-1">
-            <Label htmlFor="paste-calls">O pega una transcripción</Label>
-            <Textarea
-              id="paste-calls"
-              rows={6}
-              value={paste}
-              onChange={(e) => setPaste(e.target.value)}
-              placeholder="Tú: …&#10;Cliente: …"
-            />
-          </div>
+        <div className="space-y-3">
           <Button
             type="button"
-            variant="primary"
-            disabled={savingTranscripts || !paste.trim() || !offerId}
-            onClick={() => void uploadTranscripts()}
+            variant="outline"
+            className="min-h-11"
+            disabled={savingTranscripts}
+            onClick={() => setCallsOpen((open) => !open)}
           >
-            {savingTranscripts ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Procesando…
-              </>
-            ) : (
-              "Guardar transcripción pegada"
-            )}
+            {showCallUpload ? "Ocultar formulario" : "Añadir llamadas"}
           </Button>
-          <p className="text-xs text-fg3">
-            {countPhrase(
-              workspace?.transcriptCount || 0,
-              "llamada en esta oferta",
-              "llamadas en esta oferta",
-            )}
-            {includeFathom && workspace?.fathomCount
-              ? ` (incluye ${countPhrase(workspace.fathomCount, "grabación", "grabaciones")})`
-              : ""}
-            {workspace?.playbookReady ? " · perfil de prospectos listo" : ""}
-            {offerSetupNote(
-              (Array.isArray(workspace?.offers) ? workspace.offers : []).find((row) => row.id === offerId),
-            )}
-          </p>
-          {(workspace?.transcripts ?? []).length > 0 && (
-            <ul className="text-xs text-fg2 space-y-1 max-h-40 overflow-y-auto">
-              {(workspace?.transcripts ?? []).map((row) => (
-                <li key={row.id}>{row.title}</li>
-              ))}
-            </ul>
+          {(showCallUpload || (workspace?.transcripts ?? []).length > 0 || (workspace?.transcriptCount || 0) > 0) && (
+            <div className={showCallUpload ? "space-y-4 rounded-2xl border border-separator1 bg-bg1 p-5" : "space-y-2"}>
+              {showCallUpload && (
+                <>
+                  <h2 className="font-display text-[22px] font-semibold text-fg0">Llamadas de esta oferta</h2>
+                  <p className="text-sm text-fg3">
+                    Sube la carpeta de transcripciones de esta oferta (.txt, .vtt, .srt, .md, .csv, .pdf).
+                    El video no entra. No hay tope de archivos: se mandan todas y cada una pasa al CRM.
+                    Deja esta pestaña abierta hasta que diga listo.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild variant="outline" size="sm">
+                      <Link href="/llamadas#conectar-fathom">Traer llamadas grabadas</Link>
+                    </Button>
+                    <label className="inline-flex">
+                      <Button type="button" variant="outline" size="sm" asChild disabled={savingTranscripts}>
+                        <span>
+                          <Upload className="h-4 w-4" />
+                          Subir carpeta
+                        </span>
+                      </Button>
+                      <input
+                        type="file"
+                        className="hidden"
+                        disabled={savingTranscripts}
+                        {...({
+                          webkitdirectory: "",
+                          directory: "",
+                          multiple: true,
+                        } as InputHTMLAttributes<HTMLInputElement>)}
+                        onChange={(event) => {
+                          void uploadTranscripts(event.target.files);
+                          event.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <label className="inline-flex">
+                      <Button type="button" variant="outline" size="sm" asChild disabled={savingTranscripts}>
+                        <span>Elegir archivos</span>
+                      </Button>
+                      <input
+                        type="file"
+                        className="hidden"
+                        multiple
+                        disabled={savingTranscripts}
+                        accept=".txt,.md,.vtt,.srt,.pdf,.csv,text/plain,application/pdf"
+                        onChange={(event) => {
+                          void uploadTranscripts(event.target.files);
+                          event.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {uploadNote && <p className="text-sm text-fg2">{uploadNote}</p>}
+                  <div className="space-y-1">
+                    <Label htmlFor="paste-calls">O pega una transcripción</Label>
+                    <Textarea
+                      id="paste-calls"
+                      rows={6}
+                      value={paste}
+                      onChange={(e) => setPaste(e.target.value)}
+                      placeholder="Tú: …&#10;Cliente: …"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    disabled={savingTranscripts || !paste.trim() || !offerId}
+                    onClick={() => void uploadTranscripts()}
+                  >
+                    {savingTranscripts ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Procesando…
+                      </>
+                    ) : (
+                      "Guardar transcripción pegada"
+                    )}
+                  </Button>
+                </>
+              )}
+              <p className="text-xs text-fg3">
+                {countPhrase(
+                  workspace?.transcriptCount || 0,
+                  "llamada en esta oferta",
+                  "llamadas en esta oferta",
+                )}
+                {includeFathom && workspace?.fathomCount
+                  ? ` (incluye ${countPhrase(workspace.fathomCount, "grabación", "grabaciones")})`
+                  : ""}
+                {workspace?.playbookReady ? " · perfil de prospectos listo" : ""}
+                {offerSetupNote(
+                  (Array.isArray(workspace?.offers) ? workspace.offers : []).find((row) => row.id === offerId),
+                )}
+              </p>
+              {(workspace?.transcripts ?? []).length > 0 && (
+                <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-fg2">
+                  {(workspace?.transcripts ?? []).map((row) => (
+                    <li key={row.id}>{readableTitle(row.title)}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
 

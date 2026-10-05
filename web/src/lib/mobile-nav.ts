@@ -24,6 +24,14 @@ export function visibleTabs(showCrm: boolean) {
   return MOBILE_TABS.filter((tab) => !tab.crm || showCrm);
 }
 
+/**
+ * Phone bar columns. `null` means the nav payload has not arrived yet:
+ * keep the CRM column so the bar does not jump from 4 tabs to 5.
+ */
+export function phoneBarTabs(showCrm: boolean | null) {
+  return visibleTabs(showCrm !== false);
+}
+
 /** «Más» is the active tab while the closer is on one of its pages. */
 export function moreActive(path: string) {
   return MORE_LINKS.some((link) => navActive(path, link.href));

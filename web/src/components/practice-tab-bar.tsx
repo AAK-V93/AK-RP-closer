@@ -12,7 +12,7 @@ export function PracticeShell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const { status } = useSession();
   const { phase, shouldConnect, isConnecting } = useConnection();
-  const [showCrm, setShowCrm] = useState(false);
+  const [showCrm, setShowCrm] = useState<boolean | null>(null);
   const visible =
     status === "authenticated" && showPracticeTabBar({ phase, shouldConnect, isConnecting });
 

@@ -84,7 +84,7 @@ test("a named lead gets follow-up chips, and attendance stays chips too", () => 
   assert.ok(states?.options?.includes("Cerró"));
 });
 
-test("the follow-up kind is four chips, not a blank the closer has to type", () => {
+test("a classified lead with a follow-up still open gets No quedó with the kind chips", () => {
   const parsed = emptyExtractor();
   parsed.cliente_real = "Katerine Rodríguez";
   parsed.estado_agenda = "SHOW";
@@ -93,5 +93,6 @@ test("the follow-up kind is four chips, not a blank the closer has to type", () 
   parsed.tipo_seguimiento = null;
   const gap = extractorGap(parsed, true);
   assert.equal(gap?.field, "tipo_seguimiento");
-  assert.deepEqual(gap?.options, ["Segunda reunión", "Pago", "Decisión", "Retomar"]);
+  assert.deepEqual(gap?.options, ["Segunda reunión", "Pago", "Decisión", "Retomar", "No quedó"]);
+  assert.match(gap?.question || "", /Katerine Rodríguez/);
 });

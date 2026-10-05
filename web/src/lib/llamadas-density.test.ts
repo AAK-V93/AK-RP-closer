@@ -71,6 +71,24 @@ test("every confirm question has a one-tap path, and a name stays text", () => {
   const kinds = pendingPromptActions({ field: "tipo_seguimiento", leadName: "Katherine Rodríguez" });
   assert.deepEqual(
     kinds.chips.map((chip) => chip.label),
+    ["Segunda reunión", "Pago", "Decisión", "Retomar", "No quedó"],
+  );
+  assert.equal(kinds.chips.find((chip) => chip.label === "No quedó")?.field, "requiere_seguimiento");
+
+  const milagros = pendingPromptActions({
+    field: "tipo_seguimiento",
+    options: ["Segunda reunión", "Pago", "Decisión", "Retomar"],
+    leadName: "Milagros y Ronald",
+  });
+  assert.deepEqual(
+    milagros.chips.map((chip) => chip.label),
+    ["Segunda reunión", "Pago", "Decisión", "Retomar", "No quedó"],
+  );
+  assert.equal(milagros.chips.filter((chip) => chip.label === "No quedó").length, 1);
+
+  const unnamedKinds = pendingPromptActions({ field: "tipo_seguimiento", leadName: "" });
+  assert.deepEqual(
+    unnamedKinds.chips.map((chip) => chip.label),
     ["Segunda reunión", "Pago", "Decisión", "Retomar"],
   );
 

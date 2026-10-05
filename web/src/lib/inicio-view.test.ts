@@ -36,6 +36,7 @@ import {
   moreActive,
   navActive,
   showPracticeTabBar,
+  phoneBarTabs,
   visibleTabs,
 } from "./mobile-nav";
 
@@ -341,6 +342,9 @@ test("phone tab bar: Inicio, Llamadas, Práctica, CRM and Más with Coach, Ofert
     ],
   );
   assert.deepEqual(visibleTabs(false).map((tab) => tab.label), ["Inicio", "Llamadas", "Práctica"]);
+  assert.deepEqual(phoneBarTabs(null).map((tab) => tab.label), ["Inicio", "Llamadas", "Práctica", "CRM"]);
+  assert.deepEqual(phoneBarTabs(false).map((tab) => tab.label), ["Inicio", "Llamadas", "Práctica"]);
+  assert.deepEqual(phoneBarTabs(true).map((tab) => tab.label), ["Inicio", "Llamadas", "Práctica", "CRM"]);
   assert.equal(navActive("/", "/"), true);
   assert.equal(navActive("/crm", "/"), false);
   assert.equal(navActive("/coach/abc", "/coach"), true);
@@ -348,6 +352,8 @@ test("phone tab bar: Inicio, Llamadas, Práctica, CRM and Más with Coach, Ofert
   assert.equal(moreActive("/crm"), false);
 
   const shell = readFileSync(new URL("../components/app-shell.tsx", import.meta.url), "utf8");
+  assert.match(shell, /useState<boolean \| null>\(null\)/);
+  assert.match(shell, /phoneBarTabs\(showCrm\)/);
   assert.match(shell, /fixed inset-x-0 bottom-0 z-40[^"]*pb-\[env\(safe-area-inset-bottom\)\][^"]*md:hidden/);
   assert.match(shell, /pb-\[calc\(6rem\+env\(safe-area-inset-bottom\)\)\] md:pb-6/);
   assert.match(shell, /aria-\[current=page\]:font-semibold/);
@@ -365,6 +371,7 @@ test("phone tab bar: Inicio, Llamadas, Práctica, CRM and Más with Coach, Ofert
   const practiceShell = readFileSync(new URL("../components/practice-tab-bar.tsx", import.meta.url), "utf8");
   assert.match(practiceShell, /MobileTabBar/);
   assert.match(practiceShell, /AppShell/);
+  assert.match(practiceShell, /useState<boolean \| null>\(null\)/);
 });
 
 test("the same rank and the same open count for Inicio and the CRM", () => {
