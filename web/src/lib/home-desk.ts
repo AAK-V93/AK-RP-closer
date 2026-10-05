@@ -26,18 +26,73 @@ export function coachCardStatus(args: {
   return "Sin novedades";
 }
 
-/** «Pierdes cierres cuando te dicen “…”». A raw objection becomes that sentence. */
-export function patternSentence(raw: string) {
-  const clean = closerSpanish(String(raw || ""))
+function foldPattern(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+/** A curriculum title or a coach instruction, not something the client says. */
+function isExerciseTitle(value: string) {
+  const text = foldPattern(value);
+  return (
+    /manejo efectivo|ejercicio|objecion de|reconoce|relaciona|devuelve la pregunta|como responder|entrenamiento|antes de cerrar|practica de|roleplay|rol play/.test(
+      text,
+    ) || /^(resolver|manejar|practicar|entrenar|reconocer|trabajar)\b/.test(text)
+  );
+}
+
+/** First person, short, and not a stage label. */
+function looksSpoken(value: string) {
+  const text = foldPattern(value);
+  if (isExerciseTitle(value) || value.length > 60) return false;
+  if (/\b(necesita|cliente|objecion|ejercicio|manejo|closer)\b/.test(text)) return false;
+  return /^(lo |la |no |ya |es |esta |tengo |necesito |quiero |puedo |me |voy |despues )/.test(text);
+}
+
+/**
+ * Known objection labels become the short line a client actually says.
+ * More specific patterns go first.
+ */
+const SPOKEN_PATTERNS: { test: RegExp; phrase: string }[] = [
+  { test: /no tiene dinero|sin dinero|no tengo dinero/, phrase: "no tengo dinero" },
+  { test: /consult/, phrase: "lo tengo que consultar" },
+  { test: /pareja|espos/, phrase: "lo tengo que hablar con mi pareja" },
+  { test: /socio/, phrase: "lo tengo que hablar con mi socio" },
+  { test: /pensar|pensarlo|lo pienso/, phrase: "lo voy a pensar" },
+  { test: /tiempo|ocupad/, phrase: "no tengo tiempo" },
+  { test: /no es el momento|\bmomento\b/, phrase: "no es el momento" },
+  { test: /mas informacion|no confia/, phrase: "necesito más información" },
+  { test: /otra persona|ya compr/, phrase: "ya compré con otra persona" },
+  { test: /precio|caro|plata/, phrase: "está muy caro" },
+];
+
+/** A client-like line. An exercise title is mapped or dropped, never quoted as-is. */
+export function clientPatternPhrase(raw: string) {
+  let clean = closerSpanish(String(raw || ""))
     .replace(/\s+/g, " ")
     .trim();
-  if (!clean) return "";
   if (/^pierdes cierres cuando te dicen\b/i.test(clean)) {
-    return clean.charAt(0).toLocaleUpperCase("es") + clean.slice(1);
+    clean = clean.replace(/^pierdes cierres cuando te dicen\s*/i, "");
   }
-  const quote = clean.replace(/^["“«']+|["”»']+$/g, "").trim();
-  if (quote.length < 4) return "";
-  return `Pierdes cierres cuando te dicen “${quote}”`;
+  clean = clean.replace(/^["“«']+|["”»']+$/g, "").trim();
+  if (clean.length < 4) return "";
+  if (looksSpoken(clean) && !isExerciseTitle(clean)) {
+    return clean.charAt(0).toLocaleLowerCase("es") + clean.slice(1);
+  }
+  const folded = foldPattern(clean);
+  for (const row of SPOKEN_PATTERNS) {
+    if (row.test.test(folded)) return row.phrase;
+  }
+  return "";
+}
+
+/** «Pierdes cierres cuando te dicen “…”». The quote is a client line, never an exercise title. */
+export function patternSentence(raw: string) {
+  const phrase = clientPatternPhrase(raw);
+  if (!phrase) return "";
+  return `Pierdes cierres cuando te dicen “${phrase}”`;
 }
 
 /** First-paint fallback until the light practice endpoint returns a drill. */

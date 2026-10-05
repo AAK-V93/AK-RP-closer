@@ -1,7 +1,8 @@
 import { commissionOnAmount, resolveCommissionPct } from "@/lib/commission";
 import {
   compareFollowupRank,
-  dueDayFromProximo,
+  followupCalendarDay,
+  followupRankInput,
   openFollowupCountOf,
   pickOpenByName,
 } from "@/lib/crm-followups";
@@ -9,6 +10,7 @@ import { calendarDaysBetween, CRM_TIMEZONE, zonedDayKey, zonedParts } from "@/li
 import { parseCommercial, type CommissionRuleInput } from "@/lib/offer-commercial";
 import { fillFollowupGuion, type FollowupVars } from "@/lib/followup-scripts";
 import { foldOffer } from "@/lib/offer-name";
+import { plainStatus } from "@/lib/plain-labels";
 import { dropDanglingWords } from "@/lib/visible-text";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
 
@@ -128,10 +130,7 @@ export function stampClock(proximo: string | null | undefined) {
 
 /** The Bogotá day of a follow-up: the written próximo first, then the alert instant. */
 export function followupDay(row: { proximo?: string | null; dueAt?: string | null }) {
-  const written = dueDayFromProximo(row.proximo);
-  if (written) return written;
-  const at = new Date(String(row.dueAt || ""));
-  return Number.isNaN(at.getTime()) ? "" : zonedDayKey(at);
+  return followupCalendarDay(row);
 }
 
 /** Amber for today, rose for days without an answer, grey for later. Never «vencido». */
@@ -243,8 +242,30 @@ export function cutAtWord(value: string, max = 140) {
   return dropDanglingWords(cut).replace(/[.,;:]+$/g, "").replace(/\.{2,}/g, "").trim();
 }
 
-/** «Qué quedó»: the call agreement, the lead's next step, then a concrete action. Fallback only if all of those are empty. */
-export function nextStepText(row: InicioFollowupSource) {
+function followupKind(row: InicioFollowupSource) {
+  const labeled = plainStatus(String(row.hilo || row.tipo || ""));
+  if (!labeled || labeled === "—") return "Seguimiento";
+  return labeled;
+}
+
+/** «Pendiente desde el 23 sep» when the only stored step is a bare stage word. */
+export function pendingFromPhrase(row: InicioFollowupSource, now = new Date()) {
+  const day = followupDay(row);
+  if (!day) return "";
+  const today = zonedDayKey(now);
+  const diff = calendarDaysBetween(day, today);
+  const [, month, date] = day.split("-").map(Number);
+  const short = `${date} ${MONTHS_SHORT[month - 1] || ""}`.trim();
+  const kind = followupKind(row);
+  const clock = stampClock(row.proximo);
+  if (diff < 0) return `${kind} pendiente desde el ${short}`;
+  if (diff === 0) return clock ? `${kind} pendiente hoy a las ${clock}` : `${kind} pendiente hoy`;
+  if (diff === 1) return clock ? `${kind} mañana a las ${clock}` : `${kind} mañana`;
+  return clock ? `${kind} el ${short} a las ${clock}` : `${kind} el ${short}`;
+}
+
+/** «Qué quedó»: the call agreement, the lead's next step, then a concrete action. A dated follow-up beats the generic line. */
+export function nextStepText(row: InicioFollowupSource, now = new Date()) {
   for (const candidate of [
     row.callAcuerdo,
     row.acuerdo,
@@ -257,7 +278,7 @@ export function nextStepText(row: InicioFollowupSource) {
     const text = sentence(String(candidate || ""));
     if (text) return cutAtWord(text);
   }
-  return "Retomar el contacto";
+  return pendingFromPhrase(row, now) || "Retomar el contacto";
 }
 
 /** Subtitle of «Tu lista de hoy». Without a goal it does not mention the goal. */
@@ -278,7 +299,6 @@ export function shownOffer(value: string | null | undefined) {
  * Due rows first. Later dates follow, soonest first.
  */
 export function rankFollowups<T extends InicioFollowupSource>(rows: T[], now = new Date()) {
-  const today = zonedDayKey(now);
   const open = pickOpenByName(
     rows.map((row) => ({
       ...row,
@@ -287,33 +307,10 @@ export function rankFollowups<T extends InicioFollowupSource>(rows: T[], now = n
       closed: false,
     })),
   );
-  return [...open].sort((a, b) => {
-    const dayA = followupDay(a) || today;
-    const dayB = followupDay(b) || today;
-    const diffA = calendarDaysBetween(dayA, today);
-    const diffB = calendarDaysBetween(dayB, today);
-    return compareFollowupRank(
-      {
-        id: a.id,
-        name: a.cliente.trim(),
-        amount: a.enJuego || 0,
-        lateDays: diffA < 0 ? -diffA : 0,
-        step: String(a.hilo || a.tipo || ""),
-        daysAhead: diffA > 0 ? diffA : 0,
-      },
-      {
-        id: b.id,
-        name: b.cliente.trim(),
-        amount: b.enJuego || 0,
-        lateDays: diffB < 0 ? -diffB : 0,
-        step: String(b.hilo || b.tipo || ""),
-        daysAhead: diffB > 0 ? diffB : 0,
-      },
-    );
-  });
+  return [...open].sort((a, b) => compareFollowupRank(followupRankInput(a, now), followupRankInput(b, now)));
 }
 
-export type OfferScript = { guion: string; canal?: string };
+export type OfferScript = { guion: string; canal?: string; type?: string; asset?: string };
 
 export type OfferRule = {
   productName: string;
@@ -335,8 +332,13 @@ export function offerRules(rows: { productName: string; commercial: unknown }[])
         rule: commercial.commission,
         listPrice: Number.isFinite(price) && price > 0 ? price : null,
         scripts: (commercial.scripts || [])
-          .map((script) => ({ guion: String(script.guion || "").trim(), canal: script.canal }))
-          .filter((script) => script.guion),
+          .map((script) => ({
+            guion: String(script.guion || "").trim(),
+            canal: script.canal,
+            type: script.type,
+            asset: String(script.asset || "").trim(),
+          }))
+          .filter((script) => script.guion || script.asset),
       };
     });
 }
@@ -413,25 +415,100 @@ function scriptVars(name: string, offer: string): FollowupVars {
   };
 }
 
-/** Up to three WhatsApp lines from the suggested message and the offer's own scripts. */
+function usableMessage(value: string) {
+  const text = value.replace(/[ \t]+/g, " ").replace(/[ \t]*\n[ \t]*/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (text.length < 12) return "";
+  if (/\[[^\]\n]{1,80}\]/.test(text)) return "";
+  if (/USD(?!\s*\d)/i.test(text)) return "";
+  if (/\(\s*\)/.test(text)) return "";
+  return text;
+}
+
+/** A stored agreement the closer can quote. A stage word or a pending-from line is not one. */
+export function quotableStep(step: string) {
+  const text = step.replace(/\s+/g, " ").trim();
+  if (!text || /^retomar el contacto$/i.test(text)) return "";
+  if (/\bpendiente desde\b/i.test(text)) return "";
+  if (/\bpendiente hoy\b/i.test(text)) return "";
+  if (/^(seguimiento|decisi[oó]n|cobro|retomar|reuni[oó]n)\b/i.test(text) && text.length < 48) return "";
+  return text;
+}
+
+/** Short follow-ups from the real name, offer and agreement. No phone, price or quote we don't have. */
+export function derivedFollowupMessages(args: { name: string; offer: string; step: string; when?: string }) {
+  const who = firstName(args.name);
+  const hi = who ? `Hola ${who}` : "Hola";
+  const offer = shownOffer(args.offer);
+  const step = quotableStep(args.step);
+  const clock =
+    args.when && !/sin respuesta/i.test(args.when) && /\d/.test(args.when) ? args.when.trim() : "";
+  const lines: string[] = [];
+  const lower = (value: string) => value.charAt(0).toLocaleLowerCase("es") + value.slice(1).replace(/\.+$/, "");
+  if (step) {
+    lines.push(`${hi}, te escribo por lo que quedamos: ${lower(step)}. ¿Seguimos?`);
+    lines.push(`${hi}, ¿cómo vas con esto? ${step.charAt(0).toLocaleUpperCase("es") + step.slice(1)}`);
+  }
+  if (offer) {
+    lines.push(
+      step
+        ? `${hi}, ¿seguimos con ${offer}? Quedó pendiente ${lower(step)}.`
+        : `${hi}, ¿seguimos con ${offer}?`,
+    );
+  }
+  if (clock) lines.push(`${hi}, ¿seguimos ${lower(clock)}?`);
+  if (lines.length < 2) {
+    lines.push(`${hi}, te escribo para retomar el contacto. ¿Seguimos?`);
+    lines.push(who ? `${who}, ¿retomamos el contacto?` : `${hi}, ¿retomamos el contacto?`);
+  }
+  const unique: string[] = [];
+  for (const line of lines) {
+    const text = usableMessage(line);
+    if (!text || unique.includes(text)) continue;
+    unique.push(text);
+    if (unique.length >= 3) break;
+  }
+  return unique;
+}
+
+/** Up to three WhatsApp lines: the stored message, the offer's own scripts, then lines from the agreement. */
 export function messageIdeas(args: {
   name: string;
   offer: string;
   suggested?: string;
   scripts: OfferScript[];
+  step?: string;
+  when?: string;
+  tipo?: string;
 }) {
   const ideas: string[] = [];
   const push = (value: string) => {
-    const text = value.replace(/\s+/g, " ").trim();
-    if (!text || ideas.some((item) => item === text)) return;
+    const text = usableMessage(value);
+    if (!text || ideas.some((item) => item.replace(/\s+/g, " ") === text.replace(/\s+/g, " "))) return;
     ideas.push(text);
   };
   push(String(args.suggested || ""));
   const offer = shownOffer(args.offer);
-  for (const script of args.scripts) {
-    if (script.canal && script.canal !== "WHATSAPP") continue;
-    push(fillFollowupGuion(script.guion, scriptVars(args.name, offer)));
+  const vars = scriptVars(args.name, offer);
+  const want = String(args.tipo || "").trim().toUpperCase();
+  const whatsapp = args.scripts.filter((script) => script.guion && (!script.canal || script.canal === "WHATSAPP"));
+  const ordered = [
+    ...whatsapp.filter((script) => want && String(script.type || "").toUpperCase() === want),
+    ...whatsapp.filter((script) => !want || String(script.type || "").toUpperCase() !== want),
+  ];
+  for (const script of ordered) {
+    push(fillFollowupGuion(script.guion, vars));
     if (ideas.length >= 3) break;
+  }
+  if (ideas.length < 2) {
+    for (const line of derivedFollowupMessages({
+      name: args.name,
+      offer,
+      step: args.step || "",
+      when: args.when,
+    })) {
+      push(line);
+      if (ideas.length >= 3) break;
+    }
   }
   return ideas.slice(0, 3);
 }
@@ -450,9 +527,11 @@ export function sheetBlocks(args: SheetBlocks): SheetBlocks {
   const agreement = args.agreement.trim();
   const nextStep = args.nextStep.trim();
   const when = args.when.trim();
+  const generic = /^retomar el contacto$/i.test(nextStep);
+  const step = !nextStep || generic || nextStep === agreement ? "" : nextStep;
   return {
     agreement,
-    nextStep: nextStep && nextStep !== agreement ? nextStep : "",
+    nextStep: step,
     when,
     messages: args.messages.map((item) => item.trim()).filter(Boolean).slice(0, 3),
     material: args.material.map((item) => item.trim()).filter(Boolean),
@@ -474,7 +553,7 @@ export function buildInicioList(args: {
   const rows = ranked.slice(0, limit).map((row) => {
     const phone = String(row.telefono || "").trim();
     const offer = shownOffer(row.oferta);
-    const step = nextStepText(row);
+    const step = nextStepText(row, args.now);
     const chip = followupChip(row, args.now);
     const commission = rowCommission({
       enJuego: row.enJuego,
@@ -488,12 +567,17 @@ export function buildInicioList(args: {
       offer,
       suggested: row.mensajeSugerido,
       scripts,
+      step,
+      when: chip.label,
+      tipo: String(row.hilo || row.tipo || ""),
     });
-    const material = (args.successes || [])
+    const cases = (args.successes || [])
       .filter((item) => offer && foldOffer(item.offer) === foldOffer(offer) && item.name.trim())
       .filter((item) => foldOffer(item.name) !== foldOffer(row.cliente))
       .slice(0, 3)
       .map((item) => `${item.name.trim()} ya cerró ${offer}`);
+    const assets = scripts.map((script) => String(script.asset || "").trim()).filter(Boolean);
+    const material = [...cases, ...assets].filter((item, index, all) => all.indexOf(item) === index).slice(0, 4);
     const agreement = sentence(String(row.callAcuerdo || row.acuerdo || row.leadNextStep || ""));
     return {
       id: row.id,

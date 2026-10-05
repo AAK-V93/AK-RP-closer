@@ -1,4 +1,6 @@
 import { weekKey } from "@/lib/crm-filters";
+import { compareFollowupRank, followupCalendarDay, followupRankInput } from "@/lib/crm-followups";
+import { zonedDayKey } from "@/lib/crm-time";
 import { countPhrase, plainStatus } from "@/lib/plain-labels";
 
 export type CrmAskRow = {
@@ -18,6 +20,7 @@ export type CrmAskRow = {
   temperatura?: string;
   acuerdo?: string;
   queHacer?: string;
+  proximo?: string;
 };
 
 function fold(value: string) {
@@ -27,17 +30,10 @@ function fold(value: string) {
     .replace(/\p{M}/gu, "");
 }
 
-function localDay(date: Date) {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
 function addDays(day: string, count: number) {
   const [year, month, date] = day.split("-").map(Number);
-  const next = new Date(year, month - 1, date);
-  next.setDate(next.getDate() + count);
-  return localDay(next);
+  const next = new Date(Date.UTC(year, month - 1, date + count));
+  return next.toISOString().slice(0, 10);
 }
 
 function shortDay(day: string) {
@@ -47,10 +43,14 @@ function shortDay(day: string) {
   return `${date} ${months[month - 1]}`;
 }
 
-function dueDay(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value || "").slice(0, 10);
-  return localDay(date);
+function rowDay(row: CrmAskRow) {
+  return followupCalendarDay({ proximo: row.proximo, dueAt: row.dueAt });
+}
+
+function bySharedRank(rows: CrmAskRow[], now: Date) {
+  return [...rows].sort((a, b) =>
+    compareFollowupRank(followupRankInput(a, now), followupRankInput(b, now)),
+  );
 }
 
 function canalLabel(value?: string) {
@@ -67,11 +67,12 @@ function actionOf(row: CrmAskRow) {
 }
 
 function pendingToday(row: CrmAskRow, today: string) {
-  return /pendiente de hoy/i.test(actionOf(row)) || dueDay(row.dueAt) <= today;
+  const due = rowDay(row);
+  return /pendiente de hoy/i.test(actionOf(row)) || (Boolean(due) && due <= today);
 }
 
 function whenLabel(row: CrmAskRow, today: string) {
-  const due = dueDay(row.dueAt);
+  const due = rowDay(row);
   if (pendingToday(row, today)) {
     return due < today ? `pendiente desde ${shortDay(due)}` : "hoy, pendiente";
   }
@@ -168,7 +169,7 @@ export function answerCrmFollowups(
   opts?: { now?: Date; money?: (value: number) => string },
 ) {
   const now = opts?.now || new Date();
-  const today = localDay(now);
+  const today = zonedDayKey(now);
   const asked = question.trim();
   if (!rows.length) return "No hay seguimientos abiertos en el CRM.";
   if (!asked) return "Pregunta a quién, cuándo o cómo.";
@@ -198,7 +199,10 @@ export function answerCrmFollowups(
 
   const hasIntent = wantsHow || wantsWhen || wantsWho || todayOnly || tomorrowOnly || weekOnly;
   if (!hasIntent) {
-    const due = rows.filter((row) => pendingToday(row, today));
+    const due = bySharedRank(
+      rows.filter((row) => pendingToday(row, today)),
+      now,
+    );
     if (!due.length) return "Pregunta a quién, cuándo o cómo. Hoy no toca ninguno.";
     return `Hoy toca ${countPhrase(due.length, "seguimiento", "seguimientos")}. Pregunta a quién, cuándo o cómo.\n${due
       .slice(0, 8)
@@ -208,15 +212,17 @@ export function answerCrmFollowups(
 
   let pool = rows;
   if (todayOnly) pool = rows.filter((row) => pendingToday(row, today));
-  else if (tomorrowOnly) pool = rows.filter((row) => dueDay(row.dueAt) === addDays(today, 1));
+  else if (tomorrowOnly) pool = rows.filter((row) => rowDay(row) === addDays(today, 1));
   else if (weekOnly) {
     const week = weekKey(today);
-    pool = rows.filter((row) => weekKey(dueDay(row.dueAt)) === week);
+    pool = rows.filter((row) => weekKey(rowDay(row)) === week);
   }
+  pool = bySharedRank(pool, now);
 
   if (!pool.length) {
-    const next = [...rows].sort((a, b) => dueDay(a.dueAt).localeCompare(dueDay(b.dueAt)))[0];
-    if (todayOnly) return `Hoy no toca ninguno. El próximo es ${next.cliente}, ${whenLabel(next, today)}.`;
+    const next = bySharedRank(rows, now)[0];
+    if (todayOnly && next) return `Hoy no toca ninguno. El próximo es ${next.cliente}, ${whenLabel(next, today)}.`;
+    if (todayOnly) return "Hoy no toca ninguno.";
     if (tomorrowOnly) return "Mañana no hay seguimientos.";
     if (weekOnly) return "Esta semana no hay seguimientos.";
     return "No hay seguimientos con eso.";

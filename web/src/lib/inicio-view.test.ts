@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { compareFollowupRank, openFollowupCountOf, pickOpenByName, prioritizeDesk } from "./crm-followups";
+import { compareFollowupRank, followupRankInput, openFollowupCountOf, pickOpenByName, prioritizeDesk } from "./crm-followups";
+import { answerCrmFollowups } from "./crm-ask";
 import {
   bogotaDateLine,
   bogotaMonthName,
@@ -10,7 +11,9 @@ import {
   followupChip,
   goalProgress,
   inicioOpenCount,
+  derivedFollowupMessages,
   listSubtitle,
+  messageIdeas,
   monthCommissionUsd,
   nextStepText,
   offerRules,
@@ -120,12 +123,41 @@ test("chip: amber today with the hour, rose for days without an answer, grey lat
   }
 });
 
-test("qué quedó never says «vencido»", () => {
-  assert.equal(nextStepText(row("x", { acuerdo: "", proximaAccion: "Seguimiento · vencido" })), "Retomar el contacto");
-  assert.equal(nextStepText(row("x", { acuerdo: "llamarlo el lunes para cerrar" })), "Llamarlo el lunes para cerrar");
-  assert.equal(nextStepText(row("x", { proximaAccion: "Enviar link de pago · vencido" })), "Enviar link de pago");
+test("qué quedó never says «vencido» and prefers a dated follow-up over the generic line", () => {
   assert.equal(
-    nextStepText(row("x", { callAcuerdo: "Quedó en revisarlo con su contador", acuerdo: "enviar mensaje · vencido" })),
+    nextStepText(row("x", { acuerdo: "", proximaAccion: "Seguimiento · vencido", dueAt: "", proximo: "" })),
+    "Retomar el contacto",
+  );
+  assert.equal(
+    nextStepText(
+      row("Jessica", {
+        acuerdo: "",
+        proximaAccion: "Seguimiento · atrasado",
+        hilo: "SEGUIMIENTO",
+        proximo: "2026-09-23",
+      }),
+      NOW,
+    ),
+    "Seguimiento pendiente desde el 23 sep",
+  );
+  assert.equal(
+    nextStepText(
+      row("Elber", {
+        acuerdo: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+        hilo: "DECISION",
+        proximo: "2026-09-23",
+      }),
+      NOW,
+    ),
+    "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+  );
+  assert.equal(nextStepText(row("x", { acuerdo: "llamarlo el lunes para cerrar" }), NOW), "Llamarlo el lunes para cerrar");
+  assert.equal(nextStepText(row("x", { proximaAccion: "Enviar link de pago · vencido" }), NOW), "Enviar link de pago");
+  assert.equal(
+    nextStepText(
+      row("x", { callAcuerdo: "Quedó en revisarlo con su contador", acuerdo: "enviar mensaje · vencido" }),
+      NOW,
+    ),
     "Quedó en revisarlo con su contador",
   );
 });
@@ -333,6 +365,91 @@ test("the 3-step card only when there is no goal and no lista de hoy", () => {
   assert.equal(fresh.callDone, false);
   assert.equal(listSubtitle(false), "Primero lo más urgente y con más dinero en juego");
   assert.equal(listSubtitle(true), "Primero lo que más te acerca a la meta");
+});
+
+test("suggested messages come from the offer scripts, otherwise from the agreement", () => {
+  const scripts = [
+    { guion: "Hola [Nombre], ¿seguimos con [PROGRAMA]?", canal: "WHATSAPP", type: "RETOMAR" },
+    { guion: "Hola [Nombre], te escribo por [PROGRAMA]. ¿Qué te falta?", canal: "WHATSAPP", type: "DECISION" },
+    { guion: "Hola [Nombre], el pago de USD [MONTO] de [PROGRAMA].", canal: "WHATSAPP", type: "PAGO PENDIENTE" },
+  ];
+  const fromOffer = messageIdeas({
+    name: "Elber",
+    offer: "Círculo Millonario",
+    scripts,
+    tipo: "DECISION",
+    step: "El cliente evaluará la propuesta",
+  });
+  assert.equal(fromOffer.length >= 2 && fromOffer.length <= 3, true);
+  assert.match(fromOffer[0] || "", /Elber/);
+  assert.match(fromOffer[0] || "", /Círculo Millonario/);
+  assert.equal(fromOffer.some((line) => /USD\s*[.,]/.test(line) || /\[[^\]]+\]/.test(line)), false);
+  const derived = messageIdeas({
+    name: "Jessica Pajuelo",
+    offer: "Círculo Millonario",
+    scripts: [],
+    step: "Seguimiento pendiente desde el 23 sep",
+    when: "Hace 12 días sin respuesta",
+  });
+  assert.equal(derived.length >= 2 && derived.length <= 3, true);
+  assert.match(derived[0] || "", /Jessica/);
+  assert.match(derived.join(" "), /Círculo Millonario/);
+  assert.equal(derived.some((line) => /pendiente desde el 23 sep/.test(line)), false);
+  const quoted = derivedFollowupMessages({
+    name: "Diego",
+    offer: "",
+    step: "Quedó en revisarlo con su contador",
+    when: "Hoy 3:00 pm",
+  });
+  assert.match(quoted[0] || "", /contador/);
+  assert.equal(quoted.some((line) => /USD|300/.test(line)), false);
+  const withMaterial = buildInicioList({
+    followups: [row("Ana Ruiz", { proximo: "2026-10-04", enJuego: 0 })],
+    rules: offerRules([
+      {
+        productName: "Círculo Millonario",
+        commercial: {
+          listPrice: 9000,
+          currency: "USD",
+          commission: commission(0.1),
+          scripts: [{ type: "RETOMAR", canal: "WHATSAPP", guion: "Hola [Nombre]", asset: "https://ejemplo.test/caso" }],
+        },
+      },
+    ]),
+    successes: [{ name: "Luis Gómez", offer: "Círculo Millonario" }],
+    now: NOW,
+  });
+  assert.deepEqual(withMaterial.rows[0]?.material, ["Luis Gómez ya cerró Círculo Millonario", "https://ejemplo.test/caso"]);
+  const hidden = buildInicioList({ followups: [row("Ana Ruiz", { proximo: "2026-10-04" })], rules: RULES, now: NOW });
+  assert.deepEqual(hidden.rows[0]?.material, []);
+  assert.ok((hidden.rows[0]?.messages.length || 0) >= 2);
+});
+
+test("Inicio and «¿A quién llamo hoy?» share the rank, including ties", () => {
+  const tied: InicioFollowupSource[] = [
+    row("Jessica Pajuelo", { id: "j", proximo: "2026-09-23", enJuego: 0, hilo: "SEGUIMIENTO", dueAt: "2026-09-23T13:00:00.000Z" }),
+    row("Elber", { id: "e", proximo: "2026-09-23", enJuego: 0, hilo: "DECISION", dueAt: "2026-09-23T18:00:00.000Z" }),
+    row("Néstor Mollehuara", { id: "n", proximo: "2026-09-25", enJuego: 0, hilo: "SEGUIMIENTO" }),
+    row("Sebastián Ramirez", { id: "s", proximo: "2026-09-25", enJuego: 0, hilo: "SEGUIMIENTO" }),
+    row("Maria Patricia", { id: "m", proximo: "2026-09-25", enJuego: 0, hilo: "SEGUIMIENTO" }),
+  ];
+  const inicio = rankFollowups(tied, NOW).map((item) => item.cliente);
+  const ask = answerCrmFollowups(
+    tied.map((item) => ({
+      id: item.id,
+      cliente: item.cliente,
+      dueAt: item.dueAt,
+      proximo: item.proximo,
+      hilo: item.hilo,
+      enJuego: item.enJuego,
+    })),
+    "¿A quién llamo hoy?",
+    { now: NOW },
+  );
+  const asked = [...ask.matchAll(/^• ([^·\n]+)/gm)].map((match) => match[1].trim());
+  assert.deepEqual(asked, inicio);
+  assert.deepEqual(inicio, ["Elber", "Jessica Pajuelo", "Maria Patricia", "Néstor Mollehuara", "Sebastián Ramirez"]);
+  assert.ok(compareFollowupRank(followupRankInput(tied[1], NOW), followupRankInput(tied[0], NOW)) < 0);
 });
 
 test("the person sheet hides a block that has no real data", () => {

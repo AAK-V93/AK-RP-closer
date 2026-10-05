@@ -435,8 +435,8 @@ function TodayList({
           Tu lista de hoy
           <InfoTip label="Cómo se ordena tu lista">
             <p>
-              Primero va quien tiene más dinero en juego. Sin monto, quien lleva más días sin respuesta. Es el
-              mismo orden de «¿A quién llamo hoy?».
+              Primero va quien tiene más dinero en juego. Sin monto, quien lleva más días sin respuesta, después
+              la etapa y al final el nombre. Es el mismo orden de «¿A quién llamo hoy?».
             </p>
             <p>
               La comisión sale de la regla de comisión de cada oferta. Si la oferta no la tiene, no te muestro
@@ -576,7 +576,7 @@ function PersonSheet({
         className={
           mobile
             ? "max-h-[92vh] overflow-y-auto rounded-t-2xl border-separator1 bg-bg0 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
-            : "w-full overflow-y-auto border-separator1 bg-bg0 sm:max-w-md"
+            : "w-full overflow-y-auto border-separator1 bg-bg0 px-4 py-5 sm:max-w-md"
         }
       >
         <div className="flex items-start gap-3 pr-10">
@@ -597,23 +597,30 @@ function PersonSheet({
             </SheetDescription>
           </div>
         </div>
-        {(blocks.agreement || blocks.when) && (
-          <div className="rounded-xl border border-[#EBD3A8] bg-[#F6E7CC] px-3.5 py-3 text-[14px] leading-snug text-[#5E3B0B]">
-            {blocks.agreement && <p className="line-clamp-2">{blocks.agreement}</p>}
-            {blocks.when && <p className={blocks.agreement ? "mt-1 text-[13px]" : ""}>{blocks.when}</p>}
-          </div>
+        {(blocks.agreement || blocks.nextStep || blocks.when) && (
+          <section className="rounded-2xl border border-[#EBD3A8] bg-[#F6E7CC] px-3.5 py-3 text-[14px] leading-snug text-[#5E3B0B]">
+            {blocks.agreement && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A4C0E]">En qué quedaron</p>
+                <p className="mt-1">{blocks.agreement}</p>
+              </div>
+            )}
+            {(blocks.nextStep || blocks.when) && (
+              <div className={blocks.agreement ? "mt-2.5 border-t border-[#EBD3A8] pt-2.5" : ""}>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A4C0E]">Siguiente paso</p>
+                {blocks.nextStep && <p className="mt-1 text-fg0">{blocks.nextStep}</p>}
+                {blocks.when && <p className="mt-1 text-[13px]">{blocks.when}</p>}
+              </div>
+            )}
+          </section>
         )}
-        {blocks.nextStep && (
-          <p className="text-[14px] leading-snug text-fg0">
-            <span className="text-fg3">Siguiente paso. </span>
-            {blocks.nextStep}
-            {blocks.when ? ` · ${blocks.when}` : ""}
-          </p>
-        )}
-        {row.messages.length > 0 && (
+        {drafts.length > 0 && (
           <ul className="space-y-2">
             {drafts.map((text, index) => (
-              <li key={`${row.id}-${index}`} className="rounded-xl border border-separator1 bg-bg1 p-3">
+              <li
+                key={`${row.id}-${index}`}
+                className={`rounded-2xl border bg-bg1 p-3 ${picked === index ? "border-fg0" : "border-separator1"}`}
+              >
                 <label className="flex items-start gap-2">
                   <input
                     type="radio"
@@ -622,20 +629,26 @@ function PersonSheet({
                     checked={picked === index}
                     onChange={() => setPicked(index)}
                   />
-                  <textarea
-                    value={text}
-                    rows={3}
-                    aria-label={`Mensaje ${index + 1}`}
-                    onChange={(event) => {
-                      const next = [...drafts];
-                      next[index] = event.target.value;
-                      setDrafts(next);
-                      setPicked(index);
-                    }}
-                    className="min-h-[4.5rem] w-full resize-y bg-transparent text-[14px] leading-snug text-fg0 outline-none"
-                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="mb-1 block text-[11px] font-medium text-fg3">
+                      {index === 0 ? "Sugerido" : `Opción ${index + 1}`}
+                    </span>
+                    <textarea
+                      value={text}
+                      rows={3}
+                      aria-label={`Mensaje ${index + 1}`}
+                      onChange={(event) => {
+                        const next = [...drafts];
+                        next[index] = event.target.value;
+                        setDrafts(next);
+                        setPicked(index);
+                      }}
+                      className="min-h-[4.5rem] w-full resize-y bg-transparent text-[14px] leading-snug text-fg0 outline-none"
+                    />
+                  </span>
                 </label>
-                <div className="mt-2 flex justify-end gap-2">
+                <p className="mt-1 text-[11px] text-fg3">Puedes editarlo aquí mismo</p>
+                <div className="mt-2 flex flex-wrap justify-end gap-2">
                   <button type="button" className={LINE_BUTTON} onClick={() => void copyMessage(text)}>
                     Copiar
                   </button>
@@ -652,8 +665,8 @@ function PersonSheet({
           </ul>
         )}
         {blocks.material.length > 0 && (
-          <section className="rounded-xl border border-separator1 bg-bg1 p-3">
-            <p className="mb-1 text-xs text-fg3">Material sugerido</p>
+          <section className="rounded-2xl border border-separator1 bg-bg1 p-3">
+            <p className="mb-1 text-xs font-medium text-fg3">Material sugerido</p>
             <ul className="space-y-1 text-[14px] text-fg0">
               {blocks.material.map((line) => (
                 <li key={line}>{line}</li>
