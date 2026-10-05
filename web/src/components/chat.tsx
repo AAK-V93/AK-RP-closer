@@ -311,6 +311,7 @@ export function Chat() {
               <ol className="text-left text-sm text-fg2 space-y-1.5 mx-auto max-w-sm list-decimal list-inside">
                 <li className="md:hidden">
                   Confirma tu oferta (la que subiste) y pulsa el botón de abajo.
+                  El prospecto emula tus transcripciones y grabaciones.
                 </li>
                 <li className="hidden md:list-item">
                   A la izquierda está tu oferta. El prospecto emula tus transcripciones y grabaciones.
