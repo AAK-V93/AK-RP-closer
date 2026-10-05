@@ -32,8 +32,11 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { countPhrase } from "@/lib/plain-labels";
-import { practiceOfferLoadState } from "@/lib/practice-offer-glance";
+import {
+  offerPracticeMaterialLine,
+  practiceOfferGlance,
+  practiceOfferLoadState,
+} from "@/lib/practice-offer-glance";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,7 +59,6 @@ import { useConnection } from "@/hooks/use-connection";
 import { RefreshCw } from "lucide-react";
 import type { LeadPlaybook } from "@/lib/lead-playbook";
 import type { ReplayCall } from "@/lib/replay-call";
-import { practiceOfferGlance } from "@/lib/practice-offer-glance";
 
 const schema = z.object({
   difficulty: z.enum(["easy", "medium", "hard"]),
@@ -72,6 +74,7 @@ type WorkspaceOffer = {
   productDescription: string;
   pitchSummary: string;
   commercial?: unknown;
+  includeFathom?: boolean;
 };
 
 export function HowToPracticeButton({ className }: { className?: string }) {
@@ -122,6 +125,7 @@ export function TrainingSetupForm() {
   const [offerStatus, setOfferStatus] = useState<"loading" | "error" | "empty" | "ready">("loading");
   const [ready, setReady] = useState(false);
   const [transcriptCount, setTranscriptCount] = useState(0);
+  const [fathomCount, setFathomCount] = useState(0);
   const [playbookReady, setPlaybookReady] = useState(false);
   const [openCalls, setOpenCalls] = useState<
     {
@@ -226,6 +230,7 @@ export function TrainingSetupForm() {
       ready?: boolean;
       canPractice?: boolean;
       transcriptCount?: number;
+      fathomCount?: number;
       playbookReady?: boolean;
       playbook?: LeadPlaybook | null;
     }) => {
@@ -235,6 +240,7 @@ export function TrainingSetupForm() {
       setOffer(data.offer || null);
       setReady(Boolean(data.ready || data.canPractice));
       setTranscriptCount(data.transcriptCount || 0);
+      setFathomCount(data.fathomCount || 0);
       setPlaybookReady(Boolean(data.playbookReady));
       if (data.offer) {
         dispatch({
@@ -376,6 +382,7 @@ export function TrainingSetupForm() {
                       setOffer(data.offer);
                       setReady(Boolean(data.ready || data.canPractice));
                       setTranscriptCount(data.transcriptCount || 0);
+                      setFathomCount(data.fathomCount || 0);
                       setPlaybookReady(Boolean(data.playbookReady));
                       if (data.offer) {
                         dispatch({
@@ -410,8 +417,12 @@ export function TrainingSetupForm() {
               <>
                 <OfferGlance offer={offer} />
                 <p className="text-xs text-fg3">
-                  {countPhrase(transcriptCount, "llamada real", "llamadas reales")}
-                  {playbookReady ? " · emulando a tus prospectos" : ""}
+                  {offerPracticeMaterialLine({
+                    transcriptCount,
+                    fathomCount,
+                    includeFathom: Boolean(offer.includeFathom),
+                  }).line}
+                  {playbookReady ? " · perfil de prospectos listo" : ""}
                 </p>
                 {trainingState.training.prospectProfile.leadTypeName && (
                   <p className="text-xs text-fg2 text-pretty">
