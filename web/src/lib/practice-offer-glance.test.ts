@@ -148,6 +148,25 @@ test("ofertas names imported texts and recordings apart from Coach person calls"
   );
 });
 
+test("the Oferta sheet uses dark-surface ink and an inverted voice chip", () => {
+  const drawer = readFileSync(new URL("../components/ui/drawer.tsx", import.meta.url), "utf8");
+  const form = readFileSync(new URL("../components/training-setup-form.tsx", import.meta.url), "utf8");
+  const label = readFileSync(new URL("../components/ui/label.tsx", import.meta.url), "utf8");
+  const sheet = drawer.slice(drawer.indexOf("const DrawerContent"), drawer.indexOf("DrawerContent.displayName"));
+  assert.match(sheet, /dark /);
+  assert.match(sheet, /bg-background/);
+  assert.match(sheet, /text-foreground/);
+  assert.doesNotMatch(sheet, /bg-neutral-800/);
+  assert.match(label, /text-foreground/);
+  assert.match(form, /Idioma del prospecto/);
+  assert.match(form, /Voz del prospecto/);
+  assert.match(form, /Inventa un comprador con el comportamiento de los prospectos de esta/);
+  assert.match(form, /text-\[11px\] text-fg3/);
+  assert.match(form, /rounded-full bg-fg0 px-3 text-sm font-medium text-bg0/);
+  assert.doesNotMatch(form, /text-\[#FBF8F2\]/);
+  assert.match(form, /rounded-full border border-separator2 bg-bg0 px-3 text-sm text-fg0/);
+});
+
 test("a failed practice offer read is not an empty offer", () => {
   assert.equal(practiceOfferLoadState({ ok: false, offer: undefined }), "error");
   assert.equal(practiceOfferLoadState({ ok: false, offer: { id: "x" } }), "error");

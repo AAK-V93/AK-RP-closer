@@ -593,7 +593,7 @@ export function TrainingSetupForm() {
                         onClick={() => field.onChange(voice.id)}
                         className={
                           field.value === voice.id
-                            ? "inline-flex h-11 min-h-11 items-center rounded-full bg-fg0 px-3 text-sm font-medium text-[#FBF8F2]"
+                            ? "inline-flex h-11 min-h-11 items-center rounded-full bg-fg0 px-3 text-sm font-medium text-bg0"
                             : "inline-flex h-11 min-h-11 items-center rounded-full border border-separator2 bg-bg0 px-3 text-sm text-fg0"
                         }
                       >
