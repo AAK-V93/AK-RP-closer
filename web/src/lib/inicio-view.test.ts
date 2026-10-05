@@ -9,6 +9,8 @@ import {
   buildInicioList,
   cutAtWord,
   followupChip,
+  followupWhenParts,
+  secondPersonCue,
   goalProgress,
   inicioOpenCount,
   derivedFollowupMessages,
@@ -403,6 +405,24 @@ test("suggested messages come from the offer scripts, otherwise from the agreeme
   });
   assert.match(quoted[0] || "", /contador/);
   assert.equal(quoted.some((line) => /USD|300/.test(line)), false);
+  const third = derivedFollowupMessages({
+    name: "Elber",
+    offer: "",
+    step: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+  });
+  assert.equal(third.some((line) => /el cliente/i.test(line)), false);
+  assert.match(third[0] || "", /Elber/);
+  assert.match(third.join(" "), /propuesta/i);
+  const ideas = messageIdeas({
+    name: "Elber",
+    offer: "Círculo Millonario",
+    suggested: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+    scripts: [],
+    step: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+  });
+  assert.equal(ideas.some((line) => /el cliente/i.test(line)), false);
+  assert.match(ideas[0] || "", /Elber/);
+  assert.equal(secondPersonCue("Quedó en revisarlo con su contador"), "Quedó en revisarlo con su contador");
   const withMaterial = buildInicioList({
     followups: [row("Ana Ruiz", { proximo: "2026-10-04", enJuego: 0 })],
     rules: offerRules([
@@ -476,6 +496,25 @@ test("the person sheet hides a block that has no real data", () => {
   });
   assert.equal(same.nextStep, "");
   assert.equal(same.agreement, "Quedó en revisarlo con su contador");
+  const late = followupWhenParts({ proximo: "2026-09-23", dueAt: "2026-09-23T18:00:00.000Z" }, NOW);
+  assert.equal(late.date, "23 sep");
+  assert.match(late.age, /^Hace \d+ días sin respuesta$/);
+  const both = sheetBlocks({
+    agreement: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+    nextStep: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+    when: late.date,
+    age: late.age,
+    messages: [],
+    material: [],
+    phone: "",
+  });
+  assert.equal(both.nextStep, "");
+  assert.equal(both.when, "23 sep");
+  assert.match(both.age || "", /sin respuesta/);
+  const todayOnly = followupWhenParts({ proximo: "2026-10-04 15:00" }, NOW);
+  assert.equal(todayOnly.date, "Hoy 3:00 pm");
+  assert.equal(todayOnly.age, "");
+  assert.equal(followupWhenParts({ proximo: "", dueAt: "" }, NOW).date, "");
   assert.deepEqual(same.messages, ["Hola Diego"]);
   assert.deepEqual(same.material, []);
   assert.equal(shownOffer("—"), "");

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { Mic, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,53 +11,165 @@ import { countPhrase } from "@/lib/plain-labels";
 
 type Line = { role: "user" | "crm"; text: string };
 
-const SUGGESTIONS = ["¿A quién hoy?", "¿Cuándo?", "¿Cómo les escribo?"];
+const SUGGESTIONS = ["¿A quién llamo hoy?", "¿Cuántos seguimientos tengo?", "¿A quién mañana?"];
 
 /** 1200px, not xl/1280: a laptop window of 1280 loses ~15px to the scrollbar. */
 const SIDE_COLUMN_QUERY = "(min-width: 1200px)";
+
+function looksLikeCrmWrite(text: string) {
+  if (/[?¿]/.test(text)) return false;
+  return /\b(me pag[oó]|pagu[eé]|ya pag[oó]|pag[oó]|se llama|m[aá]rcalo|perdido|cuota de|reserva de|abono|quedamos)\b/i.test(
+    text,
+  );
+}
 
 export function CrmAsk({
   rows,
   money,
   hidden = false,
+  seed,
+  onSeedConsumed,
+  onChanged,
 }: {
   rows: CrmAskRow[];
   money: (value: number) => string;
   hidden?: boolean;
+  seed?: { id: number; text: string } | null;
+  onSeedConsumed?: () => void;
+  onChanged?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
+  const [pending, setPending] = useState("");
+  const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const mediaRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const seedSeen = useRef(0);
+  const pendingRef = useRef("");
+  pendingRef.current = pending;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [lines, expanded]);
+  }, [lines, expanded, pending]);
 
   useEffect(() => {
     if (!expanded) return;
     fieldRef.current?.focus();
   }, [expanded]);
 
-  const ask = (question: string) => {
+  const push = (text: string, role: Line["role"]) => {
+    setLines((prev) => [...prev, { role, text }]);
+  };
+
+  const askHub = async (text: string) => {
+    setSending(true);
+    push(text, "user");
+    try {
+      const response = await fetch("/api/hub", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: { content?: string };
+      };
+      const reply = String(data.message?.content || data.error || "No pude completar eso. Inténtalo otra vez.").trim();
+      const confirm = /¿Confirmo\?/i.test(reply);
+      if (confirm) {
+        setPending(reply);
+      } else {
+        setPending("");
+        push(reply, "crm");
+        onChanged?.();
+      }
+    } catch {
+      setPending("");
+      push("No pude completar eso. Inténtalo otra vez.", "crm");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const ask = async (question: string) => {
     const text = question.trim();
-    if (!text) return;
-    const answer = answerCrmFollowups(rows, text, { money });
-    setLines((prev) => [...prev, { role: "user", text }, { role: "crm", text: answer }]);
+    if (!text || sending) return;
     setDraft("");
     setExpanded(true);
+    if (pendingRef.current && /^(s[ií]|no|confirmo|cancelar|cancela)$/i.test(text)) {
+      await askHub(text);
+      return;
+    }
+    if (looksLikeCrmWrite(text)) {
+      await askHub(text);
+      return;
+    }
+    const answer = answerCrmFollowups(rows, text, { money });
+    setLines((prev) => [...prev, { role: "user", text }, { role: "crm", text: answer }]);
   };
+
+  useEffect(() => {
+    if (!seed || seed.id === seedSeen.current) return;
+    seedSeen.current = seed.id;
+    void ask(seed.text);
+    onSeedConsumed?.();
+    // ask identity changes every render; the seed id is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed]);
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    ask(draft);
+    void ask(draft);
+  };
+
+  const toggleMic = async () => {
+    if (recording) {
+      mediaRef.current?.stop();
+      setRecording(false);
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        if (blob.size < 200) return;
+        try {
+          const body = new FormData();
+          body.append("audio", blob, "hub.webm");
+          const response = await fetch("/api/hub/transcribe", { method: "POST", body });
+          const data = await response.json();
+          const text = String(data.text || "").trim();
+          if (text) await ask(text);
+        } catch {
+          push("No pude usar el micrófono. Escríbelo.", "crm");
+        }
+      };
+      mediaRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch {
+      push("No pude usar el micrófono. Escríbelo.", "crm");
+    }
   };
 
   if (hidden) return null;
 
+  const openCount = countPhrase(openFollowupCountOf(rows), "persona en seguimiento", "personas en seguimiento");
+
   return (
-    <aside className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-0 z-30 min-w-0 max-w-full bg-bg0 min-[1200px]:static min-[1200px]:inset-auto min-[1200px]:z-auto min-[1200px]:max-h-[calc(100vh-7rem)] min-[1200px]:sticky min-[1200px]:top-4 min-[1200px]:flex min-[1200px]:flex-col min-[1200px]:border min-[1200px]:border-separator1">
+    <aside className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-0 z-30 min-w-0 max-w-full bg-bg0 min-[1200px]:static min-[1200px]:inset-auto min-[1200px]:z-auto min-[1200px]:max-h-[calc(100vh-7rem)] min-[1200px]:sticky min-[1200px]:top-4 min-[1200px]:flex min-[1200px]:flex-col min-[1200px]:rounded-2xl min-[1200px]:border min-[1200px]:border-separator1 min-[1200px]:bg-bg1">
       <form
         className={
           expanded
@@ -73,7 +185,7 @@ export function CrmAsk({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onFocus={() => setExpanded(true)}
-          placeholder="¿A quién le escribo hoy?"
+          placeholder="Pregúntame por tus prospectos"
           aria-label="Preguntar seguimientos"
           className="min-w-0 flex-1"
         />
@@ -89,10 +201,12 @@ export function CrmAsk({
             : "hidden min-h-0 min-w-0 flex-col min-[1200px]:flex min-[1200px]:max-h-[calc(100vh-7rem)]"
         }
       >
-        <div className="flex items-center justify-between gap-2 border-b border-separator1 px-3 py-2">
+        <div className="flex items-start justify-between gap-2 border-b border-separator1 px-4 py-3">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-wide text-fg3">Seguimientos</p>
-            <p className="text-sm">Pregunta a quién, cuándo y cómo</p>
+            <p className="font-display text-lg font-semibold leading-tight text-fg0">Pregúntame por tus prospectos</p>
+            <p className="mt-1 text-[13px] text-fg3">
+              Conozco cada llamada, pago y mensaje. Antes de cambiar algo, te pregunto. {openCount}.
+            </p>
           </div>
           <Button
             type="button"
@@ -105,29 +219,55 @@ export function CrmAsk({
           </Button>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-          <p className="text-xs text-fg3">
-            Responde con lo que ya está en el CRM, sin esperar. {countPhrase(openFollowupCountOf(rows), "seguimiento abierto", "seguimientos abiertos")}.
-          </p>
           {lines.map((line, index) => (
             <p
               key={`${line.role}-${index}`}
               className={
                 line.role === "user"
-                  ? "min-w-0 whitespace-pre-wrap break-words text-sm"
-                  : "min-w-0 whitespace-pre-wrap break-words border border-separator1 bg-bg1 p-2 text-sm"
+                  ? "ml-8 min-w-0 whitespace-pre-wrap break-words rounded-2xl bg-fg0 px-3 py-2 text-sm text-[#FBF8F2]"
+                  : "mr-4 min-w-0 whitespace-pre-wrap break-words rounded-2xl border border-separator1 bg-bg0 p-3 text-sm text-fg0"
               }
             >
               {line.text}
             </p>
           ))}
+          {pending && (
+            <div className="rounded-2xl border border-separator2 bg-bg0 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">Cambio propuesto</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-fg0">{pending.replace(/\s*¿Confirmo\?\s*$/i, "")}</p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  disabled={sending}
+                  onClick={() => void ask("sí")}
+                  className="inline-flex h-11 min-h-11 items-center rounded-[10px] bg-fg0 px-3.5 text-sm font-medium text-[#FBF8F2] disabled:opacity-60"
+                >
+                  Guardar
+                </button>
+                <button
+                  type="button"
+                  disabled={sending}
+                  onClick={() => void ask("no")}
+                  className="inline-flex h-11 min-h-11 items-center rounded-[10px] border border-separator2 px-3.5 text-sm font-medium text-fg0 disabled:opacity-60"
+                >
+                  No
+                </button>
+              </div>
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
         <div className="space-y-2 border-t border-separator1 p-3">
-          <div className="flex min-w-0 flex-wrap gap-1">
+          <div className="flex min-w-0 flex-wrap gap-1.5">
             {SUGGESTIONS.map((item) => (
-              <Button key={item} type="button" size="sm" variant="outline" onClick={() => ask(item)}>
+              <button
+                key={item}
+                type="button"
+                onClick={() => void ask(item)}
+                className="inline-flex h-11 min-h-11 items-center rounded-full border border-separator2 px-3 text-[13px] text-fg2"
+              >
                 {item}
-              </Button>
+              </button>
             ))}
           </div>
           <form onSubmit={onSubmit} className="flex min-w-0 items-end gap-2">
@@ -138,14 +278,26 @@ export function CrmAsk({
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  ask(draft);
+                  void ask(draft);
                 }
               }}
-              placeholder="¿A quién le escribo hoy?"
+              placeholder="Escribe o habla…"
               rows={2}
+              aria-label="Preguntar seguimientos"
               className="min-h-0 min-w-0 flex-1"
             />
-            <Button type="submit" size="sm" variant="primary" aria-label="Preguntar" className="shrink-0">
+            <Button
+              type="button"
+              variant={recording ? "destructive" : "outline"}
+              size="sm"
+              disabled={sending && !recording}
+              onClick={() => void toggleMic()}
+              aria-label={recording ? "Detener" : "Hablar"}
+              className="shrink-0"
+            >
+              {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </Button>
+            <Button type="submit" size="sm" variant="primary" aria-label="Preguntar" className="shrink-0" disabled={sending}>
               <Send className="h-4 w-4" />
             </Button>
           </form>
