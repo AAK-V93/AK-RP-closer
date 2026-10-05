@@ -19,7 +19,7 @@ import {
   postWorkspaceOffer,
 } from "@/lib/offer-save";
 import {
-  commercialRecap,
+  commissionSummary,
   crmGaps,
   missingOfferSetupPhrase,
   offerToSavePayload,
@@ -27,6 +27,8 @@ import {
   savedBonusNames,
   type ExtractedOffer,
 } from "@/lib/offer-commercial";
+import { libraryKindLabel } from "@/lib/library-copy";
+import { offerSwitchLabel, practiceOfferGlance } from "@/lib/practice-offer-glance";
 import { WorkspaceSkeleton } from "@/components/page-skeleton";
 import { OfferExtractReview } from "@/components/offer-extract-review";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
@@ -99,6 +101,10 @@ export default function OfertasPage() {
     questions: string[];
     offers: ExtractedOffer[];
   } | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [scriptsOpen, setScriptsOpen] = useState(false);
+  const composerRef = useRef<HTMLDivElement | null>(null);
 
   const fillOffer = (offer: OfferRow | null) => {
     setOfferId(offer?.id || null);
@@ -107,6 +113,7 @@ export default function OfertasPage() {
     setPitchSummary(offer?.pitchSummary || "");
     setIncludeFathom(Boolean(offer?.includeFathom));
     setCommercial(offer?.commercial || null);
+    setScriptsOpen(false);
   };
 
   const load = async (nextOfferId?: string | null) => {
@@ -150,14 +157,23 @@ export default function OfertasPage() {
     if (id) {
       const row = pickWorkspaceOffer(offers, id);
       if (row) fillOffer(row);
+      setComposerOpen(false);
     } else {
       fillOffer(null);
+      setComposerOpen(true);
     }
     const params = new URLSearchParams(searchParams.toString());
     if (id) params.set("offerId", id);
     else params.set("offerId", "");
     const query = params.toString();
     router.replace(query ? `/ofertas?${query}` : "/ofertas", { scroll: false });
+  };
+
+  const openComposer = () => {
+    setComposerOpen(true);
+    requestAnimationFrame(() => {
+      composerRef.current?.scrollIntoView({ block: "nearest" });
+    });
   };
 
   const extractOffer = async (files?: FileList | File[] | null, blob = offerBlob) => {
@@ -361,15 +377,40 @@ export default function OfertasPage() {
     );
   }
 
+  const parsedCommercial = parseCommercial(commercial);
+  const glance = practiceOfferGlance({
+    productName,
+    productDescription,
+    pitchSummary,
+    commercial,
+  });
+  const commission = commissionSummary(parsedCommercial.commission);
+  const gaps = crmGaps({ productName, commercial });
+  const missingPay = gaps.some((gap) => gap.startsWith("cómo te pagan"));
+  const missingPrice = gaps.some((gap) => gap.startsWith("precio"));
+  const scripts = parseFollowupScripts(parsedCommercial.scripts);
+  const canPractice = Boolean(workspace?.ready || workspace?.canPractice);
+  const showComposer = composerOpen || !offerId || Boolean(review) || parsingDoc;
+  const showAdjust = adjustOpen || !offerId;
+  const visibleScripts = scriptsOpen ? scripts : scripts.slice(0, 2);
+
   return (
     <AppShell>
-      <div className="space-y-8">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-light">Ofertas</h1>
-          <p className="text-sm text-fg3">
-            Sube el documento o pega un solo texto. Extraemos precios, pagos y
-            cómo te pagan comisión (aunque dependa del plazo o la forma de pago).
-          </p>
+      <div className="space-y-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <h1 className="font-display text-[32px] font-semibold leading-tight tracking-[-0.01em] text-fg0 md:text-[40px]">
+              Ofertas
+            </h1>
+            <p className="max-w-xl text-sm text-fg3">
+              Precios, comisión y guiones de la oferta que estás viendo.
+            </p>
+          </div>
+          {canPractice && (
+            <Button asChild variant="primary" className="min-h-11 shrink-0">
+              <Link href="/practicar">Ir a practicar</Link>
+            </Button>
+          )}
         </div>
         {savedNote && (
           <p
@@ -399,11 +440,10 @@ export default function OfertasPage() {
               type="button"
               size="sm"
               variant={row.id === offerId ? "primary" : "outline"}
+              aria-pressed={row.id === offerId}
               onClick={() => showOffer(row.id)}
             >
-              {row.productName}
-              {bonusCount ? ` · ${bonusCount} bonos` : ""}
-              {row.readyCrm ? "" : " ·"}
+              {offerSwitchLabel(row.productName, bonusCount)}
             </Button>
             );
           })}
@@ -417,10 +457,95 @@ export default function OfertasPage() {
             Nueva oferta
           </Button>
         </div>
+        {offerId && productName ? <p className="text-xs text-fg3">Viendo {productName}.</p> : null}
 
-        <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
-          <h2 className="text-lg font-light">
-            {offerId ? "Actualizar desde documento o texto" : "1. Documento o un texto"}
+        {offerId && (
+          <section className="space-y-4 rounded-2xl border border-separator1 bg-bg1 p-4 sm:p-5" aria-label="Datos de la oferta">
+            <h2 className="font-display text-[22px] font-semibold text-fg0">{productName || "Oferta"}</h2>
+            {glance.blurb ? <p className="text-sm text-fg2">{glance.blurb}</p> : null}
+            {glance.prices.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">Precios</p>
+                {glance.prices.map((line, index) => (
+                  <p key={`${index}-${line}`} className="text-sm text-fg0">
+                    {line}
+                  </p>
+                ))}
+              </div>
+            ) : missingPrice ? (
+              <p className="text-sm text-fg2">Falta el precio.</p>
+            ) : null}
+            {commission ? (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">Comisión</p>
+                <p className="mt-1 text-sm text-fg0">{commission}</p>
+              </div>
+            ) : missingPay ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#EBD3A8] bg-[#F6E7CC] px-3 py-3">
+                <p className="text-sm font-medium text-[#5E3B0B]">Falta cómo te pagan</p>
+                <Button type="button" size="sm" variant="primary" className="min-h-11" onClick={openComposer}>
+                  Completar
+                </Button>
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">Guiones</p>
+              {scripts.length === 0 ? (
+                <p className="text-sm text-fg2">
+                  Sin guiones en esta oferta.{" "}
+                  <Link href="/biblioteca" className="underline">
+                    Ver la biblioteca
+                  </Link>
+                </p>
+              ) : (
+                <>
+                  <ul className="space-y-2">
+                    {visibleScripts.map((script, index) => (
+                      <li key={`${script.type}-${index}`} className="rounded-xl bg-bg0 px-3 py-2">
+                        <p className="text-[11px] font-medium text-fg3">{libraryKindLabel(script.type)}</p>
+                        <p className="line-clamp-3 whitespace-pre-wrap text-sm text-fg0">{script.guion}</p>
+                      </li>
+                    ))}
+                  </ul>
+                  {scripts.length > 2 && (
+                    <button
+                      type="button"
+                      className="min-h-11 text-sm font-medium text-fg0 underline"
+                      onClick={() => setScriptsOpen((open) => !open)}
+                    >
+                      {scriptsOpen ? "Ver menos" : `Ver los ${scripts.length} guiones`}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            {glance.bonusNames.length > 0 && (
+              <details className="text-sm text-fg1">
+                <summary className="min-h-11 cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-fg3">
+                  Bonos ({glance.bonusNames.length})
+                </summary>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  {glance.bonusNames.map((name, index) => (
+                    <li key={`${index}-${name}`}>{name}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </section>
+        )}
+
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11"
+          onClick={() => (showComposer && offerId ? setComposerOpen(false) : openComposer())}
+        >
+          {showComposer && offerId ? "Ocultar formulario" : "Añadir / pegar oferta"}
+        </Button>
+        {showComposer && (
+        <div ref={composerRef} className="space-y-4 rounded-2xl border border-separator1 bg-bg1 p-5">
+          <h2 className="font-display text-[22px] font-semibold text-fg0">
+            {offerId ? "Actualizar desde documento o texto" : "Documento o un texto"}
           </h2>
           <p className="text-sm text-fg3">
             No hace falta ir campo por campo. Si tu comisión cambia según
@@ -473,19 +598,30 @@ export default function OfertasPage() {
               onConfirm={(offers) => void confirmExtracted(offers)}
             />
           )}
-          {!review && commercial && (
-            <SavedOfferCommercial key={offerId ?? "nueva"} commercial={commercial} />
-          )}
         </div>
+        )}
 
+        {offerId && !showAdjust && (
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => setAdjustOpen(true)}>
+            Ajustar si hace falta
+          </Button>
+        )}
+        {showAdjust && (
         <form
           key={offerId ?? "nueva"}
           onSubmit={onSaveOffer}
           className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4"
         >
-          <h2 className="text-lg font-light">
-            {offerId ? "Ajustar si hace falta" : "Revisa y guarda"}
-          </h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-display text-[22px] font-semibold text-fg0">
+              {offerId ? "Ajustar si hace falta" : "Revisa y guarda"}
+            </h2>
+            {offerId && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setAdjustOpen(false)}>
+                Ocultar
+              </Button>
+            )}
+          </div>
           <div className="space-y-1">
             <Label htmlFor="offer-name">Nombre</Label>
             <Input
@@ -546,6 +682,7 @@ export default function OfertasPage() {
             )}
           </Button>
         </form>
+        )}
 
         {offerId &&
           parseFollowupScripts(
@@ -604,7 +741,7 @@ export default function OfertasPage() {
           )}
 
         <div className="rounded-2xl border border-separator1 bg-bg1 p-5 space-y-4">
-          <h2 className="text-lg font-light">2. Llamadas de esta oferta</h2>
+          <h2 className="font-display text-[22px] font-semibold text-fg0">Llamadas de esta oferta</h2>
           <p className="text-sm text-fg3">
             Sube la carpeta de transcripciones de esta oferta (.txt, .vtt, .srt, .md, .csv, .pdf).
             El video no entra. No hay tope de archivos: se mandan todas y cada una pasa al CRM.
@@ -702,12 +839,6 @@ export default function OfertasPage() {
           )}
         </div>
 
-        {(workspace?.ready || workspace?.canPractice) && (
-          <Button asChild variant="primary" className="w-full">
-            <Link href="/practicar">Ir a practicar</Link>
-          </Button>
-        )}
-
         {error && (
           <p className="text-sm text-destructive" role="alert">
             {error}
@@ -718,25 +849,3 @@ export default function OfertasPage() {
   );
 }
 
-function SavedOfferCommercial({ commercial }: { commercial: Record<string, unknown> }) {
-  const parsed = parseCommercial(commercial);
-  const prices = commercialRecap(parsed);
-  const bonuses = savedBonusNames(parsed);
-  return (
-    <div className="text-xs text-fg2 rounded-xl border border-separator1 px-3 py-2 space-y-2">
-      <p className="whitespace-pre-line">
-        {prices || "Extraído. Revisa nombre y descripción abajo y guarda."}
-      </p>
-      {bonuses.length > 0 && (
-        <div>
-          <p className="font-medium text-fg1">Bonos ({bonuses.length})</p>
-          <ul className="mt-1 list-disc pl-4 space-y-0.5">
-            {bonuses.map((name) => (
-              <li key={name}>{name}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}

@@ -80,6 +80,33 @@ function callsAll(rows: CoachEvidence[]) {
   return rows.filter((row) => realCall(row) && (dayOf(row) || row.cliente)).length;
 }
 
+/**
+ * Calls with no offer, plus a lead that was never tied to one.
+ * A person who already has an offer stays on that card, so a loss is not counted twice.
+ */
+function unassignedRows(rows: CoachEvidence[]) {
+  const peopleWithOffer = new Set<string>();
+  for (const row of rows) {
+    if (!offerOf(row)) continue;
+    const person = foldLeadName(String(row.cliente || ""));
+    if (person) peopleWithOffer.add(person);
+  }
+  return rows.filter((row) => {
+    if (offerOf(row)) return false;
+    if (realCall(row)) return true;
+    const person = foldLeadName(String(row.cliente || ""));
+    return Boolean(person) && !peopleWithOffer.has(person);
+  });
+}
+
+/** Últimas prácticas. The internal save line is not something the closer rehearses. */
+export function shownPracticeOutcome(value: string | null | undefined) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (/qc parcial|no perderla|re-auditar/i.test(text)) return "";
+  return text;
+}
+
 function callPhrase(count: number, suffix: string) {
   if (count <= 0) return "";
   const phrase = countPhrase(count, "llamada", "llamadas");
@@ -181,6 +208,8 @@ export function buildCoachOffers(args: {
       ),
     )
     .filter((row): row is CoachOfferCard => Boolean(row));
+  const loose = cardFor(unassignedRows(visible), "Sin oferta", now);
+  if (loose) offers.push(loose);
 
   return {
     monthVersus: outcomeSentences(month).versus,

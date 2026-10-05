@@ -47,7 +47,8 @@ export function CloserCoachChat({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(false);
   const startedRef = useRef(false);
 
   const applyNotes = (next: CoachNotes, nextLevel: number) => {
@@ -97,7 +98,9 @@ export function CloserCoachChat({
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!stickRef.current) return;
+    const scroller = scrollerRef.current;
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
   }, [messages, sending]);
 
   const onSubmit = async (event: FormEvent) => {
@@ -106,6 +109,7 @@ export function CloserCoachChat({
     if (!text || sending) return;
     setDraft("");
     setError(null);
+    stickRef.current = true;
     const optimistic: ChatLine = {
       id: `local-${Date.now()}`,
       role: "user",
@@ -135,7 +139,7 @@ export function CloserCoachChat({
 
   return (
     <div className="flex min-h-[280px] max-h-[70vh] min-w-0 max-w-full flex-col overflow-x-hidden rounded-2xl border border-separator1 bg-bg1">
-      <div className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto p-4">
+      <div ref={scrollerRef} className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto p-4">
         {loading && (
           <p className="text-sm text-fg3 flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -167,7 +171,6 @@ export function CloserCoachChat({
             El coach está tomando nota de tus prácticas…
           </p>
         )}
-        <div ref={bottomRef} />
       </div>
 
       <form onSubmit={onSubmit} className="p-3 border-t border-separator1 space-y-2">

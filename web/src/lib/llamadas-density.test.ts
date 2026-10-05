@@ -37,9 +37,36 @@ test("every confirm question has a one-tap path, and a name stays text", () => {
   });
   assert.deepEqual(
     follow.chips.map((chip) => chip.label),
-    ["Sí, quedó seguimiento", "No quedó"],
+    ["Segunda reunión", "Pago", "Decisión", "Retomar", "No quedó"],
   );
+  assert.equal(follow.chips.find((chip) => chip.label === "No quedó")?.field, "requiere_seguimiento");
+  assert.equal(follow.chips.find((chip) => chip.label === "Pago")?.field, "tipo_seguimiento");
   assert.equal(follow.freeText, false);
+
+  for (const leadName of ["Leonardo y William Gonzalez", "José Mauricio Lezama"]) {
+    const same = pendingPromptActions({
+      field: "requiere_seguimiento",
+      options: ["Sí, quedó seguimiento", "No quedó"],
+      leadName,
+    });
+    assert.deepEqual(
+      same.chips.map((chip) => chip.label),
+      ["Segunda reunión", "Pago", "Decisión", "Retomar", "No quedó"],
+    );
+  }
+
+  const yajaira = pendingPromptActions({
+    field: "revision",
+    options: [],
+    showToggle: false,
+    leadName: "Yajaira",
+  });
+  assert.deepEqual(
+    yajaira.chips.map((chip) => chip.label),
+    ["Segunda reunión", "Pago", "Decisión", "Retomar", "No quedó"],
+  );
+  assert.equal(yajaira.freeText, false);
+  assert.equal(yajaira.sale, false);
 
   const kinds = pendingPromptActions({ field: "tipo_seguimiento", leadName: "Katherine Rodríguez" });
   assert.deepEqual(
@@ -51,6 +78,15 @@ test("every confirm question has a one-tap path, and a name stays text", () => {
   assert.equal(who.sale, true);
   assert.equal(who.freeText, true);
   assert.equal(who.chips.length, 0);
+
+  const unnamed = pendingPromptActions({
+    field: "cliente_real",
+    leadName: "Sin nombre",
+    showToggle: true,
+  });
+  assert.equal(unnamed.sale, true);
+  assert.equal(unnamed.chips.length, 0);
+  assert.equal(unnamed.freeText, true);
 
   const sale = pendingPromptActions({ field: "", showToggle: true, leadName: "" });
   assert.equal(sale.sale, true);
