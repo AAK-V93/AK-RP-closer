@@ -81,6 +81,29 @@ test("tomorrow lists only that day", () => {
   assert.equal(text.includes("Ana"), false);
 });
 
+test("a list bullet does not repeat seguimiento and atrasado", () => {
+  const text = answerCrmFollowups(
+    [
+      {
+        id: "e",
+        cliente: "Elber",
+        dueAt: new Date(2026, 8, 23, 13, 0, 0).toISOString(),
+        hilo: "SEGUIMIENTO",
+        proximaAccion: "seguimiento · atrasado",
+        canal: "WHATSAPP",
+        proximo: "2026-09-23",
+      },
+    ],
+    "¿A quién llamo hoy?",
+    { now },
+  );
+  assert.match(text, /Elber/);
+  assert.match(text, /pendiente desde/);
+  assert.match(text, /WhatsApp/);
+  assert.equal((text.match(/seguimiento/gi) || []).length, 1);
+  assert.equal(/atrasado/i.test(text), false);
+});
+
 test("empty CRM does not invent a follow-up", () => {
   assert.equal(
     answerCrmFollowups([], "¿a quién hoy?", { now }),

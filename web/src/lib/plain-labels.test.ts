@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { countPhrase, labelCrmProse, plainStatus, presentChatState, spanishAgendaInText } from "./plain-labels";
+import { countPhrase, labelCrmProse, plainStatus, porConfirmarLabel, presentChatState, readableTitle, spanishAgendaInText } from "./plain-labels";
 
 test("screen labels hide internal status codes", () => {
   assert.equal(plainStatus("CIERRE VENTA"), "Cerró");
@@ -71,4 +71,8 @@ test("counts use singular and plural", () => {
   assert.equal(countPhrase(1, "llamada real", "llamadas reales"), "1 llamada real");
   assert.equal(countPhrase(4, "llamada real", "llamadas reales"), "4 llamadas reales");
   assert.equal(countPhrase(0, "seguimiento", "seguimientos"), "0 seguimientos");
+  assert.equal(porConfirmarLabel(1), "Tienes 1 llamada por confirmar");
+  assert.equal(porConfirmarLabel(9), "Tienes 9 llamadas por confirmar");
+  assert.equal(readableTitle("KATHERINE REINOSO SARMIENTO"), "Katherine Reinoso Sarmiento");
+  assert.equal(readableTitle("Llamada del 2 oct"), "Llamada del 2 oct");
 });

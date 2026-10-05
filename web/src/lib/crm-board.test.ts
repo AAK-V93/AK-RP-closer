@@ -30,8 +30,10 @@ test("hoy matches the shared rank and skips a later date", () => {
   );
   assert.deepEqual(hoy, ["Elber", "Jessica Pajuelo", "Néstor Mollehuara"]);
   assert.equal(hoy.includes("Paula Ríos"), false);
+  assert.deepEqual(board.rows.map((row) => row.name), ["Paula Ríos"]);
+  assert.equal(board.restTitle, "Más adelante");
   assert.deepEqual(
-    board.rows.map((row) => row.name),
+    [...board.hoy.map((row) => row.name), ...board.rows.map((row) => row.name)],
     ranked.map((row) => row.cliente),
   );
   const asked = answerCrmFollowups(
@@ -81,10 +83,9 @@ test("buckets keep a closed sale, a lost lead and an open follow-up apart", () =
     followup({ id: "d", cliente: "Diego Paredes", proximo: "2026-10-04 15:00", enJuego: 0, oferta: "Círculo Millonario" }),
   ];
   const board = buildCrmBoard({ calls, followups, period: "todo", now: NOW });
-  assert.deepEqual(
-    board.rows.map((row) => row.name),
-    ["Diego Paredes"],
-  );
+  assert.deepEqual(board.hoy.map((row) => row.name), ["Diego Paredes"]);
+  assert.deepEqual(board.rows.map((row) => row.name), []);
+  assert.match(board.empty, /A quién contactar hoy/);
   assert.equal(board.counts.seguimiento, 1);
   assert.equal(board.counts.cerrados, 1);
   assert.equal(board.counts.perdidos, 1);
@@ -124,8 +125,28 @@ test("este mes keeps an overdue follow-up and a cierre from another month stays 
   assert.equal(month.counts.cerrados, 1);
   const closed = buildCrmBoard({ calls, followups, period: "mes", bucket: "cerrados", now: NOW });
   assert.deepEqual(closed.rows.map((row) => row.name), ["Lucía Vega"]);
-  assert.match(month.subtitle, /1 persona este mes/);
+  assert.match(month.subtitle, /1 persona cerró este mes/);
   assert.match(month.subtitle, /USD 80 cobrados/);
+  assert.equal(month.counts.cerrados, 1);
+});
+
+test("en seguimiento matches Inicio and a call this month is not a cierre", () => {
+  const calls: CrmBoardCall[] = [
+    { id: "a", cliente: "Ana Salas", fecha: "2026-10-02", estadoAgenda: "SHOW", oferta: "Círculo Millonario" },
+    { id: "b", cliente: "Luis Gómez", fecha: "2026-10-03", estadoAgenda: "SHOW" },
+  ];
+  const followups = [
+    followup({ id: "late", cliente: "Elber", proximo: "2026-09-23" }),
+    followup({ id: "later", cliente: "Paula Ríos", proximo: "2026-11-02", dueAt: "2026-11-02T15:00:00.000Z" }),
+  ];
+  const board = buildCrmBoard({ calls, followups, period: "mes", now: NOW });
+  assert.equal(board.counts.cerrados, 0);
+  assert.equal(board.subtitle, "");
+  assert.equal(board.counts.seguimiento, 2);
+  assert.match(board.hoyNote, /2 personas en seguimiento/);
+  assert.equal(board.hoy.length + board.rows.length, board.counts.seguimiento);
+  assert.deepEqual(board.hoy.map((row) => row.name), ["Elber"]);
+  assert.deepEqual(board.rows.map((row) => row.name), ["Paula Ríos"]);
 });
 
 test("pago does not invent a quota or a zero", () => {

@@ -26,6 +26,7 @@ import {
   OFFER_PASTE_TEXT,
   visibleHubThread,
   interpretCrmChat,
+  mergeAgreementText,
   loadLeadTranscript,
   looksLikeFilingAnswer,
   readPendingChat,
@@ -1844,6 +1845,54 @@ test("an acuerdo with a date also proposes Próximo seguimiento", () => {
     "2026-10-05 15:00",
   );
   assert.match(pay.reply, /2026-10-05 15:00/);
+});
+
+test("a shorter acuerdo keeps the longer detail instead of replacing it", () => {
+  const long = "quedamos en llamar el miércoles 7 de octubre a las 3 pm tras revisarlo con su contador";
+  assert.equal(
+    mergeAgreementText(long, "quedamos en llamar el miércoles 7 de octubre a las 3 pm"),
+    long,
+  );
+  assert.equal(
+    mergeAgreementText(
+      "quedamos en llamar tras revisarlo con su contador",
+      "quedamos en llamar el miércoles 7 de octubre a las 3 pm",
+    ),
+    "quedamos en llamar el miércoles 7 de octubre a las 3 pm tras revisarlo con su contador",
+  );
+  assert.equal(mergeAgreementText("Llamar el jueves", "pagar el lunes"), "pagar el lunes");
+  const kept = interpretCrmChat("Diego Huamán: quedamos en llamar el miércoles 7 de octubre a las 3 pm", {
+    ...ctx,
+    leads: [...leads, { ...diego, nextStep: long }],
+  });
+  if (kept.kind === "confirm") {
+    assert.equal(kept.proposal.changes.find((change) => change.field === "nextStep"), undefined);
+    assert.doesNotMatch(kept.reply, /a «quedamos en llamar el miércoles 7 de octubre a las 3 pm»/);
+  } else {
+    assert.equal(kept.kind, "answer");
+    if (kept.kind === "answer") assert.match(kept.reply, /No cambié nada/);
+  }
+  const merged = interpretCrmChat("Diego Huamán quedamos en llamar el miércoles 7 de octubre a las 3 pm", {
+    ...ctx,
+    leads: [
+      ...leads,
+      {
+        ...diego,
+        nextStep: "quedamos en llamar tras revisarlo con su contador",
+        nextStepAt: new Date("2026-10-02T15:00:00.000Z"),
+      },
+    ],
+  });
+  assert.equal(merged.kind, "confirm");
+  if (merged.kind !== "confirm") return;
+  assert.match(
+    merged.proposal.changes.find((change) => change.field === "nextStep")?.to || "",
+    /contador/,
+  );
+  assert.match(
+    merged.proposal.changes.find((change) => change.field === "nextStep")?.to || "",
+    /3 pm/,
+  );
 });
 
 test("a date-only proposal says the previous hour it will keep", () => {

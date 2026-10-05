@@ -31,8 +31,12 @@ function PersonCell({ person }: { person: CrmBoardPerson }) {
         {person.initials}
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-[15px] font-medium text-fg0">{person.name}</span>
-        {person.offer && <span className="block truncate text-[13px] text-fg3">{person.offer}</span>}
+        <span className="block whitespace-normal break-words text-[15px] font-medium leading-snug text-fg0 sm:truncate">
+          {person.name}
+        </span>
+        {person.offer && (
+          <span className="block whitespace-normal break-words text-[13px] text-fg3 sm:truncate">{person.offer}</span>
+        )}
       </span>
     </span>
   );
@@ -91,11 +95,15 @@ export function CrmBoardView({
                 <button
                   type="button"
                   onClick={() => onAsk(person)}
-                  className="flex min-h-11 w-full items-center justify-between gap-3 py-2.5 text-left"
+                  className="flex min-h-11 w-full flex-col items-stretch gap-1.5 py-2.5 text-left sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                   aria-label={`Preguntar en qué quedaste con ${person.name}`}
                 >
                   <PersonCell person={person} />
-                  {person.chip && <WhenChip tone={person.chip.tone} label={person.chip.label} />}
+                  {person.chip && (
+                    <span className="sm:shrink-0">
+                      <WhenChip tone={person.chip.tone} label={person.chip.label} />
+                    </span>
+                  )}
                 </button>
               </li>
             ))}
@@ -162,7 +170,10 @@ export function CrmBoardView({
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-separator1 bg-bg1">
-        <div className="hidden grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] gap-3 border-b border-separator1 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-fg3 sm:grid">
+        {board.restTitle && (
+          <p className="border-b border-separator1 px-4 py-2.5 text-sm text-fg2">{board.restTitle}</p>
+        )}
+        <div className="hidden grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] gap-3 border-b border-separator1 px-4 py-2 text-[11px] font-semibold tracking-wide text-fg3 sm:grid">
           <span>Persona</span>
           <span>Pago</span>
           <span>Seguimiento</span>

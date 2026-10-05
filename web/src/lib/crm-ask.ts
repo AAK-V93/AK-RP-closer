@@ -1,5 +1,10 @@
 import { weekKey } from "@/lib/crm-filters";
-import { compareFollowupRank, followupCalendarDay, followupRankInput } from "@/lib/crm-followups";
+import {
+  compareFollowupRank,
+  followupCalendarDay,
+  followupRankInput,
+  stripStoredFollowupMark,
+} from "@/lib/crm-followups";
 import { zonedDayKey } from "@/lib/crm-time";
 import { countPhrase, plainStatus } from "@/lib/plain-labels";
 
@@ -81,9 +86,23 @@ function whenLabel(row: CrmAskRow, today: string) {
   return shortDay(due);
 }
 
+/** Drop stage words and timing the bullet already says («Seguimiento · … · seguimiento · atrasado»). */
+function actionDetail(row: CrmAskRow) {
+  const stripped = stripStoredFollowupMark(actionOf(row))
+    .replace(/\s*·\s*(vencido|atrasado|pendiente de hoy|hace \d+ d[ií]as sin respuesta)\b/gi, "")
+    .replace(/\s*·\s*pendiente desde\b[^·]*/gi, "")
+    .replace(/\s*·\s*/g, " · ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(?:·\s*)+|(?:\s*·)+$/g, "")
+    .trim();
+  if (!stripped || /^(seguimiento|seguimientos|atrasado|pendiente(?: de hoy)?)$/i.test(stripped)) return "";
+  return stripped;
+}
+
 function howLabel(row: CrmAskRow) {
   const canal = canalLabel(row.canal);
-  const action = actionOf(row);
+  const action = actionDetail(row);
   const phone = row.telefono?.trim();
   return [canal, action, phone].filter(Boolean).join(" · ");
 }
@@ -160,7 +179,16 @@ function lineOf(row: CrmAskRow, today: string, money?: (value: number) => string
 
 function brief(row: CrmAskRow, today: string) {
   const tipo = plainStatus(row.hilo || row.tipo);
-  return `• ${[row.cliente, tipo, whenLabel(row, today), howLabel(row)].filter(Boolean).join(" · ")}`;
+  const action = actionDetail(row);
+  const tipoFold = fold(tipo);
+  const actionFold = fold(action);
+  const showTipo =
+    Boolean(tipo) &&
+    tipo !== "—" &&
+    !/^seguimiento$/i.test(tipo) &&
+    !(actionFold && (actionFold === tipoFold || actionFold.includes(tipoFold)));
+  const canal = canalLabel(row.canal);
+  return `• ${[row.cliente, showTipo ? tipo : "", action, whenLabel(row, today), canal].filter(Boolean).join(" · ")}`;
 }
 
 export function answerCrmFollowups(

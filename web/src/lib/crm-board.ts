@@ -65,6 +65,8 @@ export type CrmBoard = {
   total: number;
   footer: string;
   empty: string;
+  /** Heading for the people who are not already in «hoy». */
+  restTitle: string;
 };
 
 const BUCKETS: CrmBoardBucket[] = ["cerrados", "seguimiento", "perdidos"];
@@ -132,8 +134,8 @@ function askFor(name: string) {
 
 /**
  * Compact CRM. «En seguimiento» and «A quién contactar hoy» use the same
- * rank as Inicio (`compareFollowupRank`). Overdue people stay in seguimiento
- * even when the period is «Este mes», so the landing does not hide them.
+ * rank as Inicio (`compareFollowupRank`). Seguimiento is every open follow-up,
+ * the same set Inicio counts. The month filter applies to cierres and perdidos.
  */
 export function buildCrmBoard(args: {
   calls: CrmBoardCall[];
@@ -252,9 +254,9 @@ export function buildCrmBoard(args: {
 
   const offerOk = (row: Draft) => matchesBoardOffer(row.offer, offer);
   const periodOk = (row: Draft) => {
+    // Inicio counts every open follow-up. The month filter stays on cierres and perdidos.
+    if (row.bucket === "seguimiento") return true;
     if (period === "todo") return true;
-    const overdue = row.bucket === "seguimiento" && row.day && calendarDaysBetween(row.day, today) < 0;
-    if (overdue) return true;
     if (!row.day) return false;
     const key = period === "mes" ? month.key : previous.key;
     return row.day.startsWith(key);
@@ -299,23 +301,30 @@ export function buildCrmBoard(args: {
   if (bucket === "cerrados" || bucket === "perdidos") {
     inBucket.sort((a, b) => (b.day || "").localeCompare(a.day || "") || a.name.localeCompare(b.name, "es"));
   }
-  const rows = inBucket.map(toPerson);
+  const hoyNames = new Set(hoyDrafts.map((row) => fold(row.name)));
+  const tableDrafts =
+    bucket === "seguimiento" ? inBucket.filter((row) => !hoyNames.has(fold(row.name))) : inBucket;
+  const rows = tableDrafts.map(toPerson);
 
   const monthCalls = calls.filter((row) => String(row.fecha || "").startsWith(month.key) && matchesBoardOffer(shownOffer(row.oferta) || shownOffer(row.producto), offer));
-  const monthNames = new Set(monthCalls.map((row) => foldLeadName(row.cliente)));
   let cobrado = 0;
   for (const row of monthCalls) {
     const cash = Number(row.cash);
     if (Number.isFinite(cash) && cash > 0) cobrado += cash;
   }
-  const subtitle =
-    monthNames.size === 0 && cobrado <= 0
-      ? ""
-      : cobrado > 0
-        ? `${peoplePhrase(monthNames.size, "este mes")} · ${money(cobrado)} cobrados`
-        : peoplePhrase(monthNames.size, "este mes");
+  const monthClosed = drafts.filter(
+    (row) => row.bucket === "cerrados" && offerOk(row) && String(row.day || "").startsWith(month.key),
+  ).length;
+  const closedLine =
+    monthClosed === 1
+      ? "1 persona cerró este mes"
+      : monthClosed > 1
+        ? `${monthClosed} personas cerraron este mes`
+        : "";
+  const cashLine = cobrado > 0 ? `${money(cobrado)} cobrados` : "";
+  const subtitle = [closedLine, cashLine].filter(Boolean).join(" · ");
 
-  const openCount = drafts.filter((row) => row.bucket === "seguimiento" && offerOk(row)).length;
+  const openCount = counts.seguimiento;
   const hoyNote =
     hoy.length === 0
       ? `Hoy no toca nadie · ${peoplePhrase(openCount, "en seguimiento")}`
@@ -325,13 +334,23 @@ export function buildCrmBoard(args: {
   const shown = rows.length;
   const order = bucket === "seguimiento" ? "ordenados por fecha de seguimiento" : "ordenados por fecha";
   const footer =
-    shown === total ? `${peoplePhrase(total, "")} · ${order}` : `${shown} de ${total} · ${order}`;
+    bucket === "seguimiento" && !query && total > 0
+      ? shown === 0
+        ? peoplePhrase(total, "en seguimiento")
+        : `${peoplePhrase(shown, "más adelante")} · ${peoplePhrase(total, "en seguimiento")}`
+      : shown === total
+        ? `${peoplePhrase(total, "")} · ${order}`
+        : `${shown} de ${total} · ${order}`;
   const empty =
-    bucket === "cerrados"
-      ? "No hay cierres en este período."
-      : bucket === "perdidos"
-        ? "No hay perdidos en este período."
-        : "No hay personas en seguimiento en este período.";
+    shown === 0 && bucket === "seguimiento" && total > 0
+      ? query
+        ? "Nadie más con ese nombre. Si toca hoy, está en la lista de arriba."
+        : "Esas personas ya están en «A quién contactar hoy»."
+      : bucket === "cerrados"
+        ? "No hay cierres en este período."
+        : bucket === "perdidos"
+          ? "No hay perdidos en este período."
+          : "No hay personas en seguimiento en este período.";
 
   return {
     subtitle,
@@ -343,6 +362,7 @@ export function buildCrmBoard(args: {
     total,
     footer,
     empty: shown === 0 ? empty : "",
+    restTitle: bucket === "seguimiento" && shown > 0 && hoy.length > 0 && !query ? "Más adelante" : "",
   };
 }
 
