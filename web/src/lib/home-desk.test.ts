@@ -44,8 +44,8 @@ test("nine corrections do not auto-classify yet", () => {
 test("home cards keep a status line even when nothing is pending", () => {
   assert.equal(analyzeCardStatus(5), "5 sin clasificar");
   assert.equal(analyzeCardStatus(0), "Todo al día");
-  assert.equal(followupCardStatus(4, 1), "4 pendientes de hoy · 1 vencido");
-  assert.equal(followupCardStatus(0, 3), "3 vencidos");
+  assert.equal(followupCardStatus(4, 1), "4 pendientes de hoy · 1 atrasado");
+  assert.equal(followupCardStatus(0, 3), "3 atrasados");
   assert.equal(followupCardStatus(1, 0), "1 pendiente de hoy");
   assert.equal(followupCardStatus(0, 0), "Todo al día");
   assert.equal(coachCardStatus({ newPattern: true, analyzedThisWeek: 2 }), "Nuevo patrón detectado");
@@ -82,6 +82,17 @@ test("the practice card keeps the drill off the hub payload", () => {
   );
   assert.equal(card.practiceStatus, "resolver el precio antes de cerrar");
   assert.equal(card.newPattern, true);
+  const pattern = practiceCardFromGuides([
+    {
+      drills: ["resolver el precio antes de cerrar"],
+      missingInLosses: ["lo tengo que consultar"],
+      ready: true,
+    },
+  ]);
+  assert.equal(pattern.pattern, "Pierdes cierres cuando te dicen “lo tengo que consultar”");
+  assert.equal(pattern.drill, "resolver el precio antes de cerrar");
+  assert.match(pattern.practiceHref, /focus=/);
+  assert.equal(practiceCardFromGuides([{ drills: ["solo el ejercicio"], missingInLosses: [] }]).pattern, "");
   const empty = practiceCardFromGuides([{ drills: [], ready: false }]);
   assert.equal(empty.practiceHref, "/practicar");
   assert.equal(empty.practiceStatus, "Elige con quién practicar");
@@ -95,6 +106,9 @@ test("the practice card keeps the drill off the hub payload", () => {
   // «Lo que más te frena» loads the drill after the hub, and hides without a pattern.
   assert.match(inicio, /\/api\/hub\/practice/);
   assert.match(inicio, /Lo que más te frena/);
+  assert.match(inicio, /card\.pattern/);
+  assert.match(inicio, /Empieza en 3 pasos/);
+  assert.match(inicio, /Qué le mandas a/);
   assert.match(inicio, /min-w-0/);
   assert.doesNotMatch(screen, /phase \|\| "a"/);
   assert.match(practice, /practiceCardFromGuides/);

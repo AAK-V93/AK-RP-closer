@@ -303,14 +303,19 @@
   column-gap: 10px;
   align-items: center;
 }
-.inicio-row > .inicio-av { grid-area: av; }
-.inicio-row > .inicio-who { grid-area: who; }
-.inicio-row > .inicio-pr { grid-area: pr; }
-.inicio-row > .inicio-mo { grid-area: mo; }
+.inicio-open { display: contents; }
+.inicio-row > .inicio-av,
+.inicio-open > .inicio-av { grid-area: av; }
+.inicio-row > .inicio-who,
+.inicio-open > .inicio-who { grid-area: who; }
+.inicio-row > .inicio-pr,
+.inicio-open > .inicio-pr { grid-area: pr; }
+.inicio-row > .inicio-mo,
+.inicio-open > .inicio-mo { grid-area: mo; }
 .inicio-row > .inicio-acts { grid-area: acts; }
 @media (min-width: 64rem) {
   .inicio-row {
-    grid-template-columns: 40px 190px minmax(0, 1fr) 108px auto;
+    grid-template-columns: 40px minmax(12rem, 18rem) minmax(0, 1fr) max-content auto;
     grid-template-areas: "av who pr mo acts";
     column-gap: 16px;
   }

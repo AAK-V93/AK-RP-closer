@@ -1122,7 +1122,8 @@ test("pending today is a summary and who to call is a ranked list", () => {
   assert.equal(summary.kind, "answer");
   assert.equal(calls.kind, "answer");
   if (summary.kind !== "answer" || calls.kind !== "answer") return;
-  assert.match(summary.reply, /1 seguimiento vencido/);
+  assert.match(summary.reply, /1 seguimiento atrasado/);
+  assert.doesNotMatch(summary.reply, /vencid/i);
   assert.match(summary.reply, /1 para hoy/);
   assert.match(summary.reply, /1 cobro/);
   assert.match(summary.reply, /8 llamadas por clasificar/);
@@ -1373,7 +1374,12 @@ test("the hub paste cannot run for a recognized CRM question", () => {
   assert.equal(route.includes("loadLiveGuides"), false);
   assert.match(route, /returned-offer-paste/);
   assert.match(route, /status: 503/);
-  assert.match(route, /visibleHubThread/);
+  const getBody = route.slice(route.indexOf("export async function GET"), route.indexOf("export async function POST"));
+  assert.doesNotMatch(getBody, /loadThread/);
+  assert.doesNotMatch(getBody, /visibleHubThread/);
+  const threadRoute = readFileSync(new URL("../app/api/hub/thread/route.ts", import.meta.url), "utf8");
+  assert.match(threadRoute, /visibleHubThread/);
+  assert.match(threadRoute, /loadThread/);
   assert.match(route, /cache-control": "no-store"/);
   assert.match(route, /blockedOfferPasteReply/);
   const crmBlock = route.slice(route.indexOf("if (crmReply)"), route.indexOf("if (recognizedCrmQuestion"));

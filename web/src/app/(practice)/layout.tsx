@@ -15,6 +15,7 @@ import { ThemeToggle } from "@/components/custom/theme-toggle";
 import { RoomWrapper } from "@/components/room-wrapper";
 import { TrainingSetupForm } from "@/components/training-setup-form";
 import { PracticeReadyGate } from "@/components/practice-ready-gate";
+import { PracticeTabBar } from "@/components/practice-tab-bar";
 
 export default function PracticeLayout({
   children,
@@ -63,8 +64,9 @@ export default function PracticeLayout({
                   <ThemeToggle />
                 </SidebarFooter>
               </Sidebar>
-              <SidebarInset>{children}</SidebarInset>
+              <SidebarInset className="pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">{children}</SidebarInset>
             </SidebarProvider>
+            <PracticeTabBar />
           </RoomWrapper>
         </TooltipProvider>
       </ConnectionProvider>

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { zonedDayKey } from "./crm-time";
 import {
   advanceThread,
   lastTouchText,
@@ -7,6 +8,7 @@ import {
   pickThreadKind,
   type ThreadAnchors,
 } from "./followup-machine";
+import { presentThread } from "./followup-threads";
 import { listFollowupScripts, type FollowupScript } from "./followup-scripts";
 
 const START = new Date("2026-09-22T15:00:00.000Z");
@@ -57,25 +59,67 @@ test("a paid close opens onboarding, and a balance opens cobro instead of a seco
   );
 });
 
-test("an overdue step is vencido and a same-day step is pendiente de hoy", () => {
+test("an overdue step says the days without an answer, and a same-day step is pendiente de hoy", () => {
   const due = new Date("2026-09-26T15:00:00.000Z");
   const now = new Date("2026-10-01T15:00:00.000Z");
-  assert.match(nextActionText("Escribir", due, now, false), /vencido/);
-  assert.doesNotMatch(nextActionText("Escribir", due, now, false), /pendiente de hoy/);
+  const late = nextActionText("Escribir", due, now, false);
+  assert.match(late, /hace \d+ días sin respuesta/);
+  assert.doesNotMatch(late, /vencid/i);
+  assert.doesNotMatch(late, /pendiente de hoy/);
   assert.match(nextActionText("Escribir", now, now, false), /pendiente de hoy/);
 });
 
-test("Ricardo's 2026-09-26 follow-up is vencido on 2 Oct Bogotá, not pendiente de hoy", () => {
+test("Ricardo's 2026-09-26 follow-up is late on 2 Oct Bogotá, not pendiente de hoy", () => {
   const due = new Date("2026-09-26T12:00:00.000Z");
   const now = new Date("2026-10-02T14:25:00.000Z");
   const label = nextActionText("confirmar la reunión", due, now, false);
-  assert.equal(label, "confirmar la reunión · vencido");
+  assert.equal(label, "confirmar la reunión · hace 6 días sin respuesta");
+  assert.doesNotMatch(label, /vencid/i);
 });
 
-test("a Bogotá evening that is already the next UTC day is still vencido the morning after", () => {
+test("a Bogotá evening that is already the next UTC day is still late the morning after", () => {
   const due = new Date("2026-10-02T01:00:00.000Z");
   const now = new Date("2026-10-02T07:00:00.000Z");
-  assert.match(nextActionText("confirmar la reunión", due, now, false), /vencido/);
+  const label = nextActionText("confirmar la reunión", due, now, false);
+  assert.match(label, /hace 1 día sin respuesta/);
+  assert.doesNotMatch(label, /vencid/i);
+});
+
+test("hecho counts the next step from this moment in Bogotá, not from the sequence start", () => {
+  const now = new Date("2026-10-05T01:00:00.000Z");
+  const next = advanceThread({
+    tipo: "DECISION",
+    pasoActual: 0,
+    action: "hecho",
+    anchors: ANCHORS,
+    now,
+    hasSaldo: false,
+  });
+  assert.equal(zonedDayKey(next.dueAt || now), "2026-10-06");
+  assert.notEqual(next.dueAt?.toISOString().slice(0, 10), "2026-09-24");
+  const pago = new Date("2026-10-20T15:00:00.000Z");
+  const installment = advanceThread({
+    tipo: "COBRANZA",
+    pasoActual: 2,
+    action: "hecho",
+    anchors: { start: START, pagoAt: pago, meetingAt: null },
+    now,
+    hasSaldo: true,
+  });
+  assert.equal(zonedDayKey(installment.dueAt || now), zonedDayKey(new Date(pago.getTime() - 7 * 86_400_000)));
+  const shown = presentThread({
+    tipo: "DECISION",
+    pasoActual: 1,
+    askLost: false,
+    startedAt: START,
+    pagoAt: null,
+    meetingAt: null,
+    enJuego: 0,
+    lastTouch: null,
+    now,
+    scheduledAt: next.dueAt,
+  });
+  assert.equal(shown?.dueAt.slice(0, 10), next.dueAt?.toISOString().slice(0, 10));
 });
 
 test("marking done moves the decision thread to the next coded step", () => {

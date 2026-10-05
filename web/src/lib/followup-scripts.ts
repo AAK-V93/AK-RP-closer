@@ -379,7 +379,7 @@ export function followupQuestion(type: string, nombre: string, enJuego: number) 
   if (type === "PAGO PENDIENTE")
     return `Hoy: cobrar USD ${enJuego || "el saldo"} a ${nombre}. ¿Lo hiciste?`;
   if (type === "COBRO_VENCIDO")
-    return `Cuota vencida de ${nombre} (USD ${enJuego || "saldo"}). ¿Qué pasó?`;
+    return `Cuota atrasada de ${nombre} (USD ${enJuego || "saldo"}). ¿Qué pasó?`;
   if (type === "POST_COBRANZA") return `¿Le confirmaste a ${nombre} que el pago quedó registrado?`;
   if (type === "COMISION") return `¿Ya te pagaron la comisión de ${nombre}?`;
   if (type === "AGENDA_CHECK") return `¿Se hizo la llamada con ${nombre}?`;

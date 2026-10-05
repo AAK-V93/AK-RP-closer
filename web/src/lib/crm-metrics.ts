@@ -9,7 +9,7 @@ import { attachFollowupOptions } from "@/lib/followup-library";
 import { cleanReason, operacionFromCall } from "@/lib/crm-operacion";
 import { leadTemperature, temperatureAction, temperatureRank } from "@/lib/lead-temperature";
 import { presentThread } from "@/lib/followup-threads";
-import { sequenceFor, stepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib/followup-machine";
+import { sequenceFor, hechoStepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "@/lib/followup-machine";
 import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
 import { loadCashNotes } from "@/lib/crm-cash-notes";
 import { explainVentas, datedCashPayments, offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
@@ -180,6 +180,7 @@ export async function crmDashboard(
       enJuego: played(alert),
       lastTouch: thread.touches[0] || null,
       now,
+      scheduledAt: alert.dueAt,
     });
     const silenceDays = thread.touches[0]
       ? Math.max(0, Math.round((now.getTime() - thread.touches[0].fecha.getTime()) / 86_400_000))
@@ -199,7 +200,7 @@ export async function crmDashboard(
     const nextStep = steps[thread.pasoActual + 1];
     const nextOnHecho = nextStep
       ? proximoFromInstant(
-          stepDue(
+          hechoStepDue(
             nextStep,
             { start: thread.startedAt, pagoAt: thread.pagoAt, meetingAt: thread.meetingAt },
             now,
@@ -262,7 +263,14 @@ export async function crmDashboard(
           decisionDate,
           intentos: row.intentos,
         }).level;
-        const ultimoToque = days < 0 ? "vencido" : days === 0 ? "hoy" : `en ${days} días`;
+        const ultimoToque =
+          days < 0
+            ? days === -1
+              ? "hace 1 día sin respuesta"
+              : `hace ${-days} días sin respuesta`
+            : days === 0
+              ? "hoy"
+              : `en ${days} días`;
         const keepsGoing = row.type === "PAGO PENDIENTE" || row.type === "COBRO_VENCIDO";
         return {
           id: row.id,

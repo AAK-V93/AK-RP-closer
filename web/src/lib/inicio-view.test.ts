@@ -1,22 +1,37 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { prioritizeDesk } from "./crm-followups";
+import { compareFollowupRank, openFollowupCountOf, pickOpenByName, prioritizeDesk } from "./crm-followups";
 import {
   bogotaDateLine,
   bogotaMonthName,
   buildInicioList,
+  cutAtWord,
   followupChip,
   goalProgress,
+  inicioOpenCount,
+  listSubtitle,
   monthCommissionUsd,
   nextStepText,
   offerRules,
   paraLlegarLines,
   rankFollowups,
   rowCommissionUsd,
+  sheetBlocks,
+  shownOffer,
+  startSteps,
   type InicioFollowupSource,
 } from "./inicio-view";
-import { MOBILE_TABS, MORE_LINKS, moreActive, navActive, visibleTabs } from "./mobile-nav";
+import {
+  MOBILE_TABS,
+  MORE_LINKS,
+  accountIdentity,
+  avatarLetter,
+  moreActive,
+  navActive,
+  showPracticeTabBar,
+  visibleTabs,
+} from "./mobile-nav";
 
 // Sunday 4 October 2026, 8:00 pm in Bogotá (already the 5th in UTC).
 const NOW = new Date("2026-10-05T01:00:00Z");
@@ -155,8 +170,18 @@ test("commission is hidden when it is not really known", () => {
   assert.equal(rowCommissionUsd({ enJuego: 9000, offer: "Otra oferta", rules: RULES }), null);
   assert.equal(rowCommissionUsd({ enJuego: 0, offer: "Círculo Millonario", rules: RULES }), null);
   const list = buildInicioList({ followups: ROWS, rules: RULES, now: NOW });
-  assert.equal(list.rows.find((item) => item.name === "Ana Ruiz")?.commissionUsd, null);
+  const ana = list.rows.find((item) => item.name === "Ana Ruiz");
+  assert.equal(ana?.commissionUsd, 900);
+  assert.equal(ana?.commissionLabel, "comisión si cierra");
   assert.equal(list.rows.find((item) => item.name === "Beto Paz")?.commissionUsd, 900);
+  assert.equal(list.rows.find((item) => item.name === "Beto Paz")?.commissionLabel, "comisión");
+  const unknown = buildInicioList({
+    followups: [row("Nada", { oferta: "Sin Regla", enJuego: 0, proximo: "2026-10-04" })],
+    rules: RULES,
+    now: NOW,
+  });
+  assert.equal(unknown.rows[0]?.commissionUsd, null);
+  assert.equal(unknown.rows[0]?.commissionLabel, "");
 });
 
 test("WhatsApp only with a phone", () => {
@@ -239,4 +264,119 @@ test("phone tab bar: Inicio, Llamadas, Práctica, CRM and Más with Coach, Ofert
   assert.doesNotMatch(shell, /overflow-x-auto/);
   const ask = readFileSync(new URL("../components/crm-ask.tsx", import.meta.url), "utf8");
   assert.match(ask, /bottom-\[calc\(4rem\+env\(safe-area-inset-bottom\)\)\] md:bottom-0/);
+  const practice = readFileSync(new URL("../app/(practice)/layout.tsx", import.meta.url), "utf8");
+  assert.match(practice, /PracticeTabBar/);
+});
+
+test("the same rank and the same open count for Inicio and the CRM", () => {
+  const tied: InicioFollowupSource[] = [
+    row("Zoe", { id: "b", proximo: "2026-10-03", enJuego: 1000 }),
+    row("Ana", { id: "a", proximo: "2026-10-03", enJuego: 1000 }),
+    row("Ana", { id: "dup", proximo: "2026-09-01", enJuego: 1 }),
+    row("   ", { id: "blank", proximo: "2026-10-01", enJuego: 9000 }),
+    row("Sin fecha", { id: "nodate", proximo: "", dueAt: "", enJuego: 9000 }),
+    row("Luego", { id: "later", proximo: "2026-10-20", enJuego: 5000 }),
+  ];
+  const names = rankFollowups(tied, NOW).map((item) => item.cliente);
+  assert.deepEqual(names, ["Ana", "Zoe", "Luego"]);
+  const desk = prioritizeDesk(
+    rankFollowups(tied, NOW).map((item) => ({
+      id: item.id,
+      name: item.cliente,
+      step: "",
+      date: String(item.proximo).slice(0, 10),
+      estado: "HOY" as const,
+      amount: item.enJuego || 0,
+      lateDays: 0,
+      reason: "",
+      kind: "llamada" as const,
+      daysAhead: String(item.proximo) > "2026-10-04" ? 1 : 0,
+    })),
+  ).map((line) => line.name);
+  assert.deepEqual(desk, names);
+  assert.ok(
+    compareFollowupRank(
+      { id: "b", name: "Ana", amount: 1, lateDays: 0, step: "" },
+      { id: "a", name: "Ana", amount: 1, lateDays: 0, step: "" },
+    ) > 0,
+  );
+  const open = inicioOpenCount(tied);
+  const list = buildInicioList({ followups: tied, rules: RULES, now: NOW });
+  assert.equal(open, 3);
+  assert.equal(list.total, open);
+  assert.equal(
+    openFollowupCountOf(tied.map((item) => ({ cliente: item.cliente, proximo: item.proximo, dueAt: item.dueAt }))),
+    open,
+  );
+  const filings = pickOpenByName([
+    { name: "Ana", due: "2026-10-03", closed: false },
+    { name: "Cerrado", due: "2026-10-01", closed: true },
+    { name: "Cerrado", due: "2026-09-01", closed: false },
+    { name: "Luego", due: "2026-10-20", closed: false },
+  ]);
+  assert.deepEqual(
+    filings.map((item) => item.name),
+    ["Ana", "Luego"],
+  );
+});
+
+test("the 3-step card only when there is no goal and no lista de hoy", () => {
+  assert.equal(startSteps({ hasGoal: false, openFollowups: 0, offersLoaded: false, hasCalls: false }).show, true);
+  assert.equal(startSteps({ hasGoal: false, openFollowups: 0, offersLoaded: true, hasCalls: true }).show, true);
+  const onlyGoal = startSteps({ hasGoal: false, openFollowups: 4, offersLoaded: true, hasCalls: true });
+  assert.equal(onlyGoal.show, false);
+  assert.equal(startSteps({ hasGoal: true, openFollowups: 0, offersLoaded: true, hasCalls: true }).show, false);
+  assert.equal(startSteps({ hasGoal: false, openFollowups: 2, offersLoaded: false, hasCalls: true }).show, false);
+  const fresh = startSteps({ hasGoal: false, openFollowups: 0, offersLoaded: false, hasCalls: false });
+  assert.equal(fresh.goalDone, false);
+  assert.equal(fresh.offerDone, false);
+  assert.equal(fresh.callDone, false);
+  assert.equal(listSubtitle(false), "Primero lo más urgente y con más dinero en juego");
+  assert.equal(listSubtitle(true), "Primero lo que más te acerca a la meta");
+});
+
+test("the person sheet hides a block that has no real data", () => {
+  const empty = sheetBlocks({
+    agreement: "  ",
+    nextStep: "Retomar el contacto",
+    when: "",
+    messages: ["", "  "],
+    material: [],
+    phone: " ",
+  });
+  assert.equal(empty.agreement, "");
+  assert.equal(empty.when, "");
+  assert.deepEqual(empty.messages, []);
+  assert.deepEqual(empty.material, []);
+  assert.equal(empty.phone, "");
+  const same = sheetBlocks({
+    agreement: "Quedó en revisarlo con su contador",
+    nextStep: "Quedó en revisarlo con su contador",
+    when: "Hoy 3:00 pm",
+    messages: ["Hola Diego"],
+    material: [],
+    phone: "+57 300",
+  });
+  assert.equal(same.nextStep, "");
+  assert.equal(same.agreement, "Quedó en revisarlo con su contador");
+  assert.deepEqual(same.messages, ["Hola Diego"]);
+  assert.deepEqual(same.material, []);
+  assert.equal(shownOffer("—"), "");
+  assert.equal(shownOffer("sin oferta"), "");
+  assert.equal(shownOffer("Círculo Millonario"), "Círculo Millonario");
+  const cut = cutAtWord("Quedó en revisarlo con su contador y el desglose de pagos para que lo vean juntos..", 40);
+  assert.equal(cut.includes(".."), false);
+  assert.equal(cut.endsWith("…"), false);
+  assert.ok(cut.length <= 40);
+});
+
+test("the header letter comes from the display name, else the email", () => {
+  assert.equal(avatarLetter("A", "sofia@closer.com"), "S");
+  assert.equal(avatarLetter("Sofía León", "a@closer.com"), "S");
+  assert.equal(accountIdentity("Sofía León", "a@closer.com"), "Sofía León");
+  assert.equal(accountIdentity("A", "ana@closer.com"), "ana@closer.com");
+  assert.equal(showPracticeTabBar({ phase: "idle", shouldConnect: false, isConnecting: false }), true);
+  assert.equal(showPracticeTabBar({ phase: "ready", shouldConnect: true, isConnecting: false }), false);
+  assert.equal(showPracticeTabBar({ phase: "audio", shouldConnect: false, isConnecting: false }), false);
+  assert.equal(showPracticeTabBar({ phase: "error", shouldConnect: false, isConnecting: false }), true);
 });

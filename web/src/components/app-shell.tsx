@@ -17,6 +17,7 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import {
   MORE_LINKS,
+  accountIdentity,
   avatarLetter,
   moreActive,
   navActive,
@@ -44,7 +45,7 @@ const TAB_CLASS =
   "flex h-16 min-w-0 flex-col items-center justify-center gap-1 text-[11px] text-fg3 aria-[current=page]:font-semibold aria-[current=page]:text-fg0";
 
 /** Fixed bottom tab bar, phones only. The desktop keeps the top pill menu. */
-function MobileTabBar({ path, showCrm }: { path: string; showCrm: boolean }) {
+export function MobileTabBar({ path, showCrm }: { path: string; showCrm: boolean }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const tabs = visibleTabs(showCrm);
   const onMore = moreActive(path);
@@ -116,6 +117,8 @@ function MobileTabBar({ path, showCrm }: { path: string; showCrm: boolean }) {
 }
 
 function UserMenu({ name, email }: { name?: string | null; email?: string | null }) {
+  const who = accountIdentity(name, email);
+  const mail = String(email || "").trim();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -130,7 +133,10 @@ function UserMenu({ name, email }: { name?: string | null; email?: string | null
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">
-        {email && <DropdownMenuLabel className="truncate text-xs font-normal text-fg3">{email}</DropdownMenuLabel>}
+        {who && who !== mail && (
+          <DropdownMenuLabel className="truncate text-xs font-normal text-fg2">{who}</DropdownMenuLabel>
+        )}
+        {mail && <DropdownMenuLabel className="truncate text-xs font-normal text-fg3">{mail}</DropdownMenuLabel>}
         <DropdownMenuSeparator />
         <DropdownMenuItem className="min-h-11 lg:min-h-0" onSelect={() => void signOut({ callbackUrl: "/" })}>
           Salir

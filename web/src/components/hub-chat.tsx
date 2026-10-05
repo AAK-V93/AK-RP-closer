@@ -131,7 +131,13 @@ export function HubChat({
         } else if (!hadHome) {
           setHubResolved(false);
         }
-        if (Array.isArray(data.messages)) setMessages(data.messages);
+        if (Array.isArray(data.messages) && data.messages.length) setMessages(data.messages);
+        void fetch("/api/hub/thread", { cache: "no-store" })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((thread: { messages?: Line[] } | null) => {
+            if (Array.isArray(thread?.messages)) setMessages(thread.messages);
+          })
+          .catch(() => undefined);
       })
       .catch(() => {
         const mode = hubLoadRetry({ attempt: retryAttempt.current, hasSnapshot: hadHome });
