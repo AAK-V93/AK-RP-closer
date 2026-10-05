@@ -313,7 +313,7 @@ export function Chat() {
                   Confirma tu oferta (la que subiste) y pulsa el botón de abajo.
                 </li>
                 <li className="hidden md:list-item">
-                  A la izquierda está tu oferta. El prospecto emula tus llamadas reales.
+                  A la izquierda está tu oferta. El prospecto emula tus transcripciones y grabaciones.
                 </li>
                 <li className="hidden md:list-item">
                   Pulsa{" "}

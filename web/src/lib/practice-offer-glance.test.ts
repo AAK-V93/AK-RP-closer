@@ -101,6 +101,25 @@ test("a tab change does not keep the previous offer's calls, and practice reads 
   assert.match(form, /\/api\/workspace\$\{query\}/);
 });
 
+test("practice uses the Ofertas material line in the panel and the phone drawer", () => {
+  const form = readFileSync(new URL("../components/training-setup-form.tsx", import.meta.url), "utf8");
+  const drawer = readFileSync(
+    new URL("../components/configuration-form-drawer.tsx", import.meta.url),
+    "utf8",
+  );
+  const chat = readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
+  assert.match(form, /offerPracticeMaterialLine\(/);
+  assert.match(form, /fathomCount/);
+  assert.match(form, /includeFathom: Boolean\(offer\.includeFathom\)/);
+  assert.match(form, /perfil de prospectos listo/);
+  assert.doesNotMatch(form, /llamada real/);
+  assert.doesNotMatch(form, /llamadas reales/);
+  assert.doesNotMatch(form, /emulando a tus prospectos/);
+  assert.match(drawer, /<TrainingSetupForm \/>/);
+  assert.match(chat, /El prospecto emula tus transcripciones y grabaciones\./);
+  assert.doesNotMatch(chat, /llamadas reales/);
+});
+
 test("ofertas names imported texts and recordings apart from Coach person calls", () => {
   assert.deepEqual(
     offerPracticeMaterialLine({ transcriptCount: 197, fathomCount: 191, includeFathom: true }),
