@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   offerSwitchLabel,
@@ -70,6 +71,21 @@ test("an offer chip names the bonuses and does not end on a hanging dot", () => 
   assert.equal(offerSwitchLabel("  ", 0), "Oferta");
   assert.equal(offerSwitchLabel("Círculo Millonario", 0).endsWith("·"), false);
   assert.equal(offerSwitchLabel("Círculo Millonario", 2).endsWith("·"), false);
+});
+
+test("Ir a practicar sits on the offer title and call upload stays behind a control", () => {
+  const page = readFileSync(new URL("../app/ofertas/page.tsx", import.meta.url), "utf8");
+  const header = page.slice(page.indexOf("<h1"), page.indexOf("</h1>"));
+  assert.match(header, /Ofertas/);
+  assert.doesNotMatch(header, /Ir a practicar/);
+  const card = page.slice(page.indexOf('aria-label="Datos de la oferta"'), page.indexOf("Añadir / pegar oferta"));
+  assert.match(card, /productName \|\| "Oferta"/);
+  assert.match(card, /Ir a practicar/);
+  const uploadAt = page.indexOf("Subir carpeta");
+  const toggleAt = page.indexOf("Añadir llamadas");
+  assert.ok(toggleAt > 0 && uploadAt > toggleAt);
+  assert.match(page, /showCallUpload \? "Ocultar formulario" : "Añadir llamadas"/);
+  assert.match(page, /readableTitle\(row\.title\)/);
 });
 
 test("a failed practice offer read is not an empty offer", () => {

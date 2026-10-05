@@ -21,7 +21,7 @@ import {
   avatarLetter,
   moreActive,
   navActive,
-  visibleTabs,
+  phoneBarTabs,
 } from "@/lib/mobile-nav";
 
 const NAV = [
@@ -45,9 +45,9 @@ const TAB_CLASS =
   "flex h-16 min-w-0 flex-col items-center justify-center gap-1 text-[11px] text-fg3 aria-[current=page]:font-semibold aria-[current=page]:text-fg0";
 
 /** Fixed bottom tab bar, phones only. The desktop keeps the top pill menu. */
-export function MobileTabBar({ path, showCrm }: { path: string; showCrm: boolean }) {
+export function MobileTabBar({ path, showCrm }: { path: string; showCrm: boolean | null }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const tabs = visibleTabs(showCrm);
+  const tabs = phoneBarTabs(showCrm);
   const onMore = moreActive(path);
   useEffect(() => {
     setMoreOpen(false);
@@ -164,7 +164,7 @@ export function AppShell({
 }) {
   const path = usePathname();
   const { data, status } = useSession();
-  const [showCrm, setShowCrm] = useState(false);
+  const [showCrm, setShowCrm] = useState<boolean | null>(null);
   const signedIn = status === "authenticated";
 
   useEffect(() => {
@@ -177,7 +177,7 @@ export function AppShell({
       .catch(() => undefined);
   }, [status, path]);
 
-  const items = NAV.filter((item) => !item.crm || showCrm);
+  const items = NAV.filter((item) => !item.crm || showCrm === true);
   // Room for the fixed tab bar and the iPhone home indicator. Desktop keeps py-6.
   const signedPad = " pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-6";
   const tabPadding = !signedIn ? "" : reserveTabs === false ? " pb-3 md:pb-6" : signedPad;

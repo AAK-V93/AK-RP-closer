@@ -508,11 +508,7 @@ export function extractorGap(
     }
   }
   if (parsed.requiere_seguimiento === true && !parsed.tipo_seguimiento) {
-    return {
-      field: "tipo_seguimiento",
-      question: `¿Qué seguimiento quedó con ${name}? (segunda reunión, pago, decisión, retomar)`,
-      options: ["Segunda reunión", "Pago", "Decisión", "Retomar"],
-    };
+    return followupKindGap(name);
   }
   if (parsed.requiere_seguimiento === true && !parsed.proximo_seguimiento) {
     return {

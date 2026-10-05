@@ -77,6 +77,7 @@ test("counts use singular and plural", () => {
   assert.equal(readableTitle("Llamada del 2 oct"), "Llamada del 2 oct");
   const bogota = new Date("2026-10-05T15:00:00Z");
   assert.equal(readableTitle("Carlos Ramírez · 30/9/2026", bogota), "Carlos Ramírez · 30 sep");
+  assert.equal(readableTitle("Pegado 1/10/2026", bogota), "Pegado 1 oct");
   assert.equal(readableTitle("Valeria Ríos · 29/9/2025", bogota), "Valeria Ríos · 29 sep 2025");
   assert.equal(
     questionWithStoredName(

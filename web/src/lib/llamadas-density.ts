@@ -68,6 +68,19 @@ function followupChips(): ConfirmChip[] {
   ];
 }
 
+function isFollowupKindLabel(label: string) {
+  const folded = label.toLocaleLowerCase("es");
+  return FOLLOWUP_KINDS.some((kind) => kind.toLocaleLowerCase("es") === folded);
+}
+
+/** A named lead always gets «No quedó» on the follow-up kind set. */
+function withDecline(chips: ConfirmChip[], named: boolean): ConfirmChip[] {
+  if (!named || chips.length === 0) return chips;
+  if (chips.some((chip) => /^no qued[oó]/i.test(chip.label))) return chips;
+  if (!chips.every((chip) => isFollowupKindLabel(chip.label))) return chips;
+  return [...chips, declineChip()];
+}
+
 /**
  * One tap for the question in front of the closer.
  * A name or an amount stays a text field. Sale yes/no only when that is the question.
@@ -96,10 +109,13 @@ export function pendingPromptActions(item: {
   }
   if (options.length > 0 && field) {
     return {
-      chips: options.map((label) =>
-        /^no qued[oó]/i.test(label)
-          ? declineChip(field === "tipo_seguimiento" ? "requiere_seguimiento" : field)
-          : { label, field, value: label },
+      chips: withDecline(
+        options.map((label) =>
+          /^no qued[oó]/i.test(label)
+            ? declineChip(field === "tipo_seguimiento" ? "requiere_seguimiento" : field)
+            : { label, field, value: label },
+        ),
+        named,
       ),
       sale: false,
       when: false,
@@ -108,7 +124,10 @@ export function pendingPromptActions(item: {
   }
   if (field === "tipo_seguimiento") {
     return {
-      chips: FOLLOWUP_KINDS.map((label) => ({ label, field, value: label })),
+      chips: withDecline(
+        FOLLOWUP_KINDS.map((label) => ({ label, field, value: label })),
+        named,
+      ),
       sale: false,
       when: false,
       freeText: false,
