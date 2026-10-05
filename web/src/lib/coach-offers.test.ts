@@ -44,7 +44,7 @@ test("este mes matches Inicio and the historical pile stays labeled apart", () =
   assert.equal(circulo?.monthVersus, "1 cerrado · 1 perdido");
   assert.equal(circulo?.monthCalls, "3 llamadas este mes");
   assert.match(circulo?.historyVersus || "", /1 cerrado · 2 perdidos/);
-  assert.equal(circulo?.historyCalls, "4 llamadas");
+  assert.equal(circulo?.historyCalls, "4 llamadas con persona");
   assert.equal(board.objection?.text, "lo tiene que consultar");
   assert.equal(board.objection?.periodLabel, "Este mes");
   assert.equal(board.objection?.people, 1);

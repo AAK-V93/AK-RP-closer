@@ -8,7 +8,8 @@ import { zonedMonthRange } from "@/lib/crm-time";
 /**
  * Coach numbers use the same close and loss signals as Inicio.
  * A close is CIERRE VENTA. A loss is razon_no_cierre or a lead marked perdido.
- * «Este mes» and «Histórico» stay labeled apart. A missing signal stays empty,
+ * «Este mes» and «Histórico» stay labeled apart. Histórico is llamadas con
+ * persona, not the practice archive on Ofertas. A missing signal stays empty,
  * never a made-up 0.
  */
 export type CoachEvidence = {
@@ -174,7 +175,7 @@ function cardFor(rows: CoachEvidence[], offerName: string, now: Date): CoachOffe
     monthVersus,
     monthCalls: callPhrase(monthCalls, "este mes"),
     historyVersus: same ? "" : historyVersus,
-    historyCalls: same ? "" : callPhrase(historyCalls, ""),
+    historyCalls: same ? "" : callPhrase(historyCalls, "con persona"),
   };
 }
 

@@ -28,12 +28,12 @@ import {
   type ExtractedOffer,
 } from "@/lib/offer-commercial";
 import { libraryKindLabel } from "@/lib/library-copy";
-import { offerSwitchLabel, practiceOfferGlance } from "@/lib/practice-offer-glance";
+import { offerPracticeMaterialLine, offerSwitchLabel, practiceOfferGlance } from "@/lib/practice-offer-glance";
 import { WorkspaceSkeleton } from "@/components/page-skeleton";
 import { OfferExtractReview } from "@/components/offer-extract-review";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 import { partitionTranscriptUploads } from "@/lib/transcript-batch";
-import { countPhrase, readableTitle } from "@/lib/plain-labels";
+import { readableTitle } from "@/lib/plain-labels";
 import { pickWorkspaceOffer } from "@/lib/offer-selection";
 
 function offerSetupNote(offer?: {
@@ -105,6 +105,7 @@ export default function OfertasPage() {
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [scriptsOpen, setScriptsOpen] = useState(false);
   const [callsOpen, setCallsOpen] = useState(false);
+  const [callsForOffer, setCallsForOffer] = useState<string | null>(null);
   const composerRef = useRef<HTMLDivElement | null>(null);
 
   const fillOffer = (offer: OfferRow | null) => {
@@ -123,24 +124,30 @@ export default function OfertasPage() {
     const explicitNew = nextOfferId === "";
     const id = explicitNew ? "" : String(nextOfferId || "").trim();
     const query = id ? `?offerId=${encodeURIComponent(id)}` : "";
-    const response = await fetch(`/api/workspace${query}`, { cache: "no-store" });
-    const data = await response.json();
-    if (seq !== loadSeq.current) return;
-    if (!response.ok) throw new Error(data.error || "Error");
-    const offers = Array.isArray(data.offers) ? data.offers : [];
-    setWorkspace({
-      ...data,
-      offers,
-      transcripts: Array.isArray(data.transcripts) ? data.transcripts : [],
-    });
-    if (explicitNew) {
-      fillOffer(null);
-      return;
+    try {
+      const response = await fetch(`/api/workspace${query}`, { cache: "no-store" });
+      const data = await response.json();
+      if (seq !== loadSeq.current) return;
+      if (!response.ok) throw new Error(data.error || "Error");
+      const offers = Array.isArray(data.offers) ? data.offers : [];
+      const transcripts = Array.isArray(data.transcripts) ? data.transcripts : [];
+      if (explicitNew) {
+        setWorkspace({ ...data, offers, transcripts });
+        fillOffer(null);
+        setCallsForOffer("");
+        return;
+      }
+      const shown = id
+        ? pickWorkspaceOffer(offers, id) || (data.offer?.id === id ? data.offer : null)
+        : pickWorkspaceOffer(offers, null);
+      setWorkspace({ ...data, offers, transcripts });
+      if (shown) fillOffer(shown);
+      setCallsForOffer(shown?.id || "");
+    } catch (error) {
+      if (seq !== loadSeq.current) return;
+      setCallsForOffer(id);
+      throw error;
     }
-    const shown = id
-      ? pickWorkspaceOffer(offers, id) || (data.offer?.id === id ? data.offer : null)
-      : pickWorkspaceOffer(offers, null);
-    if (shown) fillOffer(shown);
   };
 
   useEffect(() => {
@@ -156,6 +163,10 @@ export default function OfertasPage() {
 
   const showOffer = (id: string | null) => {
     const offers = Array.isArray(workspace?.offers) ? workspace.offers : [];
+    if ((id || "") !== (offerId || "")) {
+      setCallsForOffer(null);
+      setWorkspace((prev) => (prev ? { ...prev, transcripts: [], transcriptCount: 0 } : prev));
+    }
     if (id) {
       const row = pickWorkspaceOffer(offers, id);
       if (row) fillOffer(row);
@@ -396,6 +407,13 @@ export default function OfertasPage() {
   const showAdjust = adjustOpen || !offerId;
   const showCallUpload = callsOpen || savingTranscripts;
   const visibleScripts = scriptsOpen ? scripts : scripts.slice(0, 2);
+  const callsPending = Boolean(offerId) && callsForOffer !== offerId;
+  const callRows = callsPending ? [] : (workspace?.transcripts ?? []);
+  const practiceMaterial = offerPracticeMaterialLine({
+    transcriptCount: callsPending ? 0 : workspace?.transcriptCount || 0,
+    fathomCount: callsPending ? 0 : workspace?.fathomCount || 0,
+    includeFathom: callsPending ? false : includeFathom,
+  });
 
   return (
     <AppShell>
@@ -461,7 +479,7 @@ export default function OfertasPage() {
               <h2 className="font-display text-[22px] font-semibold text-fg0">{productName || "Oferta"}</h2>
               {canPractice && (
                 <Button asChild variant="primary" className="min-h-11 w-auto shrink-0">
-                  <Link href="/practicar">Ir a practicar</Link>
+                  <Link href={`/practicar?offerId=${encodeURIComponent(offerId)}`}>Ir a practicar</Link>
                 </Button>
               )}
             </div>
@@ -753,7 +771,7 @@ export default function OfertasPage() {
           >
             {showCallUpload ? "Ocultar formulario" : "Añadir llamadas"}
           </Button>
-          {(showCallUpload || (workspace?.transcripts ?? []).length > 0 || (workspace?.transcriptCount || 0) > 0) && (
+          {(showCallUpload || callsPending || callRows.length > 0 || (workspace?.transcriptCount || 0) > 0) && (
             <div className={showCallUpload ? "space-y-4 rounded-2xl border border-separator1 bg-bg1 p-5" : "space-y-2"}>
               {showCallUpload && (
                 <>
@@ -834,26 +852,36 @@ export default function OfertasPage() {
                   </Button>
                 </>
               )}
-              <p className="text-xs text-fg3">
-                {countPhrase(
-                  workspace?.transcriptCount || 0,
-                  "llamada en esta oferta",
-                  "llamadas en esta oferta",
-                )}
-                {includeFathom && workspace?.fathomCount
-                  ? ` (incluye ${countPhrase(workspace.fathomCount, "grabación", "grabaciones")})`
-                  : ""}
-                {workspace?.playbookReady ? " · perfil de prospectos listo" : ""}
-                {offerSetupNote(
-                  (Array.isArray(workspace?.offers) ? workspace.offers : []).find((row) => row.id === offerId),
-                )}
-              </p>
-              {(workspace?.transcripts ?? []).length > 0 && (
-                <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-fg2">
-                  {(workspace?.transcripts ?? []).map((row) => (
-                    <li key={row.id}>{readableTitle(row.title)}</li>
-                  ))}
-                </ul>
+              {callsPending ? (
+                <div className="space-y-2" aria-busy="true" aria-label="Cargando llamadas">
+                  <div className="h-3 w-64 animate-pulse rounded-xl bg-bg2" />
+                  <div className="h-3 w-48 animate-pulse rounded-xl bg-bg2" />
+                  <div className="h-3 w-40 animate-pulse rounded-xl bg-bg2" />
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-fg3">
+                    {practiceMaterial.line}
+                    {workspace?.playbookReady ? " · perfil de prospectos listo" : ""}
+                    {offerSetupNote(
+                      (Array.isArray(workspace?.offers) ? workspace.offers : []).find((row) => row.id === offerId),
+                    )}
+                  </p>
+                  {callRows.length > 0 && (
+                    <>
+                      {practiceMaterial.recordings > 0 ? (
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">
+                          Transcripciones
+                        </p>
+                      ) : null}
+                      <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-fg2">
+                        {callRows.map((row) => (
+                          <li key={row.id}>{readableTitle(row.title)}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </>
               )}
             </div>
           )}

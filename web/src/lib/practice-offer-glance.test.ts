@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
+  offerPracticeMaterialLine,
   offerSwitchLabel,
   practiceOfferGlance,
   practiceOfferLoadState,
@@ -73,7 +74,7 @@ test("an offer chip names the bonuses and does not end on a hanging dot", () => 
   assert.equal(offerSwitchLabel("Círculo Millonario", 2).endsWith("·"), false);
 });
 
-test("Ir a practicar sits on the offer title and call upload stays behind a control", () => {
+test("Ir a practicar sits on the offer title and carries the active offer", () => {
   const page = readFileSync(new URL("../app/ofertas/page.tsx", import.meta.url), "utf8");
   const header = page.slice(page.indexOf("<h1"), page.indexOf("</h1>"));
   assert.match(header, /Ofertas/);
@@ -81,11 +82,51 @@ test("Ir a practicar sits on the offer title and call upload stays behind a cont
   const card = page.slice(page.indexOf('aria-label="Datos de la oferta"'), page.indexOf("Añadir / pegar oferta"));
   assert.match(card, /productName \|\| "Oferta"/);
   assert.match(card, /Ir a practicar/);
+  assert.match(card, /\/practicar\?offerId=\$\{encodeURIComponent\(offerId\)\}/);
+  assert.doesNotMatch(card, /href="\/practicar"/);
   const uploadAt = page.indexOf("Subir carpeta");
   const toggleAt = page.indexOf("Añadir llamadas");
   assert.ok(toggleAt > 0 && uploadAt > toggleAt);
   assert.match(page, /showCallUpload \? "Ocultar formulario" : "Añadir llamadas"/);
   assert.match(page, /readableTitle\(row\.title\)/);
+  assert.match(page, /setCallsForOffer\(null\)/);
+  assert.match(page, /transcripts: \[\]/);
+  assert.match(page, /aria-label="Cargando llamadas"/);
+  assert.match(page, /callRows = callsPending \? \[\]/);
+});
+
+test("a tab change does not keep the previous offer's calls, and practice reads offerId", () => {
+  const form = readFileSync(new URL("../components/training-setup-form.tsx", import.meta.url), "utf8");
+  assert.match(form, /searchParams\.get\("offerId"\)/);
+  assert.match(form, /\/api\/workspace\$\{query\}/);
+});
+
+test("ofertas names imported texts and recordings apart from Coach person calls", () => {
+  assert.deepEqual(
+    offerPracticeMaterialLine({ transcriptCount: 197, fathomCount: 191, includeFathom: true }),
+    {
+      line: "6 transcripciones y 191 grabaciones para practicar esta oferta (197 en total). Las llamadas con persona están en Coach.",
+      imported: 6,
+      recordings: 191,
+    },
+  );
+  assert.deepEqual(offerPracticeMaterialLine({ transcriptCount: 1, fathomCount: 191, includeFathom: false }), {
+    line: "1 transcripción para practicar esta oferta.",
+    imported: 1,
+    recordings: 0,
+  });
+  assert.equal(
+    offerPracticeMaterialLine({ transcriptCount: 191, fathomCount: 191, includeFathom: true }).line,
+    "191 grabaciones para practicar esta oferta. Las llamadas con persona están en Coach.",
+  );
+  assert.equal(
+    offerPracticeMaterialLine({ transcriptCount: 0, fathomCount: 0, includeFathom: true }).line,
+    "Todavía no hay transcripciones ni grabaciones para practicar.",
+  );
+  assert.equal(
+    offerPracticeMaterialLine({ transcriptCount: 6, fathomCount: 191, includeFathom: true }).imported,
+    6,
+  );
 });
 
 test("a failed practice offer read is not an empty offer", () => {
