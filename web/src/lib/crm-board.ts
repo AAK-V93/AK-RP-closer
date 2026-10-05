@@ -12,6 +12,12 @@ import { periodOutcomes, type OutcomeCall } from "@/lib/outcome-counts";
 /** «A quién contactar hoy» stays a short list. The rest is «Ver más». */
 export const CRM_HOY_CAP = 7;
 
+/** People still hidden in the hoy list. Not the open seguimiento total. */
+export function hoyMoreCount(hoyLength: number, cap = CRM_HOY_CAP) {
+  const count = Math.max(0, Math.trunc(Number(hoyLength) || 0));
+  return Math.max(0, count - cap);
+}
+
 export type CrmBoardBucket = "cerrados" | "seguimiento" | "perdidos";
 export type CrmBoardPeriod = "mes" | "anterior" | "todo";
 
@@ -31,6 +37,8 @@ export type CrmBoardCall = {
   interna?: boolean;
   seguimientoResultado?: string;
   razonNoCierre?: string;
+  /** Stored call note. Used when the agreement is empty. Never invented. */
+  notas?: string;
 };
 
 export type CrmBoardFollowup = {
@@ -133,7 +141,7 @@ function askFor(name: string) {
 }
 
 /** The agreement Inicio prints on the row. A bare «Retomar el contacto» stays off the chip line. */
-function leftOffOf(row: CrmBoardFollowup, now: Date) {
+function leftOffOf(row: CrmBoardFollowup, call: CrmBoardCall | undefined, now: Date) {
   const step = closerFacingNote(
     nextStepText(
       {
@@ -145,6 +153,7 @@ function leftOffOf(row: CrmBoardFollowup, now: Date) {
         proximaAccion: row.proximaAccion,
         hilo: row.hilo,
         tipo: row.tipo,
+        callNote: call?.notas,
       },
       now,
     ),
@@ -284,7 +293,7 @@ export function buildCrmBoard(args: {
     } else if (row.bucket === "perdidos") {
       chip = { tone: "future", label: "Perdido" };
     }
-    const leftOff = row.bucket === "seguimiento" && row.followup ? leftOffOf(row.followup, now) : "";
+    const leftOff = row.bucket === "seguimiento" && row.followup ? leftOffOf(row.followup, row.call, now) : "";
     return {
       id: row.id,
       name: row.name,

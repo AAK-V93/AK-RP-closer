@@ -1,12 +1,12 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { CoachNotes } from "@/lib/closer-coach";
 import { closerSpanish } from "@/lib/closer-spanish";
+import { CoachMarkdown } from "@/components/coach-markdown";
 
 type ChatLine = {
   id: string;
@@ -43,8 +43,6 @@ export function CloserCoachChat({
   onNotes?: (notes: CoachNotes, level: number) => void;
 }) {
   const [messages, setMessages] = useState<ChatLine[]>([]);
-  const [notes, setNotes] = useState<CoachNotes | null>(null);
-  const [level, setLevel] = useState(1);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -53,8 +51,6 @@ export function CloserCoachChat({
   const startedRef = useRef(false);
 
   const applyNotes = (next: CoachNotes, nextLevel: number) => {
-    setNotes(next);
-    setLevel(nextLevel);
     onNotes?.(next, nextLevel);
   };
 
@@ -138,29 +134,7 @@ export function CloserCoachChat({
   };
 
   return (
-    <div className="flex min-h-[420px] max-h-[70vh] min-w-0 max-w-full flex-col overflow-x-hidden rounded-2xl border border-separator1 bg-bg1">
-      {notes && (
-        <div className="px-4 py-3 border-b border-separator1 space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-            Coach de alto valor
-          </p>
-          <p className="text-sm">
-            Nivel {level}/10
-            {notes.nextSkill ? ` · Siguiente: ${closerSpanish(notes.nextSkill)}` : ""}
-          </p>
-          {notes.recommendedExercise && (
-            <p className="text-xs text-fg3">{closerSpanish(notes.recommendedExercise)}</p>
-          )}
-          <Button asChild size="sm" variant="primary" className="mt-2">
-            <Link
-              href={`/practicar?focus=${encodeURIComponent(closerSpanish(notes.nextSkill || notes.recommendedExercise))}`}
-            >
-              Practicar esto
-            </Link>
-          </Button>
-        </div>
-      )}
-
+    <div className="flex min-h-[280px] max-h-[70vh] min-w-0 max-w-full flex-col overflow-x-hidden rounded-2xl border border-separator1 bg-bg1">
       <div className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto p-4">
         {loading && (
           <p className="text-sm text-fg3 flex items-center gap-2">
@@ -180,7 +154,11 @@ export function CloserCoachChat({
             <p className="text-[10px] uppercase tracking-wide text-fg3 mb-1">
               {line.role === "user" ? "Tú" : "Coach"}
             </p>
-            {line.role === "coach" ? closerSpanish(line.content) : line.content}
+            {line.role === "coach" ? (
+              <CoachMarkdown text={closerSpanish(line.content)} />
+            ) : (
+              line.content
+            )}
           </div>
         ))}
         {sending && !loading && (

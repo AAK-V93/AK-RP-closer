@@ -61,9 +61,11 @@ test("answers when and how for one person, including the script", () => {
     money: (value) => `USD ${value}`,
   });
   assert.match(text, /María Pérez/);
-  assert.match(text, /Cuándo: hoy, pendiente/);
-  assert.match(text, /Cómo: WhatsApp · Cobrar decisión/);
-  assert.match(text, /\+50760001111/);
+  assert.match(text, /Cobrar decisión/);
+  assert.equal(text.includes("WhatsApp"), false);
+  assert.equal(text.includes("Cuándo:"), false);
+  assert.equal(text.includes("Cómo:"), false);
+  assert.equal(text.includes("+507"), false);
   assert.match(text, /En juego: USD 1300/);
   assert.match(text, /María, ¿lo hablaste con tu esposo\?/);
   assert.equal(text.includes("Luis"), false);

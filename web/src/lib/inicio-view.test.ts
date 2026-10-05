@@ -163,6 +163,34 @@ test("qué quedó never says «vencido» and prefers a dated follow-up over the 
     ),
     "Quedó en revisarlo con su contador",
   );
+  assert.equal(
+    nextStepText(
+      row("x", {
+        acuerdo: "",
+        proximaAccion: "Seguimiento · atrasado",
+        hilo: "SEGUIMIENTO",
+        proximo: "2026-09-23",
+        callNote: "Quedó en que lo habla con su esposo antes de decidir.",
+      }),
+      NOW,
+    ),
+    "Quedó en que lo habla con su esposo antes de decidir.",
+  );
+  assert.equal(
+    nextStepText(row("x", { acuerdo: "WhatsApp", callNote: "Quedó en mandarle la propuesta." }), NOW),
+    "Quedó en mandarle la propuesta.",
+  );
+});
+
+test("a message draft uses what was left, not a clock or a channel", () => {
+  const lines = derivedFollowupMessages({
+    name: "Ana Ruiz",
+    offer: "",
+    step: "Quedó en revisar la propuesta",
+    when: "Hoy 3:00 pm",
+  });
+  assert.match(lines[0] || "", /propuesta/);
+  assert.equal(lines.some((line) => /3:00|whatsapp/i.test(line)), false);
 });
 
 test("goal: whole percent, capped bar and the days after today", () => {
