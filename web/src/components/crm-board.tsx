@@ -1,14 +1,18 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { WhenChip } from "@/components/inicio-home";
 import {
   CRM_BOARD_BUCKETS,
+  CRM_HOY_CAP,
   type CrmBoard,
   type CrmBoardBucket,
   type CrmBoardPeriod,
   type CrmBoardPerson,
 } from "@/lib/crm-board";
+
+const LIST_CAP = 10;
 
 const BUCKET_LABEL: Record<CrmBoardBucket, string> = {
   cerrados: "Cerrados",
@@ -36,6 +40,9 @@ function PersonCell({ person }: { person: CrmBoardPerson }) {
         </span>
         {person.offer && (
           <span className="block whitespace-normal break-words text-[13px] text-fg3 sm:truncate">{person.offer}</span>
+        )}
+        {person.leftOff && (
+          <span className="mt-0.5 block whitespace-normal text-[14px] leading-snug text-fg0">{person.leftOff}</span>
         )}
       </span>
     </span>
@@ -81,6 +88,20 @@ export function CrmBoardView({
   showColumns: boolean;
   onToggleColumns: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    setExpanded(false);
+  }, [bucket, query]);
+  const hoyShown = expanded ? board.hoy : board.hoy.slice(0, CRM_HOY_CAP);
+  const hoyHidden = Math.max(0, board.hoy.length - hoyShown.length);
+  const showLater =
+    bucket !== "seguimiento" || Boolean(query.trim()) ? true : expanded && board.rows.length > 0;
+  const laterAll = showLater ? board.rows : [];
+  const laterCap = bucket === "seguimiento" || expanded ? laterAll.length : LIST_CAP;
+  const laterShown = laterAll.slice(0, laterCap);
+  const laterHidden = laterAll.length - laterShown.length;
+  const more = hoyHidden + (bucket === "seguimiento" && !query.trim() && !expanded ? board.rows.length : 0) + laterHidden;
+  const countLabel = (value: number | null) => (value == null ? "sin datos" : String(value));
   return (
     <div className="space-y-4">
       <section className="rounded-2xl border border-separator1 bg-bg1 px-3 py-3 sm:px-4" aria-labelledby="crm-hoy">
@@ -88,9 +109,9 @@ export function CrmBoardView({
           A quién contactar hoy
         </h2>
         <p className="mt-1 text-[13px] text-fg3">{board.hoyNote}</p>
-        {board.hoy.length > 0 && (
+        {hoyShown.length > 0 && (
           <ul className="mt-3 divide-y divide-separator1">
-            {board.hoy.map((person) => (
+            {hoyShown.map((person) => (
               <li key={person.id}>
                 <button
                   type="button"
@@ -109,6 +130,24 @@ export function CrmBoardView({
             ))}
           </ul>
         )}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-separator1 pt-2">
+            {(more > 0 || expanded) && (
+              <button
+                type="button"
+                onClick={() => setExpanded((value) => !value)}
+                className="min-h-11 text-sm font-medium text-fg0 underline-offset-2 hover:underline"
+              >
+                {expanded ? "Ver menos" : `Ver más (${more})`}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onToggleColumns}
+              className="min-h-11 text-sm font-medium text-fg0 underline-offset-2 hover:underline"
+            >
+              {showColumns ? "Ocultar columnas" : "Ver todas las columnas"}
+            </button>
+        </div>
       </section>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -127,7 +166,7 @@ export function CrmBoardView({
                 <span
                   className={`rounded-full px-1.5 text-[12px] ${active ? "bg-white/15" : "text-fg3"}`}
                 >
-                  {board.counts[id]}
+                  {countLabel(board.counts[id])}
                 </span>
               </button>
             );
@@ -169,6 +208,7 @@ export function CrmBoardView({
         </label>
       </div>
 
+      {showLater && (
       <div className="overflow-hidden rounded-2xl border border-separator1 bg-bg1">
         {board.restTitle && (
           <p className="border-b border-separator1 px-4 py-2.5 text-sm text-fg2">{board.restTitle}</p>
@@ -178,11 +218,11 @@ export function CrmBoardView({
           <span>Pago</span>
           <span>Seguimiento</span>
         </div>
-        {board.rows.length === 0 ? (
+        {laterShown.length === 0 ? (
           <p className="px-4 py-8 text-sm text-fg3">{board.empty}</p>
         ) : (
           <ul className="divide-y divide-separator1">
-            {board.rows.map((person) => (
+            {laterShown.map((person) => (
               <li key={`${person.bucket}-${person.id}`}>
                 <button
                   type="button"
@@ -200,13 +240,13 @@ export function CrmBoardView({
             ))}
           </ul>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-separator1 px-4 py-3 text-[13px] text-fg3">
-          <p>{board.footer}</p>
-          <button type="button" onClick={onToggleColumns} className="min-h-11 font-medium text-fg0 underline-offset-2 hover:underline">
-            {showColumns ? "Ocultar columnas" : "Ver todas las columnas"}
-          </button>
-        </div>
+        {board.footer && (
+          <div className="border-t border-separator1 px-4 py-3 text-[13px] text-fg3">
+            <p>{board.footer}</p>
+          </div>
+        )}
       </div>
+      )}
       <p className="text-[13px] text-fg3">
         Toca un nombre y se lo preguntas al chat. ¿Algo más fino? Pídeselo: «los que no cerraron en septiembre».
       </p>

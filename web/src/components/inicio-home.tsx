@@ -143,7 +143,9 @@ function GoalCard({
 }) {
   const { goal, paraLlegar, monthName } = inicio;
   const [editing, setEditing] = useState(false);
-  const hasRoad = Boolean(paraLlegar.headline || paraLlegar.closeWhen);
+  const hasRoad = Boolean(
+    paraLlegar.headline || paraLlegar.closes || paraLlegar.versus || paraLlegar.closeWhen,
+  );
   const roadTip = (
     <InfoTip label="Cómo se calcula «Para llegar»">
       <p>
@@ -151,6 +153,10 @@ function GoalCard({
         saldos que tus clientes todavía deben.
       </p>
       <p>Los cierres salen de tu ticket y tu comisión. Las reuniones, de tu tasa de cierre real.</p>
+      <p>
+        «Cierres este mes» son las personas con cierre de venta, las mismas que ve Coach. Si nadie quedó
+        marcado como perdido, dice sin datos: no es un 0.
+      </p>
       {projection?.assumedRatesLabel && <p>{projection.assumedRatesLabel} Por eso no te muestro reuniones.</p>}
     </InfoTip>
   );
@@ -223,12 +229,26 @@ function GoalCard({
           {paraLlegar.headline && (
             <p className="text-base font-semibold leading-[1.3] text-fg0 md:text-[22px]">
               {paraLlegar.headline}
-              {!paraLlegar.meetings && <span className="md:hidden">{roadTip}</span>}
+              {!paraLlegar.meetings && !paraLlegar.closes && !paraLlegar.versus && (
+                <span className="md:hidden">{roadTip}</span>
+              )}
             </p>
           )}
           {paraLlegar.meetings && (
             <p className="mt-[3px] text-[13.5px] text-fg2 md:mt-1.5 md:text-[15px]">
               {paraLlegar.meetings}
+              {!paraLlegar.closes && !paraLlegar.versus && <span className="md:hidden">{roadTip}</span>}
+            </p>
+          )}
+          {paraLlegar.closes && (
+            <p className="mt-2 text-base font-semibold leading-[1.3] text-fg0 md:text-[22px]">
+              {paraLlegar.closes}
+              {!paraLlegar.versus && <span className="md:hidden">{roadTip}</span>}
+            </p>
+          )}
+          {paraLlegar.versus && (
+            <p className="mt-[3px] text-[13.5px] text-fg2 md:mt-1.5 md:text-[15px]">
+              {paraLlegar.versus}
               <span className="md:hidden">{roadTip}</span>
             </p>
           )}
@@ -340,16 +360,12 @@ function ListRow({
             WhatsApp
           </a>
         ) : (
-          <span className="inline-flex" title={`Falta el teléfono de ${row.name}. Agrégalo en el CRM.`}>
-            <button
-              type="button"
-              disabled
-              aria-label={`WhatsApp: falta el teléfono de ${row.name}`}
-              className={`${DARK_BUTTON} w-full cursor-not-allowed opacity-50`}
-            >
-              <WhatsAppGlyph />
-              WhatsApp
-            </button>
+          <span
+            role="note"
+            title={`Falta el teléfono de ${row.name}. Agrégalo en el CRM.`}
+            className="inline-flex h-11 min-h-11 w-full items-center justify-center rounded-[10px] border border-separator2 px-3.5 text-[15px] font-medium text-fg3 lg:h-8 lg:min-h-0 lg:w-auto lg:text-[13px]"
+          >
+            Sin teléfono
           </span>
         )}
         <button

@@ -1,6 +1,7 @@
 import { commissionOnAmount, resolveCommissionPct } from "@/lib/commission";
 import {
   compareFollowupRank,
+  foldLeadName,
   followupCalendarDay,
   followupRankInput,
   openFollowupCountOf,
@@ -12,6 +13,7 @@ import { fillFollowupGuion, type FollowupVars } from "@/lib/followup-scripts";
 import { foldOffer } from "@/lib/offer-name";
 import { plainStatus } from "@/lib/plain-labels";
 import { dropDanglingWords } from "@/lib/visible-text";
+import { outcomeSentences } from "@/lib/outcome-counts";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
 
 /** Rows Inicio shows in «Tu lista de hoy». */
@@ -326,6 +328,36 @@ export function shownOffer(value: string | null | undefined) {
   const text = String(value || "").trim();
   if (!text || EMPTY_OFFER.test(text)) return "";
   return text;
+}
+
+/** The offer already stored on this person's call or lead. Nothing is guessed from the catalog. */
+export function knownOfferFor(
+  name: string,
+  calls: { cliente?: string | null; oferta?: string | null; producto?: string | null; fecha?: string | null; interna?: boolean }[] = [],
+  leads: { name?: string | null; offer?: string | null }[] = [],
+) {
+  const key = foldLeadName(name);
+  if (!key) return "";
+  let best = "";
+  let bestDay = "";
+  for (const call of calls) {
+    if (call.interna) continue;
+    if (foldLeadName(String(call.cliente || "")) !== key) continue;
+    const offer = shownOffer(call.oferta) || shownOffer(call.producto);
+    if (!offer) continue;
+    const day = String(call.fecha || "");
+    if (!best || day >= bestDay) {
+      best = offer;
+      bestDay = day;
+    }
+  }
+  if (best) return best;
+  for (const lead of leads) {
+    if (foldLeadName(String(lead.name || "")) !== key) continue;
+    const offer = shownOffer(lead.offer);
+    if (offer) return offer;
+  }
+  return "";
 }
 
 /**
@@ -651,12 +683,15 @@ export function buildInicioList(args: {
   limit?: number;
   /** Confirmed closes already loaded. Name + offer, nothing invented. */
   successes?: { name: string; offer: string }[];
+  calls?: { cliente?: string | null; oferta?: string | null; producto?: string | null; fecha?: string | null; interna?: boolean }[];
+  leadOffers?: { name?: string | null; offer?: string | null }[];
 }): InicioList {
   const ranked = rankFollowups(args.followups, args.now);
   const limit = args.limit ?? INICIO_LIST_SIZE;
   const rows = ranked.slice(0, limit).map((row) => {
     const phone = String(row.telefono || "").trim();
-    const offer = shownOffer(row.oferta);
+    const offer =
+      shownOffer(row.oferta) || knownOfferFor(String(row.cliente || ""), args.calls || [], args.leadOffers || []);
     const stepSource = nextStepText(row, args.now);
     const step = closerFacingNote(stepSource);
     const chip = followupChip(row, args.now);
@@ -795,6 +830,10 @@ export type ParaLlegar = {
   /** «Último cierre: hace 6 días» and «7 llamadas desde entonces», or empty. */
   closeWhen: string;
   closeCalls: string;
+  /** «3 cierres este mes». Empty when the month was not classified. */
+  closes: string;
+  /** «3 cerrados · 1 perdido», or «perdidos sin datos» when that side was never marked. */
+  versus: string;
 };
 
 /** Lines for «Para llegar». A line that is not backed by real numbers stays empty. */
@@ -810,6 +849,7 @@ export function paraLlegarLines(args: {
     rates?: { pct: number };
   } | null;
   lastClose: LastClose | null;
+  outcomes?: { won: number | null; lost: number | null } | null;
 }): ParaLlegar {
   const { projection } = args;
   let headline = "";
@@ -829,12 +869,15 @@ export function paraLlegarLines(args: {
     }
   }
   const close = args.lastClose ? lastCloseLabel(args.lastClose) : null;
+  const sentences = outcomeSentences(args.outcomes);
   return {
     headline,
     meetings,
     lastClose: args.lastClose,
     closeWhen: close?.when || "",
     closeCalls: close?.calls || "",
+    closes: sentences.closes,
+    versus: sentences.versus,
   };
 }
 

@@ -73,7 +73,8 @@ export function visibleCallTitle(args: {
 }) {
   const lead = realClientName(args.leadName);
   const title = String(args.title || "").trim();
-  const generic = !title || isGenericMeetingTitle(title);
+  // «Llamada del 28 sep, 11:04» is a date, not a person. The lead name wins.
+  const generic = !title || isGenericMeetingTitle(title) || /^llamada del\b/i.test(title);
   if (!generic) return title;
   if (lead) return lead;
   const when = calendarDay(args.date);

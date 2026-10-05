@@ -248,6 +248,35 @@ test("Para llegar hides the meetings line with assumed rates", () => {
   const noGoal = paraLlegarLines({ ...base, metaUsd: null, projection: null, lastClose: null });
   assert.equal(noGoal.headline, "");
   assert.equal(noGoal.closeWhen, "");
+  assert.equal(noGoal.closes, "");
+  const monthOnly = paraLlegarLines({
+    ...base,
+    metaUsd: null,
+    projection: null,
+    lastClose: { days: 4, callsSince: 7 },
+    outcomes: { won: 2, lost: null },
+  });
+  assert.equal(monthOnly.headline, "");
+  assert.equal(monthOnly.closes, "2 cierres este mes");
+  assert.equal(monthOnly.versus, "2 cerrados · perdidos sin datos");
+  assert.equal(monthOnly.closeCalls, "7 llamadas desde entonces");
+});
+
+test("a missing offer is filled from the person's call, not from another catalog offer", () => {
+  const list = buildInicioList({
+    followups: [row("Elber", { oferta: "", proximo: "2026-10-04" })],
+    rules: RULES,
+    now: NOW,
+    calls: [{ cliente: "Elber", oferta: "Círculo Millonario", fecha: "2026-10-01" }],
+    leadOffers: [{ name: "Otra", offer: "Fertilidad Consciente" }],
+  });
+  assert.equal(list.rows[0]?.offer, "Círculo Millonario");
+  const blank = buildInicioList({
+    followups: [row("Nadie", { oferta: "", proximo: "2026-10-04" })],
+    rules: RULES,
+    now: NOW,
+  });
+  assert.equal(blank.rows[0]?.offer, "");
 });
 
 test("Inicio no longer renders the loose chat or the push notice", () => {

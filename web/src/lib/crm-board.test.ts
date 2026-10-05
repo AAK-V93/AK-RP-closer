@@ -141,6 +141,7 @@ test("en seguimiento matches Inicio and a call this month is not a cierre", () =
   ];
   const board = buildCrmBoard({ calls, followups, period: "mes", now: NOW });
   assert.equal(board.counts.cerrados, 0);
+  assert.equal(board.counts.perdidos, null);
   assert.equal(board.subtitle, "");
   assert.equal(board.counts.seguimiento, 2);
   assert.match(board.hoyNote, /2 personas en seguimiento/);
@@ -161,4 +162,84 @@ test("pago does not invent a quota or a zero", () => {
   });
   assert.equal(pagoLabel({ cash: 900, saldo: null, modoPago: "CONTADO" }, (n) => `USD ${n}`).note, "de contado");
   assert.equal(/cuota 2 de 3/i.test(JSON.stringify(pagoLabel({ cash: null, saldo: 100 }, (n) => `USD ${n}`))), false);
+});
+
+test("a close with an open follow-up still counts, and a bare list is sin datos", () => {
+  const open = buildCrmBoard({
+    now: NOW,
+    period: "mes",
+    calls: [
+      {
+        id: "c1",
+        cliente: "Ana Salas",
+        fecha: "2026-10-02",
+        estadoAgenda: "CIERRE VENTA",
+        cash: 900,
+        oferta: "Fertilidad Consciente",
+      },
+    ],
+    followups: [
+      followup({
+        id: "a",
+        cliente: "Ana Salas",
+        proximo: "2026-10-04",
+        acuerdo: "Quedó en revisar la propuesta y dar una respuesta.",
+      }),
+    ],
+  });
+  assert.equal(open.counts.cerrados, 1);
+  assert.equal(open.counts.seguimiento, 1);
+  assert.equal(open.hoy[0]?.leftOff, "Quedó en revisar la propuesta y dar una respuesta.");
+  const closed = buildCrmBoard({
+    now: NOW,
+    period: "mes",
+    bucket: "cerrados",
+    calls: [
+      {
+        id: "c1",
+        cliente: "Ana Salas",
+        fecha: "2026-10-02",
+        estadoAgenda: "CIERRE VENTA",
+        cash: 900,
+      },
+    ],
+    followups: [followup({ id: "a", cliente: "Ana Salas", proximo: "2026-10-04" })],
+  });
+  assert.equal(closed.rows[0]?.name, "Ana Salas");
+
+  const empty = buildCrmBoard({
+    now: NOW,
+    period: "mes",
+    calls: [],
+    followups: [followup({ id: "e", cliente: "Elber", proximo: "2026-09-23" })],
+  });
+  assert.equal(empty.counts.cerrados, null);
+  assert.equal(empty.counts.perdidos, null);
+  const lostView = buildCrmBoard({
+    now: NOW,
+    period: "mes",
+    bucket: "perdidos",
+    calls: [],
+    followups: [followup({ id: "e", cliente: "Elber", proximo: "2026-09-23" })],
+  });
+  assert.match(lostView.empty, /Sin datos de perdidos/);
+});
+
+test("razon de no cierre is a perdido, the same signal Coach uses", () => {
+  const board = buildCrmBoard({
+    now: NOW,
+    period: "mes",
+    calls: [
+      {
+        id: "m",
+        cliente: "Marco Ruiz",
+        fecha: "2026-10-01",
+        estadoAgenda: "SHOW",
+        razonNoCierre: "lo habla con el socio",
+      },
+    ],
+    followups: [],
+  });
+  assert.equal(board.counts.cerrados, 0);
+  assert.equal(board.counts.perdidos, 1);
 });
