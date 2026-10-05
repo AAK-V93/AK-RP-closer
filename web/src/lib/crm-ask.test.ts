@@ -49,7 +49,8 @@ const rows: CrmAskRow[] = [
 test("answers who is due today from the CRM rows", () => {
   const text = answerCrmFollowups(rows, "¿a quién hoy?", { now });
   assert.match(text, /María Pérez/);
-  assert.match(text, /WhatsApp/);
+  assert.match(text, /Hoy toca 1 seguimiento:/);
+  assert.equal(text.includes("WhatsApp"), false);
   assert.equal(text.includes("Ana Ruiz"), false);
   assert.equal(text.includes("Luis Gómez"), false);
 });
@@ -99,9 +100,40 @@ test("a list bullet does not repeat seguimiento and atrasado", () => {
   );
   assert.match(text, /Elber/);
   assert.match(text, /pendiente desde/);
-  assert.match(text, /WhatsApp/);
+  assert.equal(text.includes("WhatsApp"), false);
   assert.equal((text.match(/seguimiento/gi) || []).length, 1);
   assert.equal(/atrasado/i.test(text), false);
+});
+
+test("a today list uses the plural verb and the human agreement, without a channel on every line", () => {
+  const text = answerCrmFollowups(
+    [
+      {
+        id: "e",
+        cliente: "Elber",
+        dueAt: new Date(2026, 8, 23, 13, 0, 0).toISOString(),
+        hilo: "DECISION",
+        proximaAccion: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+        canal: "WHATSAPP",
+        proximo: "2026-09-23",
+      },
+      {
+        id: "j",
+        cliente: "Jessica Pajuelo",
+        dueAt: new Date(2026, 8, 23, 13, 0, 0).toISOString(),
+        hilo: "SEGUIMIENTO",
+        proximaAccion: "seguimiento · atrasado",
+        canal: "WHATSAPP",
+        proximo: "2026-09-23",
+      },
+    ],
+    "¿A quién llamo hoy?",
+    { now },
+  );
+  assert.match(text, /^Hoy tocan 2 seguimientos:/);
+  assert.match(text, /Quedó en revisar la propuesta y dar una respuesta/);
+  assert.equal(/el cliente/i.test(text), false);
+  assert.equal(text.includes("WhatsApp"), false);
 });
 
 test("empty CRM does not invent a follow-up", () => {

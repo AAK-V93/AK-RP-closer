@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { Home, Mic, MoreHorizontal, Phone, Users } from "lucide-react";
@@ -149,9 +149,18 @@ function UserMenu({ name, email }: { name?: string | null; email?: string | null
 export function AppShell({
   children,
   wide = false,
+  fill = false,
+  reserveTabs,
+  tabBar,
 }: {
   children: React.ReactNode;
   wide?: boolean;
+  /** Lock the shell to the screen so a practice room can pin its button. */
+  fill?: boolean;
+  /** False hides the phone-tab padding. Omit it to keep the default. */
+  reserveTabs?: boolean;
+  /** Phone tabs. Omit for the default bar. Null hides them. */
+  tabBar?: ReactNode | null;
 }) {
   const path = usePathname();
   const { data, status } = useSession();
@@ -170,11 +179,18 @@ export function AppShell({
 
   const items = NAV.filter((item) => !item.crm || showCrm);
   // Room for the fixed tab bar and the iPhone home indicator. Desktop keeps py-6.
-  const tabPadding = signedIn ? " pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-6" : "";
+  const signedPad = " pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-6";
+  const tabPadding = !signedIn ? "" : reserveTabs === false ? " pb-3 md:pb-6" : signedPad;
+  const phoneTabs = signedIn ? (tabBar !== undefined ? tabBar : <MobileTabBar path={path} showCrm={showCrm} />) : null;
 
   return (
-    <div className="flex min-h-screen w-full min-w-0 max-w-full flex-col overflow-x-clip bg-bg0">
-      <header className="min-w-0 max-w-full border-b border-separator1">
+    <div
+      className={
+        "flex w-full min-w-0 max-w-full flex-col overflow-x-clip bg-bg0 " +
+        (fill ? "h-dvh max-h-dvh overflow-hidden" : "min-h-screen")
+      }
+    >
+      <header className="min-w-0 max-w-full border-b border-separator1 shrink-0">
         <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-3">
           <Link href="/" className="inline-flex h-11 min-h-[44px] shrink-0 items-center font-display text-lg">
             Closer Trainer
@@ -214,13 +230,15 @@ export function AppShell({
       <main
         className={
           (wide
-            ? "min-w-0 w-full max-w-full flex-1 overflow-x-clip px-4 md:px-8 py-6"
-            : "mx-auto min-w-0 w-full max-w-3xl flex-1 overflow-x-clip px-4 md:px-6 py-6") + tabPadding
+            ? "min-w-0 w-full max-w-full flex-1 overflow-x-clip px-4 md:px-8"
+            : "mx-auto min-w-0 w-full max-w-3xl flex-1 overflow-x-clip px-4 md:px-6") +
+          (fill ? " flex min-h-0 flex-col overflow-hidden py-3 md:py-4" : " py-6") +
+          tabPadding
         }
       >
         {children}
       </main>
-      {signedIn && <MobileTabBar path={path} showCrm={showCrm} />}
+      {phoneTabs}
     </div>
   );
 }

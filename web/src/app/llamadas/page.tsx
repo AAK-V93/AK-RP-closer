@@ -195,12 +195,10 @@ export default function LlamadasPage() {
                       {review.question && <p className="text-sm text-fg1">{review.question}</p>}
                       {Array.isArray(review.options) && review.options.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
-                          {review.options.map((option, index) => (
-                            <Button
+                          {review.options.map((option) => (
+                            <button
                               key={option}
-                              size="sm"
-                              className="min-h-11"
-                              variant={index === 0 ? "primary" : "outline"}
+                              type="button"
                               disabled={reviewing}
                               onClick={() =>
                                 void sendReview({
@@ -209,9 +207,10 @@ export default function LlamadasPage() {
                                   value: option,
                                 })
                               }
+                              className="inline-flex h-11 min-h-11 items-center rounded-full border border-separator2 bg-bg0 px-3.5 text-sm font-medium text-fg0 disabled:opacity-60"
                             >
                               {option}
-                            </Button>
+                            </button>
                           ))}
                         </div>
                       ) : review.field === "proximo_seguimiento" ? (
@@ -281,9 +280,13 @@ export default function LlamadasPage() {
                             className="h-11 min-h-[44px] min-w-11 flex-1 rounded-md border border-separator1 bg-bg0 px-2 text-sm lg:h-8 lg:min-h-0 lg:min-w-0"
                             placeholder="La respuesta"
                           />
-                          <Button size="sm" variant="primary" disabled={reviewing || !answer.trim()}>
-                            Guardar
-                          </Button>
+                          <button
+                            type="submit"
+                            disabled={reviewing || !answer.trim()}
+                            className="inline-flex h-11 min-h-11 shrink-0 items-center justify-center rounded-[10px] bg-fg0 px-3.5 text-sm font-semibold text-[#FBF8F2] disabled:bg-[#E8E0D4] disabled:text-fg0 disabled:opacity-100"
+                          >
+                            {reviewing ? "Guardando…" : "Guardar"}
+                          </button>
                         </form>
                       )}
                     </div>

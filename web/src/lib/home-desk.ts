@@ -88,6 +88,18 @@ export function clientPatternPhrase(raw: string) {
   return "";
 }
 
+/**
+ * The line to show on the practice idle. A drill title is not quoted as something
+ * the client said.
+ */
+export function spokenPracticeFocus(value: string) {
+  const raw = String(value || "").trim();
+  const phrase = clientPatternPhrase(raw);
+  if (!phrase) return "";
+  if (phrase === raw || phrase === raw.toLocaleLowerCase("es")) return phrase;
+  return "";
+}
+
 /** «Pierdes cierres cuando te dicen “…”». The quote is a client line, never an exercise title. */
 export function patternSentence(raw: string) {
   const phrase = clientPatternPhrase(raw);
@@ -102,11 +114,13 @@ export function practiceCardFromGuides(
   const drill = closerSpanish(
     guides.flatMap((guide) => guide.drills || []).find((item) => item.trim()) || "",
   ).trim();
-  const pattern = patternSentence(
-    guides.flatMap((guide) => guide.missingInLosses || []).find((item) => item.trim()) || "",
-  );
+  const loss = guides.flatMap((guide) => guide.missingInLosses || []).find((item) => item.trim()) || "";
+  const phrase = clientPatternPhrase(loss);
+  const pattern = patternSentence(loss);
+  // The room starts on the line the client says. A drill is only the fallback.
+  const focus = phrase || drill;
   return {
-    practiceHref: drill ? `/practicar?focus=${encodeURIComponent(drill)}` : "/practicar",
+    practiceHref: focus ? `/practicar?focus=${encodeURIComponent(focus)}` : "/practicar",
     practiceStatus: drill || "Elige con quién practicar",
     /** The exercise the practice room focuses on. */
     drill,

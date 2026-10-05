@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { countPhrase, labelCrmProse, plainStatus, porConfirmarLabel, presentChatState, readableTitle, spanishAgendaInText } from "./plain-labels";
+import { countPhrase, labelCrmProse, personLikeTitle, plainStatus, porConfirmarLabel, presentChatState, questionWithStoredName, readableTitle, spanishAgendaInText } from "./plain-labels";
 
 test("screen labels hide internal status codes", () => {
   assert.equal(plainStatus("CIERRE VENTA"), "Cerró");
@@ -75,4 +75,18 @@ test("counts use singular and plural", () => {
   assert.equal(porConfirmarLabel(9), "Tienes 9 llamadas por confirmar");
   assert.equal(readableTitle("KATHERINE REINOSO SARMIENTO"), "Katherine Reinoso Sarmiento");
   assert.equal(readableTitle("Llamada del 2 oct"), "Llamada del 2 oct");
+  const bogota = new Date("2026-10-05T15:00:00Z");
+  assert.equal(readableTitle("Carlos Ramírez · 30/9/2026", bogota), "Carlos Ramírez · 30 sep");
+  assert.equal(readableTitle("Valeria Ríos · 29/9/2025", bogota), "Valeria Ríos · 29 sep 2025");
+  assert.equal(
+    questionWithStoredName(
+      "¿Qué seguimiento quedó con Katherine Rodríguez? (segunda reunión, pago, decisión, retomar)",
+      "Katerine Rodríguez",
+      "Katherine Rodríguez",
+    ),
+    "¿Qué seguimiento quedó con Katerine Rodríguez? (segunda reunión, pago, decisión, retomar)",
+  );
+  assert.equal(questionWithStoredName("¿Con quién hablaste?", "Katerine", "Katherine"), "¿Con quién hablaste?");
+  assert.equal(personLikeTitle("Katerine Rodríguez"), "Katerine Rodríguez");
+  assert.equal(personLikeTitle("Carlos Ramírez · 30/9/2026"), "");
 });

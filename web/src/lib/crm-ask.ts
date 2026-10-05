@@ -6,6 +6,7 @@ import {
   stripStoredFollowupMark,
 } from "@/lib/crm-followups";
 import { zonedDayKey } from "@/lib/crm-time";
+import { closerFacingNote } from "@/lib/inicio-view";
 import { countPhrase, plainStatus } from "@/lib/plain-labels";
 
 export type CrmAskRow = {
@@ -102,9 +103,16 @@ function actionDetail(row: CrmAskRow) {
 
 function howLabel(row: CrmAskRow) {
   const canal = canalLabel(row.canal);
-  const action = actionDetail(row);
+  const action = closerFacingNote(actionDetail(row));
   const phone = row.telefono?.trim();
   return [canal, action, phone].filter(Boolean).join(" · ");
+}
+
+/** «Hoy toca 1 seguimiento» / «Hoy tocan 18 seguimientos». */
+function hoyIntro(count: number, tail: "." | ":") {
+  const n = Math.trunc(Number(count) || 0);
+  const verb = Math.abs(n) === 1 ? "toca" : "tocan";
+  return `Hoy ${verb} ${countPhrase(n, "seguimiento", "seguimientos")}${tail}`;
 }
 
 function nameScore(cliente: string, question: string) {
@@ -179,7 +187,7 @@ function lineOf(row: CrmAskRow, today: string, money?: (value: number) => string
 
 function brief(row: CrmAskRow, today: string) {
   const tipo = plainStatus(row.hilo || row.tipo);
-  const action = actionDetail(row);
+  const action = closerFacingNote(actionDetail(row));
   const tipoFold = fold(tipo);
   const actionFold = fold(action);
   const showTipo =
@@ -187,8 +195,8 @@ function brief(row: CrmAskRow, today: string) {
     tipo !== "—" &&
     !/^seguimiento$/i.test(tipo) &&
     !(actionFold && (actionFold === tipoFold || actionFold.includes(tipoFold)));
-  const canal = canalLabel(row.canal);
-  return `• ${[row.cliente, showTipo ? tipo : "", action, whenLabel(row, today), canal].filter(Boolean).join(" · ")}`;
+  // Channel once, on the single-person line. A list of bullets does not end each row with «· WhatsApp».
+  return `• ${[row.cliente, showTipo ? tipo : "", action, whenLabel(row, today)].filter(Boolean).join(" · ")}`;
 }
 
 export function answerCrmFollowups(
@@ -232,7 +240,7 @@ export function answerCrmFollowups(
       now,
     );
     if (!due.length) return "Pregunta a quién, cuándo o cómo. Hoy no toca ninguno.";
-    return `Hoy toca ${countPhrase(due.length, "seguimiento", "seguimientos")}. Pregunta a quién, cuándo o cómo.\n${due
+    return `${hoyIntro(due.length, ".")} Pregunta a quién, cuándo o cómo.\n${due
       .slice(0, 8)
       .map((row) => brief(row, today))
       .join("\n")}`;
@@ -257,7 +265,7 @@ export function answerCrmFollowups(
   }
 
   const title = todayOnly
-    ? `Hoy toca ${countPhrase(pool.length, "seguimiento", "seguimientos")}:`
+    ? `${hoyIntro(pool.length, ":")}`
     : tomorrowOnly
       ? `Mañana ${countPhrase(pool.length, "seguimiento", "seguimientos")}:`
       : weekOnly

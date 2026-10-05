@@ -140,6 +140,9 @@ test("new imports drop Sí, a price label, an inferred sale and a stamp clock", 
   assert.equal(parsed.venta_total, null);
   assert.equal(parsed.proximo_seguimiento, "2026-10-08");
   assert.equal(canonicalTipo("DECISION"), "DECISION");
+  assert.equal(canonicalTipo("Pago"), "PAGO PENDIENTE");
+  assert.equal(canonicalTipo("Segunda reunión"), "SEGUNDA REUNION");
+  assert.equal(canonicalTipo("Retomar"), "RETOMAR");
   assert.equal(canonicalTipo("sí"), "");
   assert.equal(canonicalProducto("MENTORIAS", ["Círculo Millonario"]), "MENTORIAS");
 });

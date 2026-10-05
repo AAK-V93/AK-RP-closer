@@ -626,8 +626,8 @@ export type SheetBlocks = {
 
 /** Hide a block when its real data is missing. */
 export function sheetBlocks(args: SheetBlocks): SheetBlocks {
-  const agreement = args.agreement.trim();
-  const nextStep = args.nextStep.trim();
+  const agreement = closerFacingNote(args.agreement.trim());
+  const nextStep = closerFacingNote(args.nextStep.trim());
   const when = args.when.trim();
   const age = String(args.age || "").trim();
   const generic = /^retomar el contacto$/i.test(nextStep);

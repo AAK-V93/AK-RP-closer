@@ -195,6 +195,25 @@ export function formatIsoDayLong(value: string | null | undefined) {
   return `${day} de ${month} de ${match[1]}`;
 }
 
+/**
+ * «30/9/2026» → «30 sep» in Bogotá (day/month, the closer's calendar).
+ * Display only. A stored next follow-up is not rewritten here — Katherine Rodríguez's
+ * 2027-05-18 05:00 is real data for Kali and must stay in the database.
+ */
+export function humanizeSlashDates(value: string, now = new Date()) {
+  const yearNow = zonedParts(now).year;
+  return String(value || "").replace(/\b(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})\b/g, (full, dayRaw, monthRaw, yearRaw) => {
+    const day = Number(dayRaw);
+    const month = Number(monthRaw);
+    let year = Number(yearRaw);
+    if (year < 100) year += 2000;
+    if (!day || !month || month > 12 || day > 31) return full;
+    const short = MONTHS_SHORT[month - 1];
+    if (!short) return full;
+    return year === yearNow ? `${day} ${short}` : `${day} ${short} ${year}`;
+  });
+}
+
 /** «3 oct» or «3 oct 2025» in Bogotá. */
 export function formatBogotaDay(value: Date | string | null | undefined, now = new Date()) {
   if (value == null || value === "") return "";

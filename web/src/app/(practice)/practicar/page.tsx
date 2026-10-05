@@ -1,14 +1,7 @@
+import { Suspense } from "react";
 import { Metadata } from "next";
-import Link from "next/link";
 import { Chat } from "@/components/chat";
-import { Badge } from "@/components/ui/badge";
-import { AuthMenu } from "@/components/auth-menu";
-
-const PRACTICE_NAV = [
-  { href: "/", label: "Inicio" },
-  { href: "/llamadas", label: "Llamadas" },
-  { href: "/coach", label: "Coach" },
-];
+import { TrainingSetupForm } from "@/components/training-setup-form";
 
 export const metadata: Metadata = {
   title: "Practicar | Closer Trainer",
@@ -18,39 +11,15 @@ export const metadata: Metadata = {
 
 export default function PracticePage() {
   return (
-    <div className="flex flex-col h-screen bg-bg0 overflow-x-hidden">
-      <header className="flex flex-shrink-0 h-14 items-center justify-between gap-2 px-3 md:px-8 w-full border-b border-separator1 min-w-0">
-        <div className="flex items-center gap-3 min-w-0 flex-shrink">
-          <Link href="/" className="flex h-11 min-h-11 min-w-0 items-center text-lg font-light">
-            <span className="truncate" title="Closer Trainer">
-              Closer Trainer
-            </span>
-          </Link>
-          <Badge variant="outline" className="hidden sm:inline-flex text-xs">
-            Práctica
-          </Badge>
-          <nav className="hidden md:flex items-center gap-2 text-xs text-fg3">
-            {PRACTICE_NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="inline-flex h-11 min-h-11 min-w-11 items-center justify-center rounded-full px-3 hover:text-fg1 lg:h-7 lg:min-h-0 lg:min-w-0 lg:px-2"
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-        </div>
-        <AuthMenu />
-      </header>
-      <main className="flex-col flex-1 min-h-0 min-w-0 overflow-hidden p-2 md:p-4 w-full flex">
-        <div className="w-full h-full flex flex-col mx-auto rounded-2xl bg-bg1 border border-separator1 min-w-0 overflow-hidden">
-          <Chat />
-        </div>
-      </main>
-      <footer className="hidden md:flex md:items-center md:gap-2 md:justify-end font-mono uppercase text-right py-3 px-8 text-xs text-fg3 w-full border-t border-separator1">
-        Práctica por voz
-      </footer>
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4 md:flex-row">
+      <aside className="hidden min-h-0 overflow-y-auto rounded-2xl border border-separator1 bg-bg1 p-4 md:block md:w-[340px] md:shrink-0">
+        <Suspense fallback={null}>
+          <TrainingSetupForm />
+        </Suspense>
+      </aside>
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-separator1 bg-bg1">
+        <Chat />
+      </section>
     </div>
   );
 }

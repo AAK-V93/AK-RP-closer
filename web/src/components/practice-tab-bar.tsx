@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { MobileTabBar } from "@/components/app-shell";
+import { AppShell, MobileTabBar } from "@/components/app-shell";
 import { useConnection } from "@/hooks/use-connection";
 import { showPracticeTabBar } from "@/lib/mobile-nav";
 
-/** Same phone tabs as the rest of the app. Hidden while a practice session is live. */
-export function PracticeTabBar() {
+/** Same chrome as Inicio. The phone tabs hide while a practice session is live. */
+export function PracticeShell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const { status } = useSession();
   const { phase, shouldConnect, isConnecting } = useConnection();
   const [showCrm, setShowCrm] = useState(false);
-  const visible = showPracticeTabBar({ phase, shouldConnect, isConnecting });
+  const visible =
+    status === "authenticated" && showPracticeTabBar({ phase, shouldConnect, isConnecting });
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -25,6 +26,14 @@ export function PracticeTabBar() {
       .catch(() => undefined);
   }, [status, path]);
 
-  if (status !== "authenticated" || !visible) return null;
-  return <MobileTabBar path={path} showCrm={showCrm} />;
+  return (
+    <AppShell
+      wide
+      fill
+      reserveTabs={visible}
+      tabBar={visible ? <MobileTabBar path={path} showCrm={showCrm} /> : null}
+    >
+      {children}
+    </AppShell>
+  );
 }

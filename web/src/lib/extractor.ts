@@ -501,6 +501,7 @@ export function extractorGap(
     return {
       field: "tipo_seguimiento",
       question: `¿Qué seguimiento quedó con ${name}? (segunda reunión, pago, decisión, retomar)`,
+      options: ["Segunda reunión", "Pago", "Decisión", "Retomar"],
     };
   }
   if (parsed.requiere_seguimiento === true && !parsed.proximo_seguimiento) {
