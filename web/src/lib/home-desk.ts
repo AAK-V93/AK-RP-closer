@@ -34,6 +34,8 @@ export function practiceCardFromGuides(guides: { drills?: string[]; ready?: bool
   return {
     practiceHref: drill ? `/practicar?focus=${encodeURIComponent(drill)}` : "/practicar",
     practiceStatus: drill || "Elige con quién practicar",
+    /** The pattern to practice, or empty. Inicio hides «Lo que más te frena» without it. */
+    drill,
     newPattern: guides.some((guide) => Boolean(guide.ready)),
   };
 }

@@ -72,6 +72,17 @@ import {
 import { getHomeState } from "@/lib/home-state";
 import { parseCrmPrefs, parseMonthlyGoalUsd, patchCrmPref, saveMonthlyGoal } from "@/lib/crm-prefs";
 import { applyHubUtterance, parseHubUtterance } from "@/lib/hub-utterance";
+import {
+  bogotaDateLine,
+  bogotaMonthName,
+  buildInicioList,
+  goalProgress,
+  lastCloseInfo,
+  monthCommissionUsd,
+  offerRules,
+  paraLlegarLines,
+  type InicioBlock,
+} from "@/lib/inicio-view";
 import { vapidPublicKey } from "@/lib/web-push";
 import { Prisma } from "@prisma/client";
 
@@ -1106,6 +1117,7 @@ async function hubSnapshot(
     pendingOfferExtract,
     needsPushPrompt:
       home.phase !== "a" && !prefs.pushPromptedAt && Boolean(vapidPublicKey()),
+    inicio: null as InicioBlock | null,
   };
   timings?.push({ name: "phase", dur: 0, desc: home.phase });
   if (home.phase !== "c") {
@@ -1130,6 +1142,19 @@ async function hubSnapshot(
       timings?.push({ name: "projection", dur: 0, desc: "in-memory" });
     } catch (error) {
       console.error("hub projection", error);
+    }
+    let inicio: InicioBlock | null = null;
+    try {
+      inicio = inicioBlock({
+        dash,
+        offers,
+        unclassified,
+        metaUsd: goalBundle.monthlyGoalUsd,
+        projection: goalBundle.projection,
+      });
+      timings?.push({ name: "inicio", dur: 0, desc: "in-memory" });
+    } catch (error) {
+      console.error("hub inicio", error);
     }
     const desk = {
       unclassified,
@@ -1195,11 +1220,57 @@ async function hubSnapshot(
       projection: goalBundle.projection,
       pendingOfferExtract,
       needsPushPrompt: !prefs.pushPromptedAt && Boolean(vapidPublicKey()),
+      inicio,
     };
   } catch (error) {
     console.error("hub snapshot crm", error);
     return empty;
   }
+}
+
+/** «Qué quedó» is the agreement written on the follow-up's call, the same one /crm shows as Acuerdo. */
+function withCallAgreement<T extends { callId?: string }>(
+  rows: T[],
+  operacion: { id: string; acuerdo?: string }[],
+) {
+  const byCall = new Map(operacion.map((row) => [row.id, String(row.acuerdo || "").trim()]));
+  return rows.map((row) => ({ ...row, callAcuerdo: byCall.get(String(row.callId || "")) || "" }));
+}
+
+/** Inicio's goal card and list, from rows the dashboard already loaded. No extra query. */
+function inicioBlock(args: {
+  dash: Awaited<ReturnType<typeof crmDashboard>>;
+  offers: { productName: string; commercial: unknown }[];
+  unclassified: number;
+  metaUsd: number | null;
+  projection: ReturnType<typeof projectionFromDashboard>["projection"];
+}): InicioBlock {
+  const now = new Date();
+  const { dash } = args;
+  const goal = goalProgress({
+    llevasUsd: monthCommissionUsd(dash.commissions, now),
+    metaUsd: args.metaUsd,
+    now,
+  });
+  return {
+    dateLine: bogotaDateLine(now),
+    monthName: bogotaMonthName(now),
+    goal,
+    paraLlegar: paraLlegarLines({
+      llevasUsd: goal.llevasUsd,
+      metaUsd: goal.metaUsd,
+      offerName: dash.offers[0]?.productName || "",
+      projection: args.projection,
+      lastClose: lastCloseInfo(dash.operacion, now),
+    }),
+    list: buildInicioList({
+      followups: withCallAgreement(dash.followups, dash.operacion),
+      rules: offerRules(args.offers),
+      mesCash: dash.rendimiento.mes.cash,
+      now,
+    }),
+    porConfirmar: args.unclassified,
+  };
 }
 
 function nextHubActions(snapshot: Awaited<ReturnType<typeof hubSnapshot>>) {

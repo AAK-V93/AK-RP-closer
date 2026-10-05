@@ -56,7 +56,7 @@ export function CrmAsk({
   if (hidden) return null;
 
   return (
-    <aside className="fixed inset-x-0 bottom-0 z-30 min-w-0 max-w-full bg-bg0 min-[1200px]:static min-[1200px]:inset-auto min-[1200px]:z-auto min-[1200px]:max-h-[calc(100vh-7rem)] min-[1200px]:sticky min-[1200px]:top-4 min-[1200px]:flex min-[1200px]:flex-col min-[1200px]:border min-[1200px]:border-separator1">
+    <aside className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] md:bottom-0 z-30 min-w-0 max-w-full bg-bg0 min-[1200px]:static min-[1200px]:inset-auto min-[1200px]:z-auto min-[1200px]:max-h-[calc(100vh-7rem)] min-[1200px]:sticky min-[1200px]:top-4 min-[1200px]:flex min-[1200px]:flex-col min-[1200px]:border min-[1200px]:border-separator1">
       <form
         className={
           expanded

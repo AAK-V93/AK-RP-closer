@@ -50,6 +50,12 @@ export default function LlamadasPage() {
   const [calls, setCalls] = useState<CallRow[]>([]);
   const [review, setReview] = useState<Review | null>(null);
   const [queue, setQueue] = useState<Review[]>([]);
+  const hasQueue = queue.length > 0;
+  // Inicio's «Confirmar →» links here. The list loads after the page, so scroll once it shows.
+  useEffect(() => {
+    if (!hasQueue || window.location.hash !== "#por-clasificar") return;
+    document.getElementById("por-clasificar")?.scrollIntoView({ block: "start" });
+  }, [hasQueue]);
   const [otherDate, setOtherDate] = useState("");
   const [answer, setAnswer] = useState("");
   const [reviewing, setReviewing] = useState(false);
@@ -149,7 +155,10 @@ export default function LlamadasPage() {
               <Link href="/ofertas">Subir archivos o pegar una transcripción</Link>
             </Button>
             {queue.length > 0 && review && (
-              <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+              <div
+                id="por-clasificar"
+                className="scroll-mt-4 rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
+              >
                 <p className="text-[11px] uppercase tracking-wide text-fg3">
                   {countPhrase(queue.length, "llamada por clasificar", "llamadas por clasificar")}
                 </p>

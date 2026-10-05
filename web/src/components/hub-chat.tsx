@@ -66,6 +66,7 @@ export type HubSnapshot = {
     offers: ExtractedOffer[];
   } | null;
   needsPushPrompt?: boolean;
+  inicio?: import("@/lib/inicio-view").InicioBlock | null;
 };
 
 export function HubChat({

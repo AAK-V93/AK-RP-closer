@@ -88,16 +88,14 @@ test("the practice card keeps the drill off the hub payload", () => {
   assert.equal(empty.newPattern, false);
   const hub = readFileSync(new URL("../app/api/hub/route.ts", import.meta.url), "utf8");
   const screen = readFileSync(new URL("../components/home-screen.tsx", import.meta.url), "utf8");
+  const inicio = readFileSync(new URL("../components/inicio-home.tsx", import.meta.url), "utf8");
   const practice = readFileSync(new URL("../app/api/hub/practice/route.ts", import.meta.url), "utf8");
   assert.equal(hub.includes("loadLiveGuides"), false);
   assert.equal(hub.includes("practiceCardFromGuides"), false);
-  assert.match(screen, /\/api\/hub\/practice/);
-  assert.match(screen, /Elige con quién practicar/);
-  assert.match(screen, /DeskRowStatus/);
-  assert.match(screen, /title=\{status\}/);
-  assert.match(screen, /min-w-0/);
-  assert.match(screen, /grid-cols-\[7\.5rem_minmax\(0,1fr\)\]/);
-  assert.doesNotMatch(screen, /items-baseline justify-between gap-4 py-4[\s\S]{0,120}line-clamp-2/);
+  // «Lo que más te frena» loads the drill after the hub, and hides without a pattern.
+  assert.match(inicio, /\/api\/hub\/practice/);
+  assert.match(inicio, /Lo que más te frena/);
+  assert.match(inicio, /min-w-0/);
   assert.doesNotMatch(screen, /phase \|\| "a"/);
   assert.match(practice, /practiceCardFromGuides/);
   assert.match(practice, /select: \{ productName: true, playbook: true \}/);

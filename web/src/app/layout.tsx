@@ -36,6 +36,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#F2ECE1",
+  // Lets the phone tab bar pad itself with env(safe-area-inset-bottom).
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({

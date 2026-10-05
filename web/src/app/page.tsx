@@ -28,5 +28,7 @@ function GuestHome() {
 export default async function HomePage() {
   const session = await getServerSession(authOptions);
   const userId = session?.user?.id;
-  return <AppShell>{userId ? <HomeScreen /> : <GuestHome />}</AppShell>;
+  return (
+    <AppShell wide={Boolean(userId)}>{userId ? <HomeScreen /> : <GuestHome />}</AppShell>
+  );
 }

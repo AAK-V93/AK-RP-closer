@@ -291,3 +291,27 @@
   height: 0;
   pointer-events: none;
 }
+
+/* Inicio «Tu lista de hoy»: a card per person on mobile, one grid row from lg. */
+.inicio-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "av who mo"
+    "pr pr pr"
+    "acts acts acts";
+  column-gap: 10px;
+  align-items: center;
+}
+.inicio-row > .inicio-av { grid-area: av; }
+.inicio-row > .inicio-who { grid-area: who; }
+.inicio-row > .inicio-pr { grid-area: pr; }
+.inicio-row > .inicio-mo { grid-area: mo; }
+.inicio-row > .inicio-acts { grid-area: acts; }
+@media (min-width: 64rem) {
+  .inicio-row {
+    grid-template-columns: 40px 190px minmax(0, 1fr) 108px auto;
+    grid-template-areas: "av who pr mo acts";
+    column-gap: 16px;
+  }
+}
