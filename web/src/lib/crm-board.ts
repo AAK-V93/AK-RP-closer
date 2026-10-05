@@ -5,8 +5,12 @@ import {
   followupRankInput,
   pickOpenByName,
 } from "@/lib/crm-followups";
-import { calendarDaysBetween, zonedDayKey, zonedMonthRange, shiftZonedMonth } from "@/lib/crm-time";
-import { followupChip, initialsOf, shownOffer, type FollowupChip } from "@/lib/inicio-view";
+import { calendarDaysBetween, zonedDayKey, zonedMonthRange } from "@/lib/crm-time";
+import { closerFacingNote, followupChip, initialsOf, nextStepText, shownOffer, type FollowupChip } from "@/lib/inicio-view";
+import { periodOutcomes, type OutcomeCall } from "@/lib/outcome-counts";
+
+/** «A quién contactar hoy» stays a short list. The rest is «Ver más». */
+export const CRM_HOY_CAP = 7;
 
 export type CrmBoardBucket = "cerrados" | "seguimiento" | "perdidos";
 export type CrmBoardPeriod = "mes" | "anterior" | "todo";
@@ -26,6 +30,7 @@ export type CrmBoardCall = {
   modoPago?: string;
   interna?: boolean;
   seguimientoResultado?: string;
+  razonNoCierre?: string;
 };
 
 export type CrmBoardFollowup = {
@@ -49,6 +54,8 @@ export type CrmBoardPerson = {
   offer: string;
   pago: string;
   pagoNote: string;
+  /** Where it was left, the same sentence Inicio shows. Empty when we only have the chip. */
+  leftOff: string;
   chip: FollowupChip | null;
   bucket: CrmBoardBucket;
   /** Question the row writes into the chat. */
@@ -59,10 +66,12 @@ export type CrmBoard = {
   subtitle: string;
   hoy: CrmBoardPerson[];
   hoyNote: string;
-  counts: Record<CrmBoardBucket, number>;
+  /** Cerrados and perdidos are null when that signal was never recorded («sin datos»). */
+  counts: { cerrados: number | null; seguimiento: number; perdidos: number | null };
   rows: CrmBoardPerson[];
   shown: number;
-  total: number;
+  /** Null when the selected bucket has no recorded signal. */
+  total: number | null;
   footer: string;
   empty: string;
   /** Heading for the people who are not already in «hoy». */
@@ -76,15 +85,6 @@ function fold(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
-}
-
-function isLost(value: string | null | undefined) {
-  return /\bperdid/.test(fold(String(value || "")));
-}
-
-function isClosedSale(estadoAgenda?: string, leadStatus?: string) {
-  const blob = `${estadoAgenda || ""} ${leadStatus || ""}`.toUpperCase().replace(/_/g, " ");
-  return /\bCIERRE VENTA\b|\bCERRADO\b|\bCERRO\b/.test(blob);
 }
 
 export function matchesBoardOffer(value: string, selected: string) {
@@ -132,6 +132,27 @@ function askFor(name: string) {
   return `¿En qué quedé con ${name}?`;
 }
 
+/** The agreement Inicio prints on the row. A bare «Retomar el contacto» stays off the chip line. */
+function leftOffOf(row: CrmBoardFollowup, now: Date) {
+  const step = closerFacingNote(
+    nextStepText(
+      {
+        id: row.id,
+        cliente: row.cliente,
+        dueAt: row.dueAt || "",
+        proximo: row.proximo,
+        acuerdo: row.acuerdo,
+        proximaAccion: row.proximaAccion,
+        hilo: row.hilo,
+        tipo: row.tipo,
+      },
+      now,
+    ),
+  );
+  if (!step || /^retomar el contacto$/i.test(step)) return "";
+  return step;
+}
+
 /**
  * Compact CRM. «En seguimiento» and «A quién contactar hoy» use the same
  * rank as Inicio (`compareFollowupRank`). Seguimiento is every open follow-up,
@@ -150,7 +171,6 @@ export function buildCrmBoard(args: {
   const now = args.now || new Date();
   const today = zonedDayKey(now);
   const month = zonedMonthRange(now);
-  const previous = shiftZonedMonth(now, -1);
   const period = args.period || "mes";
   const bucket = args.bucket || "seguimiento";
   const offer = args.offer || "todas";
@@ -166,16 +186,6 @@ export function buildCrmBoard(args: {
     byName.set(key, list);
   }
 
-  const lostNames = new Set<string>();
-  for (const row of calls) {
-    if (isLost(row.leadStatus) || isLost(row.seguimientoResultado) || isLost(row.estadoAgenda)) {
-      lostNames.add(foldLeadName(row.cliente));
-    }
-  }
-  for (const row of args.followups) {
-    if (isLost(row.leadStatus)) lostNames.add(foldLeadName(row.cliente));
-  }
-
   const open = pickOpenByName(
     args.followups.map((row) => ({
       ...row,
@@ -187,8 +197,6 @@ export function buildCrmBoard(args: {
   const seguimiento = [...open].sort((a, b) =>
     compareFollowupRank(followupRankInput(a, now), followupRankInput(b, now)),
   );
-  const seen = new Set(seguimiento.map((row) => foldLeadName(row.name)));
-
   type Draft = {
     id: string;
     name: string;
@@ -203,7 +211,6 @@ export function buildCrmBoard(args: {
 
   for (const row of seguimiento) {
     const key = foldLeadName(row.name);
-    if (lostNames.has(key)) lostNames.delete(key);
     const call = latestCall(byName.get(key) || []);
     drafts.push({
       id: row.id,
@@ -217,29 +224,37 @@ export function buildCrmBoard(args: {
     });
   }
 
-  for (const [key, rows] of byName) {
-    if (seen.has(key) || lostNames.has(key)) continue;
-    const call = latestCall(rows);
-    if (!call || !isClosedSale(call.estadoAgenda, call.leadStatus)) continue;
-    const name = call.cliente.trim();
-    if (!name) continue;
-    drafts.push({
-      id: call.id,
-      name,
-      offer: shownOffer(call.oferta) || shownOffer(call.producto),
-      call,
-      day: String(call.fecha || "").slice(0, 10),
-      bucket: "cerrados",
-      amount: 0,
+  const callMatches = (row: CrmBoardCall) =>
+    matchesBoardOffer(shownOffer(row.oferta) || shownOffer(row.producto), offer);
+  const evidence: OutcomeCall[] = calls.filter(callMatches).map((row) => ({
+    cliente: row.cliente,
+    fecha: row.fecha,
+    estadoAgenda: row.estadoAgenda,
+    leadStatus: row.leadStatus,
+    seguimientoResultado: row.seguimientoResultado,
+    razonNoCierre: row.razonNoCierre,
+  }));
+  for (const row of args.followups) {
+    if (!row.leadStatus || !matchesBoardOffer(shownOffer(row.oferta), offer)) continue;
+    evidence.push({
+      cliente: row.cliente,
+      fecha: followupCalendarDay(row),
+      leadStatus: row.leadStatus,
     });
   }
+  const outcomes = periodOutcomes({ calls: evidence, period, now });
+  const monthOutcomes = periodOutcomes({ calls: evidence, period: "mes", now });
 
-  for (const key of lostNames) {
-    if (seen.has(key)) continue;
-    const call = latestCall(byName.get(key) || []);
+  const pushOutcome = (key: string, bucket: "cerrados" | "perdidos") => {
+    const rows = byName.get(key) || [];
+    const call =
+      bucket === "cerrados"
+        ? latestCall(rows.filter((row) => String(row.estadoAgenda || "").toUpperCase() === "CIERRE VENTA")) ||
+          latestCall(rows)
+        : latestCall(rows);
     const followup = args.followups.find((row) => foldLeadName(row.cliente) === key);
     const name = (call?.cliente || followup?.cliente || "").trim();
-    if (!name) continue;
+    if (!name) return;
     drafts.push({
       id: call?.id || followup?.id || key,
       name,
@@ -247,22 +262,16 @@ export function buildCrmBoard(args: {
       call,
       followup,
       day: String(call?.fecha || followupCalendarDay(followup || {}) || "").slice(0, 10),
-      bucket: "perdidos",
+      bucket,
       amount: 0,
     });
-  }
+  };
+  for (const key of outcomes.wonKeys) pushOutcome(key, "cerrados");
+  for (const key of outcomes.lostKeys) pushOutcome(key, "perdidos");
 
   const offerOk = (row: Draft) => matchesBoardOffer(row.offer, offer);
-  const periodOk = (row: Draft) => {
-    // Inicio counts every open follow-up. The month filter stays on cierres and perdidos.
-    if (row.bucket === "seguimiento") return true;
-    if (period === "todo") return true;
-    if (!row.day) return false;
-    const key = period === "mes" ? month.key : previous.key;
-    return row.day.startsWith(key);
-  };
-
-  const scoped = drafts.filter((row) => offerOk(row) && periodOk(row));
+  // Cierres and perdidos are already limited to the period. Seguimiento stays every open follow-up.
+  const scoped = drafts.filter((row) => (row.bucket === "seguimiento" ? offerOk(row) : true));
   const searched = query ? scoped.filter((row) => fold(row.name).includes(query)) : scoped;
 
   const toPerson = (row: Draft): CrmBoardPerson => {
@@ -275,6 +284,7 @@ export function buildCrmBoard(args: {
     } else if (row.bucket === "perdidos") {
       chip = { tone: "future", label: "Perdido" };
     }
+    const leftOff = row.bucket === "seguimiento" && row.followup ? leftOffOf(row.followup, now) : "";
     return {
       id: row.id,
       name: row.name,
@@ -282,14 +292,18 @@ export function buildCrmBoard(args: {
       offer: row.offer,
       pago: pay.pago,
       pagoNote: pay.note,
+      leftOff,
       chip,
       bucket: row.bucket,
       ask: askFor(row.name),
     };
   };
 
-  const counts = { cerrados: 0, seguimiento: 0, perdidos: 0 };
-  for (const row of scoped) counts[row.bucket] += 1;
+  const counts = {
+    cerrados: outcomes.won,
+    seguimiento: scoped.filter((row) => row.bucket === "seguimiento").length,
+    perdidos: outcomes.lost,
+  };
 
   // Hoy stays the Inicio list. The name search only narrows the table below.
   const hoyDrafts = drafts.filter(
@@ -312,15 +326,13 @@ export function buildCrmBoard(args: {
     const cash = Number(row.cash);
     if (Number.isFinite(cash) && cash > 0) cobrado += cash;
   }
-  const monthClosed = drafts.filter(
-    (row) => row.bucket === "cerrados" && offerOk(row) && String(row.day || "").startsWith(month.key),
-  ).length;
+  const monthClosed = monthOutcomes.won;
   const closedLine =
-    monthClosed === 1
-      ? "1 persona cerró este mes"
-      : monthClosed > 1
-        ? `${monthClosed} personas cerraron este mes`
-        : "";
+    monthClosed == null || monthClosed <= 0
+      ? ""
+      : monthClosed === 1
+        ? "1 persona cerró este mes"
+        : `${monthClosed} personas cerraron este mes`;
   const cashLine = cobrado > 0 ? `${money(cobrado)} cobrados` : "";
   const subtitle = [closedLine, cashLine].filter(Boolean).join(" · ");
 
@@ -334,23 +346,29 @@ export function buildCrmBoard(args: {
   const shown = rows.length;
   const order = bucket === "seguimiento" ? "ordenados por fecha de seguimiento" : "ordenados por fecha";
   const footer =
-    bucket === "seguimiento" && !query && total > 0
-      ? shown === 0
-        ? peoplePhrase(total, "en seguimiento")
-        : `${peoplePhrase(shown, "más adelante")} · ${peoplePhrase(total, "en seguimiento")}`
-      : shown === total
-        ? `${peoplePhrase(total, "")} · ${order}`
-        : `${shown} de ${total} · ${order}`;
+    total == null
+      ? ""
+      : bucket === "seguimiento" && !query && total > 0
+        ? shown === 0
+          ? peoplePhrase(total, "en seguimiento")
+          : `${peoplePhrase(shown, "más adelante")} · ${peoplePhrase(total, "en seguimiento")}`
+        : shown === total
+          ? `${peoplePhrase(total, "")} · ${order}`
+          : `${shown} de ${total} · ${order}`;
   const empty =
-    shown === 0 && bucket === "seguimiento" && total > 0
-      ? query
-        ? "Nadie más con ese nombre. Si toca hoy, está en la lista de arriba."
-        : "Esas personas ya están en «A quién contactar hoy»."
-      : bucket === "cerrados"
-        ? "No hay cierres en este período."
-        : bucket === "perdidos"
-          ? "No hay perdidos en este período."
-          : "No hay personas en seguimiento en este período.";
+    bucket === "cerrados" && outcomes.won == null
+      ? "Sin datos de cierres en este período."
+      : bucket === "perdidos" && outcomes.lost == null
+        ? "Sin datos de perdidos en este período."
+        : shown === 0 && bucket === "seguimiento" && (total || 0) > 0
+          ? query
+            ? "Nadie más con ese nombre. Si toca hoy, está en la lista de arriba."
+            : "Esas personas ya están en «A quién contactar hoy»."
+          : bucket === "cerrados"
+            ? "No hay cierres en este período."
+            : bucket === "perdidos"
+              ? "No hay perdidos en este período."
+              : "No hay personas en seguimiento en este período.";
 
   return {
     subtitle,

@@ -84,6 +84,7 @@ import {
   type InicioBlock,
 } from "@/lib/inicio-view";
 import { foldLeadName } from "@/lib/crm-followups";
+import { periodOutcomes } from "@/lib/outcome-counts";
 import { vapidPublicKey } from "@/lib/web-push";
 import { Prisma } from "@prisma/client";
 
@@ -1290,6 +1291,22 @@ function inicioBlock(args: {
     mesCash: dash.rendimiento.mes.cash,
     now,
     successes: confirmedCloses(dash.operacion),
+    calls: dash.operacion,
+    leadOffers: dash.leads.map((row) => ({ name: row.name, offer: row.offerName })),
+  });
+  const outcomes = periodOutcomes({
+    calls: dash.operacion
+      .filter((row) => !row.interna)
+      .map((row) => ({
+        cliente: row.cliente,
+        fecha: row.fecha,
+        estadoAgenda: row.estadoAgenda,
+        leadStatus: row.leadStatus,
+        seguimientoResultado: row.seguimientoResultado,
+        razonNoCierre: row.razonNoCierre,
+      })),
+    period: "mes",
+    now,
   });
   const offersLoaded = args.offers.some((row) => String(row.productName || "").trim());
   return {
@@ -1302,6 +1319,7 @@ function inicioBlock(args: {
       offerName: dash.offers[0]?.productName || "",
       projection: args.projection,
       lastClose: lastCloseInfo(dash.operacion, now),
+      outcomes,
     }),
     list,
     porConfirmar: args.unclassified,
