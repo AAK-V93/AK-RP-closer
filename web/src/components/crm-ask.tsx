@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { answerCrmFollowups, type CrmAskRow } from "@/lib/crm-ask";
+import { openFollowupCountOf } from "@/lib/crm-followups";
 import { countPhrase } from "@/lib/plain-labels";
 
 type Line = { role: "user" | "crm"; text: string };
@@ -105,7 +106,7 @@ export function CrmAsk({
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
           <p className="text-xs text-fg3">
-            Responde con lo que ya está en el CRM, sin esperar. {countPhrase(rows.length, "seguimiento abierto", "seguimientos abiertos")}.
+            Responde con lo que ya está en el CRM, sin esperar. {countPhrase(openFollowupCountOf(rows), "seguimiento abierto", "seguimientos abiertos")}.
           </p>
           {lines.map((line, index) => (
             <p

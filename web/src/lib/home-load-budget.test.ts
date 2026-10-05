@@ -40,7 +40,6 @@ async function measuredHubWall(scale: number, kind: "before" | "after") {
       sleep(ms(s.prefs)),
       sleep(ms(s.dashboard)),
       sleep(ms(s.filings)),
-      sleep(ms(s.thread)),
     ]);
   }
   return performance.now() - started;
@@ -51,6 +50,7 @@ test("Inicio TTFB drops under 500 ms once the hub queries overlap", async () => 
   const after = hubTtfbAfter(HUB_PAINT_AFTER);
   assert.equal(before, 675);
   assert.equal(after, 315);
+  assert.equal(hubTtfbAfter({ ...HUB_PAINT_AFTER, thread: 9000 }), after);
   assert.ok(after < 500);
   assert.ok(after < before);
   const scale = 0.05;

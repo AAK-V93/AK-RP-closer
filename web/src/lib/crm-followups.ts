@@ -56,22 +56,39 @@ export function moneyInPlay(row: {
   return 0;
 }
 
-export function withFollowupTiming(action: string, estado: FollowupEstado) {
-  const base = action
-    .replace(/\s*·\s*(vencido|pendiente de hoy)\s*$/i, "")
+function storedTimingSuffix(action: string) {
+  const match = String(action || "").match(
+    /\s·\s*(vencido|atrasado|pendiente de hoy|hace \d+ d[ií]as sin respuesta)\s*$/i,
+  );
+  if (!match) return "";
+  if (/vencido|atrasado/i.test(match[1])) return " · atrasado";
+  return ` · ${match[1]}`;
+}
+
+/** Drop a timing suffix already stored on an action, including the old «vencido». */
+export function stripStoredFollowupMark(value: string) {
+  return String(value || "")
+    .replace(/\s*·\s*(vencido|atrasado|pendiente de hoy|hace \d+ d[ií]as sin respuesta)\s*$/i, "")
     .trim();
+}
+
+export function withFollowupTiming(action: string, estado: FollowupEstado) {
+  const base = stripStoredFollowupMark(action);
   if (!base) {
-    if (estado === "VENCIDO") return "vencido";
+    if (estado === "VENCIDO") return "atrasado";
     if (estado === "HOY") return "pendiente de hoy";
     return "";
   }
-  if (estado === "VENCIDO") return `${base} · vencido`;
+  if (estado === "VENCIDO") return `${base} · atrasado`;
   if (estado === "HOY") return `${base} · pendiente de hoy`;
   return base;
 }
 
 export function followupTouchLabel(estado: FollowupEstado, daysAhead: number) {
-  if (estado === "VENCIDO") return "vencido";
+  if (estado === "VENCIDO") {
+    const late = Math.max(1, -daysAhead);
+    return late === 1 ? "hace 1 día sin respuesta" : `hace ${late} días sin respuesta`;
+  }
   if (estado === "HOY") return "hoy";
   const n = Math.max(0, daysAhead);
   return n === 1 ? "en 1 día" : `en ${n} días`;
@@ -191,6 +208,12 @@ export function alignFollowups<T extends Alignable>(
     if (key) seen.add(key);
     const source = key ? byLead.get(key) : undefined;
     if (!source) {
+      if (!key) continue;
+      if (newestByLead.get(key)?.seguimientoCerrado) continue;
+      const due =
+        dueDayFromProximo(row.proximo) ||
+        dueDayFromProximo(String(row.dueAt || "").slice(0, 10));
+      if (!due) continue;
       aligned.push(row);
       continue;
     }
@@ -225,12 +248,7 @@ export function alignFollowups<T extends Alignable>(
 }
 
 function sameFollowupCopy(left: string, right: string) {
-  const norm = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/\s*·\s*(vencido|pendiente de hoy)\s*$/i, "")
-      .replace(/\s+/g, " ")
-      .trim();
+  const norm = (value: string) => stripStoredFollowupMark(value).toLowerCase().replace(/\s+/g, " ").trim();
   const a = norm(left);
   const b = norm(right);
   if (!a || !b) return false;
@@ -254,7 +272,7 @@ export function applyClosedSaleFollowup<T extends Alignable>(row: T): T {
     return contexto === row.contexto ? row : { ...row, contexto };
   }
   const owes = (row.enJuego || 0) > 0;
-  const timing = row.proximaAccion.match(/\s·\s(?:vencido|pendiente de hoy)\s*$/i)?.[0] || "";
+  const timing = storedTimingSuffix(row.proximaAccion);
   const base = owes ? "cobrar la siguiente cuota" : "dar la bienvenida";
   return {
     ...row,
@@ -358,7 +376,72 @@ export type DeskLine = {
   lateDays: number;
   reason: string;
   kind: "cobro" | "llamada";
+  /** Stable tie-break. Same person and same numbers always land in the same place. */
+  id?: string;
 };
+
+/**
+ * One order for Inicio and for «¿A quién llamo hoy?».
+ * Due rows first (more money, then more days late, then hotter stage, then name, then id).
+ * Later dates follow, soonest first, with the same tie-break.
+ */
+export function compareFollowupRank(
+  a: { id?: string; name: string; amount?: number; lateDays?: number; step?: string; daysAhead?: number },
+  b: { id?: string; name: string; amount?: number; lateDays?: number; step?: string; daysAhead?: number },
+) {
+  const aFuture = (a.daysAhead || 0) > 0 ? 1 : 0;
+  const bFuture = (b.daysAhead || 0) > 0 ? 1 : 0;
+  return (
+    aFuture - bFuture ||
+    (aFuture ? (a.daysAhead || 0) - (b.daysAhead || 0) : 0) ||
+    (b.amount || 0) - (a.amount || 0) ||
+    (b.lateDays || 0) - (a.lateDays || 0) ||
+    stageHeat(String(b.step || "")) - stageHeat(String(a.step || "")) ||
+    a.name.localeCompare(b.name, "es") ||
+    String(a.id || "").localeCompare(String(b.id || ""))
+  );
+}
+
+/**
+ * A seguimiento is open when the person has a name and a próximo day,
+ * and the newest call for that person is not already closed.
+ * One row per person. Includes later dates. Inicio, the CRM panel and the chat use this.
+ */
+export function pickOpenByName<T extends { name: string; due?: string | null; closed?: boolean }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const closedNames = new Set<string>();
+  const chosen = new Map<string, T>();
+  for (const row of rows) {
+    const key = foldLeadName(row.name);
+    if (!key) continue;
+    if (!seen.has(key)) {
+      seen.add(key);
+      if (row.closed) closedNames.add(key);
+    }
+    if (closedNames.has(key) || chosen.has(key)) continue;
+    if (!dueDayFromProximo(row.due)) continue;
+    chosen.set(key, row);
+  }
+  return [...chosen.values()];
+}
+
+export function openFollowupCountOf(
+  rows: {
+    cliente?: string;
+    name?: string;
+    proximo?: string | null;
+    dueAt?: string | null;
+    closed?: boolean;
+  }[],
+) {
+  return pickOpenByName(
+    rows.map((row) => ({
+      name: String(row.cliente || row.name || ""),
+      due: dueDayFromProximo(row.proximo) || dueDayFromProximo(String(row.dueAt || "").slice(0, 10)),
+      closed: Boolean(row.closed),
+    })),
+  ).length;
+}
 
 function moneyEs(amount: number) {
   return String(Math.round(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -611,8 +694,8 @@ function deskReason(args: {
   const late =
     args.lateDays > 0
       ? args.lateDays === 1
-        ? "vencido hace 1 día"
-        : `vencido hace ${args.lateDays} días`
+        ? "Hace 1 día sin respuesta"
+        : `Hace ${args.lateDays} días sin respuesta`
       : "para hoy";
   const contact = args.lastContact ? `último contacto el ${shortDay(args.lastContact)}` : "";
   const next =
@@ -635,13 +718,7 @@ function deskReason(args: {
  * (cobro, decisión, reunión, seguimiento).
  */
 export function prioritizeDesk(lines: DeskLine[]) {
-  return [...lines].sort(
-    (a, b) =>
-      (b.amount || 0) - (a.amount || 0) ||
-      (b.lateDays || 0) - (a.lateDays || 0) ||
-      stageHeat(b.step) - stageHeat(a.step) ||
-      a.name.localeCompare(b.name, "es"),
-  );
+  return [...lines].sort(compareFollowupRank);
 }
 
 /** Only the agreement. The call summary and the CRM note are not the next step. */
@@ -651,24 +728,14 @@ export function deskAgreement(filing: { acuerdo_seguimiento?: string | null }) {
 
 /** One open follow-up per person, only today and overdue. Newest call wins. */
 export function deskLinesFromFilings(rows: DeskFiling[], today: string): DeskLine[] {
-  const newestClosed = new Set<string>();
-  const seen = new Set<string>();
-  const chosen = new Map<string, DeskFiling & { due: string }>();
-  for (const row of rows) {
-    const key = foldLeadName(row.name);
-    if (!key) continue;
-    if (!seen.has(key)) {
-      seen.add(key);
-      if (row.closed) newestClosed.add(key);
-    }
-    if (newestClosed.has(key) || chosen.has(key)) continue;
+  const chosen = pickOpenByName(
+    rows.map((row) => ({ ...row, name: row.name, due: row.proximo, closed: row.closed })),
+  );
+  const lines: DeskLine[] = [];
+  for (const row of chosen) {
     const due = dueDayFromProximo(row.proximo);
     if (!due) continue;
-    chosen.set(key, { ...row, due });
-  }
-  const lines: DeskLine[] = [];
-  for (const row of chosen.values()) {
-    const estado = followupEstado(row.due, today);
+    const estado = followupEstado(due, today);
     if (estado === "PRÓXIMO") continue;
     const saldo = row.saldo || 0;
     const gap = (row.venta || 0) > (row.cash || 0) ? (row.venta || 0) - (row.cash || 0) : 0;
@@ -682,12 +749,13 @@ export function deskLinesFromFilings(rows: DeskFiling[], today: string): DeskLin
       : labeled === "—"
         ? "Seguimiento"
         : labeled;
-    const lateDays = estado === "VENCIDO" ? Math.max(1, daysBetween(row.due, today)) : 0;
+    const lateDays = estado === "VENCIDO" ? Math.max(1, daysBetween(due, today)) : 0;
     const note = String(row.note || "").trim();
     lines.push({
       name: row.name.trim(),
       step,
-      date: row.due,
+      id: due + ":" + row.name.trim(),
+      date: due,
       estado,
       amount,
       lateDays,
@@ -700,7 +768,7 @@ export function deskLinesFromFilings(rows: DeskFiling[], today: string): DeskLin
         step,
         lastContact: String(row.lastContact || "").slice(0, 10),
         today,
-        due: row.due,
+        due,
         estado: row.estadoAgenda,
         objection: row.objection,
         offerName: row.offerName,
@@ -736,7 +804,7 @@ function splitDeskSentence(sentence: string) {
   const stepParts: string[] = [];
   let inStep = false;
   for (const part of sentence.split(", ")) {
-    const meta = /contacto/i.test(part) || /^(vencido|para hoy)\b/i.test(part);
+    const meta = /contacto/i.test(part) || /^(hace \d+ d[ií]as sin respuesta|para hoy)\b/i.test(part);
     if (!inStep && meta) prefixes.push(part);
     else {
       inStep = true;
@@ -770,7 +838,7 @@ export function deskCallLine(index: number, name: string, reason: string) {
   const { prefixes, step } = splitDeskSentence(sentence);
   const variants = meetingStepVariants(step || sentence);
   const contactless = prefixes.filter((part) => !/contacto/i.test(part));
-  const lateOnly = contactless.filter((part) => /^(vencido|para hoy)\b/i.test(part));
+  const lateOnly = contactless.filter((part) => /^(hace \d+ d[ií]as sin respuesta|para hoy)\b/i.test(part));
   const fits = (body: string) => `${prefix}${body}`.length <= 119;
   for (const variant of variants) {
     const bodies = [
@@ -797,8 +865,8 @@ export function formatPendingToday(lines: DeskLine[], unclassified = 0) {
     overdue.length === 0
       ? ""
       : overdue.length === 1
-        ? "1 seguimiento vencido"
-        : `${overdue.length} seguimientos vencidos`;
+        ? "1 seguimiento atrasado"
+        : `${overdue.length} seguimientos atrasados`;
   const head = overdueText ? `${overdueText}, ${todayText}` : todayText;
   let text = `Hoy tienes ${head}`;
   if (!cobros.length) {
@@ -825,13 +893,13 @@ export function formatPendingToday(lines: DeskLine[], unclassified = 0) {
 }
 
 const CALL_ORDER =
-  "Llama hoy, en este orden (más dinero primero; sin monto, más días vencido y luego la etapa):";
+  "Llama hoy, en este orden (más dinero primero; sin monto, más días sin respuesta y luego la etapa):";
 
 /** «¿A quién llamo hoy?»: hasta 7, con el atraso visible y un solo punto final. */
 export function formatWhoToCall(lines: DeskLine[]) {
   const ranked = prioritizeDesk(lines);
   const shown = ranked.slice(0, 7);
-  if (!shown.length) return "Hoy no tienes a quién llamar. No hay vencidos ni nada pactado para hoy.";
+  if (!shown.length) return "Hoy no tienes a quién llamar. No hay atrasados ni nada pactado para hoy.";
   const body = shown.map((row, index) => deskCallLine(index + 1, row.name, row.reason)).join("\n");
   const rest = ranked.length - shown.length;
   const more = rest > 0 ? `\nQuedan ${rest} más después de estas.` : "";

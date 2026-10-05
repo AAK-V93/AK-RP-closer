@@ -9,9 +9,9 @@ export function followupCardStatus(today: number, overdue: number) {
   const dueToday = Math.max(0, today);
   const late = Math.max(0, overdue);
   if (dueToday <= 0 && late <= 0) return "Todo al día";
-  if (dueToday <= 0) return late === 1 ? "1 vencido" : `${late} vencidos`;
+  if (dueToday <= 0) return late === 1 ? "1 atrasado" : `${late} atrasados`;
   if (late <= 0) return dueToday === 1 ? "1 pendiente de hoy" : `${dueToday} pendientes de hoy`;
-  return `${dueToday} pendiente${dueToday === 1 ? "" : "s"} de hoy · ${late} vencido${late === 1 ? "" : "s"}`;
+  return `${dueToday} pendiente${dueToday === 1 ? "" : "s"} de hoy · ${late} atrasado${late === 1 ? "" : "s"}`;
 }
 
 export function coachCardStatus(args: {
@@ -26,16 +26,37 @@ export function coachCardStatus(args: {
   return "Sin novedades";
 }
 
+/** «Pierdes cierres cuando te dicen “…”». A raw objection becomes that sentence. */
+export function patternSentence(raw: string) {
+  const clean = closerSpanish(String(raw || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return "";
+  if (/^pierdes cierres cuando te dicen\b/i.test(clean)) {
+    return clean.charAt(0).toLocaleUpperCase("es") + clean.slice(1);
+  }
+  const quote = clean.replace(/^["“«']+|["”»']+$/g, "").trim();
+  if (quote.length < 4) return "";
+  return `Pierdes cierres cuando te dicen “${quote}”`;
+}
+
 /** First-paint fallback until the light practice endpoint returns a drill. */
-export function practiceCardFromGuides(guides: { drills?: string[]; ready?: boolean }[]) {
+export function practiceCardFromGuides(
+  guides: { drills?: string[]; missingInLosses?: string[]; note?: string; ready?: boolean }[],
+) {
   const drill = closerSpanish(
     guides.flatMap((guide) => guide.drills || []).find((item) => item.trim()) || "",
   ).trim();
+  const pattern = patternSentence(
+    guides.flatMap((guide) => guide.missingInLosses || []).find((item) => item.trim()) || "",
+  );
   return {
     practiceHref: drill ? `/practicar?focus=${encodeURIComponent(drill)}` : "/practicar",
     practiceStatus: drill || "Elige con quién practicar",
-    /** The pattern to practice, or empty. Inicio hides «Lo que más te frena» without it. */
+    /** The exercise the practice room focuses on. */
     drill,
+    /** The sentence on «Lo que más te frena». Empty hides the card. */
+    pattern,
     newPattern: guides.some((guide) => Boolean(guide.ready)),
   };
 }

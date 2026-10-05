@@ -316,6 +316,8 @@ export function presentThread(args: {
   enJuego: number;
   lastTouch: { fecha: Date; resultado: string } | null;
   now: Date;
+  /** The date Hecho already stored. Shown as-is so the desk does not recompute it from the sequence start. */
+  scheduledAt?: Date | null;
 }) {
   try {
     const tipo = args.tipo as ThreadTipo;
@@ -323,7 +325,11 @@ export function presentThread(args: {
     if (!sequence?.steps.length) return null;
     if (!(args.startedAt instanceof Date) || Number.isNaN(args.startedAt.getTime())) return null;
     const step = stepAt(tipo, args.pasoActual);
-    const due = stepDue(step, anchorsOf(args), args.now);
+    const stored = args.scheduledAt;
+    const due =
+      stored instanceof Date && !Number.isNaN(stored.getTime())
+        ? stored
+        : stepDue(step, anchorsOf(args), args.now);
     if (!(due instanceof Date) || Number.isNaN(due.getTime())) return null;
     return {
       hilo: tipo,

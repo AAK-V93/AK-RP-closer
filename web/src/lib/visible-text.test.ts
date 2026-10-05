@@ -46,6 +46,27 @@ test("a phone CRM cell clips prose and keeps lead and offer names", () => {
   assert.equal(mobileCellText("producto", "Fertilidad Consciente Sistema", true), "Fertilidad Consciente Sistema");
 });
 
+test("screens the closer sees do not say vencid", () => {
+  const files = [
+    "../components/inicio-home.tsx",
+    "../components/home-screen.tsx",
+    "../components/crm-ask.tsx",
+    "../components/app-shell.tsx",
+    "../app/crm/page.tsx",
+    "../lib/home-desk.ts",
+    "../lib/plain-labels.ts",
+  ];
+  for (const file of files) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8")
+      .replace(/\bseguimientosVencidos\b/g, "")
+      .replace(/\bCOBRO_VENCIDO\b/g, "")
+      .replace(/\bVENCIDO\b/g, "");
+    const hit = source.match(/[^\n]{0,60}vencid[^\n]{0,60}/i);
+    assert.equal(hit, null, `${file}: ${hit?.[0] || ""}`);
+  }
+  assert.equal(mobileDeskStatus("3 atrasados").includes("vencid"), false);
+});
+
 test("call titles keep the lead and the offer whole", () => {
   const lead = "Sofía Mamani Quispe de la Torre";
   const offer = "Mentoría de Alto Valor para Equipos Comerciales";

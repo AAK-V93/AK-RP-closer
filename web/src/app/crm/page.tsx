@@ -49,7 +49,14 @@ import {
 import { dineroEnJuegoNote, saldoPorCobrarNote, type PipelineLine } from "@/lib/crm-pipeline";
 import { followupCardStatus } from "@/lib/home-desk";
 import { PipelineDetail } from "@/components/pipeline-detail";
-import { foldLeadName, followupSnapshot, isMeetingFollowup, shownFollowupKind } from "@/lib/crm-followups";
+import {
+  foldLeadName,
+  followupSnapshot,
+  isMeetingFollowup,
+  openFollowupCountOf,
+  shownFollowupKind,
+  stripStoredFollowupMark,
+} from "@/lib/crm-followups";
 import { LOST_REASONS, lostScopeMessage, openFollowupCount } from "@/lib/followup-desk";
 import { zonedDayKey } from "@/lib/crm-time";
 import {
@@ -994,7 +1001,7 @@ function AhoraSheet({
         <p className="text-xs text-fg3">{AHORA_TAB_NOTE}</p>
         <dl className="divide-y divide-separator1 border-t border-separator1">
           <QuietFact label="Pendientes de hoy" value={String(now.seguimientosHoy || 0)} />
-          <QuietFact label="Vencidos" value={String(now.seguimientosVencidos || 0)} />
+          <QuietFact label="Atrasados" value={String(now.seguimientosVencidos || 0)} />
           <QuietFact label="Agendas de hoy" value={String(now.agendasHoy || 0)} />
           <QuietFact label="Dinero en juego" value={money(now.dineroEnJuego)} />
           <QuietFact label="Saldo por cobrar" value={money(now.saldoPorCobrar || 0)} />
@@ -1005,7 +1012,7 @@ function AhoraSheet({
           <QuietFact label="Llamadas agendadas" value={String(now.agendasFuturas || 0)} />
         </dl>
         <HelpNote>
-          <p>Pendientes de hoy son los seguimientos que toca hacer hoy. Vencidos son los que ya debían salir.</p>
+          <p>Pendientes de hoy son los seguimientos que toca hacer hoy. Atrasados son los que ya debían salir.</p>
           <p>{dineroEnJuegoNote(now.pipelineLeads || 0)} Pendiente de cobro es lo ya acordado que aún no entró.</p>
           <p>{saldoPorCobrarNote(now.saldoPorCobrar || 0)}</p>
           <p>Comisión pendiente es tu parte de lo cobrado. Agendas de hoy y llamadas agendadas son citas en el calendario, no los seguimientos abiertos.</p>
@@ -1570,7 +1577,11 @@ function DashboardSheet({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <MetricCard label="Oportunidades activas" value={String(data.now?.oportunidadesActivas || 0)} tone="brand" />
           <MetricCard label="Llamadas agendadas" value={String(data.now?.agendasFuturas || 0)} tone="brand" />
-          <MetricCard label="Seguimientos abiertos" value={String(data.followups?.length || 0)} tone="brand" />
+          <MetricCard
+            label="Seguimientos abiertos"
+            value={String(openFollowupCountOf(data.followups || []))}
+            tone="brand"
+          />
           <MetricCard label="Cierres del mes" value={String(mes?.cierres || 0)} tone="brand" />
         </div>
         <p className="text-[11px] text-fg3">{ACTIVA_EXPLAIN}</p>
@@ -1633,12 +1644,7 @@ function isSegunda(value: string) {
 }
 
 function sameFollowupText(shown: string, note: string) {
-  const norm = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/\s*·\s*(vencido|pendiente de hoy)\s*$/i, "")
-      .replace(/\s+/g, " ")
-      .trim();
+  const norm = (value: string) => stripStoredFollowupMark(value).toLowerCase().replace(/\s+/g, " ").trim();
   const left = norm(shown);
   const right = norm(note);
   if (!left || !right) return false;

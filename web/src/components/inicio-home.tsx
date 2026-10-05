@@ -5,13 +5,16 @@ import Link from "next/link";
 import { Check, Pencil, Phone } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { moneyLabel } from "@/lib/crm-operacion";
 import { invalidateHub } from "@/lib/hub-client";
 import type { CommissionProjection } from "@/lib/crm-projection";
-import type { ChipTone, InicioBlock, InicioRow } from "@/lib/inicio-view";
+import { listSubtitle, sheetBlocks, type ChipTone, type InicioBlock, type InicioRow } from "@/lib/inicio-view";
+import { whatsappClickHref } from "@/lib/whatsapp-link";
 
-type PracticeCard = { practiceHref: string; drill: string };
+type PracticeCard = { practiceHref: string; drill: string; pattern: string };
 
 const usd = (value: number) => moneyLabel(value, "USD");
 
@@ -279,15 +282,23 @@ function ConfirmBanner({ count }: { count: number }) {
 function ListRow({
   row,
   busy,
+  onOpen,
   onDone,
 }: {
   row: InicioRow;
   busy: boolean;
+  onOpen: (row: InicioRow) => void;
   onDone: (row: InicioRow) => void;
 }) {
   const amount = row.commissionUsd != null ? `+${usd(row.commissionUsd)}` : "";
   return (
     <li className="inicio-row rounded-2xl border border-separator1 bg-bg1 p-3.5 lg:rounded-none lg:border-0 lg:border-t lg:bg-transparent lg:px-6 lg:py-3.5">
+      <button
+        type="button"
+        className="inicio-open text-left"
+        aria-label={`Qué le mandas a ${row.name}`}
+        onClick={() => onOpen(row)}
+      >
       <div
         aria-hidden
         className="inicio-av grid h-[38px] w-[38px] place-items-center rounded-full bg-bg2 text-[13px] font-semibold text-fg2 lg:h-10 lg:w-10 lg:text-sm"
@@ -295,8 +306,12 @@ function ListRow({
         {row.initials}
       </div>
       <div className="inicio-who min-w-0">
-        <p className="truncate text-base font-semibold text-fg0">{row.name}</p>
-        {row.offer && <p className="truncate text-[12.5px] text-fg3 lg:mt-0.5 lg:text-[13px]">{row.offer}</p>}
+        <p className="truncate text-base font-semibold text-fg0 lg:overflow-visible lg:whitespace-normal">{row.name}</p>
+        {row.offer && (
+          <p className="truncate text-[12.5px] text-fg3 lg:mt-0.5 lg:overflow-visible lg:whitespace-normal lg:text-[13px]">
+            {row.offer}
+          </p>
+        )}
       </div>
       <div className="inicio-pr min-w-0">
         <p className="mt-2.5 text-[15px] text-fg0 lg:mt-0">{row.step}</p>
@@ -308,10 +323,15 @@ function ListRow({
         {amount && (
           <>
             <p className="whitespace-nowrap text-[15px] font-semibold text-fg0 lg:text-base">{amount}</p>
-            <p className="hidden text-xs text-fg3 lg:block">comisión</p>
+            {row.commissionLabel && (
+              <p className="hidden text-right text-[11px] leading-tight text-fg3 lg:block lg:text-xs">
+                {row.commissionLabel}
+              </p>
+            )}
           </>
         )}
       </div>
+      </button>
       <div className="inicio-acts mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2 lg:mt-0 lg:flex">
         {row.whatsappHref ? (
           <a href={row.whatsappHref} target="_blank" rel="noreferrer" className={DARK_BUTTON}>
@@ -354,6 +374,7 @@ function TodayList({
 }) {
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   useEffect(() => {
     setRemoved(new Set());
   }, [inicio]);
@@ -361,6 +382,7 @@ function TodayList({
     () => inicio.list.rows.filter((row) => !removed.has(row.id)),
     [inicio.list.rows, removed],
   );
+  const openRow = rows.find((row) => row.id === openId) || null;
   const more = inicio.list.more;
 
   const markDone = async (row: InicioRow) => {
@@ -375,6 +397,7 @@ function TodayList({
       });
       const body = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) throw new Error(body.error || "No se guardó. Inténtalo otra vez.");
+      setOpenId(null);
       toast({
         title: row.closesOnHecho
           ? `Listo, ${row.name} salió de tu lista`
@@ -422,7 +445,7 @@ function TodayList({
             <p>Hecho cierra ese seguimiento: sale de la lista y deja de contar en pendientes.</p>
           </InfoTip>
         </h2>
-        <span className="hidden text-[13px] text-fg3 lg:inline">Primero lo que más te acerca a la meta</span>
+        <span className="hidden text-[13px] text-fg3 lg:inline">{listSubtitle(inicio.goal.metaUsd != null)}</span>
         {rows.length > 0 && (
           <span className="text-xs text-fg3 lg:hidden">
             {rows.length === 1 ? "1 persona" : `${rows.length} personas`}
@@ -437,10 +460,25 @@ function TodayList({
       ) : (
         <ul className="space-y-2.5 lg:space-y-0">
           {rows.map((row) => (
-            <ListRow key={row.id} row={row} busy={busy === row.id} onDone={(target) => void markDone(target)} />
+            <ListRow
+              key={row.id}
+              row={row}
+              busy={busy === row.id}
+              onOpen={(target) => setOpenId(target.id)}
+              onDone={(target) => void markDone(target)}
+            />
           ))}
         </ul>
       )}
+      <PersonSheet
+        row={openRow}
+        open={Boolean(openRow)}
+        busy={busy === openRow?.id}
+        onOpenChange={(next) => {
+          if (!next) setOpenId(null);
+        }}
+        onDone={(target) => void markDone(target)}
+      />
       {rows.length > 0 && (
         <>
           <p className="mb-3.5 mt-1 text-center text-[13.5px] text-fg2 lg:hidden">
@@ -457,9 +495,249 @@ function TodayList({
   );
 }
 
+function firstName(name: string) {
+  return name.trim().split(/\s+/)[0] || name.trim();
+}
+
+async function copyMessage(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast({ title: "Copié el mensaje", duration: 2000 });
+  } catch {
+    toast({ title: "No pude copiarlo. Selecciónalo y cópialo a mano.", variant: "destructive", duration: 3000 });
+  }
+}
+
+function WhatsAppAction({
+  phone,
+  text,
+  name,
+  className,
+  label = "Abrir WhatsApp",
+}: {
+  phone: string;
+  text: string;
+  name: string;
+  className: string;
+  label?: string;
+}) {
+  if (!phone) {
+    return (
+      <span className="inline-flex" title={`Falta el teléfono de ${name}. Agrégalo en el CRM.`}>
+        <button type="button" disabled aria-label={`WhatsApp: falta el teléfono de ${name}`} className={`${className} cursor-not-allowed opacity-50`}>
+          <WhatsAppGlyph />
+          {label}
+        </button>
+      </span>
+    );
+  }
+  return (
+    <a href={whatsappClickHref(phone, text)} target="_blank" rel="noreferrer" className={className}>
+      <WhatsAppGlyph />
+      {label}
+    </a>
+  );
+}
+
+function PersonSheet({
+  row,
+  open,
+  busy,
+  onOpenChange,
+  onDone,
+}: {
+  row: InicioRow | null;
+  open: boolean;
+  busy: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDone: (row: InicioRow) => void;
+}) {
+  const mobile = useIsMobile();
+  const [drafts, setDrafts] = useState<string[]>([]);
+  const [picked, setPicked] = useState(0);
+  useEffect(() => {
+    setDrafts(row?.messages || []);
+    setPicked(0);
+  }, [row]);
+  if (!row) return null;
+  const blocks = sheetBlocks({
+    agreement: row.agreement,
+    nextStep: row.step,
+    when: row.whenLabel,
+    messages: drafts,
+    material: row.material,
+    phone: row.phone,
+  });
+  const chosen = (drafts[picked] || drafts.find((item) => item.trim()) || "").trim();
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side={mobile ? "bottom" : "right"}
+        className={
+          mobile
+            ? "max-h-[92vh] overflow-y-auto rounded-t-2xl border-separator1 bg-bg0 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+            : "w-full overflow-y-auto border-separator1 bg-bg0 sm:max-w-md"
+        }
+      >
+        <div className="flex items-start gap-3 pr-10">
+          <div
+            aria-hidden
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-bg2 text-sm font-semibold text-fg2"
+          >
+            {row.initials}
+          </div>
+          <div className="min-w-0">
+            <SheetTitle className="text-left font-display text-xl leading-tight text-fg0">
+              ¿Qué le mandas a {firstName(row.name)}?
+            </SheetTitle>
+            <SheetDescription className="text-left text-[13px] text-fg3">
+              {row.name}
+              {row.offer ? ` · ${row.offer}` : ""}
+              {blocks.phone ? ` · ${blocks.phone}` : ""}
+            </SheetDescription>
+          </div>
+        </div>
+        {(blocks.agreement || blocks.when) && (
+          <div className="rounded-xl border border-[#EBD3A8] bg-[#F6E7CC] px-3.5 py-3 text-[14px] leading-snug text-[#5E3B0B]">
+            {blocks.agreement && <p className="line-clamp-2">{blocks.agreement}</p>}
+            {blocks.when && <p className={blocks.agreement ? "mt-1 text-[13px]" : ""}>{blocks.when}</p>}
+          </div>
+        )}
+        {blocks.nextStep && (
+          <p className="text-[14px] leading-snug text-fg0">
+            <span className="text-fg3">Siguiente paso. </span>
+            {blocks.nextStep}
+            {blocks.when ? ` · ${blocks.when}` : ""}
+          </p>
+        )}
+        {row.messages.length > 0 && (
+          <ul className="space-y-2">
+            {drafts.map((text, index) => (
+              <li key={`${row.id}-${index}`} className="rounded-xl border border-separator1 bg-bg1 p-3">
+                <label className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name={`mensaje-${row.id}`}
+                    className="mt-1"
+                    checked={picked === index}
+                    onChange={() => setPicked(index)}
+                  />
+                  <textarea
+                    value={text}
+                    rows={3}
+                    aria-label={`Mensaje ${index + 1}`}
+                    onChange={(event) => {
+                      const next = [...drafts];
+                      next[index] = event.target.value;
+                      setDrafts(next);
+                      setPicked(index);
+                    }}
+                    className="min-h-[4.5rem] w-full resize-y bg-transparent text-[14px] leading-snug text-fg0 outline-none"
+                  />
+                </label>
+                <div className="mt-2 flex justify-end gap-2">
+                  <button type="button" className={LINE_BUTTON} onClick={() => void copyMessage(text)}>
+                    Copiar
+                  </button>
+                  <WhatsAppAction
+                    phone={blocks.phone}
+                    text={text}
+                    name={row.name}
+                    className={DARK_BUTTON}
+                    label="Abrir WhatsApp"
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {blocks.material.length > 0 && (
+          <section className="rounded-xl border border-separator1 bg-bg1 p-3">
+            <p className="mb-1 text-xs text-fg3">Material sugerido</p>
+            <ul className="space-y-1 text-[14px] text-fg0">
+              {blocks.material.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <div className="mt-auto grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+          <WhatsAppAction phone={blocks.phone} text={chosen} name={row.name} className={DARK_BUTTON} label="WhatsApp" />
+          <button type="button" disabled={busy} onClick={() => onDone(row)} className={`${LINE_BUTTON} disabled:opacity-60`}>
+            <Check aria-hidden className="h-4 w-4" strokeWidth={2.2} />
+            Hecho
+          </button>
+          <button type="button" onClick={() => onOpenChange(false)} className={LINE_BUTTON}>
+            Cerrar
+          </button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function StartCard({
+  steps,
+  onSaveGoal,
+}: {
+  steps: InicioBlock["onboarding"];
+  onSaveGoal: (usd: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const items = [
+    {
+      done: steps.goalDone,
+      title: "Pon tu meta de comisión del mes",
+      href: "",
+    },
+    {
+      done: steps.offerDone,
+      title: "Carga tu oferta (precios, comisión, guiones)",
+      href: "/ofertas",
+    },
+    {
+      done: steps.callDone,
+      title: "Conecta o sube tu primera llamada",
+      href: "/llamadas",
+    },
+  ];
+  return (
+    <section aria-label="Empieza en 3 pasos" className="rounded-2xl border border-separator1 bg-bg1 p-4 md:px-6 md:py-5">
+      <h2 className="font-display text-[22px] font-semibold text-fg0">Empieza en 3 pasos</h2>
+      <ol className="mt-3 space-y-2">
+        {items.map((item, index) => (
+          <li key={item.title} className="flex items-start gap-3 rounded-xl border border-separator1 px-3 py-3">
+            <span
+              aria-hidden
+              className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm font-semibold ${
+                item.done ? "bg-fg0 text-[#FBF8F2]" : "bg-bg2 text-fg2"
+              }`}
+            >
+              {item.done ? <Check className="h-4 w-4" /> : index + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              {item.href ? (
+                <Link href={item.href} className="text-[15px] font-medium text-fg0 hover:underline">
+                  {item.title}
+                </Link>
+              ) : editing ? (
+                <GoalEditor initial={null} onCancel={() => setEditing(false)} onSave={onSaveGoal} />
+              ) : (
+                <button type="button" onClick={() => setEditing(true)} className="text-left text-[15px] font-medium text-fg0 hover:underline">
+                  {item.title}
+                </button>
+              )}
+              {item.done && <p className="text-xs text-fg3">Listo</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 function FrenaCard({ card }: { card: PracticeCard | null }) {
-  if (!card?.drill) return null;
-  const text = card.drill.charAt(0).toLocaleUpperCase("es") + card.drill.slice(1);
+  if (!card?.pattern) return null;
   return (
     <section
       aria-label="Lo que más te frena"
@@ -467,7 +745,7 @@ function FrenaCard({ card }: { card: PracticeCard | null }) {
     >
       <div className="min-w-0">
         <p className="text-xs text-fg3 md:mb-1 md:text-[13px]">Lo que más te frena</p>
-        <p className="mb-3 mt-1 text-[15px] font-medium text-fg0 md:m-0 md:text-[17px]">{text}</p>
+        <p className="mb-3 mt-1 text-[15px] font-medium text-fg0 md:m-0 md:text-[17px]">{card.pattern}</p>
       </div>
       <Link href={card.practiceHref} className={`${DARK_BUTTON} w-full md:w-auto lg:h-10 lg:px-3.5 lg:text-sm`}>
         ▶ Practicar 5 min
@@ -490,9 +768,13 @@ export function InicioHome({
     let cancelled = false;
     fetch("/api/hub/practice")
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { practiceHref?: string; drill?: string } | null) => {
-        if (cancelled || !data?.drill) return;
-        setPractice({ practiceHref: data.practiceHref || "/practicar", drill: data.drill });
+      .then((data: { practiceHref?: string; drill?: string; pattern?: string } | null) => {
+        if (cancelled || !data?.pattern) return;
+        setPractice({
+          practiceHref: data.practiceHref || "/practicar",
+          drill: data.drill || "",
+          pattern: data.pattern,
+        });
       })
       .catch(() => undefined);
     return () => {
@@ -526,9 +808,13 @@ export function InicioHome({
   return (
     <div className="space-y-3 md:space-y-4">
       <p className="mx-1 text-[12.5px] text-fg3 md:mx-0 md:text-[13px]">{inicio.dateLine}</p>
-      <GoalCard inicio={inicio} projection={projection} onSaveGoal={saveGoal} />
+      {inicio.onboarding.show ? (
+        <StartCard onSaveGoal={saveGoal} steps={inicio.onboarding} />
+      ) : (
+        <GoalCard inicio={inicio} projection={projection} onSaveGoal={saveGoal} />
+      )}
       <ConfirmBanner count={inicio.porConfirmar} />
-      <TodayList inicio={inicio} onChanged={onRefresh} />
+      {!inicio.onboarding.show && <TodayList inicio={inicio} onChanged={onRefresh} />}
       <FrenaCard card={practice} />
     </div>
   );

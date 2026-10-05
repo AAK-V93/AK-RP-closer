@@ -1,13 +1,15 @@
 import { commissionOnAmount, resolveCommissionPct } from "@/lib/commission";
 import {
+  compareFollowupRank,
   dueDayFromProximo,
-  prioritizeDesk,
-  stageHeat,
-  type DeskLine,
+  openFollowupCountOf,
+  pickOpenByName,
 } from "@/lib/crm-followups";
 import { calendarDaysBetween, CRM_TIMEZONE, zonedDayKey, zonedParts } from "@/lib/crm-time";
 import { parseCommercial, type CommissionRuleInput } from "@/lib/offer-commercial";
+import { fillFollowupGuion, type FollowupVars } from "@/lib/followup-scripts";
 import { foldOffer } from "@/lib/offer-name";
+import { dropDanglingWords } from "@/lib/visible-text";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
 
 /** Rows Inicio shows in «Tu lista de hoy». */
@@ -169,6 +171,10 @@ export type InicioFollowupSource = {
   /** The agreement written on the follow-up's call (Operación «Acuerdo»). */
   callAcuerdo?: string;
   acuerdo?: string;
+  /** Lead.nextStep when the call did not write an agreement. */
+  leadNextStep?: string;
+  /** Words on proximo_seguimiento that are not just a date. */
+  proximoNote?: string;
   proximaAccion?: string;
   queHacer?: string;
   contexto?: string;
@@ -183,11 +189,17 @@ export type InicioRow = {
   offer: string;
   step: string;
   chip: FollowupChip;
-  /** Commission on the money at stake. Null when the offer has no commission rule or nothing is at stake. */
+  /** Commission. Null when neither the money talked nor the offer price can support it. */
   commissionUsd: number | null;
+  /** «comisión» on money already talked, «comisión si cierra» from the offer price. */
+  commissionLabel: string;
   phone: string;
   whatsappHref: string;
   closesOnHecho: boolean;
+  messages: string[];
+  material: string[];
+  agreement: string;
+  whenLabel: string;
 };
 
 export type InicioList = {
@@ -206,101 +218,246 @@ export function initialsOf(name: string) {
   return letters.join("") || "?";
 }
 
-const TIMING_TAIL = /\s*·\s*(vencido|pendiente de hoy)\s*$/i;
+const TIMING_TAIL = /\s*·\s*(vencido|atrasado|pendiente de hoy|hace \d+ d[ií]as sin respuesta)\s*$/i;
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/;
+const EMPTY_OFFER = /^(—|-|sin oferta|sin producto|null|n\/a|na|otros)$/i;
 
 function sentence(text: string) {
-  const clean = text.replace(TIMING_TAIL, "").replace(/\s+/g, " ").trim();
-  if (!clean || /vencid/i.test(clean)) return "";
+  const clean = text
+    .replace(TIMING_TAIL, "")
+    .replace(/\s+/g, " ")
+    .replace(/\.{2,}/g, ".")
+    .trim();
+  if (!clean || /vencid/i.test(clean) || DATE_ONLY.test(clean)) return "";
+  if (/^seguimientos?$/i.test(clean) || /^retomar el contacto$/i.test(clean)) return "";
   return clean.charAt(0).toLocaleUpperCase("es") + clean.slice(1);
 }
 
-/** «Qué quedó»: the call's agreement, then the stored one, then the next step. Never the timing word. */
+/** Cut on a word. No «..» and no ellipsis glued to a dangling word. */
+export function cutAtWord(value: string, max = 140) {
+  const clean = value.replace(/\s+/g, " ").replace(/\.{2,}/g, ".").trim();
+  if (!clean || clean.length <= max) return clean;
+  let cut = clean.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  if (space >= 24) cut = cut.slice(0, space);
+  return dropDanglingWords(cut).replace(/[.,;:]+$/g, "").replace(/\.{2,}/g, "").trim();
+}
+
+/** «Qué quedó»: the call agreement, the lead's next step, then a concrete action. Fallback only if all of those are empty. */
 export function nextStepText(row: InicioFollowupSource) {
-  for (const candidate of [row.callAcuerdo, row.acuerdo, row.proximaAccion, row.queHacer, row.contexto]) {
+  for (const candidate of [
+    row.callAcuerdo,
+    row.acuerdo,
+    row.leadNextStep,
+    row.proximaAccion,
+    row.queHacer,
+    row.contexto,
+    row.proximoNote,
+  ]) {
     const text = sentence(String(candidate || ""));
-    if (text && !/^seguimientos?$/i.test(text)) return text;
+    if (text) return cutAtWord(text);
   }
   return "Retomar el contacto";
 }
 
+/** Subtitle of «Tu lista de hoy». Without a goal it does not mention the goal. */
+export function listSubtitle(hasGoal: boolean) {
+  return hasGoal
+    ? "Primero lo que más te acerca a la meta"
+    : "Primero lo más urgente y con más dinero en juego";
+}
+
+export function shownOffer(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (!text || EMPTY_OFFER.test(text)) return "";
+  return text;
+}
+
 /**
- * Same order as «¿A quién llamo hoy?» (prioritizeDesk: money, then days late, then stage)
- * for today and late rows. Later dates follow, soonest first.
+ * Same order as «¿A quién llamo hoy?» (compareFollowupRank), including the tie-break.
+ * Due rows first. Later dates follow, soonest first.
  */
 export function rankFollowups<T extends InicioFollowupSource>(rows: T[], now = new Date()) {
   const today = zonedDayKey(now);
-  const due: { line: DeskLine; row: T }[] = [];
-  const later: { day: string; row: T }[] = [];
-  for (const row of rows) {
-    if (!String(row.cliente || "").trim()) continue;
-    const day = followupDay(row) || today;
-    const diff = calendarDaysBetween(day, today);
-    if (diff > 0) {
-      later.push({ day, row });
-      continue;
-    }
-    due.push({
-      row,
-      line: {
-        name: row.cliente.trim(),
-        step: String(row.hilo || row.tipo || ""),
-        date: day,
-        estado: diff < 0 ? "VENCIDO" : "HOY",
-        amount: row.enJuego || 0,
-        lateDays: diff < 0 ? -diff : 0,
-        reason: "",
-        kind: (row.enJuego || 0) > 0 ? "cobro" : "llamada",
+  const open = pickOpenByName(
+    rows.map((row) => ({
+      ...row,
+      name: String(row.cliente || ""),
+      due: followupDay(row),
+      closed: false,
+    })),
+  );
+  return [...open].sort((a, b) => {
+    const dayA = followupDay(a) || today;
+    const dayB = followupDay(b) || today;
+    const diffA = calendarDaysBetween(dayA, today);
+    const diffB = calendarDaysBetween(dayB, today);
+    return compareFollowupRank(
+      {
+        id: a.id,
+        name: a.cliente.trim(),
+        amount: a.enJuego || 0,
+        lateDays: diffA < 0 ? -diffA : 0,
+        step: String(a.hilo || a.tipo || ""),
+        daysAhead: diffA > 0 ? diffA : 0,
       },
-    });
-  }
-  const order = prioritizeDesk(due.map((item) => item.line));
-  const dueRanked = order.map((line) => due.find((item) => item.line === line)!.row);
-  const laterRanked = later
-    .sort(
-      (a, b) =>
-        a.day.localeCompare(b.day) ||
-        (b.row.enJuego || 0) - (a.row.enJuego || 0) ||
-        stageHeat(String(b.row.hilo || b.row.tipo || "")) - stageHeat(String(a.row.hilo || a.row.tipo || "")) ||
-        a.row.cliente.localeCompare(b.row.cliente, "es"),
-    )
-    .map((item) => item.row);
-  return [...dueRanked, ...laterRanked];
+      {
+        id: b.id,
+        name: b.cliente.trim(),
+        amount: b.enJuego || 0,
+        lateDays: diffB < 0 ? -diffB : 0,
+        step: String(b.hilo || b.tipo || ""),
+        daysAhead: diffB > 0 ? diffB : 0,
+      },
+    );
+  });
 }
 
-export type OfferRule = { productName: string; aliases: string[]; rule: CommissionRuleInput | null };
+export type OfferScript = { guion: string; canal?: string };
+
+export type OfferRule = {
+  productName: string;
+  aliases: string[];
+  rule: CommissionRuleInput | null;
+  listPrice: number | null;
+  scripts: OfferScript[];
+};
 
 export function offerRules(rows: { productName: string; commercial: unknown }[]): OfferRule[] {
   return rows
     .filter((row) => String(row.productName || "").trim())
     .map((row) => {
       const commercial = parseCommercial(row.commercial);
-      return { productName: row.productName, aliases: commercial.aliases, rule: commercial.commission };
+      const price = Number(commercial.listPrice);
+      return {
+        productName: row.productName,
+        aliases: commercial.aliases,
+        rule: commercial.commission,
+        listPrice: Number.isFinite(price) && price > 0 ? price : null,
+        scripts: (commercial.scripts || [])
+          .map((script) => ({ guion: String(script.guion || "").trim(), canal: script.canal }))
+          .filter((script) => script.guion),
+      };
     });
 }
 
-function ruleFor(offer: string | null | undefined, rules: OfferRule[]) {
+function offerHit(offer: string | null | undefined, rules: OfferRule[]) {
   const needle = foldOffer(String(offer || ""));
   if (!needle) return null;
-  const hit = rules.find((row) =>
-    [row.productName, ...row.aliases].some((name) => foldOffer(name) === needle),
+  return (
+    rules.find((row) => [row.productName, ...row.aliases].some((name) => foldOffer(name) === needle)) ||
+    null
   );
-  return hit?.rule || null;
 }
 
-/** Commission on the open money, only with the offer's own rule. No rule or no money: null. */
+export type CommissionShow = { usd: number; label: "comisión" | "comisión si cierra" };
+
+function commissionUsd(rule: CommissionRuleInput, amount: number, mesCash: number) {
+  if (resolveCommissionPct(rule, null) <= 0 || amount <= 0) return 0;
+  const generada = commissionOnAmount({ rule, accumulatedBefore: mesCash, amount }).generada;
+  const rounded = Math.round(generada);
+  return rounded > 0 ? rounded : 0;
+}
+
+/**
+ * Money already talked uses the offer rule («comisión»).
+ * No amount, but a known price and a rule: «comisión si cierra».
+ * Neither: hide the slot.
+ */
+export function rowCommission(args: {
+  enJuego: number | null | undefined;
+  offer: string | null | undefined;
+  rules: OfferRule[];
+  mesCash?: number;
+}): CommissionShow | null {
+  const hit = offerHit(args.offer, args.rules);
+  if (!hit?.rule) return null;
+  const mesCash = args.mesCash || 0;
+  const talked = Number(args.enJuego || 0);
+  if (Number.isFinite(talked) && talked > 0) {
+    const usd = commissionUsd(hit.rule, talked, mesCash);
+    return usd > 0 ? { usd, label: "comisión" } : null;
+  }
+  if (!hit.listPrice) return null;
+  const usd = commissionUsd(hit.rule, hit.listPrice, mesCash);
+  return usd > 0 ? { usd, label: "comisión si cierra" } : null;
+}
+
+/** @deprecated Prefer rowCommission, which also distinguishes the label. */
 export function rowCommissionUsd(args: {
   enJuego: number | null | undefined;
   offer: string | null | undefined;
   rules: OfferRule[];
   mesCash?: number;
 }) {
-  const amount = Number(args.enJuego || 0);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-  const rule = ruleFor(args.offer, args.rules);
-  if (!rule || resolveCommissionPct(rule, null) <= 0) return null;
-  const generada = commissionOnAmount({ rule, accumulatedBefore: args.mesCash || 0, amount }).generada;
-  const rounded = Math.round(generada);
-  return rounded > 0 ? rounded : null;
+  const talked = Number(args.enJuego || 0);
+  if (!Number.isFinite(talked) || talked <= 0) return null;
+  return rowCommission(args)?.usd ?? null;
+}
+
+function firstName(name: string) {
+  return name.trim().split(/\s+/)[0] || name.trim();
+}
+
+function scriptVars(name: string, offer: string): FollowupVars {
+  return {
+    nombre: firstName(name),
+    programa: offer,
+    monto: "",
+    saldo: "",
+    fecha: "",
+    pago: "",
+    objecion: "",
+    deseo: "",
+    closer: "",
+  };
+}
+
+/** Up to three WhatsApp lines from the suggested message and the offer's own scripts. */
+export function messageIdeas(args: {
+  name: string;
+  offer: string;
+  suggested?: string;
+  scripts: OfferScript[];
+}) {
+  const ideas: string[] = [];
+  const push = (value: string) => {
+    const text = value.replace(/\s+/g, " ").trim();
+    if (!text || ideas.some((item) => item === text)) return;
+    ideas.push(text);
+  };
+  push(String(args.suggested || ""));
+  const offer = shownOffer(args.offer);
+  for (const script of args.scripts) {
+    if (script.canal && script.canal !== "WHATSAPP") continue;
+    push(fillFollowupGuion(script.guion, scriptVars(args.name, offer)));
+    if (ideas.length >= 3) break;
+  }
+  return ideas.slice(0, 3);
+}
+
+export type SheetBlocks = {
+  agreement: string;
+  nextStep: string;
+  when: string;
+  messages: string[];
+  material: string[];
+  phone: string;
+};
+
+/** Hide a block when its real data is missing. */
+export function sheetBlocks(args: SheetBlocks): SheetBlocks {
+  const agreement = args.agreement.trim();
+  const nextStep = args.nextStep.trim();
+  const when = args.when.trim();
+  return {
+    agreement,
+    nextStep: nextStep && nextStep !== agreement ? nextStep : "",
+    when,
+    messages: args.messages.map((item) => item.trim()).filter(Boolean).slice(0, 3),
+    material: args.material.map((item) => item.trim()).filter(Boolean),
+    phone: args.phone.trim(),
+  };
 }
 
 export function buildInicioList(args: {
@@ -309,30 +466,95 @@ export function buildInicioList(args: {
   mesCash?: number;
   now?: Date;
   limit?: number;
+  /** Confirmed closes already loaded. Name + offer, nothing invented. */
+  successes?: { name: string; offer: string }[];
 }): InicioList {
   const ranked = rankFollowups(args.followups, args.now);
   const limit = args.limit ?? INICIO_LIST_SIZE;
   const rows = ranked.slice(0, limit).map((row) => {
     const phone = String(row.telefono || "").trim();
+    const offer = shownOffer(row.oferta);
+    const step = nextStepText(row);
+    const chip = followupChip(row, args.now);
+    const commission = rowCommission({
+      enJuego: row.enJuego,
+      offer,
+      rules: args.rules,
+      mesCash: args.mesCash,
+    });
+    const scripts = offerHit(offer, args.rules)?.scripts || [];
+    const messages = messageIdeas({
+      name: row.cliente,
+      offer,
+      suggested: row.mensajeSugerido,
+      scripts,
+    });
+    const material = (args.successes || [])
+      .filter((item) => offer && foldOffer(item.offer) === foldOffer(offer) && item.name.trim())
+      .filter((item) => foldOffer(item.name) !== foldOffer(row.cliente))
+      .slice(0, 3)
+      .map((item) => `${item.name.trim()} ya cerró ${offer}`);
+    const agreement = sentence(String(row.callAcuerdo || row.acuerdo || row.leadNextStep || ""));
     return {
       id: row.id,
       name: row.cliente.trim(),
       initials: initialsOf(row.cliente),
-      offer: String(row.oferta || "").trim(),
-      step: nextStepText(row),
-      chip: followupChip(row, args.now),
-      commissionUsd: rowCommissionUsd({
-        enJuego: row.enJuego,
-        offer: row.oferta,
-        rules: args.rules,
-        mesCash: args.mesCash,
-      }),
+      offer,
+      step,
+      chip,
+      commissionUsd: commission?.usd ?? null,
+      commissionLabel: commission?.label || "",
       phone,
-      whatsappHref: phone ? whatsappClickHref(phone, String(row.mensajeSugerido || "").trim()) : "",
+      whatsappHref: phone ? whatsappClickHref(phone, messages[0] || "") : "",
       closesOnHecho: row.closesOnHecho !== false,
+      messages,
+      material,
+      agreement: agreement ? cutAtWord(agreement, 180) : "",
+      whenLabel: chip.label,
     };
   });
   return { rows, more: Math.max(0, ranked.length - rows.length), total: ranked.length };
+}
+
+export type StartSteps = {
+  show: boolean;
+  goalDone: boolean;
+  offerDone: boolean;
+  callDone: boolean;
+};
+
+/**
+ * «Empieza en 3 pasos» when there is no monthly goal and there is no lista de hoy.
+ * If offers and follow-ups already exist, only the goal is missing: keep «Ponte una meta».
+ */
+export function startSteps(args: {
+  hasGoal: boolean;
+  openFollowups: number;
+  offersLoaded: boolean;
+  hasCalls: boolean;
+}): StartSteps {
+  const goalDone = args.hasGoal;
+  const offerDone = args.offersLoaded;
+  const callDone = args.hasCalls;
+  const hasList = args.openFollowups > 0;
+  const onlyGoalMissing = !goalDone && offerDone && hasList;
+  return {
+    show: !goalDone && !hasList && !onlyGoalMissing,
+    goalDone,
+    offerDone,
+    callDone,
+  };
+}
+
+/** Same count Inicio, the CRM panel and the chat must share. */
+export function inicioOpenCount(rows: InicioFollowupSource[]) {
+  return openFollowupCountOf(
+    rows.map((row) => ({
+      cliente: row.cliente,
+      proximo: followupDay(row),
+      closed: false,
+    })),
+  );
 }
 
 export type LastClose = { days: number; callsSince: number };
@@ -429,4 +651,5 @@ export type InicioBlock = {
   paraLlegar: ParaLlegar;
   list: InicioList;
   porConfirmar: number;
+  onboarding: StartSteps;
 };
