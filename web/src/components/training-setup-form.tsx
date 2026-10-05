@@ -112,6 +112,7 @@ export function TrainingSetupForm() {
   const { shouldConnect } = useConnection();
   const searchParams = useSearchParams();
   const focus = searchParams.get("focus")?.trim() || "";
+  const offerParam = searchParams.get("offerId")?.trim() || "";
   const modeParam = searchParams.get("mode")?.trim();
   const callParam = searchParams.get("call")?.trim() || "";
   const sectionParam = searchParams.get("section")?.trim() || "";
@@ -254,7 +255,8 @@ export function TrainingSetupForm() {
     const loadWorkspace = async () => {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          const response = await fetch("/api/workspace");
+          const query = offerParam ? `?offerId=${encodeURIComponent(offerParam)}` : "";
+          const response = await fetch(`/api/workspace${query}`);
           const data = await response.json().catch(() => ({}));
           if (cancelled) return;
           if (practiceOfferLoadState({ ok: response.ok, offer: data.offer }) === "error") {
@@ -278,7 +280,7 @@ export function TrainingSetupForm() {
     return () => {
       cancelled = true;
     };
-  }, [dispatch, form]);
+  }, [dispatch, form, offerParam]);
 
   useEffect(() => {
     const subscription = form.watch((values) => {
