@@ -42,12 +42,13 @@ test("main menu pills and Llamadas and Coach pills are at least 44px", () => {
   assert.match(deleteButton, /size=\{iconOnly \? "icon" : "sm"\}/);
 });
 
-test("mobile nav scrolls inside 375px instead of widening the page", () => {
+test("mobile nav fits inside 375px instead of widening the page", () => {
   const shell = source("../components/app-shell.tsx");
   assert.match(shell, /w-full min-w-0 max-w-full flex-col overflow-x-clip/);
   assert.match(shell, /min-w-0 max-w-full border-b/);
-  assert.match(shell, /relative min-w-0 max-w-full md:hidden/);
-  assert.match(shell, /flex w-full min-w-0 max-w-full gap-1 overflow-x-auto/);
+  // The phone tab bar is fixed at the bottom and splits the width in equal columns.
+  assert.match(shell, /fixed inset-x-0 bottom-0 z-40 min-w-0 max-w-full/);
+  assert.match(shell, /repeat\(\$\{tabs\.length \+ 1\}, minmax\(0, 1fr\)\)/);
   assert.match(shell, /min-w-0 w-full max-w-full flex-1 overflow-x-clip/);
   assert.equal(shell.includes("overflow-x-hidden"), false);
   const layout = source("../app/layout.tsx");
