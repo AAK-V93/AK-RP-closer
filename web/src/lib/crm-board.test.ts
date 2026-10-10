@@ -53,12 +53,9 @@ test("hoy matches the shared rank and skips a later date", () => {
   );
   assert.deepEqual(hoy, ["Elber", "Jessica Pajuelo", "Néstor Mollehuara"]);
   assert.equal(hoy.includes("Paula Ríos"), false);
-  assert.deepEqual(board.rows.map((row) => row.name), ["Paula Ríos"]);
-  assert.equal(board.restTitle, "Más adelante");
-  assert.deepEqual(
-    [...board.hoy.map((row) => row.name), ...board.rows.map((row) => row.name)],
-    ranked.map((row) => row.cliente),
-  );
+  // The tab lists everyone (also those in hoy), in the same order.
+  assert.deepEqual(board.rows.map((row) => row.name), ranked.map((row) => row.cliente));
+  assert.equal(board.restTitle, "");
   const asked = answerCrmFollowups(
     followups.map((row) => ({
       id: row.id,
@@ -107,8 +104,8 @@ test("buckets keep a closed sale, a lost lead and an open follow-up apart", () =
   ];
   const board = buildCrmBoard({ calls, followups, period: "todo", now: NOW });
   assert.deepEqual(board.hoy.map((row) => row.name), ["Diego Paredes"]);
-  assert.deepEqual(board.rows.map((row) => row.name), []);
-  assert.match(board.empty, /A quién contactar hoy/);
+  assert.deepEqual(board.rows.map((row) => row.name), ["Diego Paredes"]);
+  assert.equal(board.empty, "");
   assert.equal(board.counts.seguimiento, 1);
   assert.equal(board.counts.cerrados, 1);
   assert.equal(board.counts.perdidos, 1);
@@ -168,9 +165,9 @@ test("en seguimiento matches Inicio and a call this month is not a cierre", () =
   assert.equal(board.subtitle, "0 perdidos este mes");
   assert.equal(board.counts.seguimiento, 2);
   assert.match(board.hoyNote, /2 personas en seguimiento/);
-  assert.equal(board.hoy.length + board.rows.length, board.counts.seguimiento);
+  assert.equal(board.rows.length, board.counts.seguimiento);
   assert.deepEqual(board.hoy.map((row) => row.name), ["Elber"]);
-  assert.deepEqual(board.rows.map((row) => row.name), ["Paula Ríos"]);
+  assert.deepEqual(board.rows.map((row) => row.name), ["Elber", "Paula Ríos"]);
 });
 
 test("pago does not invent a quota or a zero", () => {

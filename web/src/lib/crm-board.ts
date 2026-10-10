@@ -430,11 +430,9 @@ export function buildCrmBoard(args: {
   if (bucket === "cerrados" || bucket === "perdidos") {
     inBucket.sort((a, b) => (b.day || "").localeCompare(a.day || "") || a.name.localeCompare(b.name, "es"));
   }
-  const hoyNames = new Set(hoyDrafts.map((row) => fold(row.name)));
-  // With a stage filter the tab lists everyone in that stage, also those already in «hoy».
-  const tableDrafts =
-    bucket === "seguimiento" && !query && !stageFilter ? inBucket.filter((row) => !hoyNames.has(fold(row.name))) : inBucket;
-  const rows = tableDrafts.map(toPerson);
+  // The tab always lists everyone in it (also those already in «A quién contactar hoy»), so the
+  // badge, the filters (offer + stage + search) and the rows always match.
+  const rows = inBucket.map(toPerson);
 
   const monthCalls = calls.filter((row) => String(row.fecha || "").startsWith(month.key) && matchesBoardOffer(shownOffer(row.oferta) || shownOffer(row.producto), offer));
   let cobrado = 0;
@@ -477,11 +475,7 @@ export function buildCrmBoard(args: {
       : query
         ? `${peoplePhrase(total, "")} con «${(args.query || "").trim()}» en todas las pestañas`
         : stageFilter && bucket === "seguimiento"
-          ? peoplePhrase(total, "en esta etapa")
-        : bucket === "seguimiento" && total > 0
-        ? shown === 0
-          ? peoplePhrase(total, "en seguimiento")
-          : `${peoplePhrase(shown, "más adelante")} · ${peoplePhrase(total, "en seguimiento")}`
+          ? `${peoplePhrase(total, "en esta etapa")} · ${order}`
         : shown === total
           ? `${peoplePhrase(total, "")} · ${order}`
           : `${shown} de ${total} · ${order}`;
@@ -494,10 +488,8 @@ export function buildCrmBoard(args: {
       ? "Sin datos de cierres en este período."
       : bucket === "perdidos" && outcomes.lost == null
         ? "Sin datos de perdidos en este período."
-        : shown === 0 && bucket === "seguimiento" && (total || 0) > 0
-          ? query
-            ? "Nadie más con ese nombre. Si toca hoy, está en la lista de arriba."
-            : "Esas personas ya están en «A quién contactar hoy»."
+        : offer !== "todas" && shown === 0 && bucket === "seguimiento"
+          ? "Nadie en seguimiento con esa oferta."
           : bucket === "cerrados"
             ? "No hay cierres en este período."
             : bucket === "perdidos"
@@ -515,12 +507,7 @@ export function buildCrmBoard(args: {
     total,
     footer,
     empty: shown === 0 ? empty : "",
-    restTitle:
-      bucket === "seguimiento" && stageFilter && !query
-        ? "En esta etapa"
-        : bucket === "seguimiento" && shown > 0 && hoy.length > 0 && !query
-          ? "Más adelante"
-          : "",
+    restTitle: bucket === "seguimiento" && stageFilter && !query ? "En esta etapa" : "",
   };
 }
 

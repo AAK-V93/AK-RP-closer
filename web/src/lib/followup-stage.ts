@@ -101,6 +101,10 @@ export const STAGE_BUCKETS = [
   { id: "mas-10", label: "Más de 10" },
 ] as const;
 
+/** Why the stage filter is off in Cerrados / Perdidos: they have no stage (Kali's rule). */
+export const STAGE_DISABLED_NOTE =
+  "Las etapas cuentan los seguimientos de quien sigue en seguimiento. Cerrados y perdidos no tienen etapa.";
+
 export type StageBucketId = (typeof STAGE_BUCKETS)[number]["id"];
 
 export function stageBucket(count: number | null | undefined): StageBucketId | null {
