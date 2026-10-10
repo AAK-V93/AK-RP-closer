@@ -2,18 +2,17 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Check, Pencil, Phone } from "lucide-react";
+import { Check, ChevronRight, Pencil, Phone } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { PersonFicha } from "@/components/person-ficha";
 import { toast } from "@/hooks/use-toast";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { moneyLabel } from "@/lib/crm-operacion";
 import { invalidateHub } from "@/lib/hub-client";
 import type { CommissionProjection } from "@/lib/crm-projection";
-import { listSubtitle, sheetBlocks, type ChipTone, type InicioBlock, type InicioRow } from "@/lib/inicio-view";
+import { fichaFromInicio } from "@/lib/ficha-target";
+import { listSubtitle, type ChipTone, type InicioBlock, type InicioRow } from "@/lib/inicio-view";
 import { porConfirmarLabel } from "@/lib/plain-labels";
-import { whatsappClickHref } from "@/lib/whatsapp-link";
 
 type PracticeCard = { practiceHref: string; drill: string; pattern: string };
 
@@ -316,8 +315,8 @@ function ListRow({
     <li className="inicio-row rounded-2xl border border-separator1 bg-bg1 p-3.5 lg:rounded-none lg:border-0 lg:border-t lg:bg-transparent lg:px-6 lg:py-3.5">
       <button
         type="button"
-        className="inicio-open text-left"
-        aria-label={`Qué le mandas a ${row.name}`}
+        className="inicio-open group text-left"
+        aria-label={`Abrir la ficha de ${row.name}`}
         onClick={() => onOpen(row)}
       >
       <div
@@ -327,7 +326,12 @@ function ListRow({
         {row.initials}
       </div>
       <div className="inicio-who min-w-0">
-        <p className="truncate text-base font-semibold text-fg0 lg:overflow-visible lg:whitespace-normal">{row.name}</p>
+        <p className="flex min-w-0 items-center gap-1 text-base font-semibold text-fg0">
+          <span className="truncate underline decoration-separator2 decoration-1 underline-offset-4 group-hover:decoration-fg0 lg:overflow-visible lg:whitespace-normal">
+            {row.name}
+          </span>
+          <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-fg3 group-hover:text-fg0" />
+        </p>
         {row.offer && (
           <p className="truncate text-[12.5px] text-fg3 lg:mt-0.5 lg:overflow-visible lg:whitespace-normal lg:text-[13px]">
             {row.offer}
@@ -487,14 +491,13 @@ function TodayList({
           ))}
         </ul>
       )}
-      <PersonSheet
-        row={openRow}
-        open={Boolean(openRow)}
+      <PersonFicha
+        target={openRow ? fichaFromInicio(openRow) : null}
         busy={busy === openRow?.id}
-        onOpenChange={(next) => {
-          if (!next) setOpenId(null);
+        onClose={() => setOpenId(null)}
+        onDone={() => {
+          if (openRow) void markDone(openRow);
         }}
-        onDone={(target) => void markDone(target)}
       />
       {rows.length > 0 && (
         <>
@@ -509,211 +512,6 @@ function TodayList({
         </>
       )}
     </section>
-  );
-}
-
-function firstName(name: string) {
-  return name.trim().split(/\s+/)[0] || name.trim();
-}
-
-async function copyMessage(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast({ title: "Copié el mensaje", duration: 2000 });
-  } catch {
-    toast({ title: "No pude copiarlo. Selecciónalo y cópialo a mano.", variant: "destructive", duration: 3000 });
-  }
-}
-
-function WhatsAppAction({
-  phone,
-  text,
-  name,
-  className,
-  label = "Abrir WhatsApp",
-}: {
-  phone: string;
-  text: string;
-  name: string;
-  className: string;
-  label?: string;
-}) {
-  if (!phone) {
-    return (
-      <span className="inline-flex" title={`Falta el teléfono de ${name}. Agrégalo en el CRM.`}>
-        <button type="button" disabled aria-label={`WhatsApp: falta el teléfono de ${name}`} className={`${className} cursor-not-allowed opacity-50`}>
-          <WhatsAppGlyph />
-          {label}
-        </button>
-      </span>
-    );
-  }
-  return (
-    <a href={whatsappClickHref(phone, text)} target="_blank" rel="noreferrer" className={className}>
-      <WhatsAppGlyph />
-      {label}
-    </a>
-  );
-}
-
-function PersonSheet({
-  row,
-  open,
-  busy,
-  onOpenChange,
-  onDone,
-}: {
-  row: InicioRow | null;
-  open: boolean;
-  busy: boolean;
-  onOpenChange: (open: boolean) => void;
-  onDone: (row: InicioRow) => void;
-}) {
-  const mobile = useIsMobile();
-  const [drafts, setDrafts] = useState<string[]>([]);
-  const [picked, setPicked] = useState(0);
-  useEffect(() => {
-    setDrafts(row?.messages || []);
-    setPicked(0);
-  }, [row]);
-  if (!row) return null;
-  const blocks = sheetBlocks({
-    agreement: row.agreement,
-    nextStep: row.step,
-    when: row.whenDate,
-    age: row.whenAge,
-    messages: drafts,
-    material: row.material,
-    phone: row.phone,
-  });
-  const chosen = (drafts[picked] || drafts.find((item) => item.trim()) || "").trim();
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side={mobile ? "bottom" : "right"}
-        className={
-          mobile
-            ? "max-h-[92vh] overflow-y-auto rounded-t-2xl border-separator1 bg-bg0 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
-            : "w-full overflow-y-auto border-separator1 bg-bg0 px-4 py-5 sm:max-w-md"
-        }
-      >
-        <div className="flex items-start gap-3 pr-10">
-          <div
-            aria-hidden
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-bg2 text-sm font-semibold text-fg2"
-          >
-            {row.initials}
-          </div>
-          <div className="min-w-0">
-            <SheetTitle className="text-left font-display text-xl leading-tight text-fg0">
-              ¿Qué le mandas a {firstName(row.name)}?
-            </SheetTitle>
-            <SheetDescription className="text-left text-[13px] text-fg3">
-              {row.name}
-              {row.offer ? ` · ${row.offer}` : ""}
-              {blocks.phone ? ` · ${blocks.phone}` : ""}
-            </SheetDescription>
-          </div>
-        </div>
-        {(blocks.agreement || blocks.nextStep || blocks.when || blocks.age) && (
-          <section className="rounded-2xl border border-[#EBD3A8] bg-[#F6E7CC] px-3.5 py-3 text-[14px] leading-snug text-[#5E3B0B]">
-            {blocks.agreement && (
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A4C0E]">En qué quedaron</p>
-                <p className="mt-1">{blocks.agreement}</p>
-              </div>
-            )}
-            {blocks.nextStep && (
-              <div className={blocks.agreement ? "mt-2.5 border-t border-[#EBD3A8] pt-2.5" : ""}>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A4C0E]">Siguiente paso</p>
-                <p className="mt-1 text-fg0">{blocks.nextStep}</p>
-              </div>
-            )}
-            {(blocks.when || blocks.age) && (
-              <div
-                className={
-                  blocks.agreement || blocks.nextStep ? "mt-2.5 border-t border-[#EBD3A8] pt-2.5" : ""
-                }
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A4C0E]">Fecha que quedó</p>
-                {blocks.when && <p className="mt-1 text-fg0">{blocks.when}</p>}
-                {blocks.age && <p className="mt-1">{blocks.age}</p>}
-              </div>
-            )}
-          </section>
-        )}
-        {drafts.length > 0 && (
-          <ul className="space-y-2">
-            {drafts.map((text, index) => (
-              <li
-                key={`${row.id}-${index}`}
-                className={`rounded-2xl border bg-bg1 p-3 ${picked === index ? "border-fg0" : "border-separator1"}`}
-              >
-                <label className="flex items-start gap-2">
-                  <input
-                    type="radio"
-                    name={`mensaje-${row.id}`}
-                    className="mt-1"
-                    checked={picked === index}
-                    onChange={() => setPicked(index)}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="mb-1 block text-[11px] font-medium text-fg3">
-                      {index === 0 ? "Sugerido" : `Opción ${index + 1}`}
-                    </span>
-                    <textarea
-                      value={text}
-                      rows={3}
-                      aria-label={`Mensaje ${index + 1}`}
-                      onChange={(event) => {
-                        const next = [...drafts];
-                        next[index] = event.target.value;
-                        setDrafts(next);
-                        setPicked(index);
-                      }}
-                      className="min-h-[4.5rem] w-full resize-y bg-transparent text-[14px] leading-snug text-fg0 outline-none"
-                    />
-                  </span>
-                </label>
-                <p className="mt-1 text-[11px] text-fg3">Puedes editarlo aquí mismo</p>
-                <div className="mt-2 flex flex-wrap justify-end gap-2">
-                  <button type="button" className={LINE_BUTTON} onClick={() => void copyMessage(text)}>
-                    Copiar
-                  </button>
-                  <WhatsAppAction
-                    phone={blocks.phone}
-                    text={text}
-                    name={row.name}
-                    className={DARK_BUTTON}
-                    label="Abrir WhatsApp"
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        {blocks.material.length > 0 && (
-          <section className="rounded-2xl border border-separator1 bg-bg1 p-3">
-            <p className="mb-1 text-xs font-medium text-fg3">Material sugerido</p>
-            <ul className="space-y-1 text-[14px] text-fg0">
-              {blocks.material.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          </section>
-        )}
-        <div className="mt-auto grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
-          <WhatsAppAction phone={blocks.phone} text={chosen} name={row.name} className={DARK_BUTTON} label="WhatsApp" />
-          <button type="button" disabled={busy} onClick={() => onDone(row)} className={`${LINE_BUTTON} disabled:opacity-60`}>
-            <Check aria-hidden className="h-4 w-4" strokeWidth={2.2} />
-            Hecho
-          </button>
-          <button type="button" onClick={() => onOpenChange(false)} className={LINE_BUTTON}>
-            Cerrar
-          </button>
-        </div>
-      </SheetContent>
-    </Sheet>
   );
 }
 

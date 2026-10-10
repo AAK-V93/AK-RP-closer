@@ -139,7 +139,8 @@ export async function PATCH(request: Request) {
         | "monthly-goal"
         | "set-cash"
         | "delete-row"
-        | "rename-lead";
+        | "rename-lead"
+        | "set-phone";
       callId?: string;
       leadId?: string;
       name?: string;
@@ -151,6 +152,7 @@ export async function PATCH(request: Request) {
       razonNoCierre?: string;
       agendaEstado?: "SHOW" | "NO SHOW" | "REPROGRAMA";
       optionId?: string;
+      telefono?: string;
     };
     if (body.action === "commission-paid" && body.commissionId) {
       const row = await auth.prisma.commission.findFirst({
@@ -194,6 +196,20 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: out.error }, { status: 400 });
       }
       return NextResponse.json({ ok: true, name: out.name });
+    }
+    if (body.action === "set-phone") {
+      const telefono = String(body.telefono || "").replace(/[^\d+\s()-]/g, "").trim();
+      const digits = telefono.replace(/\D/g, "");
+      if (digits.length < 7 || digits.length > 15) {
+        return NextResponse.json({ error: "Escribe el número con código de país, por ejemplo +57 300 123 4567." }, { status: 400 });
+      }
+      const lead = await auth.prisma.lead.findFirst({
+        where: { id: String(body.leadId || ""), userId: auth.userId },
+        select: { id: true },
+      });
+      if (!lead) return NextResponse.json({ error: "No encontré a esa persona." }, { status: 404 });
+      await auth.prisma.lead.update({ where: { id: lead.id }, data: { telefono } });
+      return NextResponse.json({ ok: true, telefono });
     }
     if (body.action === "monthly-goal") {
       const saved = await saveMonthlyGoal(auth.prisma, auth.userId, Number(body.amount || 0));

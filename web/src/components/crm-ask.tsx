@@ -5,7 +5,7 @@ import { Mic, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { answerCrmFollowups, type CrmAskRow } from "@/lib/crm-ask";
+import { answerCrmFollowups, crmAskRoute, type CrmAskRow } from "@/lib/crm-ask";
 import { openFollowupCountOf } from "@/lib/crm-followups";
 import { countPhrase } from "@/lib/plain-labels";
 
@@ -15,13 +15,6 @@ const SUGGESTIONS = ["¿A quién llamo hoy?", "¿Cuántos seguimientos tengo?", 
 
 /** 1200px, not xl/1280: a laptop window of 1280 loses ~15px to the scrollbar. */
 const SIDE_COLUMN_QUERY = "(min-width: 1200px)";
-
-function looksLikeCrmWrite(text: string) {
-  if (/[?¿]/.test(text)) return false;
-  return /\b(me pag[oó]|pagu[eé]|ya pag[oó]|pag[oó]|se llama|m[aá]rcalo|perdido|cuota de|reserva de|abono|quedamos)\b/i.test(
-    text,
-  );
-}
 
 export function CrmAsk({
   rows,
@@ -51,6 +44,9 @@ export function CrmAsk({
   const seedSeen = useRef(0);
   const pendingRef = useRef("");
   pendingRef.current = pending;
+  const contextRef = useRef<string | null>(null);
+  const linesRef = useRef<Line[]>([]);
+  linesRef.current = lines;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
@@ -95,21 +91,47 @@ export function CrmAsk({
     }
   };
 
+  const askPerson = async (text: string) => {
+    setSending(true);
+    push(text, "user");
+    try {
+      const response = await fetch("/api/crm/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          contextId: contextRef.current,
+          history: linesRef.current.slice(-6),
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        kind?: "list" | "answer";
+        reply?: string;
+        contextId?: string | null;
+      };
+      if (data.kind === "list") {
+        push(answerCrmFollowups(rows, text, { money }), "crm");
+        return;
+      }
+      if (data.contextId) contextRef.current = data.contextId;
+      push(String(data.reply || "No pude completar eso. Inténtalo otra vez.").trim(), "crm");
+    } catch {
+      push(answerCrmFollowups(rows, text, { money }), "crm");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const ask = async (question: string) => {
     const text = question.trim();
     if (!text || sending) return;
     setDraft("");
     setExpanded(true);
-    if (pendingRef.current && /^(s[ií]|no|confirmo|cancelar|cancela)$/i.test(text)) {
+    if (crmAskRoute(text, Boolean(pendingRef.current)) === "hub") {
       await askHub(text);
       return;
     }
-    if (looksLikeCrmWrite(text)) {
-      await askHub(text);
-      return;
-    }
-    const answer = answerCrmFollowups(rows, text, { money });
-    setLines((prev) => [...prev, { role: "user", text }, { role: "crm", text: answer }]);
+    await askPerson(text);
   };
 
   useEffect(() => {

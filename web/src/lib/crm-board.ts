@@ -23,6 +23,7 @@ export type CrmBoardPeriod = "mes" | "anterior" | "todo";
 
 export type CrmBoardCall = {
   id: string;
+  leadId?: string;
   cliente: string;
   oferta?: string;
   producto?: string;
@@ -43,6 +44,7 @@ export type CrmBoardCall = {
 
 export type CrmBoardFollowup = {
   id: string;
+  leadId?: string;
   cliente: string;
   dueAt?: string;
   proximo?: string;
@@ -57,6 +59,12 @@ export type CrmBoardFollowup = {
 
 export type CrmBoardPerson = {
   id: string;
+  /** Who the ficha opens. Empty when the person only exists on a call. */
+  leadId: string;
+  /** Latest call of the person, for the ficha when there is no lead. */
+  callId: string;
+  /** Open follow-up, so «Hecho» works from the ficha. */
+  alertId: string;
   name: string;
   initials: string;
   offer: string;
@@ -296,6 +304,9 @@ export function buildCrmBoard(args: {
     const leftOff = row.bucket === "seguimiento" && row.followup ? leftOffOf(row.followup, row.call, now) : "";
     return {
       id: row.id,
+      leadId: String(row.followup?.leadId || row.call?.leadId || ""),
+      callId: row.call?.id || "",
+      alertId: row.bucket === "seguimiento" && row.followup ? row.followup.id : "",
       name: row.name,
       initials: initialsOf(row.name),
       offer: row.offer,

@@ -123,6 +123,7 @@ export async function GET() {
           });
           return {
             id: row.id,
+            callRecordId: tag?.id || "",
             source: "fathom" as const,
             title,
             inCrm: placed.inCrm,
@@ -170,6 +171,7 @@ export async function GET() {
         });
         return {
           id: row.id,
+          callRecordId: tag?.id || "",
           source: "upload" as const,
           title,
           inCrm: placed.inCrm,

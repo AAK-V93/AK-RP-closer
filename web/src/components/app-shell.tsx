@@ -155,8 +155,11 @@ export function AppShell({
 }: {
   children: React.ReactNode;
   wide?: boolean;
-  /** Lock the shell to the screen so a practice room can pin its button. */
-  fill?: boolean;
+  /**
+   * Lock the shell to the screen so a practice room can pin its button.
+   * «phone» locks only below md: on a laptop the page scrolls, so a tall settings panel is never cut.
+   */
+  fill?: boolean | "phone";
   /** False hides the phone-tab padding. Omit it to keep the default. */
   reserveTabs?: boolean;
   /** Phone tabs. Omit for the default bar. Null hides them. */
@@ -187,7 +190,11 @@ export function AppShell({
     <div
       className={
         "flex w-full min-w-0 max-w-full flex-col overflow-x-clip bg-bg0 " +
-        (fill ? "h-dvh max-h-dvh overflow-hidden" : "min-h-screen")
+        (fill === "phone"
+          ? "h-dvh max-h-dvh overflow-hidden md:h-auto md:max-h-none md:min-h-screen md:overflow-visible"
+          : fill
+            ? "h-dvh max-h-dvh overflow-hidden"
+            : "min-h-screen")
       }
     >
       <header className="min-w-0 max-w-full border-b border-separator1 shrink-0">
@@ -232,7 +239,11 @@ export function AppShell({
           (wide
             ? "min-w-0 w-full max-w-full flex-1 overflow-x-clip px-4 md:px-8"
             : "mx-auto min-w-0 w-full max-w-3xl flex-1 overflow-x-clip px-4 md:px-6") +
-          (fill ? " flex min-h-0 flex-col overflow-hidden py-3 md:py-4" : " py-6") +
+          (fill === "phone"
+            ? " flex min-h-0 flex-col overflow-hidden py-3 md:overflow-visible md:py-4"
+            : fill
+              ? " flex min-h-0 flex-col overflow-hidden py-3 md:py-4"
+              : " py-6") +
           tabPadding
         }
       >

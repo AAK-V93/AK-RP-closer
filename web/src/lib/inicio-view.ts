@@ -14,6 +14,7 @@ import { foldOffer } from "@/lib/offer-name";
 import { plainStatus } from "@/lib/plain-labels";
 import { dropDanglingWords } from "@/lib/visible-text";
 import { outcomeSentences } from "@/lib/outcome-counts";
+import { agreementFromField, agreementFromNote, wholeSentences } from "@/lib/agreement-summary";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
 
 /** Rows Inicio shows in «Tu lista de hoy». */
@@ -217,6 +218,8 @@ export type InicioFollowupSource = {
 
 export type InicioRow = {
   id: string;
+  /** Lead behind the follow-up, so the ficha opens the right person. */
+  leadId: string;
   name: string;
   initials: string;
   offer: string;
@@ -303,22 +306,37 @@ export function pendingFromPhrase(row: InicioFollowupSource, now = new Date()) {
   return clock ? `${kind} el ${short} a las ${clock}` : `${kind} el ${short}`;
 }
 
-/** «Qué quedó»: the call agreement, the lead's next step, then a stored note. A date alone is not the summary. */
+/**
+ * «Qué quedó»: the call agreement, the lead's next step, then a stored note that
+ * says what someone will do. Whole sentences only, and never talk about the
+ * recording («se corta la transcripción…»). A date alone is not the summary.
+ */
 export function nextStepText(row: InicioFollowupSource, now = new Date()) {
-  for (const candidate of [
-    row.callAcuerdo,
-    row.acuerdo,
-    row.leadNextStep,
-    row.proximaAccion,
-    row.queHacer,
-    row.contexto,
-    row.callNote,
-    row.proximoNote,
-  ]) {
-    const text = sentence(String(candidate || ""));
-    if (text) return cutAtWord(text);
+  for (const candidate of [row.callAcuerdo, row.acuerdo, row.leadNextStep, row.proximaAccion, row.queHacer]) {
+    const raw = sentence(String(candidate || ""));
+    const text = agreementFromField(raw);
+    if (text && sentence(text)) return shortWhole(text, raw);
+  }
+  for (const candidate of [row.contexto, row.callNote, row.proximoNote]) {
+    const raw = sentence(String(candidate || ""));
+    const text = agreementFromNote(raw);
+    if (text && sentence(text)) return shortWhole(text, raw);
   }
   return pendingFromPhrase(row, now) || "Retomar el contacto";
+}
+
+/** One or two whole sentences. A single long sentence stays whole instead of «…pero la llamada». */
+function shortWhole(text: string, source: string) {
+  const two = wholeSentences(text, 2);
+  if (two.length <= 180) return keepBareEnding(source, two);
+  return keepBareEnding(source, wholeSentences(text, 1));
+}
+
+/** The stored «llamarlo el lunes» had no period: don't add one the closer never wrote. */
+function keepBareEnding(source: string, value: string) {
+  const raw = source.replace(/\s+/g, " ").trim();
+  if (/[.!?]$/.test(raw)) return value;
+  return value.replace(/\.$/, "");
 }
 
 /** Subtitle of «Tu lista de hoy». Without a goal it does not mention the goal. */
@@ -566,31 +584,42 @@ function capitalizeLead(value: string) {
   });
 }
 
+/**
+ * A natural question about what was left, in tú. It reads the meaning of the
+ * agreement; it never pastes the agreement into the message.
+ */
+export function naturalAsk(step: string) {
+  const cue = secondPersonCue(step);
+  if (cue.startsWith("¿")) return cue;
+  const folded = foldEs(step);
+  if (!folded.trim()) return "";
+  if (/contador/.test(folded)) return "¿pudiste revisarlo con tu contador?";
+  if (/espos|pareja/.test(folded)) return "¿pudiste hablarlo con tu pareja?";
+  if (/\bsocio/.test(folded)) return "¿pudiste hablarlo con tu socio?";
+  if (/propuest/.test(folded)) return "¿pudiste revisar la propuesta?";
+  if (/link|transferencia|cuota|\bpag|reserva/.test(folded)) return "¿cómo vas con el pago?";
+  if (/segunda reuni|reuni|agend/.test(folded)) return "¿te queda bien que confirmemos la reunión?";
+  if (/decisi|decid|pensar|pensarlo/.test(folded)) return "¿ya lo pudiste pensar?";
+  if (/arranc|empez|inicio|onboarding/.test(folded)) return "¿cómo vas con el arranque?";
+  if (/precio|cotiza|informaci|detalle/.test(folded)) return "¿pudiste ver la información que te pasé?";
+  return "";
+}
+
 /** Short follow-ups from the real name, offer and agreement. No phone, price or quote we don't have. */
 export function derivedFollowupMessages(args: { name: string; offer: string; step: string; when?: string }) {
   const who = firstName(args.name);
   const hi = who ? `Hola ${who}` : "Hola";
   const offer = shownOffer(args.offer);
-  const step = secondPersonCue(args.step);
+  const ask = naturalAsk(quotableStep(args.step) || (THIRD_PERSON.test(args.step) ? args.step : ""));
   const lines: string[] = [];
-  const lower = (value: string) => value.charAt(0).toLocaleLowerCase("es") + value.slice(1).replace(/\.+$/, "");
-  if (step.startsWith("¿")) {
-    lines.push(`${hi}, ${step}`);
-    lines.push(`${hi}, te escribo para saber cómo vas. ${capitalizeLead(step)}`);
-  } else if (step) {
-    lines.push(`${hi}, te escribo por lo que quedamos: ${lower(step)}. ¿Seguimos?`);
-    lines.push(`${hi}, ¿cómo vas con esto? ${capitalizeLead(step)}`);
-  }
-  if (offer) {
-    lines.push(
-      step
-        ? `${hi}, ¿seguimos con ${offer}? Quedó pendiente ${lower(step)}.`
-        : `${hi}, ¿seguimos con ${offer}?`,
-    );
-  }
-  if (lines.length < 2) {
-    lines.push(`${hi}, te escribo para retomar el contacto. ¿Seguimos?`);
-    lines.push(who ? `${who}, ¿retomamos el contacto?` : `${hi}, ¿retomamos el contacto?`);
+  if (ask) {
+    lines.push(`${hi}, ${ask}`);
+    lines.push(`${hi}, te escribo para saber cómo vas. ${capitalizeLead(ask)}`);
+    if (offer) lines.push(`${hi}, ¿cómo lo ves para seguir con ${offer}? ${capitalizeLead(ask)}`);
+  } else {
+    lines.push(`${hi}, ¿cómo estás? Quería retomar lo que hablamos. ¿Tienes unos minutos esta semana?`);
+    if (offer) lines.push(`${hi}, ¿cómo lo ves para seguir con ${offer}?`);
+    lines.push(who ? `${who}, ¿retomamos lo que hablamos?` : `${hi}, ¿retomamos lo que hablamos?`);
   }
   const unique: string[] = [];
   for (const line of lines) {
@@ -720,10 +749,11 @@ export function buildInicioList(args: {
     const assets = scripts.map((script) => String(script.asset || "").trim()).filter(Boolean);
     const material = [...cases, ...assets].filter((item, index, all) => all.indexOf(item) === index).slice(0, 4);
     const agreement = closerFacingNote(
-      sentence(String(row.callAcuerdo || row.acuerdo || row.leadNextStep || "")),
+      agreementFromField(sentence(String(row.callAcuerdo || row.acuerdo || row.leadNextStep || ""))),
     );
     return {
       id: row.id,
+      leadId: String(row.leadId || ""),
       name: row.cliente.trim(),
       initials: initialsOf(row.cliente),
       offer,
@@ -736,7 +766,7 @@ export function buildInicioList(args: {
       closesOnHecho: row.closesOnHecho !== false,
       messages,
       material,
-      agreement: agreement ? cutAtWord(agreement, 180) : "",
+      agreement,
       whenLabel: chip.label,
       whenDate: whenParts.date,
       whenAge: whenParts.age,

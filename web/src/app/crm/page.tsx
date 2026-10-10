@@ -11,6 +11,8 @@ import { BarChart } from "@/components/bar-chart";
 import { HelpNote, MetricCard, SectionHeading } from "@/components/metric-card";
 import { ProjectionCard } from "@/components/projection-card";
 import { CrmAsk } from "@/components/crm-ask";
+import { PersonFicha } from "@/components/person-ficha";
+import { fichaFromBoard, type FichaTarget } from "@/lib/ficha-target";
 import { CrmBoardView } from "@/components/crm-board";
 import { SheetTable, sheetCell, type SheetColumn } from "@/components/crm-sheet";
 import { Input } from "@/components/ui/input";
@@ -221,8 +223,7 @@ export default function CrmPage() {
   const [period, setPeriod] = useState<CrmBoardPeriod>("mes");
   const [boardQuery, setBoardQuery] = useState("");
   const [showColumns, setShowColumns] = useState(false);
-  const [askSeed, setAskSeed] = useState<{ id: number; text: string } | null>(null);
-  const askNonce = useRef(0);
+  const [ficha, setFicha] = useState<FichaTarget | null>(null);
   const saving = useRef(false);
 
   const load = () =>
@@ -602,6 +603,7 @@ export default function CrmPage() {
     return buildCrmBoard({
       calls: calls.map((row) => ({
         id: row.id,
+        leadId: row.leadId,
         cliente: row.cliente,
         oferta: row.oferta,
         producto: row.producto,
@@ -619,6 +621,7 @@ export default function CrmPage() {
       })),
       followups: people.map((row) => ({
         id: row.id,
+        leadId: row.leadId,
         cliente: row.cliente,
         dueAt: row.dueAt,
         proximo: row.proximo,
@@ -677,10 +680,7 @@ export default function CrmPage() {
                 setShowColumns((value) => !value);
                 if (!showColumns) setModule("operacion");
               }}
-              onAsk={(person) => {
-                askNonce.current += 1;
-                setAskSeed({ id: askNonce.current, text: person.ask });
-              }}
+              onOpen={(person) => setFicha(fichaFromBoard(person))}
             />
             {!data.readyCrm && (
               <p className="text-xs text-fg3">
@@ -931,10 +931,17 @@ export default function CrmPage() {
           <CrmAsk
             rows={followupsBase}
             money={(value) => money(value)}
-            hidden={Boolean(openCall || openAlert)}
-            seed={askSeed}
-            onSeedConsumed={() => setAskSeed(null)}
+            hidden={Boolean(openCall || openAlert || ficha)}
             onChanged={() => void refresh()}
+          />
+          <PersonFicha
+            target={ficha}
+            busy={Boolean(busy)}
+            onClose={() => setFicha(null)}
+            onDone={(alertId) => {
+              setFicha(null);
+              void patch(alertId, "hecho");
+            }}
           />
           </div>
         )}

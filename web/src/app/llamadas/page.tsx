@@ -8,6 +8,8 @@ import { CallsSkeleton } from "@/components/page-skeleton";
 import { FathomSyncPanel } from "@/components/fathom-sync-panel";
 import { CalendarConnectPanel } from "@/components/calendar-connect-panel";
 import { Button } from "@/components/ui/button";
+import { PersonFicha, PersonNameButton } from "@/components/person-ficha";
+import { fichaFromCall, type FichaTarget } from "@/lib/ficha-target";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
 import { internasSinCliente, joinDistinct } from "@/lib/crm-noise";
@@ -17,6 +19,7 @@ import { plainStatus, porConfirmarLabel } from "@/lib/plain-labels";
 
 type CallRow = {
   id: string;
+  callRecordId?: string;
   source: string;
   title: string;
   interna?: boolean;
@@ -196,17 +199,25 @@ function HistoryRow({
   row,
   auditing,
   onAudit,
+  onOpen,
 }: {
   row: CallRow;
   auditing: boolean;
   onAudit: (row: CallRow) => void;
+  onOpen: (row: CallRow) => void;
 }) {
+  const heading = pendingHeading(row);
+  const person = !row.interna && !/^(sin nombre|llamada)\b/i.test(heading) && !/^\d/.test(heading);
   return (
     <div className="flex items-start justify-between gap-3 rounded-2xl border border-separator1 bg-bg1 px-3 py-3">
       <div className="min-w-0">
-        <p className="whitespace-normal break-words text-sm" title={row.title}>
-          {pendingHeading(row)}
-        </p>
+        {person ? (
+          <PersonNameButton name={heading} onOpen={() => onOpen({ ...row, leadName: heading })} className="text-sm" />
+        ) : (
+          <p className="whitespace-normal break-words text-sm" title={row.title}>
+            {heading}
+          </p>
+        )}
         <p className="text-xs text-fg3">
           {joinDistinct([
             shownDate(row.date),
@@ -255,6 +266,7 @@ export default function LlamadasPage() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [showInternas, setShowInternas] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [ficha, setFicha] = useState<FichaTarget | null>(null);
   const decidedSetup = useRef(false);
 
   const loadCalls = () =>
@@ -446,6 +458,7 @@ export default function LlamadasPage() {
                   row={row}
                   auditing={auditingId === row.id}
                   onAudit={(item) => void auditRow(item)}
+                  onOpen={(item) => setFicha(fichaFromCall(item))}
                 />
               ))}
               {internas.length > 0 && (
@@ -467,6 +480,7 @@ export default function LlamadasPage() {
                     row={row}
                     auditing={auditingId === row.id}
                     onAudit={(item) => void auditRow(item)}
+                    onOpen={(item) => setFicha(fichaFromCall(item))}
                   />
                 ))}
               {calls.length === 0 && (
@@ -481,6 +495,7 @@ export default function LlamadasPage() {
           </>
         )}
       </div>
+      <PersonFicha target={ficha} onClose={() => setFicha(null)} />
     </AppShell>
   );
 }

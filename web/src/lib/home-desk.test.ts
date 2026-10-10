@@ -134,7 +134,8 @@ test("the practice card keeps the drill off the hub payload", () => {
   assert.match(inicio, /Lo que más te frena/);
   assert.match(inicio, /card\.pattern/);
   assert.match(inicio, /Empieza en 3 pasos/);
-  assert.match(inicio, /Qué le mandas a/);
+  // The row opens the shared ficha (same sheet as CRM and Llamadas).
+  assert.match(inicio, /<PersonFicha/);
   assert.match(inicio, /min-w-0/);
   assert.doesNotMatch(screen, /phase \|\| "a"/);
   assert.match(practice, /practiceCardFromGuides/);

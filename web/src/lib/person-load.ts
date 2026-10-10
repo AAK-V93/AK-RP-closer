@@ -1,0 +1,158 @@
+import type { PrismaClient } from "@prisma/client";
+import { isNonSalesCall } from "@/lib/call-kind";
+import { offerRules } from "@/lib/inicio-view";
+import { foldOffer } from "@/lib/offer-name";
+import { normalizePersonName, samePersonName } from "@/lib/lead-match";
+import { buildPersonFacts, callsForPerson, type FactCall, type FactLead, type PersonFacts } from "@/lib/person-facts";
+
+/** Read-only loads for the ficha and the chat. Nothing here writes. */
+
+export type PersonRef = { id: string; name: string; leadId: string };
+
+type Loaded = { leads: FactLead[]; calls: FactCall[] };
+
+export async function loadPeople(prisma: PrismaClient, userId: string): Promise<Loaded> {
+  const [leads, calls] = await Promise.all([
+    prisma.lead.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        name: true,
+        offerName: true,
+        status: true,
+        telefono: true,
+        nextStep: true,
+        nextStepAt: true,
+        objections: true,
+        amountTalked: true,
+        amountPaid: true,
+        decider: true,
+        razonNoCierre: true,
+        lastSummary: true,
+      },
+    }),
+    prisma.callRecord.findMany({
+      where: { userId, filingStatus: { not: "skipped" } },
+      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
+      take: 2000,
+      select: {
+        id: true,
+        source: true,
+        sourceId: true,
+        leadName: true,
+        offerName: true,
+        estadoAgenda: true,
+        recordedAt: true,
+        createdAt: true,
+        summary: true,
+        filingJson: true,
+        ventaTotal: true,
+        cashCollected: true,
+        saldoPendiente: true,
+        modoPago: true,
+      },
+    }),
+  ]);
+  return {
+    leads,
+    calls: calls.filter((call) => {
+      const filing = (call.filingJson || {}) as { estado_agenda?: string };
+      return !isNonSalesCall(filing.estado_agenda || call.estadoAgenda);
+    }),
+  };
+}
+
+function callName(call: FactCall) {
+  const filing = (call.filingJson || {}) as { cliente_real?: string };
+  return String(call.leadName || filing.cliente_real || "").trim();
+}
+
+/** Leads plus names that only exist on a call. Every person can be tapped. */
+export function peopleIndex(loaded: Loaded): PersonRef[] {
+  const people: PersonRef[] = loaded.leads
+    .filter((lead) => lead.name.trim())
+    .map((lead) => ({ id: lead.id, name: lead.name.trim(), leadId: lead.id }));
+  const seen = new Set(people.map((person) => normalizePersonName(person.name)));
+  for (const call of loaded.calls) {
+    const filing = (call.filingJson || {}) as { lead_id?: string };
+    if (filing.lead_id && loaded.leads.some((lead) => lead.id === filing.lead_id)) continue;
+    const name = callName(call);
+    const key = normalizePersonName(name);
+    if (!key || seen.has(key) || /^sin nombre/.test(key)) continue;
+    if (people.some((person) => samePersonName(person.name, name))) continue;
+    seen.add(key);
+    people.push({ id: `name:${key}`, name, leadId: "" });
+  }
+  return people;
+}
+
+/** The person behind a tap: leadId, a call id (CallRecord or its source id), or a name. */
+export function findPerson(
+  loaded: Loaded,
+  people: PersonRef[],
+  target: { leadId?: string | null; callId?: string | null; name?: string | null },
+): PersonRef | null {
+  if (target.leadId) {
+    const hit = people.find((person) => person.leadId === target.leadId);
+    if (hit) return hit;
+  }
+  if (target.callId) {
+    const id = target.callId.replace(/^call:/, "");
+    const call = loaded.calls.find((row) => row.id === id || (row as { sourceId?: string }).sourceId === id);
+    if (call) {
+      const filing = (call.filingJson || {}) as { lead_id?: string };
+      const byLead = filing.lead_id ? people.find((person) => person.leadId === filing.lead_id) : null;
+      if (byLead) return byLead;
+      const name = callName(call);
+      const byName = people.find((person) => samePersonName(person.name, name));
+      if (byName) return byName;
+    }
+  }
+  const name = String(target.name || "").trim();
+  if (name) {
+    const key = normalizePersonName(name);
+    const exact = people.filter((person) => normalizePersonName(person.name) === key);
+    if (exact.length) return exact[0];
+    const close = people.filter((person) => samePersonName(person.name, name));
+    if (close.length === 1) return close[0];
+  }
+  return null;
+}
+
+export async function loadPersonFacts(
+  prisma: PrismaClient,
+  userId: string,
+  loaded: Loaded,
+  person: PersonRef,
+  now = new Date(),
+): Promise<PersonFacts> {
+  const lead = person.leadId ? loaded.leads.find((row) => row.id === person.leadId) || null : null;
+  const calls = callsForPerson({ id: person.leadId || person.id, name: person.name }, loaded.calls);
+  const [alerts, offers] = await Promise.all([
+    person.leadId
+      ? prisma.leadAlert.findMany({
+          where: { userId, leadId: person.leadId },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+          select: {
+            id: true,
+            type: true,
+            dueAt: true,
+            resolvedAt: true,
+            resultado: true,
+            createdAt: true,
+            mensajeSugerido: true,
+            enJuego: true,
+          },
+        })
+      : Promise.resolve([]),
+    prisma.userOffer.findMany({ where: { userId }, select: { productName: true, commercial: true } }),
+  ]);
+  const rules = offerRules(offers);
+  const facts = buildPersonFacts({ lead, name: person.name, calls, alerts, now });
+  const rule = facts.offer
+    ? rules.find((row) => [row.productName, ...row.aliases].some((name) => foldOffer(name) === foldOffer(facts.offer)))
+    : null;
+  if (!rule?.scripts.length) return facts;
+  return buildPersonFacts({ lead, name: person.name, calls, alerts, scripts: rule.scripts, now });
+}
