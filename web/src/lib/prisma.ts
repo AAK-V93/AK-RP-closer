@@ -137,11 +137,58 @@ async function schemaAlreadyThere(prisma: PrismaClient, probes: string[]) {
   }
 }
 
+/**
+ * Every probe of every ensure*() plus the read indexes, in ONE query. A serverless instance
+ * used to send ~8 probe queries on its first request (each one keeps Neon awake); now it is one.
+ * If anything is missing (or the probe fails), each ensure*() runs its own DDL chain as before.
+ */
+const ALL_SCHEMA_PROBES = [
+  `SELECT "webhookToken" FROM "FathomConnection" LIMIT 0`,
+  `SELECT "practiceSessionId" FROM "FathomRecording" LIMIT 0`,
+  `SELECT "id" FROM "UserOffer" LIMIT 0`,
+  `SELECT "offerId" FROM "ClientTranscript" LIMIT 0`,
+  `SELECT "threadId" FROM "LeadAlert" LIMIT 0`,
+  `SELECT "id" FROM "FollowupTouch" LIMIT 0`,
+  `SELECT "thread" FROM "CoachMessage" LIMIT 0`,
+];
+
+export function schemaProbeSql(indexNames: readonly string[]) {
+  const columns = ALL_SCHEMA_PROBES.map((sql, index) => `EXISTS(${sql}) AS p${index}`).join(", ");
+  const names = indexNames.map((name) => `'${name.replace(/'/g, "")}'`).join(", ");
+  return `SELECT ${columns}, (SELECT count(*)::int FROM pg_indexes WHERE schemaname = 'public' AND indexname IN (${names})) AS idx`;
+}
+
+let schemaProbe: Promise<{ tables: boolean; indexes: boolean }> | null = null;
+
+function probeAllSchema(prisma: PrismaClient) {
+  if (!schemaProbe) {
+    schemaProbe = (async () => {
+      try {
+        const rows = await prisma.$queryRawUnsafe<{ idx: number }[]>(schemaProbeSql(READ_INDEX_NAMES));
+        return { tables: true, indexes: Number(rows[0]?.idx) >= READ_INDEX_NAMES.length };
+      } catch (error) {
+        if (isTransientDbError(error)) {
+          schemaProbe = null;
+          throw error;
+        }
+        return { tables: false, indexes: false };
+      }
+    })();
+  }
+  return schemaProbe;
+}
+
+/** True when the one-query probe says the tables are already there. */
+async function tablesKnownThere(prisma: PrismaClient) {
+  return (await probeAllSchema(prisma)).tables;
+}
+
 let fathomTablesReady: Promise<void> | null = null;
 
 export async function ensureFathomTables(prisma: PrismaClient) {
   if (!fathomTablesReady) {
     fathomTablesReady = (async () => {
+      if (await tablesKnownThere(prisma)) return;
       if (
         await schemaAlreadyThere(prisma, [
           `SELECT "webhookToken" FROM "FathomConnection" LIMIT 0`,
@@ -250,6 +297,7 @@ let workspaceTablesReady: Promise<void> | null = null;
 export async function ensureWorkspaceTables(prisma: PrismaClient) {
   if (!workspaceTablesReady) {
     workspaceTablesReady = (async () => {
+      if (await tablesKnownThere(prisma)) return;
       if (
         await schemaAlreadyThere(prisma, [
           `SELECT "id" FROM "UserOffer" LIMIT 0`,
@@ -334,6 +382,7 @@ let crmTablesReady: Promise<void> | null = null;
 export async function ensureCrmTables(prisma: PrismaClient) {
   if (!crmTablesReady) {
     crmTablesReady = (async () => {
+      if (await tablesKnownThere(prisma)) return;
       if (
         await schemaAlreadyThere(prisma, [
           `SELECT "threadId" FROM "LeadAlert" LIMIT 0`,
@@ -675,6 +724,7 @@ let coachTablesReady: Promise<void> | null = null;
 export async function ensureCoachTables(prisma: PrismaClient) {
   if (!coachTablesReady) {
     coachTablesReady = (async () => {
+      if (await tablesKnownThere(prisma)) return;
       if (
         await schemaAlreadyThere(prisma, [
           `SELECT "thread" FROM "CoachMessage" LIMIT 0`,
@@ -721,6 +771,7 @@ let readIndexesReady: Promise<void> | null = null;
 export async function ensureReadIndexes(prisma: PrismaClient) {
   if (!readIndexesReady) {
     readIndexesReady = (async () => {
+      if ((await probeAllSchema(prisma).catch(() => ({ indexes: false }))).indexes) return;
       let missing: string[] = [...READ_INDEX_NAMES];
       try {
         const rows = await prisma.$queryRaw<{ indexname: string }[]>`

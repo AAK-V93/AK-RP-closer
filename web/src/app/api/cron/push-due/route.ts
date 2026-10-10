@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPrisma, ensureCrmTables, isDatabaseConfigured } from "@/lib/prisma";
-import { notifyDueAlerts } from "@/lib/web-push";
+import { notifyDueAlerts, pushConfigured } from "@/lib/web-push";
+import { pushQuietHours } from "@/lib/db-quiet";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,6 +16,13 @@ function cronAuthorized(request: Request) {
 export async function GET(request: Request) {
   if (!cronAuthorized(request)) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+  // Night or no push keys: answer without waking the database (Neon Free sleeps when idle).
+  if (pushQuietHours(new Date())) {
+    return NextResponse.json({ ok: true, skipped: "quiet-hours" });
+  }
+  if (!pushConfigured()) {
+    return NextResponse.json({ ok: true, skipped: "push-off" });
   }
   if (!isDatabaseConfigured()) {
     return NextResponse.json({ error: "DB" }, { status: 503 });
