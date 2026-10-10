@@ -190,3 +190,6 @@ export function sliceCallHistory<T extends { date?: string | null }>(
   const visible = inside.slice(0, HISTORY_CAP);
   return { visible, hidden: inside.length - visible.length, fallback: false };
 }
+
+/** «Por confirmar» shows 3 and a «Ver todas» so the recordings below stay in view. */
+export const QUEUE_PREVIEW = 3;

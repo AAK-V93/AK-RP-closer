@@ -68,7 +68,8 @@ test("mobile nav fits inside 375px instead of widening the page", () => {
 
 test("CRM offer chips and the coach trash icon do not shrink at tablet width", () => {
   const crm = source("../app/crm/page.tsx");
-  assert.match(crm, /h-auto min-h-11 max-w-full whitespace-normal text-left lg:min-h-0/);
+  // The offer filter lives only in the board dropdown: no repeated chips under it.
+  assert.doesNotMatch(crm, /onClick=\{\(\) => setOffer\(row\.productName\)\}/);
   assert.match(crm, /h-11 min-h-11 w-full px-0\.5 text-\[11px\] lg:h-8 lg:min-h-0/);
   assert.equal(crm.includes('className="h-8 '), false);
   assert.match(crm, /block text-sm text-fg3">Nombre/);

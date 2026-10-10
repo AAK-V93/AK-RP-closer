@@ -119,12 +119,16 @@ export function answerAboutPerson(facts: PersonFacts, topic: ChatTopic, now = ne
     case "mensaje":
       return facts.messages[0]
         ? `Podrías mandarle: «${facts.messages[0]}»`
-        : `${who} no está en seguimiento, no te sugiero mensaje.`;
+        : facts.status === "Perdido"
+          ? `${who} está en Perdidos, así que no te sugiero mensaje.`
+          : `${who} no está en seguimiento, no te sugiero mensaje.`;
     case "etapa":
       return facts.stage ? `${facts.stage.label}.` : `${who} ya no está en seguimiento (${facts.status.toLowerCase()}).`;
     case "acuerdo":
     case "general":
     default: {
+      if (facts.status === "Perdido") return facts.summary.text.replace(/^Se perdió/, `${who} se perdió`);
+      if (facts.status === "Cerró") return facts.summary.text.replace(/^Cerró/, `${who} cerró`);
       const head = facts.summary.clear ? facts.summary.text : `Con ${who} no quedó claro el siguiente paso.`;
       const next = facts.ended ? "" : nextLine(facts, now);
       return next ? `${head} ${next}.` : head;
@@ -175,7 +179,9 @@ export function factsForModel(facts: PersonFacts, now = new Date()) {
     nombre: facts.name,
     oferta: facts.offer || null,
     estado: facts.status,
-    acuerdo: facts.summary.clear ? facts.summary.agreed : null,
+    // A Perdido or Cerró has no next step to close: the status wins over old agreements.
+    resumen: facts.summary.text,
+    acuerdo: !facts.ended && facts.summary.clear ? facts.summary.agreed : null,
     falta: facts.summary.missing || null,
     proximo: facts.nextDay ? nextLine(facts, now) : null,
     etapa: facts.stage?.label || null,
@@ -189,7 +195,7 @@ export function factsForModel(facts: PersonFacts, now = new Date()) {
     forma_pago: facts.details.formaPago || null,
     pagado: facts.details.pagado || null,
     saldo: facts.details.saldo || null,
-    notas: facts.details.notas,
+    notas: facts.ended ? [] : facts.details.notas,
     telefono: facts.phone ? "guardado" : null,
     historial: facts.history.slice(0, 8).map((item) => `${item.date}: ${item.label}`),
   };
@@ -206,6 +212,7 @@ export function chatPrompt(args: {
     "Español de tú, natural y breve: una o dos frases. Sin listas, sin saludos, sin plantillas.",
     "Responde exactamente lo que pregunta, usando solo DATOS. Si el dato no está, dilo en una frase. No inventes fechas, montos ni acuerdos.",
     "No hables de la grabación ni de la transcripción.",
+    "Si estado es «Perdido» o «Cerró», no hables de próximos pasos para cerrar: di el estado y, si está, la razón.",
     "La RESPUESTA_BASE ya es correcta; puedes decirla más natural pero no agregues hechos que no estén en DATOS.",
     'Devuelve solo JSON: {"reply": "..."}',
     "",
@@ -292,4 +299,11 @@ export function writeWithContext(
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Chat chips: about the list until the chat is about one person, then about that person. */
+export function chatSuggestions(contextName?: string | null) {
+  const first = String(contextName || "").trim().split(/\s+/)[0] || "";
+  if (!first) return ["¿A quién llamo hoy?", "¿Cuántos seguimientos tengo?", "¿A quién mañana?"];
+  return [`¿En qué quedé con ${first}?`, `¿Qué le escribo a ${first}?`, "¿A quién llamo hoy?"];
 }

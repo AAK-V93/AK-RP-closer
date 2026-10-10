@@ -6,14 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { answerCrmFollowups, crmAskRoute, type CrmAskRow } from "@/lib/crm-ask";
-import { writeWithContext } from "@/lib/crm-chat";
+import { chatSuggestions, writeWithContext } from "@/lib/crm-chat";
 import { resolvePerson } from "@/lib/person-resolve";
 import { openFollowupCountOf } from "@/lib/crm-followups";
 import { countPhrase } from "@/lib/plain-labels";
 
 type Line = { role: "user" | "crm"; text: string };
 
-const SUGGESTIONS = ["¿A quién llamo hoy?", "¿Cuántos seguimientos tengo?", "¿A quién mañana?"];
 
 /** 1200px, not xl/1280: a laptop window of 1280 loses ~15px to the scrollbar. */
 const SIDE_COLUMN_QUERY = "(min-width: 1200px)";
@@ -49,6 +48,12 @@ export function CrmAsk({
   const contextRef = useRef<string | null>(null);
   /** Who the chat is talking about, so «él me pagó 500» goes to that person. */
   const contextPersonRef = useRef<{ name: string; leadId?: string } | null>(null);
+  // The chips follow the person the chat is about.
+  const [contextName, setContextName] = useState("");
+  const remember = (person: { name: string; leadId?: string }) => {
+    contextPersonRef.current = person;
+    setContextName(person.name);
+  };
   /** A write that said «él/ella» with nobody in the chat yet: waits for the name. */
   const awaitingWhoRef = useRef("");
   const linesRef = useRef<Line[]>([]);
@@ -122,7 +127,7 @@ export function CrmAsk({
         return;
       }
       if (data.contextId) contextRef.current = data.contextId;
-      if (data.name) contextPersonRef.current = { name: data.name, leadId: data.leadId || undefined };
+      if (data.name) remember({ name: data.name, leadId: data.leadId || undefined });
       push(String(data.reply || "No pude completar eso. Inténtalo otra vez.").trim(), "crm");
     } catch {
       push(answerCrmFollowups(rows, text, { money }), "crm");
@@ -142,7 +147,7 @@ export function CrmAsk({
       awaitingWhoRef.current = "";
       const who = resolvePerson(text, people, { useContext: false });
       if (who.kind === "one") {
-        contextPersonRef.current = { name: who.person.name };
+        remember({ name: who.person.name });
         const target = writeWithContext(waiting, people, contextPersonRef.current);
         if (target.kind === "send") {
           await askHub(text, target.text);
@@ -159,7 +164,7 @@ export function CrmAsk({
         push(target.reply, "crm");
         return;
       }
-      if (target.name) contextPersonRef.current = { name: target.name, leadId: target.leadId };
+      if (target.name) remember({ name: target.name, leadId: target.leadId });
       await askHub(text, target.text);
       return;
     }
@@ -313,7 +318,7 @@ export function CrmAsk({
         </div>
         <div className="space-y-2 border-t border-separator1 p-3">
           <div className="flex min-w-0 flex-wrap gap-1.5">
-            {SUGGESTIONS.map((item) => (
+            {chatSuggestions(contextName).map((item) => (
               <button
                 key={item}
                 type="button"

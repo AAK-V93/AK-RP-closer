@@ -11,6 +11,8 @@ export type FichaTarget = {
   callId?: string;
   /** The open follow-up, so «Hecho» works from the ficha. */
   alertId?: string;
+  /** Day (YYYY-MM-DD) of the call it was opened from, so an old call still shows in the history. */
+  day?: string;
   /** Shown while the ficha loads (Inicio already has it). */
   initial?: { summary?: string; messages?: string[]; phone?: string; offer?: string; when?: string };
 };
@@ -20,6 +22,7 @@ export function fichaUrl(target: FichaTarget) {
   if (target.leadId) params.set("leadId", target.leadId);
   if (target.callId) params.set("callId", target.callId);
   if (target.name) params.set("name", target.name);
+  if (target.day && /^\d{4}-\d{2}-\d{2}$/.test(target.day)) params.set("day", target.day);
   return `/api/crm/ficha?${params.toString()}`;
 }
 
@@ -69,11 +72,20 @@ export function fichaFromBoard(person: {
 }
 
 /** Llamadas history row (old calls too) → ficha. */
-export function fichaFromCall(row: { id: string; leadName: string; callRecordId?: string; leadId?: string }): FichaTarget {
+export function fichaFromCall(row: {
+  id: string;
+  leadName: string;
+  callRecordId?: string;
+  leadId?: string;
+  /** ISO date or day of the recording. */
+  date?: string | null;
+}): FichaTarget {
+  const day = String(row.date || "").slice(0, 10);
   return {
     name: row.leadName,
     leadId: row.leadId || undefined,
     callId: row.callRecordId || row.id,
+    day: /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : undefined,
   };
 }
 

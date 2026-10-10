@@ -1,5 +1,6 @@
 "use client";
 
+import { STAGE_BUCKETS, type StageBucketId } from "@/lib/followup-stage";
 import { useEffect, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
 import { WhenChip } from "@/components/inicio-home";
@@ -74,6 +75,8 @@ export function CrmBoardView({
   onOffer,
   period,
   onPeriod,
+  stage = "todas",
+  onStage,
   onOpen,
   showColumns,
   onToggleColumns,
@@ -88,6 +91,9 @@ export function CrmBoardView({
   onOffer: (value: string) => void;
   period: CrmBoardPeriod;
   onPeriod: (value: CrmBoardPeriod) => void;
+  /** Follow-up stage filter (only En seguimiento). */
+  stage?: StageBucketId | "todas";
+  onStage?: (value: StageBucketId | "todas") => void;
   onOpen: (person: CrmBoardPerson) => void;
   showColumns: boolean;
   onToggleColumns: () => void;
@@ -204,6 +210,26 @@ export function CrmBoardView({
           <option value="anterior">Mes anterior</option>
           <option value="todo">Todos</option>
         </select>
+        {onStage && bucket === "seguimiento" && !query.trim() && (
+          <>
+            <label className="sr-only" htmlFor="crm-etapa">
+              Seguimientos hechos
+            </label>
+            <select
+              id="crm-etapa"
+              className={SELECT}
+              value={stage}
+              onChange={(event) => onStage(event.target.value as StageBucketId | "todas")}
+            >
+              <option value="todas">Todos los seguimientos</option>
+              {STAGE_BUCKETS.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.id === "sin" ? row.label : `${row.label} seguimientos`}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         <label className="relative min-w-[12rem] flex-1">
           <span className="sr-only">Buscar por nombre</span>
           <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg3" />

@@ -4,8 +4,8 @@ import { zonedMonthRange, shiftZonedMonth } from "@/lib/crm-time";
 
 /**
  * Same signals Coach already uses: a close is `CIERRE VENTA` on the call
- * (live guide / último cierre), a loss is `razon_no_cierre` or a lead marked
- * perdido. One person counts once. No amount is invented, and a missing
+ * (live guide / último cierre), a loss is a lead or result marked perdido, or a
+ * `razon_no_cierre` when no follow-up is still agreed for that person. One person counts once. No amount is invented, and a missing
  * signal stays null («sin datos») instead of a 0.
  */
 export type OutcomeCall = {
@@ -15,6 +15,12 @@ export type OutcomeCall = {
   leadStatus?: string | null;
   seguimientoResultado?: string | null;
   razonNoCierre?: string | null;
+  /**
+   * The next follow-up still open on this call (proximo_seguimiento), or the lead's
+   * next step date. A razón de no cierre with an agreed follow-up is an open
+   * opportunity, not a loss («necesita consultarlo» + «llamar el viernes»).
+   */
+  fechaProximo?: string | null;
 };
 
 export type PeriodOutcomes = {
@@ -39,11 +45,21 @@ function isWonCall(row: OutcomeCall) {
   return String(row.estadoAgenda || "").trim().toUpperCase() === "CIERRE VENTA";
 }
 
-function isLostCall(row: OutcomeCall) {
+/** Marked perdido on purpose (result or estado). Always a loss. */
+function isMarkedLostCall(row: OutcomeCall) {
   if (isWonCall(row)) return false;
-  if (cleanReason(row.razonNoCierre)) return true;
   const blob = `${row.seguimientoResultado || ""} ${row.estadoAgenda || ""}`;
   return /\bperdid/.test(foldStatus(blob));
+}
+
+/** Only a razón de no cierre: a loss unless the person still has an agreed follow-up. */
+function isReasonOnlyLoss(row: OutcomeCall) {
+  if (isWonCall(row) || isMarkedLostCall(row)) return false;
+  return Boolean(cleanReason(row.razonNoCierre));
+}
+
+function hasOpenFollowup(row: OutcomeCall) {
+  return /^\d{4}-\d{2}-\d{2}/.test(String(row.fechaProximo || "").trim());
 }
 
 function personLost(row: OutcomeCall) {
@@ -64,6 +80,8 @@ type Person = {
   classified: boolean;
   wonDays: string[];
   lostDays: string[];
+  reasonDays: string[];
+  open: boolean;
   leadLost: boolean;
   days: string[];
 };
@@ -99,6 +117,8 @@ export function periodOutcomes(args: {
       classified: false,
       wonDays: [],
       lostDays: [],
+      reasonDays: [],
+      open: false,
       leadLost: false,
       days: [],
     };
@@ -110,7 +130,9 @@ export function periodOutcomes(args: {
       classified = true;
     }
     if (isWonCall(row)) person.wonDays.push(day);
-    else if (isLostCall(row)) person.lostDays.push(day);
+    else if (isMarkedLostCall(row)) person.lostDays.push(day);
+    else if (isReasonOnlyLoss(row)) person.reasonDays.push(day);
+    if (hasOpenFollowup(row)) person.open = true;
     if (personLost(row)) person.leadLost = true;
     people.set(key, person);
   }
@@ -122,8 +144,9 @@ export function periodOutcomes(args: {
       won.push({ key: person.key, day: latest(person.wonDays) });
       continue;
     }
-    if (person.lostDays.length || person.leadLost) {
-      const day = person.lostDays.length ? latest(person.lostDays) : latest(person.days);
+    const lostDays = person.open ? person.lostDays : [...person.lostDays, ...person.reasonDays];
+    if (lostDays.length || person.leadLost) {
+      const day = lostDays.length ? latest(lostDays) : latest(person.days);
       lost.push({ key: person.key, day });
     }
   }
@@ -162,4 +185,45 @@ export function outcomeSentences(outcomes: { won: number | null; lost: number | 
   const wonText = won == null ? "cierres sin datos" : won === 1 ? "1 cerrado" : `${won} cerrados`;
   const lostText = lost == null ? "perdidos sin datos" : lost === 1 ? "1 perdido" : `${lost} perdidos`;
   return { closes, versus: `${wonText} · ${lostText}` };
+}
+
+/**
+ * Cerró / Perdido / still open for ONE person, with the same rule the CRM tabs and
+ * Coach use: a close (CIERRE VENTA) beats a loss; a loss is a stored razón de no
+ * cierre, a «perdido» result, or the lead marked perdido. The status wins over any
+ * follow-up data: a Perdido has no stage, no «le toca» and no next step to close.
+ */
+export function personOutcome(rows: readonly OutcomeCall[]): { kind: "won" | "lost" | null; reason: string } {
+  let won = false;
+  let marked = false;
+  let byReason = false;
+  let open = false;
+  let reason = "";
+  for (const row of rows) {
+    const why = cleanReason(row.razonNoCierre);
+    if (isWonCall(row)) won = true;
+    else if (isMarkedLostCall(row)) marked = true;
+    else if (isReasonOnlyLoss(row)) byReason = true;
+    if (personLost(row)) marked = true;
+    if (hasOpenFollowup(row)) open = true;
+    if (why && !/^otro$/i.test(why) && !isWonCall(row)) reason = reason || why;
+  }
+  if (won) return { kind: "won", reason: "" };
+  if (marked || (byReason && !open)) return { kind: "lost", reason };
+  return { kind: null, reason: "" };
+}
+
+/** Name keys (foldLeadName) of every person the CRM shows in Perdidos, any date. */
+export function lostPeopleKeys(rows: readonly OutcomeCall[]): Set<string> {
+  const byKey = new Map<string, OutcomeCall[]>();
+  for (const row of rows) {
+    const key = foldLeadName(String(row.cliente || ""));
+    if (!key) continue;
+    const list = byKey.get(key) || [];
+    list.push(row);
+    byKey.set(key, list);
+  }
+  const out = new Set<string>();
+  for (const [key, list] of byKey) if (personOutcome(list).kind === "lost") out.add(key);
+  return out;
 }

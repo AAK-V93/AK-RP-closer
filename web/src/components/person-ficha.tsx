@@ -11,6 +11,7 @@ import { initialsOf } from "@/lib/inicio-view";
 import type { PersonFacts } from "@/lib/person-facts";
 import { fichaDetailRows, fichaUrl, type FichaTarget } from "@/lib/ficha-target";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
+import { lostSuggestion } from "@/lib/followup-stage";
 
 export type { FichaTarget } from "@/lib/ficha-target";
 
@@ -39,7 +40,7 @@ export function PersonNameButton({
         onOpen();
       }}
       aria-label={`Abrir la ficha de ${name}`}
-      className={`group inline-flex min-h-11 max-w-full items-center gap-1 text-left font-semibold text-fg0 underline decoration-separator2 decoration-1 underline-offset-4 transition-colors hover:decoration-fg0 focus-visible:decoration-fg0 lg:min-h-0 ${className}`}
+      className={`group inline-flex min-h-11 max-w-full cursor-pointer items-center gap-1 text-left font-semibold text-fg0 underline decoration-separator2 decoration-1 underline-offset-4 transition-colors hover:decoration-fg0 focus-visible:decoration-fg0 lg:min-h-0 ${className}`}
     >
       <span className="min-w-0 whitespace-normal break-words">{name}</span>
       <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-fg3 transition-transform group-hover:translate-x-0.5 group-hover:text-fg0" />
@@ -68,14 +69,23 @@ async function copyMessage(text: string) {
   }
 }
 
-function AddPhone({ leadId, name, onSaved }: { leadId: string; name: string; onSaved: (phone: string) => void }) {
+function AddPhone({
+  leadId,
+  callId,
+  name,
+  onSaved,
+}: {
+  leadId: string;
+  callId: string;
+  name: string;
+  onSaved: (phone: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  if (!leadId) {
-    return <p className="text-[13px] text-fg3">Falta el teléfono de {name}.</p>;
-  }
+  // Nowhere to save it (the call never reached the CRM): say nothing about a phone we can't add.
+  if (!leadId && !callId) return null;
   if (!open) {
     return (
       <button type="button" className={LINE_BUTTON} onClick={() => setOpen(true)}>
@@ -91,7 +101,7 @@ function AddPhone({ leadId, name, onSaved }: { leadId: string; name: string; onS
       const response = await fetch("/api/crm", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "set-phone", leadId, telefono: draft }),
+        body: JSON.stringify({ action: "set-phone", leadId: leadId || undefined, callId: leadId ? undefined : callId, telefono: draft }),
       });
       const body = (await response.json().catch(() => ({}))) as { error?: string; telefono?: string };
       if (!response.ok) throw new Error(body.error || "No se guardó. Inténtalo otra vez.");
@@ -177,7 +187,9 @@ export function PersonFicha({
           return;
         }
         setFicha(body.ficha);
-        if (body.ficha.messages.length) setDrafts(body.ficha.messages);
+        // The ficha decides: a Perdido has no messages even if Inicio had some.
+        setDrafts(body.ficha.messages);
+        setPicked(0);
         if (body.ficha.phone) setPhone(body.ficha.phone);
       })
       .catch(() => {
@@ -197,7 +209,7 @@ export function PersonFicha({
   const name = ficha?.name || target.name;
   const offer = ficha?.offer || target.initial?.offer || "";
   const summary = ficha ? ficha.summary.text : target.initial?.summary || "";
-  const next = ficha?.next || target.initial?.when || "";
+  const next = ficha ? (ficha.ended ? "" : ficha.next) : target.initial?.when || "";
   const stage = ficha ? ficha.stage?.label || "" : "";
   const alertId = target.alertId || ficha?.openAlertId || "";
   const chosen = (drafts[picked] || drafts.find((item) => item.trim()) || "").trim();
@@ -243,6 +255,16 @@ export function PersonFicha({
           )}
         </section>
 
+        {ficha && !ficha.ended && alertId && (
+          <LostSuggestion
+            key={alertId}
+            alertId={alertId}
+            stage={ficha.stage}
+            firstName={name.split(/\s+/)[0] || ""}
+            onSaved={onClose}
+          />
+        )}
+
         {drafts.length > 0 && (
           <section aria-label="Mensajes sugeridos" className="space-y-2">
             <p className="text-xs font-medium text-fg3">Mensajes sugeridos (puedes editarlos)</p>
@@ -282,7 +304,12 @@ export function PersonFicha({
               Abrir WhatsApp{chosen ? " con el mensaje" : ""}
             </a>
           ) : (
-            <AddPhone leadId={ficha?.leadId || target.leadId || ""} name={name} onSaved={setPhone} />
+            <AddPhone
+              leadId={ficha?.leadId || target.leadId || ""}
+              callId={ficha?.callId || ""}
+              name={name}
+              onSaved={setPhone}
+            />
           )}
         </section>
 
@@ -329,7 +356,7 @@ export function PersonFicha({
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-fg3">Sin llamadas con fecha.</p>
+                    <p className="text-fg3">Todavía no hay llamadas ni seguimientos con fecha.</p>
                   )}
                 </div>
               </div>
@@ -350,5 +377,59 @@ export function PersonFicha({
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** Proposed change at 10 tries: nothing changes until the closer taps «Guardar». */
+function LostSuggestion({
+  alertId,
+  stage,
+  firstName,
+  onSaved,
+}: {
+  alertId: string;
+  stage: { count: number; target: number } | null;
+  firstName: string;
+  onSaved: () => void;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const proposal = lostSuggestion(stage, firstName);
+  if (!proposal || dismissed) return null;
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/crm", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alertId, action: "outcome", resultado: "perdido", nota: proposal.nota }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(body.error || "No se guardó. Inténtalo otra vez.");
+      toast({ title: `${firstName || "La persona"} pasó a Perdidos`, duration: 2500 });
+      invalidateHub();
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se guardó. Inténtalo otra vez.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <section aria-label="Cambio propuesto" data-lost-suggestion className="space-y-2 rounded-2xl border border-separator1 bg-bg1 p-3 text-[14px]">
+      <p className="text-fg0">{proposal.question}</p>
+      <p className="text-[13px] text-fg3">Cambio propuesto: {proposal.change}. No cambia nada hasta que toques «Guardar».</p>
+      {error && <p className="text-[13px] text-destructive">{error}</p>}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={saving} onClick={() => void save()} className={DARK_BUTTON}>
+          {saving ? "Guardando…" : "Guardar"}
+        </button>
+        <button type="button" disabled={saving} onClick={() => setDismissed(true)} className={LINE_BUTTON}>
+          No, sigo
+        </button>
+      </div>
+    </section>
   );
 }

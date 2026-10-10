@@ -1,3 +1,4 @@
+import { dealMoney } from "@/lib/deal-money";
 import { normalizeProximo } from "@/lib/call-normalize";
 import { labelCrmProse } from "@/lib/plain-labels";
 import { followupIsClosed } from "@/lib/crm-followups";
@@ -103,6 +104,11 @@ export function cleanReason(raw: string | null | undefined) {
   return text;
 }
 
+function saldoOf(venta: number | null, cash: number | null, saldo: number | null) {
+  if (venta != null && Number(venta) > 0) return dealMoney({ venta, cash, saldo }).falta;
+  return saldo;
+}
+
 export function operacionFromCall(
   call: OperacionCall,
   lead?: OperacionLead | null,
@@ -154,7 +160,12 @@ export function operacionFromCall(
     venta: call.ventaTotal ?? asNum(filing.venta_total),
     modoPago: asStr(call.modoPago) || asStr(filing.modo_pago),
     cash: call.cashCollected ?? asNum(filing.cash_collected),
-    saldo: call.saldoPendiente ?? asNum(filing.saldo_pendiente),
+    // Same truth as the ficha and Comisiones: falta = total − cobrado when the total is known.
+    saldo: saldoOf(
+      call.ventaTotal ?? asNum(filing.venta_total),
+      call.cashCollected ?? asNum(filing.cash_collected),
+      call.saldoPendiente ?? asNum(filing.saldo_pendiente),
+    ),
     notas: labelCrmProse(asStr(filing.notas_crm) || asStr(call.summary)),
     requiereSeguimiento: requiere,
     tipoSeguimiento: asStr(filing.tipo_seguimiento).toUpperCase(),

@@ -26,6 +26,27 @@ const CALL_DESCRIPTION =
 const AGREEMENT_HINT =
   /\b(qued[oó]|quedamos|quedaron|acord|acuerd|va a|van a|vamos a|enviar|envi[oó]|enviar[aá]|mandar|mand[oó]|revisar|revisar[aá]|confirmar|confirmar[aá]|pagar|pagar[aá]|pago|responder|responder[aá]|respuesta|decidir|decidir[aá]|decisi[oó]n|hablar|hablarlo|consultar|consultarlo|segunda reuni[oó]n|agend|llamar|llamarlo|llamarla|propuesta|link|transferencia|reserva|cuota|firmar|contrato)\b/i;
 
+/** Leftover of the «¿Qué seguimiento quedó con X? (segunda reunión, pago, decisión, retomar)» prompt. */
+const TEMPLATE_LIST = /\(\s*(segunda reuni[oó]n|pago|decisi[oó]n|retomar|onboarding|reagendar)(\s*,\s*(segunda reuni[oó]n|pago|decisi[oó]n|retomar|onboarding|reagendar))+\s*\)\.?/giu;
+/** «SHOW.», «CIERRE VENTA.», «No cerró.»: a status label, not what was agreed. */
+const STATUS_ONLY = /^(show|no show|cierre venta|acuerdo sin pago|reprograma|reprogramad[ao]|no cerr[oó]|cerr[oó]|asisti[oó]|no asisti[oó])\.?$/i;
+/** «Llamada de seguimiento para ver…» describes a call; «Llamada el viernes para cerrar» has a day and stays. */
+const CALL_OPENING = /^(la\s+|una\s+)?(llamada|reuni[oó]n|sesi[oó]n|conversaci[oó]n|videollamada)\b/i;
+const HAS_DAY =
+  /\b(hoy|mañana|manana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|semana|\d{1,2}\s+de\s+\p{L}+|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2})\b/iu;
+
+/** Not about the person: recording talk, a call description, a status label, a prompt leftover or a question. */
+export function isNoiseSentence(sentence: string) {
+  const part = sentence.trim();
+  if (!part) return true;
+  if (isRecordingMeta(part) || describesTheCall(part)) return true;
+  if (STATUS_ONLY.test(part)) return true;
+  if (/\?$/.test(part) || /^¿/.test(part)) return true;
+  if (/^\(.*\)\.?$/.test(part)) return true;
+  if (CALL_OPENING.test(part) && !HAS_DAY.test(part)) return true;
+  return false;
+}
+
 export function isRecordingMeta(sentence: string) {
   return RECORDING_META.test(sentence);
 }
@@ -41,6 +62,7 @@ export function soundsLikeAgreement(sentence: string) {
 /** Sentences as written. A trailing piece without a period is kept apart so we can drop it. */
 export function splitSentences(text: string) {
   const clean = String(text || "")
+    .replace(TEMPLATE_LIST, "")
     .replace(/\s+/g, " ")
     .replace(/\.{2,}|…/g, ".")
     .trim();
@@ -79,7 +101,7 @@ function dropCutClause(part: string) {
  * period after a complete sentence is a cut and goes away. Never «…».
  */
 export function wholeSentences(text: string, max = 2) {
-  const parts = splitSentences(text).filter((part) => !isRecordingMeta(part) && !describesTheCall(part));
+  const parts = splitSentences(text).filter((part) => !isNoiseSentence(part));
   if (!parts.length) return "";
   if (parts.length > 1 && !/[.!?]$/.test(parts[parts.length - 1])) parts.pop();
   else if (parts.length === 1) parts[0] = dropCutClause(parts[0]);
@@ -93,6 +115,11 @@ export function wholeSentences(text: string, max = 2) {
   return picked.join(" ");
 }
 
+/** A note for «Notas» / Operación: whole sentences about the person, without call descriptions. */
+export function cleanNote(text: string | null | undefined, max = 3) {
+  return wholeSentences(String(text || ""), max);
+}
+
 /** An agreement field (acuerdo, siguiente paso): keep it unless it is recording talk. */
 export function agreementFromField(text: string | null | undefined) {
   return wholeSentences(String(text || ""));
@@ -101,7 +128,7 @@ export function agreementFromField(text: string | null | undefined) {
 /** A free note: only the sentences that say what someone will do. */
 export function agreementFromNote(text: string | null | undefined) {
   const parts = splitSentences(String(text || "")).filter(
-    (part) => !isRecordingMeta(part) && !describesTheCall(part) && soundsLikeAgreement(part),
+    (part) => !isNoiseSentence(part) && soundsLikeAgreement(part),
   );
   return wholeSentences(parts.join(" "));
 }

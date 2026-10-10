@@ -1,5 +1,6 @@
 "use client";
 
+import { offerDescriptionPreview, transcriptListRows } from "@/lib/offer-transcripts";
 import { FormEvent, useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -33,7 +34,6 @@ import { WorkspaceSkeleton } from "@/components/page-skeleton";
 import { OfferExtractReview } from "@/components/offer-extract-review";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 import { partitionTranscriptUploads } from "@/lib/transcript-batch";
-import { readableTitle } from "@/lib/plain-labels";
 import { pickWorkspaceOffer } from "@/lib/offer-selection";
 
 function offerSetupNote(offer?: {
@@ -103,6 +103,7 @@ export default function OfertasPage() {
   } | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [scriptsOpen, setScriptsOpen] = useState(false);
   const [callsOpen, setCallsOpen] = useState(false);
   const [callsForOffer, setCallsForOffer] = useState<string | null>(null);
@@ -409,6 +410,10 @@ export default function OfertasPage() {
   const visibleScripts = scriptsOpen ? scripts : scripts.slice(0, 2);
   const callsPending = Boolean(offerId) && callsForOffer !== offerId;
   const callRows = callsPending ? [] : (workspace?.transcripts ?? []);
+  // Never cut with «…»: whole sentences, and a button for the rest.
+  const description = offerDescriptionPreview(productName, productDescription);
+  const fullDescription = description.full || glance.blurb;
+  const descriptionLong = Boolean(description.full) && description.long;
   const practiceMaterial = offerPracticeMaterialLine({
     transcriptCount: callsPending ? 0 : workspace?.transcriptCount || 0,
     fathomCount: callsPending ? 0 : workspace?.fathomCount || 0,
@@ -483,7 +488,23 @@ export default function OfertasPage() {
                 </Button>
               )}
             </div>
-            {glance.blurb ? <p className="text-sm text-fg2">{glance.blurb}</p> : null}
+            {fullDescription ? (
+              <div className="space-y-1">
+                <p className="whitespace-pre-wrap text-sm text-fg2">
+                  {descriptionOpen || !descriptionLong ? fullDescription : description.preview}
+                </p>
+                {descriptionLong && (
+                  <button
+                    type="button"
+                    aria-expanded={descriptionOpen}
+                    className="min-h-11 text-sm font-medium text-fg0 underline"
+                    onClick={() => setDescriptionOpen((open) => !open)}
+                  >
+                    {descriptionOpen ? "Ver menos" : "Ver la descripción completa"}
+                  </button>
+                )}
+              </div>
+            ) : null}
             {glance.prices.length > 0 ? (
               <div className="space-y-1">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">Precios</p>
@@ -552,17 +573,39 @@ export default function OfertasPage() {
                 </ul>
               </details>
             )}
+            <div className="flex flex-wrap gap-2 border-t border-separator1 pt-3" aria-label="Cambiar esta oferta">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-11"
+                onClick={() => (showComposer ? setComposerOpen(false) : openComposer())}
+              >
+                {showComposer ? "Ocultar formulario" : "Añadir / pegar oferta"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-11"
+                onClick={() => setAdjustOpen((open) => !open)}
+              >
+                {showAdjust ? "Ocultar ajustes" : "Ajustar"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-11"
+                disabled={savingTranscripts}
+                onClick={() => setCallsOpen((open) => !open)}
+              >
+                {showCallUpload ? "Ocultar formulario" : "Añadir llamadas"}
+              </Button>
+            </div>
           </section>
         )}
 
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-11"
-          onClick={() => (showComposer && offerId ? setComposerOpen(false) : openComposer())}
-        >
-          {showComposer && offerId ? "Ocultar formulario" : "Añadir / pegar oferta"}
-        </Button>
         {showComposer && (
         <div ref={composerRef} className="space-y-4 rounded-2xl border border-separator1 bg-bg1 p-5">
           <h2 className="font-display text-[22px] font-semibold text-fg0">
@@ -622,11 +665,6 @@ export default function OfertasPage() {
         </div>
         )}
 
-        {offerId && !showAdjust && (
-          <Button type="button" variant="outline" className="min-h-11" onClick={() => setAdjustOpen(true)}>
-            Ajustar si hace falta
-          </Button>
-        )}
         {showAdjust && (
         <form
           key={offerId ?? "nueva"}
@@ -635,7 +673,7 @@ export default function OfertasPage() {
         >
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-display text-[22px] font-semibold text-fg0">
-              {offerId ? "Ajustar si hace falta" : "Revisa y guarda"}
+              {offerId ? "Ajustar" : "Revisa y guarda"}
             </h2>
             {offerId && (
               <Button type="button" variant="ghost" size="sm" onClick={() => setAdjustOpen(false)}>
@@ -762,15 +800,17 @@ export default function OfertasPage() {
           )}
 
         <div className="space-y-3">
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-11"
-            disabled={savingTranscripts}
-            onClick={() => setCallsOpen((open) => !open)}
-          >
-            {showCallUpload ? "Ocultar formulario" : "Añadir llamadas"}
-          </Button>
+          {!offerId && (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              disabled={savingTranscripts}
+              onClick={() => setCallsOpen((open) => !open)}
+            >
+              {showCallUpload ? "Ocultar formulario" : "Añadir llamadas"}
+            </Button>
+          )}
           {(showCallUpload || callsPending || callRows.length > 0 || (workspace?.transcriptCount || 0) > 0) && (
             <div className={showCallUpload ? "space-y-4 rounded-2xl border border-separator1 bg-bg1 p-5" : "space-y-2"}>
               {showCallUpload && (
@@ -875,8 +915,8 @@ export default function OfertasPage() {
                         </p>
                       ) : null}
                       <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-fg2">
-                        {callRows.map((row) => (
-                          <li key={row.id}>{readableTitle(row.title)}</li>
+                        {transcriptListRows(callRows).map((row) => (
+                          <li key={row.id}>{row.label}</li>
                         ))}
                       </ul>
                     </>

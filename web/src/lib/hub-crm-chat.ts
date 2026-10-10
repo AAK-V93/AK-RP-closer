@@ -238,9 +238,14 @@ function confirmReply(leadName: string, changes: ChatChange[]) {
     const from = changes[0].from || leadName;
     return `Nombre de «${from}» a «${changes[0].to}». ¿Confirmo?`;
   }
+  const shown = (change: ChatChange, value: string) => {
+    if (change.field !== "cash") return value;
+    const amount = Number(value);
+    return value.trim() && Number.isFinite(amount) ? usdEs(amount) : value;
+  };
   const bits = changes.map(
     (change) =>
-      `${change.label} de ${leadName} de «${change.from || "—"}» a «${change.to}»`,
+      `${change.label} de ${leadName} de «${shown(change, change.from) || "—"}» a «${shown(change, change.to)}»`,
   );
   return `Voy a cambiar: ${bits.join("; ")}. ¿Confirmo?`;
 }
@@ -693,6 +698,17 @@ function formatMoneyEs(amount: number) {
   return String(Math.round(amount)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
+/** A stored amount («1066») as «USD 1.066»; text that is not a number stays as is. */
+function paidText(value: string) {
+  const amount = Number(String(value).trim());
+  return String(value).trim() && Number.isFinite(amount) ? usdEs(amount) : value;
+}
+
+/** Money the closer reads in a chat reply or a proposed change: «USD 1.066». */
+function usdEs(amount: number) {
+  return `USD ${formatMoneyEs(amount)}`;
+}
+
 export type MoneySlice = { cobrado: number; vendido: number };
 
 export type MoneyBrief = {
@@ -952,7 +968,7 @@ function payment(text: string, ctx: ChatContext): ChatTurn | null {
   ) {
     return {
       kind: "answer",
-      reply: `Ya registré esa cuota. Cobrado de ${shownCrmName(lead)} sigue en ${formatMoneyEs(current)}. No lo sumé otra vez.`,
+      reply: `Ya registré esa cuota. Cobrado de ${shownCrmName(lead)} sigue en ${usdEs(current)}. No lo sumé otra vez.`,
     };
   }
   if (!cuota && current === next) {
@@ -975,7 +991,7 @@ function payment(text: string, ctx: ChatContext): ChatTurn | null {
     ],
   };
   const reply = cuota
-    ? `Cobrado de ${shownCrmName(lead)} de ${formatMoneyEs(current)} a ${formatMoneyEs(next)} (${cuotaOrdinal(current, added)}). ¿Confirmo?`
+    ? `Cobrado de ${shownCrmName(lead)} de ${usdEs(current)} a ${usdEs(next)} (${cuotaOrdinal(current, added)}). ¿Confirmo?`
     : confirmReply(shownCrmName(lead), proposal.changes);
   return { kind: "confirm", reply, proposal };
 }
@@ -1088,7 +1104,7 @@ function askFacts(text: string, ctx: ChatContext): ChatTurn | null {
     return {
       kind: "answer",
       reply: lead.amountPaid
-        ? `${lead.name} tiene ${lead.amountPaid} cobrado.`
+        ? `${lead.name} tiene ${paidText(lead.amountPaid)} cobrado.`
         : `No tengo un pago guardado de ${lead.name}.`,
     };
   }
@@ -1098,7 +1114,7 @@ function askFacts(text: string, ctx: ChatContext): ChatTurn | null {
   const bits = [
     lead.offerName ? `Oferta: ${lead.offerName}.` : "",
     lead.nextStep ? `Acuerdo: ${lead.nextStep}.` : "Sin acuerdo guardado.",
-    lead.amountPaid ? `Cobrado: ${lead.amountPaid}.` : "",
+    lead.amountPaid ? `Cobrado: ${paidText(lead.amountPaid)}.` : "",
   ].filter(Boolean);
   return { kind: "answer", reply: `${lead.name}. ${bits.join(" ")}` };
 }
@@ -1421,9 +1437,9 @@ export async function applyChatProposal(
       const from =
         cashChange.from && cashChange.from !== "—" ? paidNow(cashChange.from) : null;
       if (current != null && current === target) {
-        cashSkipNote = `Cobrado de ${nextName} ya está en ${formatMoneyEs(target)}. No lo sumé otra vez.`;
+        cashSkipNote = `Cobrado de ${nextName} ya está en ${usdEs(target)}. No lo sumé otra vez.`;
       } else if (current != null && from != null && from !== current) {
-        cashSkipNote = `Cobrado de ${nextName} ahora está en ${formatMoneyEs(current)}. No lo sumé otra vez.`;
+        cashSkipNote = `Cobrado de ${nextName} ahora está en ${usdEs(current)}. No lo sumé otra vez.`;
         cashRemember = false;
       } else {
         data.amountPaid = String(target);

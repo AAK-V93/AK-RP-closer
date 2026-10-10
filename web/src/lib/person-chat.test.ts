@@ -340,7 +340,7 @@ test("chat writes with a pronoun go to the person being discussed, or ask who", 
   const client = readFileSync(new URL("../components/crm-ask.tsx", import.meta.url), "utf8");
   assert.match(client, /writeWithContext\(text, people, contextPersonRef\.current\)/);
   assert.match(client, /askHub\(text, target\.text\)/);
-  assert.match(client, /contextPersonRef\.current = \{ name: data\.name/);
+  assert.match(client, /remember\(\{ name: data\.name/);
 });
 
 test("CRM «Ver todas las columnas» names open the same ficha, with the same stage", () => {

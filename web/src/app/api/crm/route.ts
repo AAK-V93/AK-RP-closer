@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { loadStages } from "@/lib/person-load";
 import { NextResponse } from "next/server";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
@@ -67,13 +68,14 @@ export async function GET() {
     });
     const missing = nextMissingCrmField(offers);
     const goal = await loadCommissionProjection(auth.prisma, auth.userId, dash);
-    const stages = await loadStages(auth.prisma, auth.userId).catch((error) => {
+    const { stages, stageCounts } = await loadStages(auth.prisma, auth.userId).catch((error) => {
       console.error("crm stages", error);
-      return {} as Record<string, string>;
+      return { stages: {} as Record<string, string>, stageCounts: {} as Record<string, number | null> };
     });
     return NextResponse.json({
       ...dash,
       stages,
+      stageCounts,
       missingCrm: missing,
       monthlyGoalUsd: goal.monthlyGoalUsd,
       needsMonthlyGoal: goal.needsMonthlyGoal,
@@ -209,12 +211,27 @@ export async function PATCH(request: Request) {
       if (digits.length < 7 || digits.length > 15) {
         return NextResponse.json({ error: "Escribe el número con código de país, por ejemplo +57 300 123 4567." }, { status: 400 });
       }
-      const lead = await auth.prisma.lead.findFirst({
-        where: { id: String(body.leadId || ""), userId: auth.userId },
-        select: { id: true },
+      if (body.leadId) {
+        const lead = await auth.prisma.lead.findFirst({
+          where: { id: String(body.leadId), userId: auth.userId },
+          select: { id: true },
+        });
+        if (!lead) return NextResponse.json({ error: "No encontré a esa persona." }, { status: 404 });
+        await auth.prisma.lead.update({ where: { id: lead.id }, data: { telefono } });
+        return NextResponse.json({ ok: true, telefono });
+      }
+      // Someone who only exists on a call: keep the phone on that call (one update, no lead created).
+      const call = await auth.prisma.callRecord.findFirst({
+        where: { id: String(body.callId || ""), userId: auth.userId },
+        select: { id: true, filingJson: true },
       });
-      if (!lead) return NextResponse.json({ error: "No encontré a esa persona." }, { status: 404 });
-      await auth.prisma.lead.update({ where: { id: lead.id }, data: { telefono } });
+      if (!call) return NextResponse.json({ error: "No encontré a esa persona." }, { status: 404 });
+      const filing =
+        call.filingJson && typeof call.filingJson === "object" && !Array.isArray(call.filingJson)
+          ? { ...(call.filingJson as Record<string, unknown>) }
+          : {};
+      filing.telefono = telefono;
+      await auth.prisma.callRecord.update({ where: { id: call.id }, data: { filingJson: filing as Prisma.InputJsonValue } });
       return NextResponse.json({ ok: true, telefono });
     }
     if (body.action === "monthly-goal") {

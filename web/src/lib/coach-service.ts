@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { generateGeminiJson } from "@/lib/gemini";
+import { coachOffersBlock } from "@/lib/coach-grounding";
 import { CLOSER_COACH_SYSTEM_PROMPT } from "@/lib/closer-coach-prompt";
 import {
   compactTrainingEvidence,
@@ -45,11 +46,19 @@ export async function runCoachTurn(
 ) {
   const loaded = await loadThread(prisma, userId, THREAD_COACH);
   const limit = args.evidenceLimit ?? 16;
-  const sessions = await prisma.practiceSession.findMany({
-    where: { userId, ...evidenceSessionFilter() },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-  });
+  const [sessions, offers] = await Promise.all([
+    prisma.practiceSession.findMany({
+      where: { userId, ...evidenceSessionFilter() },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    }),
+    prisma.userOffer.findMany({
+      where: { userId },
+      orderBy: { updatedAt: "desc" },
+      take: 8,
+      select: { productName: true, productDescription: true, pitchSummary: true },
+    }),
+  ]);
 
   const notes = loaded.notes;
   const evidence = compactTrainingEvidence(sessions, limit);
@@ -62,6 +71,8 @@ export async function runCoachTurn(
 
 # NOTAS PERSISTENTES DEL COACH
 ${JSON.stringify(notes)}
+
+${coachOffersBlock(offers)}
 
 # EVIDENCIA OBSERVADA (prácticas por voz + QC de llamadas reales)
 ${JSON.stringify(evidence)}

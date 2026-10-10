@@ -211,6 +211,13 @@
   * {
     @apply border-border outline-ring/50;
   }
+
+  /* Tailwind 4 dropped the hand cursor on buttons: anything tappable shows it again. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
   
   body {
     @apply bg-background text-foreground;

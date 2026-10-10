@@ -247,6 +247,8 @@ export type InicioList = {
   /** Open follow-ups not shown in the five. */
   more: number;
   total: number;
+  /** Due today or earlier: the «para hoy» number, the same one the CRM prints. */
+  hoy: number;
 };
 
 export function initialsOf(name: string) {
@@ -396,6 +398,29 @@ export function rankFollowups<T extends InicioFollowupSource>(rows: T[], now = n
     })),
   );
   return [...open].sort((a, b) => compareFollowupRank(followupRankInput(a, now), followupRankInput(b, now)));
+}
+
+/**
+ * «27 para hoy · 34 en seguimiento»: ONE computation for Inicio and the CRM.
+ * Open follow-ups, one per person, without people marked perdido (`skip`).
+ */
+export function seguimientoCounts<T extends InicioFollowupSource>(
+  rows: T[],
+  now = new Date(),
+  skip?: ReadonlySet<string> | null,
+) {
+  const open = rankFollowups(rows, now).filter((row) => !skip?.has(foldLeadName(row.name)));
+  const today = zonedDayKey(now);
+  const hoy = open.filter((row) => row.due && calendarDaysBetween(row.due, today) <= 0).length;
+  return { open, hoy, total: open.length };
+}
+
+/** «27 personas para hoy · 34 personas en seguimiento». */
+export function seguimientoLine(counts: { hoy: number; total: number }) {
+  const people = (n: number) => (n === 1 ? "1 persona" : `${n} personas`);
+  return counts.hoy === 0
+    ? `Hoy no toca nadie · ${people(counts.total)} en seguimiento`
+    : `${people(counts.hoy)} para hoy · ${people(counts.total)} en seguimiento`;
 }
 
 export type OfferScript = { guion: string; canal?: string; type?: string; asset?: string };
@@ -714,8 +739,11 @@ export function buildInicioList(args: {
   successes?: { name: string; offer: string }[];
   calls?: { cliente?: string | null; oferta?: string | null; producto?: string | null; fecha?: string | null; interna?: boolean }[];
   leadOffers?: { name?: string | null; offer?: string | null }[];
+  /** Name keys of people marked perdido: the status wins, they leave the list. */
+  skip?: ReadonlySet<string> | null;
 }): InicioList {
-  const ranked = rankFollowups(args.followups, args.now);
+  const counts = seguimientoCounts(args.followups, args.now, args.skip);
+  const ranked = counts.open;
   const limit = args.limit ?? INICIO_LIST_SIZE;
   const rows = ranked.slice(0, limit).map((row) => {
     const phone = String(row.telefono || "").trim();
@@ -772,7 +800,7 @@ export function buildInicioList(args: {
       whenAge: whenParts.age,
     };
   });
-  return { rows, more: Math.max(0, ranked.length - rows.length), total: ranked.length };
+  return { rows, more: Math.max(0, ranked.length - rows.length), total: ranked.length, hoy: counts.hoy };
 }
 
 export type StartSteps = {
