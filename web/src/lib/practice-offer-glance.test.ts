@@ -118,6 +118,26 @@ test("practice uses the Ofertas material line in the panel and the phone drawer"
   assert.match(drawer, /<TrainingSetupForm \/>/);
   assert.match(chat, /El prospecto emula tus transcripciones y grabaciones\./);
   assert.doesNotMatch(chat, /llamadas reales/);
+  const mobile = chat.match(/<li className="md:hidden">([\s\S]*?)<\/li>/);
+  assert.ok(mobile);
+  assert.match(mobile[1], /Confirma tu oferta/);
+  assert.match(mobile[1], /El prospecto emula tus transcripciones y grabaciones\./);
+  assert.doesNotMatch(mobile[1], /llamadas reales/);
+});
+
+test("idle practice shows a short voice set and hides the rest behind Más voces", () => {
+  const form = readFileSync(new URL("../components/training-setup-form.tsx", import.meta.url), "utf8");
+  const voicesFile = readFileSync(new URL("../data/voices.ts", import.meta.url), "utf8");
+  assert.match(form, /const \[moreVoices, setMoreVoices\] = useState\(false\)/);
+  assert.match(form, /\[\.\.\.extra, \.\.\.curated\]\.map/);
+  assert.match(form, /moreVoices \? "Menos voces" : "Más voces"/);
+  assert.match(form, /\{moreVoices && \(/);
+  const curated = voicesFile.slice(
+    voicesFile.indexOf("export const CURATED_VOICE_IDS"),
+    voicesFile.indexOf("export function curatedVoices"),
+  );
+  assert.equal((curated.match(/VoiceId\./g) || []).length, 5);
+  assert.ok((voicesFile.match(/\[VoiceId\./g) || []).length > 5);
 });
 
 test("ofertas names imported texts and recordings apart from Coach person calls", () => {
