@@ -331,6 +331,13 @@ export async function ensureWorkspaceTables(prisma: PrismaClient) {
 
 let crmTablesReady: Promise<void> | null = null;
 
+/**
+ * LEGACY hot-push. Kept so a deploy that has not had migrations applied
+ * still finds the tables this function already created.
+ *
+ * FROZEN: do not add columns, indexes, or constraints here.
+ * New schema changes go only through web/prisma/migrations.
+ */
 export async function ensureCrmTables(prisma: PrismaClient) {
   if (!crmTablesReady) {
     crmTablesReady = (async () => {
