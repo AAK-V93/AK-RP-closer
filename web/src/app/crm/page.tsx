@@ -11,8 +11,8 @@ import { BarChart } from "@/components/bar-chart";
 import { HelpNote, MetricCard, SectionHeading } from "@/components/metric-card";
 import { ProjectionCard } from "@/components/projection-card";
 import { CrmAsk } from "@/components/crm-ask";
-import { PersonFicha } from "@/components/person-ficha";
-import { fichaFromBoard, type FichaTarget } from "@/lib/ficha-target";
+import { PersonFicha, PersonNameButton } from "@/components/person-ficha";
+import { fichaFromBoard, fichaFromCommission, fichaFromFollowup, fichaFromOperacion, type FichaTarget } from "@/lib/ficha-target";
 import { CrmBoardView } from "@/components/crm-board";
 import { SheetTable, sheetCell, type SheetColumn } from "@/components/crm-sheet";
 import { Input } from "@/components/ui/input";
@@ -40,7 +40,7 @@ import type { CommissionProjection } from "@/lib/crm-projection";
 import { plainStatus } from "@/lib/plain-labels";
 import { ACTIVA_EXPLAIN, filaCountLabel, latestActiveRows, operacionCountLine } from "@/lib/crm-activa";
 import { clienteVisible } from "@/lib/crm-noise";
-import { derivedPaso, operacionGlance } from "@/lib/crm-glance";
+import { operacionGlance, rowStage } from "@/lib/crm-glance";
 import {
   AHORA_TAB_NOTE,
   COBRADO_PERIOD_NOTE,
@@ -133,6 +133,7 @@ type Commission = {
   fecha: string;
   oferta: string;
   cliente?: string;
+  leadId?: string;
   venta: number;
   cash: number;
   pct: number;
@@ -144,6 +145,8 @@ type Commission = {
 
 type Dash = {
   today?: string;
+  /** «Seguimiento N de 10» per lead id / «call:<id>», same helper as the ficha. */
+  stages?: Record<string, string>;
   readyCrm?: boolean;
   missingCrm?: { question: string } | null;
   now?: Record<string, number>;
@@ -855,6 +858,8 @@ export default function CrmPage() {
             {module === "operacion" && (
               <OperacionSheet
                 rows={operacion}
+                stages={data.stages}
+                onOpenPerson={(row) => setFicha(fichaFromOperacion({ ...row, cliente: clienteVisible(row.cliente, row.titulo) }))}
                 scopeRows={operacionBase}
                 money={money}
                 selectedId={openCall}
@@ -895,6 +900,8 @@ export default function CrmPage() {
             {module === "seguimientos" && (
               <SeguimientosSheet
                 rows={followups}
+                stages={data.stages}
+                onOpenPerson={(row) => setFicha(fichaFromFollowup(row))}
                 operacion={operacionBase}
                 money={money}
                 now={now}
@@ -915,6 +922,10 @@ export default function CrmPage() {
             {module === "comisiones" && (
               <ComisionesSheet
                 rows={commissions}
+                onOpenPerson={(row) => {
+                  const target = fichaFromCommission(row);
+                  if (target) setFicha(target);
+                }}
                 resumen={data.comisionResumen}
                 money={money}
                 onPaid={markCommission}
@@ -1325,7 +1336,11 @@ function OperacionSheet({
   onRename,
   onDelete,
   empty = "Aún no hay llamadas en esta oferta.",
+  stages,
+  onOpenPerson,
 }: {
+  stages?: Record<string, string>;
+  onOpenPerson: (row: OperacionRow) => void;
   rows: OperacionRow[];
   scopeRows?: OperacionRow[];
   money: (value: number | null | undefined) => string;
@@ -1346,7 +1361,16 @@ function OperacionSheet({
   const contacts = useMemo(() => lastContactByClient(scopeRows || rows), [scopeRows, rows]);
   const columns: SheetColumn<OperacionRow>[] = [
     { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha },
-    { key: "cliente", label: "Cliente", width: 220, value: (row) => clienteVisible(row.cliente, row.titulo), mobileExtra: (row) => plainStatus(shownFollowupKind(row, glanceFollowup(row, followups))) },
+    {
+      key: "cliente",
+      label: "Cliente",
+      width: 220,
+      value: (row) => clienteVisible(row.cliente, row.titulo),
+      render: (row) =>
+        row.interna ? clienteVisible(row.cliente, row.titulo) : (
+          <PersonNameButton name={clienteVisible(row.cliente, row.titulo)} onOpen={() => onOpenPerson(row)} />
+        ),
+      mobileExtra: (row) => plainStatus(shownFollowupKind(row, glanceFollowup(row, followups))) },
     { key: "tel", label: "Teléfono", width: 110, value: (row) => row.telefono },
     { key: "canal", label: "Canal", width: 110, value: (row) => plainStatus(row.canal) },
     { key: "estado", label: "Estado", width: 130, value: (row) => plainStatus(row.estadoAgenda) },
@@ -1366,8 +1390,7 @@ function OperacionSheet({
     return operacionGlance({
       fecha: row.fecha,
       ultimoContacto: contacts.get(foldLeadName(row.cliente)) || row.fecha,
-      paso: followup?.paso,
-      intentos: followup?.intentos,
+      etapa: rowStage(stages, { leadId: row.leadId, callId: row.id }),
       tipoSeguimiento: shownFollowupKind(row, followup),
       fechaProximo: followup?.proximo || row.fechaProximo,
     });
@@ -1383,20 +1406,29 @@ function OperacionSheet({
           const glance = glanceOf(row);
           const active = selectedId === row.id;
           return (
-            <button
+            <div
               key={row.id}
-              type="button"
-              onClick={() => onSelect(row.id)}
-              className={`w-full min-w-0 rounded-2xl border px-3 py-3 text-left ${
+              className={`w-full min-w-0 rounded-2xl border px-3 py-2 text-left ${
                 active ? "border-primary bg-primary/10" : "border-separator1 bg-bg1"
               }`}
             >
-              <span className="block break-words text-sm text-fg0">
-                {clienteVisible(row.cliente, row.titulo)}
-                {row.fecha ? ` · ${row.fecha}` : ""}
-              </span>
-              <span className="mt-1 block break-words text-xs text-fg3">{glance.line}</span>
-            </button>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-sm text-fg0">
+                {row.interna ? (
+                  <span className="break-words">{clienteVisible(row.cliente, row.titulo)}</span>
+                ) : (
+                  <PersonNameButton name={clienteVisible(row.cliente, row.titulo)} onOpen={() => onOpenPerson(row)} />
+                )}
+                {row.fecha ? <span className="text-fg3">· {row.fecha}</span> : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => onSelect(row.id)}
+                className="mt-1 block w-full min-h-11 break-words text-left text-xs text-fg3"
+              >
+                {glance.line}
+                <span className="ml-1 text-fg2 underline underline-offset-2">{active ? "Ocultar fila" : "Ver fila"}</span>
+              </button>
+            </div>
           );
         })}
       </div>
@@ -1424,7 +1456,7 @@ function OperacionSheet({
               ["Email", selected.email],
               ["Canal", plainStatus(selected.canal)],
               ["Estado", plainStatus(selected.estadoAgenda)],
-              ["Paso", selectedGlance?.paso || "—"],
+              ["Seguimiento", selectedGlance?.etapa || "—"],
               ["Último contacto", selectedGlance?.ultimoContacto || selected.fecha],
               ["Qué sigue", selectedGlance?.siguiente || "—"],
               ["Próximo seguimiento", selected.fechaProximo],
@@ -1965,7 +1997,11 @@ function SeguimientosSheet({
   onPatch,
   onRename,
   empty = "No hay seguimientos abiertos.",
+  stages,
+  onOpenPerson,
 }: {
+  stages?: Record<string, string>;
+  onOpenPerson: (row: Followup) => void;
   rows: Followup[];
   operacion: OperacionRow[];
   money: (value: number | null | undefined) => string;
@@ -2070,14 +2106,15 @@ function SeguimientosSheet({
             label: "Cliente",
             width: 220,
             value: (row) => row.cliente,
+            render: (row) => <PersonNameButton name={row.cliente} onOpen={() => onOpenPerson(row)} />,
             mobileExtra: (row) => plainStatus(row.hilo || row.tipo),
           },
           { key: "hilo", label: "Tipo", width: 150, hideOnMobile: true, value: (row) => plainStatus(row.hilo || row.tipo) },
           {
-            key: "paso",
-            label: "Paso",
-            width: 80,
-            value: (row) => derivedPaso({ paso: row.paso, tipo: row.hilo || row.tipo, intentos: row.intentos }) || "—",
+            key: "etapa",
+            label: "Seguimiento",
+            width: 150,
+            value: (row) => rowStage(stages, { leadId: row.leadId, callId: row.callId }) || "—",
           },
           { key: "toque", label: "Último toque", width: 180, value: (row) => row.ultimoToque || "sin toques" },
           { key: "accion", label: "Próxima acción", width: 240, value: (row) => row.proximaAccion || row.queHacer || row.acuerdo || row.question },
@@ -2161,8 +2198,10 @@ function ComisionesSheet({
   resumen,
   money,
   onPaid,
+  onOpenPerson,
   empty = "Todavía no hay dinero cobrado en llamadas.",
 }: {
+  onOpenPerson: (row: Commission) => void;
   rows: Commission[];
   resumen?: Dash["comisionResumen"];
   money: (value: number | null | undefined) => string;
@@ -2182,7 +2221,13 @@ function ComisionesSheet({
       <SheetTable
         columns={[
           { key: "fecha", label: "Fecha", width: 90, value: (row) => row.fecha?.slice(0, 10) || "—" },
-          { key: "cliente", label: "Cliente", width: 220, value: (row) => row.cliente },
+          {
+            key: "cliente",
+            label: "Cliente",
+            width: 220,
+            value: (row) => row.cliente,
+            render: (row) => <PersonNameButton name={String(row.cliente || "")} onOpen={() => onOpenPerson(row)} />,
+          },
           { key: "oferta", label: "Oferta", width: 140, value: (row) => row.oferta },
           { key: "venta", label: "Venta", width: 90, align: "right", value: (row) => money(row.venta) },
           { key: "cash", label: "Cobrado", width: 110, align: "right", value: (row) => money(row.cash) },

@@ -562,6 +562,7 @@ export async function crmDashboard(
           fecha: row.fecha.toISOString(),
           oferta: row.oferta,
           cliente: row.lead?.name || "",
+          leadId: row.leadId || "",
           venta: row.venta,
           cash: row.cash,
           pct: row.pctAplicado,

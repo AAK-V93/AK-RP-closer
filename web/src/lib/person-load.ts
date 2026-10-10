@@ -3,7 +3,7 @@ import { isNonSalesCall } from "@/lib/call-kind";
 import { offerRules } from "@/lib/inicio-view";
 import { foldOffer } from "@/lib/offer-name";
 import { normalizePersonName, samePersonName } from "@/lib/lead-match";
-import { buildPersonFacts, callsForPerson, type FactCall, type FactLead, type PersonFacts } from "@/lib/person-facts";
+import { buildPersonFacts, callsForPerson, stagesByLead, type FactCall, type FactLead, type PersonFacts } from "@/lib/person-facts";
 
 /** Read-only loads for the ficha and the chat. Nothing here writes. */
 
@@ -155,4 +155,16 @@ export async function loadPersonFacts(
     : null;
   if (!rule?.scripts.length) return facts;
   return buildPersonFacts({ lead, name: person.name, calls, alerts, scripts: rule.scripts, now });
+}
+
+/** «Seguimiento N de 10» per lead for the CRM sheets. Read-only. */
+export async function loadStages(prisma: PrismaClient, userId: string) {
+  const [loaded, alerts] = await Promise.all([
+    loadPeople(prisma, userId),
+    prisma.leadAlert.findMany({
+      where: { userId, resolvedAt: { not: null } },
+      select: { leadId: true, resolvedAt: true, resultado: true },
+    }),
+  ]);
+  return stagesByLead({ leads: loaded.leads, calls: loaded.calls, alerts });
 }

@@ -70,6 +70,7 @@ type Filing = {
   telefono?: string;
   seguimiento_resultado?: string;
   seguimiento_intentos?: number | null;
+  seguimiento_contactos?: number | null;
 };
 
 export type HistoryItem = { day: string; date: string; label: string; kind: "call" | "followup" };
@@ -204,6 +205,69 @@ const RESULT_LABEL: Record<string, string> = {
   pago: "Pagó",
 };
 
+/**
+ * The «Seguimiento N de 10» stage of one person, the same in the ficha and the CRM sheets.
+ * Null for cerrados and perdidos.
+ */
+export function personStage(args: {
+  lead: Pick<FactLead, "status"> | null;
+  calls: readonly FactCall[];
+  alerts?: readonly Pick<FactAlert, "resolvedAt" | "resultado">[];
+}): FollowupStage | null {
+  const calls = [...args.calls].sort((a, b) => callDay(b).localeCompare(callDay(a)));
+  const last = calls[0];
+  const lastFiling = filingOf(last?.filingJson);
+  if (statusOf(args.lead as FactLead | null, last).ended) return null;
+  return followupStage({
+    status: args.lead?.status,
+    callDates: calls.map((call) => call.recordedAt || call.createdAt || null),
+    attempts: (args.alerts || []).map((row) => ({ at: row.resolvedAt, resultado: row.resultado })),
+    lastCallAttempts: last ? { contactos: lastFiling.seguimiento_contactos, resultado: lastFiling.seguimiento_resultado } : null,
+  });
+}
+
+/**
+ * Stage label per lead id (and «call:<id>» for calls with no lead) for the CRM sheets.
+ * Empty string = no stage (cerrado / perdido). Pure: the caller loads the rows read-only.
+ */
+export function stagesByLead(args: {
+  leads: readonly Pick<FactLead, "id" | "name" | "status">[];
+  calls: readonly FactCall[];
+  alerts: readonly (Pick<FactAlert, "resolvedAt" | "resultado"> & { leadId: string })[];
+}): Record<string, string> {
+  const out: Record<string, string> = {};
+  const byLead = new Map<string, (typeof args.alerts)[number][]>();
+  for (const alert of args.alerts) {
+    const list = byLead.get(alert.leadId) || [];
+    list.push(alert);
+    byLead.set(alert.leadId, list);
+  }
+  // Stamped calls by lead id; only unstamped calls need the (slower) name match.
+  const stamped = new Map<string, FactCall[]>();
+  const loose: FactCall[] = [];
+  for (const call of args.calls) {
+    const leadId = String(filingOf(call.filingJson).lead_id || "");
+    if (!leadId) {
+      loose.push(call);
+      continue;
+    }
+    const list = stamped.get(leadId) || [];
+    list.push(call);
+    stamped.set(leadId, list);
+  }
+  const claimed = new Set<string>();
+  for (const lead of args.leads) {
+    const calls = [...(stamped.get(lead.id) || []), ...callsForPerson(lead, loose)];
+    for (const call of calls) claimed.add(call.id);
+    out[lead.id] = personStage({ lead, calls, alerts: byLead.get(lead.id) || [] })?.label || "";
+  }
+  for (const call of args.calls) {
+    if (claimed.has(call.id)) continue;
+    out[`call:${call.id}`] = personStage({ lead: null, calls: [call] })?.label || "";
+  }
+  return out;
+}
+
 export function buildPersonFacts(args: {
   lead: FactLead | null;
   /** Used when there is no lead row: a name from a call. */
@@ -251,16 +315,7 @@ export function buildPersonFacts(args: {
   }
 
   const lastCallDay = last ? callDay(last) : "";
-  const stage = ended
-    ? null
-    : followupStage({
-        status: lead?.status,
-        callDates: calls.map((call) => call.recordedAt || call.createdAt || null),
-        attempts: alerts.map((row) => ({ at: row.resolvedAt, resultado: row.resultado })),
-        lastCallAttempts: last
-          ? { intentos: lastFiling.seguimiento_intentos, resultado: lastFiling.seguimiento_resultado }
-          : null,
-      });
+  const stage = personStage({ lead, calls, alerts });
 
   const history: HistoryItem[] = [];
   for (const call of calls) {

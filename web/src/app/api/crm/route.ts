@@ -1,3 +1,4 @@
+import { loadStages } from "@/lib/person-load";
 import { NextResponse } from "next/server";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { ensureCrmTables } from "@/lib/prisma";
@@ -66,8 +67,13 @@ export async function GET() {
     });
     const missing = nextMissingCrmField(offers);
     const goal = await loadCommissionProjection(auth.prisma, auth.userId, dash);
+    const stages = await loadStages(auth.prisma, auth.userId).catch((error) => {
+      console.error("crm stages", error);
+      return {} as Record<string, string>;
+    });
     return NextResponse.json({
       ...dash,
+      stages,
       missingCrm: missing,
       monthlyGoalUsd: goal.monthlyGoalUsd,
       needsMonthlyGoal: goal.needsMonthlyGoal,

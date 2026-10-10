@@ -29,11 +29,13 @@ export type StageInput = {
   /** Resolved follow-ups (alerts or touches) with their result. */
   attempts: StageAttempt[];
   /**
-   * Attempts written on the last call itself when there is no dated alert:
-   * the stored «no contestó» counter and whether the follow-up was closed as hecho.
+   * What the last call itself remembers when there is no dated alert:
+   * `contactos` counts only Hecho / No contestó clicks (seguimiento_contactos), and
+   * `resultado` is the latest result. The older `seguimiento_intentos` counter is NOT
+   * used: it also went up on «no se presentó» and «reprogramado».
    * Counted only when the dated attempts are fewer, so one click is never counted twice.
    */
-  lastCallAttempts?: { intentos?: number | null; resultado?: string | null } | null;
+  lastCallAttempts?: { contactos?: number | null; resultado?: string | null } | null;
   target?: number | null;
 };
 
@@ -81,9 +83,10 @@ export function followupStage(input: StageInput): FollowupStage | null {
     if (!Number.isFinite(at)) return false;
     return !Number.isFinite(lastCall) || at > lastCall;
   }).length;
+  const stored = Math.max(0, Math.trunc(Number(input.lastCallAttempts?.contactos) || 0));
+  // Old calls have no real-attempt counter yet: their latest result still counts once.
   const onCall = input.lastCallAttempts
-    ? Math.max(0, Math.trunc(Number(input.lastCallAttempts.intentos) || 0)) +
-      (foldResult(input.lastCallAttempts.resultado) === "hecho" ? 1 : 0)
+    ? Math.max(stored, isAttempt(input.lastCallAttempts.resultado) ? 1 : 0)
     : 0;
   const count = Math.max(dated, onCall);
   return { count, target, label: stageLabel(count, target) };

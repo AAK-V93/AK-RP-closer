@@ -260,7 +260,7 @@ export function answerCrmFollowups(
 /** A change the closer is telling us (pago, nombre, perdido). It goes to the hub and waits for «Guardar». */
 export function looksLikeCrmWrite(text: string) {
   if (/[?¿]/.test(text)) return false;
-  return /(?<![\p{L}])(me pag[oó]|pagu[eé]|ya pag[oó]|pag[oó]|se llama|m[aá]rcalo|perdido|cuota de|reserva de|abono|quedamos)(?![\p{L}])/iu.test(
+  return /(?<![\p{L}])(me pag[oó]|pagu[eé]|ya pag[oó]|pag[oó]|se llama|m[aá]rcalo|perdido|cuota de|reserva de|abono|quedamos|le escrib[ií]|la llam[eé]|lo llam[eé]|le mand[eé]|habl[eé] con)(?![\p{L}])/iu.test(
     text,
   );
 }

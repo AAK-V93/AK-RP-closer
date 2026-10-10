@@ -277,6 +277,8 @@ export type FollowupUndoCall = {
   resultado: string;
   cerrado: string;
   intentos: number;
+  /** Real follow-up attempts (Hecho / No contestó) since the call. Missing on old snapshots. */
+  contactos?: number;
   requiere: boolean | null;
   razonNoCierre?: string;
 };
@@ -308,6 +310,7 @@ export function normalizeFollowupUndo(value: unknown): FollowupUndo | null {
       resultado: String(item.resultado || ""),
       cerrado: String(item.cerrado || ""),
       intentos: Number(item.intentos) || 0,
+      ...(typeof item.contactos === "number" ? { contactos: Number(item.contactos) || 0 } : {}),
       requiere: item.requiere === true ? true : item.requiere === false ? false : null,
       ...(typeof item.razonNoCierre === "string" ? { razonNoCierre: item.razonNoCierre } : {}),
     }))
@@ -364,6 +367,7 @@ export function restoreFollowupFiling(raw: unknown, snap?: FollowupUndoCall | nu
     filing.seguimiento_resultado = snap.resultado;
     filing.seguimiento_cerrado = snap.cerrado;
     filing.seguimiento_intentos = snap.intentos;
+    if (typeof snap.contactos === "number") filing.seguimiento_contactos = snap.contactos;
     filing.requiere_seguimiento = snap.requiere;
     if (typeof snap.razonNoCierre === "string") filing.razon_no_cierre = snap.razonNoCierre;
   } else if (proximo) {

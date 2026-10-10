@@ -77,6 +77,34 @@ export function fichaFromCall(row: { id: string; leadName: string; callRecordId?
   };
 }
 
+/** «Ver todas las columnas» → Operación row (one call). */
+export function fichaFromOperacion(row: { id: string; cliente: string; leadId?: string; oferta?: string; producto?: string }): FichaTarget {
+  return {
+    name: row.cliente,
+    leadId: row.leadId || undefined,
+    callId: row.id || undefined,
+    initial: { offer: row.producto || row.oferta || "" },
+  };
+}
+
+/** «Ver todas las columnas» → Seguimientos row (an open follow-up). */
+export function fichaFromFollowup(row: { id: string; cliente: string; leadId?: string; callId?: string; tipo?: string; oferta?: string }): FichaTarget {
+  return {
+    name: row.cliente,
+    leadId: row.leadId || undefined,
+    callId: row.callId || undefined,
+    alertId: row.tipo === "AGENDA_CHECK" ? undefined : row.id,
+    initial: { offer: row.oferta || "" },
+  };
+}
+
+/** «Ver todas las columnas» → Comisiones row. */
+export function fichaFromCommission(row: { cliente?: string; leadId?: string; oferta?: string }): FichaTarget | null {
+  const name = String(row.cliente || "").trim();
+  if (!name) return null;
+  return { name, leadId: row.leadId || undefined, initial: { offer: row.oferta || "" } };
+}
+
 /** «Ver todo lo de la llamada», in the order the closer asked for. */
 export function fichaDetailRows(facts: Pick<PersonFacts, "details">) {
   const d = facts.details;

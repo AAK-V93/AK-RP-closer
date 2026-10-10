@@ -226,3 +226,70 @@ export function groundedReply(reply: string, facts: unknown, draft: string) {
   if (/transcrip|grabaci/i.test(text)) return "";
   return text;
 }
+
+/* ------------------------------------------------------------------ */
+/* Writes with a pronoun: «él me pagó 500», «a ella le escribí».        */
+/* ------------------------------------------------------------------ */
+
+const PRONOUN = /(?<![\p{L}])(él|ella)(?![\p{L}])/iu;
+const PREP_PRONOUN = /(?<![\p{L}])(a|con|de|para|por)\s+(él|ella)(?![\p{L}])/giu;
+const BARE_PRONOUN = /(?<![\p{L}])(él|ella)(?![\p{L}])/giu;
+/** «le escribí…», «la llamé…», «me pagó 500» with no subject: about someone already in the chat. */
+const NO_SUBJECT = /^(le|les|lo|la|me)\s+\p{L}/iu;
+
+export type WriteContext = { name: string; leadId?: string } | null | undefined;
+
+export type WriteTarget =
+  | { kind: "send"; text: string; name?: string; leadId?: string }
+  | { kind: "ask"; reply: string };
+
+/** True when the write points at someone only by a pronoun («él», «a ella», «le escribí»). */
+export function writeUsesPronoun(text: string) {
+  const value = String(text || "").trim();
+  return PRONOUN.test(value) || NO_SUBJECT.test(value);
+}
+
+/**
+ * Before a write goes to the proposal («¿Confirmo?» → «Guardar»), put the person
+ * the chat is talking about in place of the pronoun. A name written in the message wins.
+ * No clear person in the chat → ask who. Nothing is saved here.
+ */
+export function writeWithContext(
+  text: string,
+  people: readonly ResolvablePerson[],
+  context: WriteContext,
+): WriteTarget {
+  const value = String(text || "").trim();
+  if (!writeUsesPronoun(value)) return { kind: "send", text: value };
+  const named = resolvePerson(value, people, { useContext: false });
+  if (named.kind === "one") return { kind: "send", text: value, name: named.person.name };
+  const name = String(context?.name || "").trim();
+  if (named.kind === "ambiguous") {
+    // «Carlos me pagó, él…» while the chat is about Carlos Ramírez → that Carlos.
+    const chosen = named.options.find((option) => option.name === name);
+    if (!chosen) return { kind: "ask", reply: whichOneQuestion(named.options) };
+    const first = chosen.name.split(/\s+/)[0] || "";
+    const swapped = value.replace(new RegExp(`(?<![\\p{L}])${escapeRegExp(first)}(?![\\p{L}])`, "iu"), chosen.name);
+    return { kind: "send", text: swapped, name: chosen.name, leadId: context?.leadId || undefined };
+  }
+  if (named.kind === "unknown") return { kind: "send", text: value };
+  if (!name) {
+    return {
+      kind: "ask",
+      reply: PRONOUN.test(value)
+        ? `¿De quién hablas cuando dices «${value.match(PRONOUN)?.[1]?.toLowerCase()}»? Dime el nombre y lo anoto.`
+        : "¿De quién hablas? Dime el nombre y lo anoto.",
+    };
+  }
+  let out = value.replace(PREP_PRONOUN, (_m, prep: string) => `${prep} ${name}`);
+  out = out.replace(BARE_PRONOUN, name);
+  if (out === value) {
+    // «le escribí» / «me pagó 500»: no pronoun word to swap, so say who it was.
+    out = `${name}: ${value}`;
+  }
+  return { kind: "send", text: out, name, leadId: context?.leadId || undefined };
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

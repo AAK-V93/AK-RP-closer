@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_FOLLOWUP_TARGET, followupStage, followupTarget, stageLabel } from "@/lib/followup-stage";
+import { DEFAULT_FOLLOWUP_TARGET, followupStage, followupTarget, isAttempt, stageLabel } from "@/lib/followup-stage";
 import { agreementSummary, UNCLEAR_NEXT_STEP, wholeSentences } from "@/lib/agreement-summary";
 import { resolvePerson, whichOneQuestion } from "@/lib/person-resolve";
-import { answerAboutPerson, chatTopic, decideChatTurn, groundedReply, isListQuestion } from "@/lib/crm-chat";
-import { buildPersonFacts, type FactCall } from "@/lib/person-facts";
-import { fichaDetailRows, fichaFromBoard, fichaFromCall, fichaFromInicio, fichaUrl } from "@/lib/ficha-target";
+import { answerAboutPerson, chatTopic, decideChatTurn, groundedReply, isListQuestion, writeUsesPronoun, writeWithContext } from "@/lib/crm-chat";
+import { buildPersonFacts, personStage, stagesByLead, type FactCall } from "@/lib/person-facts";
+import { fichaDetailRows, fichaFromBoard, fichaFromCall, fichaFromCommission, fichaFromFollowup, fichaFromInicio, fichaFromOperacion, fichaUrl } from "@/lib/ficha-target";
+import { operacionGlance, rowStage } from "@/lib/crm-glance";
+import { readFileSync } from "node:fs";
 import { buildCrmBoard } from "@/lib/crm-board";
 import { buildInicioList, derivedFollowupMessages, nextStepText } from "@/lib/inicio-view";
 import { crmAskRoute } from "@/lib/crm-ask";
@@ -30,6 +32,10 @@ function call(over: Partial<FactCall> & { filing?: Record<string, unknown> } = {
     filingJson: { lead_id: "l-elber", ...(filing || {}) },
     ...rest,
   };
+}
+
+function call0(filing: Record<string, unknown>): FactCall {
+  return call({ id: "c-v", leadName: "Valeria Ríos", filing: { lead_id: "l-v", ...filing } });
 }
 
 function elberFacts() {
@@ -85,10 +91,43 @@ test("stage: hecho and no contestó count since the last call, a new call resets
   assert.equal(followupStage({ status: "cerrado", callDates: [], attempts }), null);
   // The same clicks written on the call are not counted twice.
   assert.equal(
-    followupStage({ callDates: ["2026-09-15T15:00:00Z"], attempts, lastCallAttempts: { intentos: 2, resultado: "hecho" } })?.count,
+    followupStage({ callDates: ["2026-09-15T15:00:00Z"], attempts, lastCallAttempts: { contactos: 2, resultado: "hecho" } })?.count,
     3,
   );
-  assert.equal(followupStage({ callDates: ["2026-09-15T15:00:00Z"], attempts: [], lastCallAttempts: { intentos: 2 } })?.count, 2);
+  assert.equal(followupStage({ callDates: ["2026-09-15T15:00:00Z"], attempts: [], lastCallAttempts: { contactos: 2 } })?.count, 2);
+});
+
+test("stage: no se presentó, reprogramado and anything else are not follow-up attempts", () => {
+  const call = ["2026-09-15T15:00:00Z"];
+  const notAttempts = ["no_mostro", "no_se_presento", "reprogramado", "mostro", "perdido", "cerrado", "enviado", "", null];
+  for (const resultado of notAttempts) {
+    assert.equal(isAttempt(resultado), false, String(resultado));
+    assert.equal(followupStage({ callDates: call, attempts: [{ at: "2026-09-20T15:00:00Z", resultado }] })?.count, 0);
+  }
+  assert.equal(isAttempt("Hecho"), true);
+  assert.equal(isAttempt("No contestó"), true);
+  const mixed = [
+    { at: "2026-09-16T15:00:00Z", resultado: "no_mostro" },
+    { at: "2026-09-17T15:00:00Z", resultado: "reprogramado" },
+    { at: "2026-09-18T15:00:00Z", resultado: "no_contesto" },
+    { at: "2026-09-19T15:00:00Z", resultado: "reprogramado" },
+    { at: "2026-09-20T15:00:00Z", resultado: "hecho" },
+  ];
+  assert.equal(followupStage({ callDates: call, attempts: mixed })?.label, "Seguimiento 2 de 10");
+  // The old seguimiento_intentos counter (it also went up on no se presentó / reprogramado) is ignored.
+  const legacy = { intentos: 5, resultado: "reprogramado" } as unknown as { contactos?: number; resultado?: string };
+  assert.equal(followupStage({ callDates: call, attempts: [], lastCallAttempts: legacy })?.count, 0);
+  assert.equal(followupStage({ callDates: call, attempts: [], lastCallAttempts: { resultado: "no_mostro" } })?.count, 0);
+  // An old call whose latest result was No contestó still counts once.
+  assert.equal(followupStage({ callDates: call, attempts: [], lastCallAttempts: { resultado: "no_contesto" } })?.count, 1);
+  // The ficha reads the real counter, not seguimiento_intentos.
+  const facts = buildPersonFacts({
+    lead: { id: "l-v", name: "Valeria Ríos", status: "seguimiento" },
+    calls: [call0({ seguimiento_intentos: 4, seguimiento_resultado: "reprogramado", seguimiento_contactos: 1 })],
+    alerts: [],
+    now: NOW,
+  });
+  assert.equal(facts.stage?.label, "Seguimiento 1 de 10");
 });
 
 test("summary: the agreement, never the recording; nothing invented when it is missing", () => {
@@ -260,4 +299,95 @@ test("chat routing: questions go to the person answer, writes still wait for «G
   assert.equal(crmAskRoute("Carlos Ramírez me pagó 500", false), "hub");
   assert.equal(crmAskRoute("sí", true), "hub");
   assert.equal(crmAskRoute("sí", false), "ask");
+});
+
+test("chat writes with a pronoun go to the person being discussed, or ask who", () => {
+  const valeria = { name: "Valeria Ríos", leadId: "l-valeria" };
+  assert.equal(writeUsesPronoun("él me pagó 500"), true);
+  assert.equal(writeUsesPronoun("Elber pagó 200"), false);
+  assert.deepEqual(writeWithContext("él me pagó 500", PEOPLE, valeria), {
+    kind: "send",
+    text: "Valeria Ríos me pagó 500",
+    name: "Valeria Ríos",
+    leadId: "l-valeria",
+  });
+  assert.equal(writeWithContext("Ella me pagó 500", PEOPLE, valeria).kind, "send");
+  const escribi = writeWithContext("a ella le escribí", PEOPLE, valeria);
+  assert.equal(escribi.kind === "send" && escribi.text, "a Valeria Ríos le escribí");
+  const hable = writeWithContext("hablé con él ayer", PEOPLE, { name: "Elber", leadId: "l-elber" });
+  assert.equal(hable.kind === "send" && hable.text, "hablé con Elber ayer");
+  const noSubject = writeWithContext("le escribí ayer", PEOPLE, valeria);
+  assert.equal(noSubject.kind === "send" && noSubject.text, "Valeria Ríos: le escribí ayer");
+  // A name written in the message wins over the chat context.
+  const named = writeWithContext("Elber me pagó 500 y ella no", PEOPLE, valeria);
+  assert.equal(named.kind === "send" && named.name, "Elber");
+  assert.equal(named.kind === "send" && named.text, "Elber me pagó 500 y ella no");
+  // Nobody in the chat yet → ask who, never guess.
+  const ask = writeWithContext("él me pagó 500", PEOPLE, null);
+  assert.equal(ask.kind, "ask");
+  assert.match(ask.kind === "ask" ? ask.reply : "", /¿De quién hablas/);
+  assert.equal(writeWithContext("le escribí ayer", PEOPLE, null).kind, "ask");
+  // Two Carlos and none in context → which one; the one in context → that one.
+  const two = writeWithContext("Carlos me pagó 500, él dijo que sí", PEOPLE, null);
+  assert.equal(two.kind === "ask" && two.reply, "Hay dos Carlos: Carlos Ramírez y Carlos Quito. ¿Cuál?");
+  const picked = writeWithContext("Carlos me pagó 500, él dijo que sí", PEOPLE, { name: "Carlos Ramírez" });
+  assert.equal(picked.kind === "send" && picked.text, "Carlos Ramírez me pagó 500, él dijo que sí");
+  // A write without a pronoun is not touched, and «a ella le escribí» reaches the write path (¿Confirmo? → Guardar).
+  assert.deepEqual(writeWithContext("Elber pagó 200", PEOPLE, valeria), { kind: "send", text: "Elber pagó 200" });
+  assert.equal(crmAskRoute("a ella le escribí", false), "hub");
+  assert.equal(crmAskRoute("él me pagó 500", false), "hub");
+  // The chat client uses it before posting to the hub, and remembers who the answer was about.
+  const client = readFileSync(new URL("../components/crm-ask.tsx", import.meta.url), "utf8");
+  assert.match(client, /writeWithContext\(text, people, contextPersonRef\.current\)/);
+  assert.match(client, /askHub\(text, target\.text\)/);
+  assert.match(client, /contextPersonRef\.current = \{ name: data\.name/);
+});
+
+test("CRM «Ver todas las columnas» names open the same ficha, with the same stage", () => {
+  assert.deepEqual(fichaFromOperacion({ id: "c-1", cliente: "Carlos Ramírez", leadId: "l-carlos-r", producto: "Círculo" }), {
+    name: "Carlos Ramírez",
+    leadId: "l-carlos-r",
+    callId: "c-1",
+    initial: { offer: "Círculo" },
+  });
+  const followup = fichaFromFollowup({ id: "a-7", cliente: "Valeria Ríos", leadId: "l-valeria", callId: "c-2", tipo: "DECISION" });
+  assert.equal(followup.alertId, "a-7");
+  assert.equal(fichaUrl(followup), "/api/crm/ficha?leadId=l-valeria&callId=c-2&name=Valeria+R%C3%ADos");
+  assert.equal(fichaFromFollowup({ id: "a-8", cliente: "X", tipo: "AGENDA_CHECK" }).alertId, undefined);
+  assert.equal(fichaFromCommission({ cliente: "Elber", leadId: "l-elber" })?.leadId, "l-elber");
+  assert.equal(fichaFromCommission({ cliente: "" }), null);
+  const page = readFileSync(new URL("../app/crm/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /onOpenPerson=\{\(row\) => setFicha\(fichaFromOperacion/);
+  assert.match(page, /onOpenPerson=\{\(row\) => setFicha\(fichaFromFollowup\(row\)\)\}/);
+  assert.match(page, /fichaFromCommission\(row\)/);
+  assert.equal((page.match(/<PersonNameButton/g) || []).length >= 4, true);
+  assert.doesNotMatch(page, /derivedPaso|label: "Paso"|\["Paso"/);
+
+  // Stage per lead for the sheets = the ficha's stage.
+  const calls: FactCall[] = [
+    call({ id: "c-v", leadName: "Valeria Ríos", recordedAt: new Date("2026-09-15T16:00:00Z"), filing: { lead_id: "l-valeria" } }),
+    call({ id: "c-e", leadName: "Elber", filing: { lead_id: "l-elber" } }),
+    call({ id: "c-x", leadName: "Sin Lead", filing: { lead_id: "" } }),
+  ];
+  const alerts = [
+    { leadId: "l-valeria", resolvedAt: new Date("2026-09-20T15:00:00Z"), resultado: "no_contesto" },
+    { leadId: "l-valeria", resolvedAt: new Date("2026-09-21T15:00:00Z"), resultado: "reprogramado" },
+    { leadId: "l-valeria", resolvedAt: new Date("2026-09-22T15:00:00Z"), resultado: "hecho" },
+  ];
+  const stages = stagesByLead({
+    leads: [
+      { id: "l-valeria", name: "Valeria Ríos", status: "seguimiento" },
+      { id: "l-elber", name: "Elber", status: "perdido" },
+    ],
+    calls,
+    alerts,
+  });
+  assert.equal(stages["l-valeria"], "Seguimiento 2 de 10");
+  assert.equal(stages["l-elber"], "");
+  assert.equal(stages["call:c-x"], "Sin seguimiento aún");
+  assert.equal(
+    personStage({ lead: { status: "seguimiento" }, calls: [calls[0]], alerts })?.label,
+    stages["l-valeria"],
+  );
+  assert.equal(operacionGlance({ etapa: rowStage(stages, { leadId: "l-valeria" }) }).line.startsWith("Seguimiento 2 de 10"), true);
 });
