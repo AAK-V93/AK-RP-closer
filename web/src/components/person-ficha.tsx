@@ -12,10 +12,12 @@ import type { PersonFacts } from "@/lib/person-facts";
 import { fichaDetailRows, fichaUrl, type FichaTarget } from "@/lib/ficha-target";
 import { whatsappClickHref } from "@/lib/whatsapp-link";
 import { lostSuggestion } from "@/lib/followup-stage";
+import type { RecordingInfo } from "@/lib/recording-ficha";
+import { ADD_TO_CRM_TITLE, addToCrmProposal, addToCrmResult, NOT_IN_CRM_NOTE, RECORDING_EMPTY_VALUE } from "@/lib/recording-ficha-copy";
 
 export type { FichaTarget } from "@/lib/ficha-target";
 
-type Ficha = PersonFacts & { personId: string; next: string; inCrm?: boolean };
+type Ficha = PersonFacts & { personId: string; next: string; inCrm?: boolean; recording?: RecordingInfo };
 
 const DARK_BUTTON =
   "inline-flex h-11 min-h-11 items-center justify-center gap-[7px] whitespace-nowrap rounded-[10px] bg-fg0 px-3.5 text-[15px] font-medium text-[#FBF8F2] transition-opacity hover:opacity-90 disabled:opacity-60 lg:h-9 lg:min-h-0 lg:rounded-[9px] lg:px-3 lg:text-[13px]";
@@ -166,6 +168,7 @@ export function PersonFicha({
   const [picked, setPicked] = useState(0);
   const [showAll, setShowAll] = useState(false);
   const [phone, setPhone] = useState("");
+  const [reload, setReload] = useState(0);
   const key = target ? fichaUrl(target) : "";
 
   useEffect(() => {
@@ -203,7 +206,7 @@ export function PersonFicha({
     };
     // The url carries the whole target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, reload]);
 
   if (!target) return null;
   const name = ficha?.name || target.name;
@@ -241,8 +244,11 @@ export function PersonFicha({
         {error && <p className="text-sm text-destructive">{error}</p>}
         {ficha && ficha.inCrm === false && (
           <p className="rounded-xl border border-separator1 bg-bg1 px-3 py-2 text-[13px] text-fg2">
-            Esta persona todavía no está en tu CRM, así que no tengo lo que quedó en la llamada.
+            {ficha.recording?.note || NOT_IN_CRM_NOTE}
           </p>
+        )}
+        {ficha && ficha.inCrm === false && ficha.recording?.canAdd && (
+          <AddToCrmCard key={ficha.recording.id} name={name} recording={ficha.recording} onAdded={() => setReload((value) => value + 1)} />
         )}
 
         <section aria-label="En qué quedaron" className="rounded-2xl border border-[#EBD3A8] bg-[#F6E7CC] px-3.5 py-3 text-[14px] leading-snug text-[#5E3B0B]">
@@ -339,7 +345,7 @@ export function PersonFicha({
                           </ul>
                         </dd>
                       ) : (
-                        <dd className={row.values[0] ? "text-fg0" : "text-fg3"}>{row.values[0] || "No quedó anotado"}</dd>
+                        <dd className={row.values[0] ? "text-fg0" : "text-fg3"}>{row.values[0] || (ficha.recording ? RECORDING_EMPTY_VALUE : "No quedó anotado")}</dd>
                       )}
                     </div>
                   ))}
@@ -428,6 +434,53 @@ function LostSuggestion({
         </button>
         <button type="button" disabled={saving} onClick={() => setDismissed(true)} className={LINE_BUTTON}>
           No, sigo
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/** «Agregar al CRM» as a proposed change: nothing is saved until «Guardar». */
+function AddToCrmCard({ name, recording, onAdded }: { name: string; recording: RecordingInfo; onAdded: () => void }) {
+  const [dismissed, setDismissed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  if (dismissed) return null;
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/crm/ficha/agregar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordingId: recording.id, kind: recording.kind }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { error?: string; filingStatus?: string; question?: string; already?: boolean };
+      if (!response.ok) {
+        setError(body.error || "No pude agregarla. Inténtalo otra vez.");
+        return;
+      }
+      toast({ title: addToCrmResult(name, body) });
+      invalidateHub();
+      setDismissed(true);
+      onAdded();
+    } catch {
+      setError("No pude agregarla. Inténtalo otra vez.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <section aria-label={ADD_TO_CRM_TITLE} className="rounded-2xl border border-separator2 bg-bg1 px-3.5 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-fg3">Cambio propuesto</p>
+      <p className="mt-1 text-[14px] text-fg0">{addToCrmProposal(name)}</p>
+      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+      <div className="mt-3 flex gap-2">
+        <button type="button" disabled={saving} onClick={() => void save()} className={DARK_BUTTON}>
+          {saving ? "Guardando…" : "Guardar"}
+        </button>
+        <button type="button" disabled={saving} onClick={() => setDismissed(true)} className={LINE_BUTTON}>
+          No
         </button>
       </div>
     </section>

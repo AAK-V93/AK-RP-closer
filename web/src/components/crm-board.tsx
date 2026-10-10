@@ -1,6 +1,6 @@
 "use client";
 
-import { STAGE_BUCKETS, type StageBucketId } from "@/lib/followup-stage";
+import { STAGE_BUCKETS, STAGE_DISABLED_NOTE, type StageBucketId } from "@/lib/followup-stage";
 import { useEffect, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
 import { WhenChip } from "@/components/inicio-home";
@@ -14,7 +14,6 @@ import {
   type CrmBoardPerson,
 } from "@/lib/crm-board";
 
-const LIST_CAP = 10;
 
 const BUCKET_LABEL: Record<CrmBoardBucket, string> = {
   cerrados: "Cerrados",
@@ -105,16 +104,10 @@ export function CrmBoardView({
   const hoyOverflow = hoyMoreCount(board.hoy.length);
   const hoyShown = expanded ? board.hoy : board.hoy.slice(0, CRM_HOY_CAP);
   const hoyHidden = expanded ? 0 : hoyOverflow;
-  // «Ver más (N)» is the rest of hoy. Más adelante is not added into that number.
-  const showLater =
-    bucket !== "seguimiento" || Boolean(query.trim())
-      ? true
-      : (expanded || hoyOverflow === 0) && board.rows.length > 0;
-  const laterAll = showLater ? board.rows : [];
-  const laterCap = bucket === "seguimiento" || expanded ? laterAll.length : LIST_CAP;
-  const laterShown = laterAll.slice(0, laterCap);
-  const laterHidden = laterAll.length - laterShown.length;
-  const more = bucket === "seguimiento" && !query.trim() ? hoyHidden : hoyHidden + laterHidden;
+  // The tab list always shows (it used to wait for «Ver más» on hoy, so En seguimiento looked
+  // empty). «Ver más (N)» only opens the rest of hoy.
+  const laterShown = board.rows;
+  const more = hoyHidden;
   const countLabel = (value: number | null) => (value == null ? "sin datos" : String(value));
   return (
     <div className="space-y-4">
@@ -211,6 +204,27 @@ export function CrmBoardView({
           <option value="todo">Todos</option>
         </select>
         {/* Stays while typing a search: it narrows the En seguimiento hits. */}
+        {onStage && bucket !== "seguimiento" && !query.trim() && (
+          <>
+            <label className="sr-only" htmlFor="crm-etapa">
+              Seguimientos hechos
+            </label>
+            <select
+              id="crm-etapa"
+              disabled
+              aria-describedby="crm-etapa-nota"
+              title={STAGE_DISABLED_NOTE}
+              className={`${SELECT} min-w-[13.5rem] shrink-0 opacity-60`}
+              value="todas"
+              onChange={() => undefined}
+            >
+              <option value="todas">Etapas: solo En seguimiento</option>
+            </select>
+            <span id="crm-etapa-nota" className="sr-only">
+              {STAGE_DISABLED_NOTE}
+            </span>
+          </>
+        )}
         {onStage && (bucket === "seguimiento" || query.trim()) && (
           <>
             <label className="sr-only" htmlFor="crm-etapa">
@@ -243,8 +257,7 @@ export function CrmBoardView({
         </label>
       </div>
 
-      {showLater && (
-      <div className="overflow-hidden rounded-2xl border border-separator1 bg-bg1">
+      <div data-crm-tab-list className="overflow-hidden rounded-2xl border border-separator1 bg-bg1">
         {board.restTitle && (
           <p className="border-b border-separator1 px-4 py-2.5 text-sm text-fg2">{board.restTitle}</p>
         )}
@@ -281,7 +294,6 @@ export function CrmBoardView({
           </div>
         )}
       </div>
-      )}
       <p className="text-[13px] text-fg3">
         Toca un nombre para ver su ficha. ¿Algo más fino? Pregúntale al chat: «los que no cerraron en septiembre».
       </p>
