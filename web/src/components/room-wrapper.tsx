@@ -122,7 +122,9 @@ export function RoomWrapper({ children }: { children: ReactNode }) {
       token={token}
       connect={shouldConnect}
       audio={false}
-      className="flex w-full h-full min-h-0"
+      // In a call the room fills the screen; before it, it grows with the page so the
+      // left panel («Tu oferta», «Cómo practicar»…) is never clipped on a laptop.
+      className={shouldConnect ? "flex w-full h-full min-h-0" : "flex w-full min-h-full"}
     >
       <AgentProvider>
         <RoomTeardown />

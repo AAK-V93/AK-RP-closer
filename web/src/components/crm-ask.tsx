@@ -50,9 +50,11 @@ export function CrmAsk({
   const contextPersonRef = useRef<{ name: string; leadId?: string } | null>(null);
   // The chips follow the person the chat is about.
   const [contextName, setContextName] = useState("");
-  const remember = (person: { name: string; leadId?: string }) => {
+  const [contextStatus, setContextStatus] = useState("");
+  const remember = (person: { name: string; leadId?: string }, status = "") => {
     contextPersonRef.current = person;
     setContextName(person.name);
+    setContextStatus(status);
   };
   /** A write that said «él/ella» with nobody in the chat yet: waits for the name. */
   const awaitingWhoRef = useRef("");
@@ -121,13 +123,14 @@ export function CrmAsk({
         contextId?: string | null;
         name?: string;
         leadId?: string;
+        status?: string;
       };
       if (data.kind === "list") {
         push(answerCrmFollowups(rows, text, { money }), "crm");
         return;
       }
       if (data.contextId) contextRef.current = data.contextId;
-      if (data.name) remember({ name: data.name, leadId: data.leadId || undefined });
+      if (data.name) remember({ name: data.name, leadId: data.leadId || undefined }, data.status || "");
       push(String(data.reply || "No pude completar eso. Inténtalo otra vez.").trim(), "crm");
     } catch {
       push(answerCrmFollowups(rows, text, { money }), "crm");
@@ -169,6 +172,13 @@ export function CrmAsk({
       return;
     }
     await askPerson(text);
+  };
+
+  // Guardar / No: the proposal card goes away at once, without waiting for the answer.
+  const answerProposal = (word: "sí" | "no") => {
+    if (sending) return;
+    void ask(word);
+    setPending("");
   };
 
   useEffect(() => {
@@ -298,7 +308,7 @@ export function CrmAsk({
                 <button
                   type="button"
                   disabled={sending}
-                  onClick={() => void ask("sí")}
+                  onClick={() => answerProposal("sí")}
                   className="inline-flex h-11 min-h-11 items-center rounded-[10px] bg-fg0 px-3.5 text-sm font-medium text-[#FBF8F2] disabled:opacity-60"
                 >
                   Guardar
@@ -306,7 +316,7 @@ export function CrmAsk({
                 <button
                   type="button"
                   disabled={sending}
-                  onClick={() => void ask("no")}
+                  onClick={() => answerProposal("no")}
                   className="inline-flex h-11 min-h-11 items-center rounded-[10px] border border-separator2 px-3.5 text-sm font-medium text-fg0 disabled:opacity-60"
                 >
                   No
@@ -318,7 +328,7 @@ export function CrmAsk({
         </div>
         <div className="space-y-2 border-t border-separator1 p-3">
           <div className="flex min-w-0 flex-wrap gap-1.5">
-            {chatSuggestions(contextName).map((item) => (
+            {chatSuggestions(contextName, contextStatus).map((item) => (
               <button
                 key={item}
                 type="button"

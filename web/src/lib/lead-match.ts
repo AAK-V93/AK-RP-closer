@@ -320,3 +320,43 @@ export function callAlreadyInCrm(
   if (email && leads.some((lead) => String(lead.email || "").trim().toLowerCase() === email)) return true;
   return false;
 }
+
+const CALL_NAME_PARTICLES = new Set(["de", "del", "la", "las", "los", "y", "e", "da", "do", "van", "von"]);
+
+function nameTokens(value: string) {
+  return normalizePersonName(value)
+    .split(" ")
+    .filter((part) => part.length > 1 && !CALL_NAME_PARTICLES.has(part));
+}
+
+/**
+ * A call stamped with this lead but whose own full name is clearly another person:
+ * only the first name is shared («Carlos Ramírez» vs «Carlos y Luciana Quito»).
+ * Old filings (before full-name matching, oct 2026) linked calls by first name.
+ * We don't change the data; we just don't mix that call into this person.
+ */
+export function callNamesSomeoneElse(leadName: string, callName: string) {
+  const lead = nameTokens(leadName);
+  const call = nameTokens(callName);
+  if (lead.length < 2 || call.length < 2) return false;
+  if (filingNamesFullyMatch(leadName, callName)) return false;
+  const surnames = new Set(lead.slice(1));
+  return !call.some((token) => surnames.has(token));
+}
+
+/**
+ * The lead id stamped on a call (filing lead_id), unless the call clearly names someone
+ * else. Empty means «this call is its own person» (call-only row and ficha).
+ */
+export function trustedLeadId(
+  stampedId: string | null | undefined,
+  callName: string | null | undefined,
+  leads: readonly { id: string; name: string }[] | ReadonlyMap<string, string>,
+) {
+  const id = String(stampedId || "").trim();
+  if (!id) return "";
+  const leadName =
+    leads instanceof Map ? leads.get(id) : (leads as readonly { id: string; name: string }[]).find((row) => row.id === id)?.name;
+  if (leadName && callNamesSomeoneElse(leadName, String(callName || ""))) return "";
+  return id;
+}

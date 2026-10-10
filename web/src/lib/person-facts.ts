@@ -3,7 +3,7 @@ import { calendarDaysBetween, zonedDayKey } from "@/lib/crm-time";
 import { followupStage, type FollowupStage } from "@/lib/followup-stage";
 import { closerFacingNote, shownOffer, type OfferScript } from "@/lib/inicio-view";
 import { personMessages } from "@/lib/person-messages";
-import { filingNamesFullyMatch, normalizePersonName, samePersonName } from "@/lib/lead-match";
+import { callNamesSomeoneElse, samePersonName } from "@/lib/lead-match";
 import { personOutcome, type OutcomeCall } from "@/lib/outcome-counts";
 import { cleanReason } from "@/lib/crm-operacion";
 import { dealMoney, saleCall } from "@/lib/deal-money";
@@ -146,28 +146,8 @@ function callNameOf(call: FactCall) {
   return String(filing.cliente_real || call.leadName || "").trim();
 }
 
-const NAME_PARTICLES = new Set(["de", "del", "la", "las", "los", "y", "e", "da", "do", "van", "von"]);
-
-function nameTokens(value: string) {
-  return normalizePersonName(value)
-    .split(" ")
-    .filter((part) => part.length > 1 && !NAME_PARTICLES.has(part));
-}
-
-/**
- * A call stamped with this lead but whose own full name is clearly another person:
- * only the first name is shared («Carlos Ramírez» vs «Carlos y Luciana Quito»).
- * Old filings (before full-name matching, oct 2026) linked calls by first name.
- * We don't change the data; we just don't mix that call into this person.
- */
-export function callNamesSomeoneElse(leadName: string, callName: string) {
-  const lead = nameTokens(leadName);
-  const call = nameTokens(callName);
-  if (lead.length < 2 || call.length < 2) return false;
-  if (filingNamesFullyMatch(leadName, callName)) return false;
-  const surnames = new Set(lead.slice(1));
-  return !call.some((token) => surnames.has(token));
-}
+/** Moved to lead-match so the CRM rows and the ficha share one guard. */
+export { callNamesSomeoneElse } from "@/lib/lead-match";
 
 /** Calls of this person: stamped with the lead id, or the same full name. */
 export function callsForPerson(lead: { id: string; name: string }, calls: readonly FactCall[]) {
@@ -378,6 +358,31 @@ export function stageCountsByLead(args: Parameters<typeof stageMapByLead>[0]): R
   return Object.fromEntries(Object.entries(stageMapByLead(args)).map(([key, stage]) => [key, stage ? stage.count : null]));
 }
 
+const FUTURE_PAYMENT =
+  /\b(pr[oó]xim[ao]|siguiente|segunda|tercera|resto|restante|saldo|pendiente)\s+(cuota|pago|parte)\b|\b(pagar[áa]?|cobrar|abonar[áa]?|vence|completar[áa]? el pago)\b/i;
+const PAYMENT_TYPE = /pago|cobr|cuota|saldo/i;
+
+/**
+ * The one sentence a Cerró keeps after «Cerró. Pagó X de Y; falta Z.»: the next cuota, if known.
+ * From the agreement (future payment sentences only) or an open payment follow-up with a date.
+ */
+export function nextCuotaSentence(
+  agreed: string,
+  openAlert: Pick<FactAlert, "type" | "dueAt"> | undefined,
+  today: string,
+) {
+  const sentence = String(agreed || "")
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .find((part) => FUTURE_PAYMENT.test(part) && !/^pag[oó]\b/i.test(part));
+  if (sentence) return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
+  const due = dayOf(openAlert?.dueAt || null);
+  if (openAlert && due && PAYMENT_TYPE.test(String(openAlert.type || ""))) {
+    return `Próxima cuota: ${shortDate(due, today)}.`;
+  }
+  return "";
+}
+
 export function buildPersonFacts(args: {
   lead: FactLead | null;
   /** Used when there is no lead row: a name from a call. */
@@ -455,8 +460,11 @@ export function buildPersonFacts(args: {
         : deal.total > 0
           ? `Cerró. Pagó ${money(deal.pagado || deal.total)}.`
           : "Cerró.";
+    // Only what still has to be paid; pre-close items («Segunda reunión agendada.») don't belong.
+    const cuota = nextCuotaSentence(summary.agreed, deal.falta > 0 ? open : undefined, today);
+    summary.agreed = cuota;
     summary.missing = "";
-    summary.text = [paid, summary.agreed].filter(Boolean).join(" ");
+    summary.text = [paid, cuota].filter(Boolean).join(" ");
     summary.clear = true;
   }
 
@@ -481,6 +489,11 @@ export function buildPersonFacts(args: {
     history.push({ day: fromDay, date: shortDate(fromDay, today), label: "Llamada", kind: "call" });
   }
   history.sort((a, b) => b.day.localeCompare(a.day) || (a.kind === "call" ? -1 : 1));
+  // The same call saved twice (same day, same result) is one line.
+  for (let index = history.length - 1; index > 0; index -= 1) {
+    const item = history[index];
+    if (history.slice(0, index).some((prev) => prev.day === item.day && prev.label === item.label)) history.splice(index, 1);
+  }
 
   const lastContact = history[0]
     ? {

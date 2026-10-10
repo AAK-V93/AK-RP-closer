@@ -3,8 +3,8 @@
  * JSON keys and the phase enum discovery|pitch|close|other are not values here.
  */
 export const PLAIN_SPANISH_RULE = `Escribe las frases que lee el closer en español claro, con concordancia.
-Prohibido en esas frases: pitch, pitches, pitchear, discovery, drill, drills, Acknowledge, Associate, Ask Back, Paid Media, high-ticket, marco 3A, previa al pitch.
-Usa en su lugar: presentación de la oferta, presentaciones de la oferta, antes de presentar la oferta, descubrimiento, ejercicio, ejercicios, Reconoce, Relaciona y Devuelve la pregunta, Publicidad pagada, alto valor.
+Prohibido en esas frases: pitch, pitches, pitchear, discovery, drill, drills, Acknowledge, Associate, Ask Back, high-ticket, marco 3A, previa al pitch.
+Usa en su lugar: presentación de la oferta, presentaciones de la oferta, antes de presentar la oferta, descubrimiento, ejercicio, ejercicios, Reconoce, Relaciona y Devuelve la pregunta, alto valor.
 No escribas «previa al pitch» ni «marco 3A».
 Las claves JSON y los valores del enum discovery|pitch|close|other se quedan en inglés. Las frases no.`;
 

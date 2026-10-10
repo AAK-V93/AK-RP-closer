@@ -24,7 +24,8 @@ export async function GET(request: Request) {
       if (!name) return NextResponse.json({ error: "No encontré a esa persona en tu CRM." }, { status: 404 });
       // An old call that never reached the CRM: say so instead of an empty error.
       const facts = buildPersonFacts({ lead: null, name, calls: [], now, openedFromDay: target.day });
-      return NextResponse.json({ ficha: { ...facts, personId: "", next: "", inCrm: false } });
+      // Not in the CRM: no follow-ups to count, so no stage line either.
+      return NextResponse.json({ ficha: { ...facts, stage: null, personId: "", next: "", inCrm: false } });
     }
     const facts = await loadPersonFacts(auth.prisma, auth.userId, loaded, person, now, target.day);
     return NextResponse.json({ ficha: { ...facts, personId: person.id, next: nextLine(facts, now), inCrm: true } });

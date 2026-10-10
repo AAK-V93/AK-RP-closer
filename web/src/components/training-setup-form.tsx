@@ -1,5 +1,6 @@
 "use client";
 
+import { OfferDescription } from "@/components/offer-description";
 import { useEffect, useRef, useState } from "react";
 import { closerSpanish } from "@/lib/closer-spanish";
 import { clientPatternPhrase, spokenPracticeFocus } from "@/lib/home-desk";
@@ -869,9 +870,7 @@ function OfferGlance({ offer }: { offer: WorkspaceOffer }) {
   return (
     <div className="space-y-1">
       <p className="text-sm font-medium text-pretty">{offer.productName}</p>
-      {glance.blurb && (
-        <p className="text-sm text-fg2 text-pretty">{glance.blurb}</p>
-      )}
+      <OfferDescription name={offer.productName} description={String(offer.productDescription || "")} fallback={glance.blurb} />
       {glance.prices.length > 0 && (
         <ul className="text-xs text-fg3 space-y-0.5">
           {glance.prices.map((line) => (

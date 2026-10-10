@@ -17,6 +17,7 @@ import { CrmAsk } from "@/components/crm-ask";
 import { PersonFicha, PersonNameButton } from "@/components/person-ficha";
 import { fichaFromBoard, fichaFromCommission, fichaFromFollowup, fichaFromOperacion, type FichaTarget } from "@/lib/ficha-target";
 import { CrmBoardView } from "@/components/crm-board";
+import type { CrmOutsidePerson } from "@/lib/crm-board";
 import { SheetTable, sheetCell, type SheetColumn } from "@/components/crm-sheet";
 import { Input } from "@/components/ui/input";
 import {
@@ -231,6 +232,17 @@ export default function CrmPage() {
   const [period, setPeriod] = useState<CrmBoardPeriod>("mes");
   const [stageFilter, setStageFilter] = useState<StageBucketId | "todas">("todas");
   const [boardQuery, setBoardQuery] = useState("");
+  // Calls outside the CRM (old recordings), loaded once the first time someone searches.
+  const [outsideCrm, setOutsideCrm] = useState<CrmOutsidePerson[] | null>(null);
+  const outsideRequested = useRef(false);
+  useEffect(() => {
+    if (boardQuery.trim().length < 2 || outsideRequested.current) return;
+    outsideRequested.current = true;
+    fetch("/api/crm/buscar")
+      .then((response) => (response.ok ? response.json() : { people: [] }))
+      .then((body: { people?: CrmOutsidePerson[] }) => setOutsideCrm(Array.isArray(body.people) ? body.people : []))
+      .catch(() => setOutsideCrm([]));
+  }, [boardQuery]);
   const [showColumns, setShowColumns] = useState(false);
   const [ficha, setFicha] = useState<FichaTarget | null>(null);
   const saving = useRef(false);
@@ -648,9 +660,10 @@ export default function CrmPage() {
       bucket,
       stageCounts: data?.stageCounts || null,
       stageFilter,
+      outsideCrm,
       money: (value) => moneyLabel(value, currency),
     });
-  }, [data?.operacion, data?.followups, data?.stageCounts, offer, period, boardQuery, bucket, stageFilter, currency]);
+  }, [data?.operacion, data?.followups, data?.stageCounts, offer, period, boardQuery, bucket, stageFilter, outsideCrm, currency]);
 
   const now = data?.now || {};
   const rendimiento = data?.rendimiento;
@@ -680,7 +693,11 @@ export default function CrmPage() {
               query={boardQuery}
               onQuery={setBoardQuery}
               bucket={bucket}
-              onBucket={setBucket}
+              onBucket={(next) => {
+                setBucket(next);
+                // The stage filter only means something on En seguimiento.
+                if (next !== "seguimiento") setStageFilter("todas");
+              }}
               offer={offer}
               offers={offers}
               onOffer={setOffer}

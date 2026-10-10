@@ -30,7 +30,7 @@ import {
 } from "@/lib/crm-rollup";
 import { summarizePipeline } from "@/lib/crm-pipeline";
 import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
-import { findMatchingLead, samePersonName } from "@/lib/lead-match";
+import { findMatchingLead, samePersonName, trustedLeadId } from "@/lib/lead-match";
 import {
   canonicalOfferName,
   isChatRequest,
@@ -1736,14 +1736,17 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
       lead_id?: string;
       cliente_real?: string;
     };
-    const match =
-      namedLeads.find((lead) => lead.id === String(filing.lead_id || "")) ||
-      findMatchingLead(namedLeads, row.leadName || filing.cliente_real || "");
+    const stamped = trustedLeadId(filing.lead_id, filing.cliente_real || row.leadName, namedLeads);
+    const match = stamped
+      ? namedLeads.find((lead) => lead.id === stamped)
+      : filing.lead_id
+        ? undefined
+        : findMatchingLead(namedLeads, row.leadName || filing.cliente_real || "");
     const lead = match ? leads.find((item) => item.id === match.id) : undefined;
     const booked = commissionByCall.get(row.id);
     return {
       id: row.id,
-      leadId: String(filing.lead_id || ""),
+      leadId: stamped,
       cliente: row.leadName,
       offerName: row.offerName,
       producto: String(filing.producto || ""),

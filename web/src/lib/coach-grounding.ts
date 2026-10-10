@@ -36,3 +36,53 @@ export function coachOffersBlock(offers: readonly CoachOffer[]) {
       .join(", ")}) y un prospecto que podría comprarla. Nunca inventes otra oferta, otro producto ni otro tipo de negocio (por ejemplo, una agencia de software). Las duraciones, en español: «1 h 35 min», «20 min».`,
   ].join("\n");
 }
+
+const INVENTED_CONTEXT =
+  /\b(agencias?|software|saas|publicidad pagada|paid media|b2b|done for you|dfy)\b|\$\s?\d[\d.,]*\s*(al|por) mes/i;
+const OLD_NICHE = /^b2b-agencies-dfy$/i;
+
+function fold(value: string) {
+  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/**
+ * A coach message whose exercise is about a business the closer does not sell
+ * (the Sept. 14 «agencia de Publicidad pagada / software B2B / $3,000 al mes» one):
+ * it names an invented context and none of the closer's real offers.
+ */
+export function isInventedExercise(text: string, offers: readonly CoachOffer[]) {
+  const value = String(text || "");
+  if (!INVENTED_CONTEXT.test(value)) return false;
+  const folded = fold(value);
+  const offerHit = offers.some((offer) => {
+    const name = fold(String(offer.productName || "").trim());
+    return name.length >= 3 && folded.includes(name);
+  });
+  if (offerHit) return false;
+  // The closer's own offer may itself be about agencies / software: then it's not invented.
+  const offerText = fold(offers.map((offer) => `${offer.productName} ${offer.productDescription || ""}`).join(" "));
+  const hits = value.match(new RegExp(INVENTED_CONTEXT.source, "gi")) || [];
+  return hits.some((hit) => !offerText.includes(fold(hit)));
+}
+
+/** Notes sent to the model: the old default niche («b2b-agencies-dfy») is not the closer's offer. */
+export function notesForPrompt<T extends { niche?: string }>(notes: T): T {
+  return OLD_NICHE.test(String(notes.niche || "")) ? { ...notes, niche: "" } : notes;
+}
+
+export const STALE_EXERCISE_NOTE = "[Ejercicio anterior sobre un negocio que no es del closer: no lo continúes.]";
+
+/** What the coach panel says instead of an invented exercise. */
+export function staleExerciseCopy(offers: readonly CoachOffer[]) {
+  const names = offers.map((offer) => String(offer.productName || "").trim()).filter(Boolean);
+  if (!names.length) {
+    return {
+      text: "Este ejercicio era de antes y no usaba una oferta tuya. Añade tu oferta en Ofertas y el coach arma los ejercicios con ella.",
+      ask: "",
+    };
+  }
+  return {
+    text: "Este ejercicio era de antes y no usaba tu oferta.",
+    ask: `Dame un ejercicio con mi oferta ${names[0]}.`,
+  };
+}

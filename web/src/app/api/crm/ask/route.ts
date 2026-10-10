@@ -57,6 +57,8 @@ export async function POST(request: Request) {
       contextId: decision.person.id,
       leadId: decision.person.leadId || null,
       name: decision.person.name,
+      // «Perdido» / «Cerró» / «En seguimiento»: the chat chips follow it (no «¿Qué le escribo?» for a Perdido).
+      status: facts.status,
     });
   } catch (error) {
     console.error("crm ask", error);

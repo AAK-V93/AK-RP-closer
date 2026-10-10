@@ -1,3 +1,5 @@
+export const CONFIRM_DELETE_TITLE = "¿Borrar este análisis?";
+
 export const CONFIRM_DELETE_ANALYSIS =
   "¿Borrar este análisis? Se quita de tu historial del coach. No se puede deshacer.";
 

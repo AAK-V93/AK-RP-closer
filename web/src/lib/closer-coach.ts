@@ -16,7 +16,8 @@ export type CoachNotes = {
 
 export const defaultCoachNotes = (): CoachNotes => ({
   level: 1,
-  niche: "b2b-agencies-dfy",
+  // Filled with the closer's real offer by the coach; never a made-up niche.
+  niche: "",
   strengths: [],
   weaknesses: [],
   recurringErrors: [],

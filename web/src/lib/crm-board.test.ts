@@ -165,7 +165,7 @@ test("en seguimiento matches Inicio and a call this month is not a cierre", () =
   const board = buildCrmBoard({ calls, followups, period: "mes", now: NOW });
   assert.equal(board.counts.cerrados, 0);
   assert.equal(board.counts.perdidos, null);
-  assert.equal(board.subtitle, "");
+  assert.equal(board.subtitle, "0 perdidos este mes");
   assert.equal(board.counts.seguimiento, 2);
   assert.match(board.hoyNote, /2 personas en seguimiento/);
   assert.equal(board.hoy.length + board.rows.length, board.counts.seguimiento);

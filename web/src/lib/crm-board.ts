@@ -77,7 +77,12 @@ export type CrmBoardPerson = {
   bucket: CrmBoardBucket;
   /** Question the row writes into the chat. */
   ask: string;
+  /** Day of the call (YYYY-MM-DD) for a person who is not in the CRM yet. */
+  day?: string;
 };
+
+/** A call that never reached the CRM (old Fathom recording named after a person). Search only. */
+export type CrmOutsidePerson = { id: string; name: string; day?: string | null };
 
 export type CrmBoard = {
   subtitle: string;
@@ -191,6 +196,8 @@ export function buildCrmBoard(args: {
   stageCounts?: Record<string, number | null> | null;
   /** «Sin seguimiento aún», «1–2», «3–5», «6–10», «Más de 10». Only En seguimiento. */
   stageFilter?: StageBucketId | "todas";
+  /** Names that only exist on calls outside the CRM; a name search finds them too. */
+  outsideCrm?: readonly CrmOutsidePerson[] | null;
 }): CrmBoard {
   const now = args.now || new Date();
   const today = zonedDayKey(now);
@@ -232,6 +239,8 @@ export function buildCrmBoard(args: {
     amount: number;
     /** Added only for a name search (another month). Not counted in the tabs. */
     extra?: boolean;
+    /** Search-only rows: a CRM person with no follow-up date, or a call that never reached the CRM. */
+    kind?: "sin-fecha" | "fuera-crm";
   };
   const drafts: Draft[] = [];
 
@@ -310,6 +319,40 @@ export function buildCrmBoard(args: {
     const before = drafts.length;
     for (const key of all.wonKeys) if (!have.has(`cerrados:${key}`)) pushOutcome(key, "cerrados");
     for (const key of all.lostKeys) if (!have.has(`perdidos:${key}`)) pushOutcome(key, "perdidos");
+    // People on CRM calls with no open follow-up and no cierre/perdido (e.g. the follow-up was
+    // closed with «Hecho»): they still exist, so a search finds them.
+    const anywhere = new Set(drafts.map((row) => foldLeadName(row.name)));
+    for (const [key, rows] of byName) {
+      if (anywhere.has(key)) continue;
+      const call = latestCall(rows);
+      if (!call) continue;
+      anywhere.add(key);
+      drafts.push({
+        id: `sin-fecha:${call.id}`,
+        name: call.cliente.trim(),
+        offer: shownOffer(call.oferta) || shownOffer(call.producto),
+        call,
+        day: String(call.fecha || "").slice(0, 10),
+        bucket: "seguimiento",
+        amount: 0,
+        kind: "sin-fecha",
+      });
+    }
+    // Calls that never reached the CRM (an old Fathom recording with a person's name).
+    for (const person of args.outsideCrm || []) {
+      const key = foldLeadName(person.name);
+      if (!key || anywhere.has(key)) continue;
+      anywhere.add(key);
+      drafts.push({
+        id: `fuera-crm:${person.id}`,
+        name: person.name.trim(),
+        offer: "",
+        day: String(person.day || "").slice(0, 10),
+        bucket: "seguimiento",
+        amount: 0,
+        kind: "fuera-crm",
+      });
+    }
     for (let index = before; index < drafts.length; index += 1) drafts[index].extra = true;
   }
 
@@ -321,15 +364,13 @@ export function buildCrmBoard(args: {
     if (row.call?.id && `call:${row.call.id}` in counts) return counts[`call:${row.call.id}`];
     return undefined;
   };
-  // Only on the En seguimiento tab and not during a name search (the select is hidden then).
-  const stageFilter =
-    !query && bucket === "seguimiento" && args.stageFilter && args.stageFilter !== "todas" ? args.stageFilter : null;
+  // Filters the En seguimiento list (and its badge). Cerrados/Perdidos have no stage and are
+  // left alone, so during a search their hits still show.
+  const stageFilter = args.stageFilter && args.stageFilter !== "todas" ? args.stageFilter : null;
   const stageOk = (row: Draft) => {
-    if (!stageFilter) return true;
-    if (row.bucket !== "seguimiento") return false;
-    const count = stageOf(row);
-    // Unknown count (no data loaded yet) counts as «Sin seguimiento aún».
-    return stageBucket(count === undefined ? 0 : count) === stageFilter;
+    if (!stageFilter || row.bucket !== "seguimiento") return true;
+    if (row.kind) return stageFilter === "sin";
+    return rowStageBucket(stageOf(row)) === stageFilter;
   };
 
   const offerOk = (row: Draft) => matchesBoardOffer(row.offer, offer);
@@ -347,6 +388,10 @@ export function buildCrmBoard(args: {
       chip = { tone: "future", label: "Cerró" };
     } else if (row.bucket === "perdidos") {
       chip = { tone: "future", label: "Perdido" };
+    } else if (row.kind === "sin-fecha") {
+      chip = { tone: "future", label: "Sin fecha de seguimiento" };
+    } else if (row.kind === "fuera-crm") {
+      chip = { tone: "future", label: "No está en tu CRM" };
     }
     const leftOff = row.bucket === "seguimiento" && row.followup ? leftOffOf(row.followup, row.call, now) : "";
     return {
@@ -363,12 +408,13 @@ export function buildCrmBoard(args: {
       chip,
       bucket: row.bucket,
       ask: askFor(row.name),
+      ...(row.kind === "fuera-crm" ? { day: row.day } : {}),
     };
   };
 
   const counts = {
     cerrados: outcomes.won,
-    seguimiento: tabbed.filter((row) => row.bucket === "seguimiento").length,
+    seguimiento: tabbed.filter((row) => row.bucket === "seguimiento" && stageOk(row)).length,
     perdidos: outcomes.lost,
   };
 
@@ -376,7 +422,8 @@ export function buildCrmBoard(args: {
   const hoyDrafts = drafts.filter(
     (row) => row.bucket === "seguimiento" && offerOk(row) && row.day && calendarDaysBetween(row.day, today) <= 0,
   );
-  const hoy = hoyDrafts.filter(stageOk).map(toPerson);
+  // «A quién contactar hoy» is the Inicio list: the stage filter does not touch it.
+  const hoy = hoyDrafts.map(toPerson);
 
   // With a search, every tab: one row per person and tab, the tab says where they are.
   const inBucket = (query ? dedupeSearch(searched) : searched.filter((row) => row.bucket === bucket)).filter(stageOk);
@@ -384,8 +431,9 @@ export function buildCrmBoard(args: {
     inBucket.sort((a, b) => (b.day || "").localeCompare(a.day || "") || a.name.localeCompare(b.name, "es"));
   }
   const hoyNames = new Set(hoyDrafts.map((row) => fold(row.name)));
+  // With a stage filter the tab lists everyone in that stage, also those already in «hoy».
   const tableDrafts =
-    bucket === "seguimiento" && !query ? inBucket.filter((row) => !hoyNames.has(fold(row.name))) : inBucket;
+    bucket === "seguimiento" && !query && !stageFilter ? inBucket.filter((row) => !hoyNames.has(fold(row.name))) : inBucket;
   const rows = tableDrafts.map(toPerson);
 
   const monthCalls = calls.filter((row) => String(row.fecha || "").startsWith(month.key) && matchesBoardOffer(shownOffer(row.oferta) || shownOffer(row.producto), offer));
@@ -403,8 +451,8 @@ export function buildCrmBoard(args: {
         : `${monthClosed} personas cerraron este mes`;
   const cashLine = cobrado > 0 ? `${money(cobrado)} cobrados` : "";
   const monthLost = monthOutcomes.lost;
-  const lostLine =
-    monthLost == null || monthLost <= 0 ? "" : monthLost === 1 ? "1 perdido este mes" : `${monthLost} perdidos este mes`;
+  // Always said, also «0 perdidos este mes».
+  const lostLine = (monthLost ?? 0) === 1 ? "1 perdido este mes" : `${monthLost ?? 0} perdidos este mes`;
   const subtitle = [closedLine, lostLine, cashLine].filter(Boolean).join(" · ");
 
   // Same computation, words and numbers as Inicio (seguimientoCounts / seguimientoLine).
@@ -417,7 +465,7 @@ export function buildCrmBoard(args: {
   const seguimientoNumbers =
     offer === "todas" || !offer
       ? { hoy: shared.hoy, total: shared.total }
-      : { hoy: hoyDrafts.length, total: counts.seguimiento };
+      : { hoy: hoyDrafts.length, total: tabbed.filter((row) => row.bucket === "seguimiento").length };
   const hoyNote = seguimientoLine(seguimientoNumbers);
 
   const total = query ? inBucket.length : counts[bucket];
@@ -428,6 +476,8 @@ export function buildCrmBoard(args: {
       ? ""
       : query
         ? `${peoplePhrase(total, "")} con «${(args.query || "").trim()}» en todas las pestañas`
+        : stageFilter && bucket === "seguimiento"
+          ? peoplePhrase(total, "en esta etapa")
         : bucket === "seguimiento" && total > 0
         ? shown === 0
           ? peoplePhrase(total, "en seguimiento")
@@ -465,11 +515,25 @@ export function buildCrmBoard(args: {
     total,
     footer,
     empty: shown === 0 ? empty : "",
-    restTitle: bucket === "seguimiento" && shown > 0 && hoy.length > 0 && !query ? "Más adelante" : "",
+    restTitle:
+      bucket === "seguimiento" && stageFilter && !query
+        ? "En esta etapa"
+        : bucket === "seguimiento" && shown > 0 && hoy.length > 0 && !query
+          ? "Más adelante"
+          : "",
   };
 }
 
 export const CRM_BOARD_BUCKETS = BUCKETS;
+
+/**
+ * Bucket of one En seguimiento row. Every row lands in exactly one bucket, so the buckets
+ * add up to the tab total: no stage computed (unknown, or a Cerró still paying cuotas)
+ * is «Sin seguimiento aún».
+ */
+export function rowStageBucket(count: number | null | undefined): StageBucketId {
+  return stageBucket(count == null ? 0 : count) || "sin";
+}
 
 /** A search shows each person once per tab; seguimiento first, then cerrados, then perdidos. */
 function dedupeSearch<T extends { name: string; bucket: CrmBoardBucket }>(rows: T[]) {
