@@ -83,8 +83,8 @@ import {
   startSteps,
   type InicioBlock,
 } from "@/lib/inicio-view";
-import { foldLeadName } from "@/lib/crm-followups";
-import { periodOutcomes } from "@/lib/outcome-counts";
+import { foldLeadName, followupCalendarDay } from "@/lib/crm-followups";
+import { lostPeopleKeys, periodOutcomes } from "@/lib/outcome-counts";
 import { vapidPublicKey } from "@/lib/web-push";
 import { Prisma } from "@prisma/client";
 
@@ -1287,7 +1287,28 @@ function inicioBlock(args: {
     metaUsd: args.metaUsd,
     now,
   });
+  // Same «perdido» people the CRM takes out of «En seguimiento» (status wins).
+  const skip = lostPeopleKeys([
+    ...dash.operacion
+      .filter((row) => !row.interna)
+      .map((row) => ({
+        cliente: row.cliente,
+        fecha: row.fecha,
+        estadoAgenda: row.estadoAgenda,
+        leadStatus: row.leadStatus,
+        seguimientoResultado: row.seguimientoResultado,
+        razonNoCierre: row.razonNoCierre,
+        fechaProximo: row.fechaProximo,
+      })),
+    ...dash.followups.map((row) => ({
+      cliente: row.cliente,
+      fecha: followupCalendarDay(row),
+      leadStatus: row.leadStatus,
+      fechaProximo: followupCalendarDay(row),
+    })),
+  ]);
   const list = buildInicioList({
+    skip,
     followups: withCallAgreement(dash.followups, dash.operacion, dash.leads),
     rules: offerRules(args.offers),
     mesCash: dash.rendimiento.mes.cash,
@@ -1306,6 +1327,7 @@ function inicioBlock(args: {
         leadStatus: row.leadStatus,
         seguimientoResultado: row.seguimientoResultado,
         razonNoCierre: row.razonNoCierre,
+        fechaProximo: row.fechaProximo,
       })),
     period: "mes",
     now,

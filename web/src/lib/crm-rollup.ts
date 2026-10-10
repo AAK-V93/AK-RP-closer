@@ -125,7 +125,7 @@ function parseEsAmount(raw: string) {
 /** «de 533 a 1.066» is the delta. «cuota de 533» is that cuota, not the running total. */
 export function cuotaAmountInNote(text: string, total: number) {
   const fromTo = text.match(
-    /\bde\s+(\d{1,3}(?:\.\d{3})+|\d+)\s+a\s+(\d{1,3}(?:\.\d{3})+|\d+)\b/i,
+    /\bde\s+«?(?:USD\s*)?(\d{1,3}(?:\.\d{3})+|\d+)»?\s+a\s+«?(?:USD\s*)?(\d{1,3}(?:\.\d{3})+|\d+)\b/i,
   );
   if (fromTo) {
     const from = parseEsAmount(fromTo[1]);

@@ -126,7 +126,15 @@ export function closerSpanish(text: string) {
   value = replaceWord(value, /\bask\s*back\b/gi, "Devuelve la pregunta");
   value = replaceWord(value, /\backnowledge\b/gi, "Reconoce");
   value = replaceWord(value, /\bassociate\b/gi, "Relaciona");
-  return value;
+  return spanishDurations(value);
+}
+
+/** «1 hr 35 mins» → «1 h 35 min», «48 mins» → «48 min», «2 hrs» → «2 h». */
+export function spanishDurations(text: string) {
+  return text
+    .replace(/(\d+)\s*(?:hrs?|hours?|horas?)\b\.?(?=\s*\d+\s*(?:mins?|minutos?|minutes?)\b)/gi, "$1 h")
+    .replace(/(\d+)\s*(?:hrs?|hours?)\b/gi, "$1 h")
+    .replace(/(\d+)\s*(?:mins?|minutes?)\b/gi, "$1 min");
 }
 
 /** Walk stored analysis at render time. Keys and phase enums stay put. */

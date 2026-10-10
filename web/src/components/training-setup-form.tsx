@@ -94,8 +94,9 @@ export function HowToPracticeButton({ className }: { className?: string }) {
       </Button>
       <Dialog open={howOpen} onOpenChange={setHowOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
-          <DialogTitle>Cómo practicar</DialogTitle>
-          <DialogDescription>
+          {/* The × is 44 px on a phone: keep the title and first line clear of it. */}
+          <DialogTitle className="pr-12 lg:pr-10">Cómo practicar</DialogTitle>
+          <DialogDescription className="pr-12 lg:pr-0">
             Tú abres la reunión. El prospecto ya está en la llamada, en silencio.
           </DialogDescription>
           <ol className="list-decimal space-y-2 pl-5 text-sm text-fg2">

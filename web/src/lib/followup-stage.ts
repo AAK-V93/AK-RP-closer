@@ -91,3 +91,42 @@ export function followupStage(input: StageInput): FollowupStage | null {
   const count = Math.max(dated, onCall);
   return { count, target, label: stageLabel(count, target) };
 }
+
+/** CRM filter buckets. Cerrados / perdidos have no stage and never match. */
+export const STAGE_BUCKETS = [
+  { id: "sin", label: "Sin seguimiento aún" },
+  { id: "1-2", label: "1–2" },
+  { id: "3-5", label: "3–5" },
+  { id: "6-10", label: "6–10" },
+  { id: "mas-10", label: "Más de 10" },
+] as const;
+
+export type StageBucketId = (typeof STAGE_BUCKETS)[number]["id"];
+
+export function stageBucket(count: number | null | undefined): StageBucketId | null {
+  if (count == null || !Number.isFinite(count)) return null;
+  if (count <= 0) return "sin";
+  if (count <= 2) return "1-2";
+  if (count <= 5) return "3-5";
+  if (count <= 10) return "6-10";
+  return "mas-10";
+}
+
+/** At the target with no close: time to suggest Perdido (only as a proposal the closer saves). */
+export function suggestsLost(stage: { count: number; target: number } | null | undefined) {
+  return Boolean(stage && stage.count >= stage.target);
+}
+
+/**
+ * At the target (10 tries since the last call) the ficha PROPOSES marking the person Perdido.
+ * Never applied on its own: the closer taps «Guardar» or «No».
+ */
+export function lostSuggestion(stage: { count: number; target: number } | null | undefined, firstName: string) {
+  if (!suggestsLost(stage) || !stage) return null;
+  const who = firstName.trim() || "esta persona";
+  return {
+    question: `Llevas ${stage.count} seguimientos con ${who} sin respuesta desde la última llamada. ¿La marco como perdida?`,
+    change: "Pasar a Perdidos",
+    nota: `Sin respuesta después de ${stage.count} seguimientos`,
+  };
+}

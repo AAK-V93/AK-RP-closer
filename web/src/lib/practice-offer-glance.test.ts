@@ -88,7 +88,7 @@ test("Ir a practicar sits on the offer title and carries the active offer", () =
   const toggleAt = page.indexOf("Añadir llamadas");
   assert.ok(toggleAt > 0 && uploadAt > toggleAt);
   assert.match(page, /showCallUpload \? "Ocultar formulario" : "Añadir llamadas"/);
-  assert.match(page, /readableTitle\(row\.title\)/);
+  assert.match(page, /transcriptListRows\(callRows\)/);
   assert.match(page, /setCallsForOffer\(null\)/);
   assert.match(page, /transcripts: \[\]/);
   assert.match(page, /aria-label="Cargando llamadas"/);

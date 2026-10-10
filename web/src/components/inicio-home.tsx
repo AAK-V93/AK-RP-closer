@@ -11,7 +11,7 @@ import { moneyLabel } from "@/lib/crm-operacion";
 import { invalidateHub } from "@/lib/hub-client";
 import type { CommissionProjection } from "@/lib/crm-projection";
 import { fichaFromInicio } from "@/lib/ficha-target";
-import { listSubtitle, type ChipTone, type InicioBlock, type InicioRow } from "@/lib/inicio-view";
+import { listSubtitle, seguimientoLine, type ChipTone, type InicioBlock, type InicioRow } from "@/lib/inicio-view";
 import { porConfirmarLabel } from "@/lib/plain-labels";
 
 type PracticeCard = { practiceHref: string; drill: string; pattern: string };
@@ -451,7 +451,7 @@ function TodayList({
 
   return (
     <section aria-labelledby="lista-hoy" className="min-w-0 lg:rounded-2xl lg:border lg:border-separator1 lg:bg-bg1 lg:pb-1 lg:pt-2">
-      <div className="mx-1 mb-2.5 mt-[18px] flex items-baseline justify-between gap-3 lg:m-0 lg:px-6 lg:pb-2.5 lg:pt-4">
+      <div className="mx-1 mb-2.5 mt-[18px] flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 lg:m-0 lg:px-6 lg:pb-2.5 lg:pt-4">
         <h2 id="lista-hoy" className="flex items-center font-display text-[22px] font-semibold text-fg0 lg:text-2xl">
           Tu lista de hoy
           <InfoTip label="Cómo se ordena tu lista">
@@ -467,9 +467,10 @@ function TodayList({
           </InfoTip>
         </h2>
         <span className="hidden text-[13px] text-fg3 lg:inline">{listSubtitle(inicio.goal.metaUsd != null)}</span>
-        {rows.length > 0 && (
-          <span className="text-xs text-fg3 lg:hidden">
-            {rows.length === 1 ? "1 persona" : `${rows.length} personas`}
+        {inicio.list.total > 0 && (
+          <span data-seguimiento-line className="w-full text-xs text-fg3 lg:w-auto">
+            {/* Same numbers and words as the CRM («27 personas para hoy · 34 personas en seguimiento»). */}
+            {seguimientoLine({ hoy: inicio.list.hoy ?? 0, total: inicio.list.total })}
           </span>
         )}
       </div>

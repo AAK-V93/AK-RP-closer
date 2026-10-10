@@ -3,7 +3,7 @@ import { isNonSalesCall } from "@/lib/call-kind";
 import { offerRules } from "@/lib/inicio-view";
 import { foldOffer } from "@/lib/offer-name";
 import { normalizePersonName, samePersonName } from "@/lib/lead-match";
-import { buildPersonFacts, callsForPerson, stagesByLead, type FactCall, type FactLead, type PersonFacts } from "@/lib/person-facts";
+import { buildPersonFacts, callNamesSomeoneElse, callsForPerson, stageMapByLead, type FactCall, type FactLead, type PersonFacts } from "@/lib/person-facts";
 
 /** Read-only loads for the ficha and the chat. Nothing here writes. */
 
@@ -75,7 +75,8 @@ export function peopleIndex(loaded: Loaded): PersonRef[] {
   const seen = new Set(people.map((person) => normalizePersonName(person.name)));
   for (const call of loaded.calls) {
     const filing = (call.filingJson || {}) as { lead_id?: string };
-    if (filing.lead_id && loaded.leads.some((lead) => lead.id === filing.lead_id)) continue;
+    const owner = filing.lead_id ? loaded.leads.find((lead) => lead.id === filing.lead_id) : undefined;
+    if (owner && !callNamesSomeoneElse(owner.name, callName(call))) continue;
     const name = callName(call);
     const key = normalizePersonName(name);
     if (!key || seen.has(key) || /^sin nombre/.test(key)) continue;
@@ -102,7 +103,7 @@ export function findPerson(
     if (call) {
       const filing = (call.filingJson || {}) as { lead_id?: string };
       const byLead = filing.lead_id ? people.find((person) => person.leadId === filing.lead_id) : null;
-      if (byLead) return byLead;
+      if (byLead && !callNamesSomeoneElse(byLead.name, callName(call))) return byLead;
       const name = callName(call);
       const byName = people.find((person) => samePersonName(person.name, name));
       if (byName) return byName;
@@ -125,6 +126,7 @@ export async function loadPersonFacts(
   loaded: Loaded,
   person: PersonRef,
   now = new Date(),
+  openedFromDay?: string | null,
 ): Promise<PersonFacts> {
   const lead = person.leadId ? loaded.leads.find((row) => row.id === person.leadId) || null : null;
   const calls = callsForPerson({ id: person.leadId || person.id, name: person.name }, loaded.calls);
@@ -149,12 +151,12 @@ export async function loadPersonFacts(
     prisma.userOffer.findMany({ where: { userId }, select: { productName: true, commercial: true } }),
   ]);
   const rules = offerRules(offers);
-  const facts = buildPersonFacts({ lead, name: person.name, calls, alerts, now });
+  const facts = buildPersonFacts({ lead, name: person.name, calls, alerts, now, openedFromDay });
   const rule = facts.offer
     ? rules.find((row) => [row.productName, ...row.aliases].some((name) => foldOffer(name) === foldOffer(facts.offer)))
     : null;
   if (!rule?.scripts.length) return facts;
-  return buildPersonFacts({ lead, name: person.name, calls, alerts, scripts: rule.scripts, now });
+  return buildPersonFacts({ lead, name: person.name, calls, alerts, scripts: rule.scripts, now, openedFromDay });
 }
 
 /** «Seguimiento N de 10» per lead for the CRM sheets. Read-only. */
@@ -162,9 +164,16 @@ export async function loadStages(prisma: PrismaClient, userId: string) {
   const [loaded, alerts] = await Promise.all([
     loadPeople(prisma, userId),
     prisma.leadAlert.findMany({
-      where: { userId, resolvedAt: { not: null } },
-      select: { leadId: true, resolvedAt: true, resultado: true },
+      where: { userId },
+      select: { leadId: true, resolvedAt: true, resultado: true, dueAt: true },
     }),
   ]);
-  return stagesByLead({ leads: loaded.leads, calls: loaded.calls, alerts });
+  const map = stageMapByLead({ leads: loaded.leads, calls: loaded.calls, alerts });
+  const stages: Record<string, string> = {};
+  const stageCounts: Record<string, number | null> = {};
+  for (const [key, stage] of Object.entries(map)) {
+    stages[key] = stage?.label || "";
+    stageCounts[key] = stage ? stage.count : null;
+  }
+  return { stages, stageCounts };
 }

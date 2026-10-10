@@ -6,8 +6,9 @@ import {
   pickOpenByName,
 } from "@/lib/crm-followups";
 import { calendarDaysBetween, zonedDayKey, zonedMonthRange } from "@/lib/crm-time";
-import { closerFacingNote, followupChip, initialsOf, nextStepText, shownOffer, type FollowupChip } from "@/lib/inicio-view";
-import { periodOutcomes, type OutcomeCall } from "@/lib/outcome-counts";
+import { stageBucket, type StageBucketId } from "@/lib/followup-stage";
+import { closerFacingNote, followupChip, initialsOf, nextStepText, seguimientoCounts, seguimientoLine, shownOffer, type FollowupChip } from "@/lib/inicio-view";
+import { lostPeopleKeys, periodOutcomes, type OutcomeCall } from "@/lib/outcome-counts";
 
 /** «A quién contactar hoy» stays a short list. The rest is «Ver más». */
 export const CRM_HOY_CAP = 7;
@@ -82,6 +83,8 @@ export type CrmBoard = {
   subtitle: string;
   hoy: CrmBoardPerson[];
   hoyNote: string;
+  /** Same numbers as Inicio: people for today and people in seguimiento. */
+  seguimiento: { hoy: number; total: number };
   /** Cerrados and perdidos are null when that signal was never recorded («sin datos»). */
   counts: { cerrados: number | null; seguimiento: number; perdidos: number | null };
   rows: CrmBoardPerson[];
@@ -184,6 +187,10 @@ export function buildCrmBoard(args: {
   bucket?: CrmBoardBucket;
   now?: Date;
   money?: (value: number) => string;
+  /** Attempts since the last call per lead id / «call:<id>» (null = no stage). From the CRM API. */
+  stageCounts?: Record<string, number | null> | null;
+  /** «Sin seguimiento aún», «1–2», «3–5», «6–10», «Más de 10». Only En seguimiento. */
+  stageFilter?: StageBucketId | "todas";
 }): CrmBoard {
   const now = args.now || new Date();
   const today = zonedDayKey(now);
@@ -223,6 +230,8 @@ export function buildCrmBoard(args: {
     day: string;
     bucket: CrmBoardBucket;
     amount: number;
+    /** Added only for a name search (another month). Not counted in the tabs. */
+    extra?: boolean;
   };
   const drafts: Draft[] = [];
 
@@ -250,14 +259,22 @@ export function buildCrmBoard(args: {
     leadStatus: row.leadStatus,
     seguimientoResultado: row.seguimientoResultado,
     razonNoCierre: row.razonNoCierre,
+    fechaProximo: row.fechaProximo,
   }));
   for (const row of args.followups) {
-    if (!row.leadStatus || !matchesBoardOffer(shownOffer(row.oferta), offer)) continue;
+    if (!matchesBoardOffer(shownOffer(row.oferta), offer)) continue;
+    // An open follow-up keeps the person in play even if a call stored a razón de no cierre.
     evidence.push({
       cliente: row.cliente,
       fecha: followupCalendarDay(row),
       leadStatus: row.leadStatus,
+      fechaProximo: followupCalendarDay(row),
     });
+  }
+  // The status wins: someone marked perdido leaves «En seguimiento» and «hoy».
+  const skip = lostPeopleKeys(evidence);
+  for (let index = drafts.length - 1; index >= 0; index -= 1) {
+    if (drafts[index].bucket === "seguimiento" && skip.has(foldLeadName(drafts[index].name))) drafts.splice(index, 1);
   }
   const outcomes = periodOutcomes({ calls: evidence, period, now });
   const monthOutcomes = periodOutcomes({ calls: evidence, period: "mes", now });
@@ -286,9 +303,39 @@ export function buildCrmBoard(args: {
   for (const key of outcomes.wonKeys) pushOutcome(key, "cerrados");
   for (const key of outcomes.lostKeys) pushOutcome(key, "perdidos");
 
+  // A name search looks in every tab and every month, not only the tab that is open.
+  if (query) {
+    const all = periodOutcomes({ calls: evidence, period: "todo", now });
+    const have = new Set(drafts.map((row) => `${row.bucket}:${foldLeadName(row.name)}`));
+    const before = drafts.length;
+    for (const key of all.wonKeys) if (!have.has(`cerrados:${key}`)) pushOutcome(key, "cerrados");
+    for (const key of all.lostKeys) if (!have.has(`perdidos:${key}`)) pushOutcome(key, "perdidos");
+    for (let index = before; index < drafts.length; index += 1) drafts[index].extra = true;
+  }
+
+  const stageOf = (row: Draft) => {
+    const counts = args.stageCounts;
+    if (!counts) return undefined;
+    const leadId = String(row.followup?.leadId || row.call?.leadId || "");
+    if (leadId && leadId in counts) return counts[leadId];
+    if (row.call?.id && `call:${row.call.id}` in counts) return counts[`call:${row.call.id}`];
+    return undefined;
+  };
+  // Only on the En seguimiento tab and not during a name search (the select is hidden then).
+  const stageFilter =
+    !query && bucket === "seguimiento" && args.stageFilter && args.stageFilter !== "todas" ? args.stageFilter : null;
+  const stageOk = (row: Draft) => {
+    if (!stageFilter) return true;
+    if (row.bucket !== "seguimiento") return false;
+    const count = stageOf(row);
+    // Unknown count (no data loaded yet) counts as «Sin seguimiento aún».
+    return stageBucket(count === undefined ? 0 : count) === stageFilter;
+  };
+
   const offerOk = (row: Draft) => matchesBoardOffer(row.offer, offer);
   // Cierres and perdidos are already limited to the period. Seguimiento stays every open follow-up.
   const scoped = drafts.filter((row) => (row.bucket === "seguimiento" ? offerOk(row) : true));
+  const tabbed = scoped.filter((row) => !row.extra);
   const searched = query ? scoped.filter((row) => fold(row.name).includes(query)) : scoped;
 
   const toPerson = (row: Draft): CrmBoardPerson => {
@@ -321,7 +368,7 @@ export function buildCrmBoard(args: {
 
   const counts = {
     cerrados: outcomes.won,
-    seguimiento: scoped.filter((row) => row.bucket === "seguimiento").length,
+    seguimiento: tabbed.filter((row) => row.bucket === "seguimiento").length,
     perdidos: outcomes.lost,
   };
 
@@ -329,15 +376,16 @@ export function buildCrmBoard(args: {
   const hoyDrafts = drafts.filter(
     (row) => row.bucket === "seguimiento" && offerOk(row) && row.day && calendarDaysBetween(row.day, today) <= 0,
   );
-  const hoy = hoyDrafts.map(toPerson);
+  const hoy = hoyDrafts.filter(stageOk).map(toPerson);
 
-  const inBucket = searched.filter((row) => row.bucket === bucket);
+  // With a search, every tab: one row per person and tab, the tab says where they are.
+  const inBucket = (query ? dedupeSearch(searched) : searched.filter((row) => row.bucket === bucket)).filter(stageOk);
   if (bucket === "cerrados" || bucket === "perdidos") {
     inBucket.sort((a, b) => (b.day || "").localeCompare(a.day || "") || a.name.localeCompare(b.name, "es"));
   }
   const hoyNames = new Set(hoyDrafts.map((row) => fold(row.name)));
   const tableDrafts =
-    bucket === "seguimiento" ? inBucket.filter((row) => !hoyNames.has(fold(row.name))) : inBucket;
+    bucket === "seguimiento" && !query ? inBucket.filter((row) => !hoyNames.has(fold(row.name))) : inBucket;
   const rows = tableDrafts.map(toPerson);
 
   const monthCalls = calls.filter((row) => String(row.fecha || "").startsWith(month.key) && matchesBoardOffer(shownOffer(row.oferta) || shownOffer(row.producto), offer));
@@ -354,21 +402,33 @@ export function buildCrmBoard(args: {
         ? "1 persona cerró este mes"
         : `${monthClosed} personas cerraron este mes`;
   const cashLine = cobrado > 0 ? `${money(cobrado)} cobrados` : "";
-  const subtitle = [closedLine, cashLine].filter(Boolean).join(" · ");
+  const monthLost = monthOutcomes.lost;
+  const lostLine =
+    monthLost == null || monthLost <= 0 ? "" : monthLost === 1 ? "1 perdido este mes" : `${monthLost} perdidos este mes`;
+  const subtitle = [closedLine, lostLine, cashLine].filter(Boolean).join(" · ");
 
-  const openCount = counts.seguimiento;
-  const hoyNote =
-    hoy.length === 0
-      ? `Hoy no toca nadie · ${peoplePhrase(openCount, "en seguimiento")}`
-      : `${peoplePhrase(hoy.length, "para hoy")} · ${peoplePhrase(openCount, "en seguimiento")}`;
+  // Same computation, words and numbers as Inicio (seguimientoCounts / seguimientoLine).
+  // With an offer picked, the numbers are for that offer.
+  const shared = seguimientoCounts(
+    args.followups.map((row) => ({ ...row, dueAt: row.dueAt || "", oferta: row.oferta ?? null })),
+    now,
+    skip,
+  );
+  const seguimientoNumbers =
+    offer === "todas" || !offer
+      ? { hoy: shared.hoy, total: shared.total }
+      : { hoy: hoyDrafts.length, total: counts.seguimiento };
+  const hoyNote = seguimientoLine(seguimientoNumbers);
 
-  const total = counts[bucket];
+  const total = query ? inBucket.length : counts[bucket];
   const shown = rows.length;
   const order = bucket === "seguimiento" ? "ordenados por fecha de seguimiento" : "ordenados por fecha";
   const footer =
     total == null
       ? ""
-      : bucket === "seguimiento" && !query && total > 0
+      : query
+        ? `${peoplePhrase(total, "")} con «${(args.query || "").trim()}» en todas las pestañas`
+        : bucket === "seguimiento" && total > 0
         ? shown === 0
           ? peoplePhrase(total, "en seguimiento")
           : `${peoplePhrase(shown, "más adelante")} · ${peoplePhrase(total, "en seguimiento")}`
@@ -376,7 +436,11 @@ export function buildCrmBoard(args: {
           ? `${peoplePhrase(total, "")} · ${order}`
           : `${shown} de ${total} · ${order}`;
   const empty =
-    bucket === "cerrados" && outcomes.won == null
+    query && shown === 0
+      ? "Nadie con ese nombre en tu CRM."
+      : stageFilter && shown === 0
+        ? "Nadie en esa etapa de seguimiento."
+        : bucket === "cerrados" && outcomes.won == null
       ? "Sin datos de cierres en este período."
       : bucket === "perdidos" && outcomes.lost == null
         ? "Sin datos de perdidos en este período."
@@ -394,6 +458,7 @@ export function buildCrmBoard(args: {
     subtitle,
     hoy,
     hoyNote,
+    seguimiento: seguimientoNumbers,
     counts,
     rows,
     shown,
@@ -405,3 +470,17 @@ export function buildCrmBoard(args: {
 }
 
 export const CRM_BOARD_BUCKETS = BUCKETS;
+
+/** A search shows each person once per tab; seguimiento first, then cerrados, then perdidos. */
+function dedupeSearch<T extends { name: string; bucket: CrmBoardBucket }>(rows: T[]) {
+  const order: Record<CrmBoardBucket, number> = { seguimiento: 0, cerrados: 1, perdidos: 2 };
+  const seen = new Set<string>();
+  return [...rows]
+    .sort((a, b) => order[a.bucket] - order[b.bucket] || a.name.localeCompare(b.name, "es"))
+    .filter((row) => {
+      const key = `${row.bucket}:${foldLeadName(row.name)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}

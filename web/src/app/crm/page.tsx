@@ -1,5 +1,8 @@
 "use client";
 
+import { cleanNote } from "@/lib/agreement-summary";
+import { cobradoSinComision } from "@/lib/deal-money";
+import type { StageBucketId } from "@/lib/followup-stage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -147,6 +150,8 @@ type Dash = {
   today?: string;
   /** «Seguimiento N de 10» per lead id / «call:<id>», same helper as the ficha. */
   stages?: Record<string, string>;
+  /** Attempts since the last call (null = no stage), same keys as `stages`. */
+  stageCounts?: Record<string, number | null>;
   readyCrm?: boolean;
   missingCrm?: { question: string } | null;
   now?: Record<string, number>;
@@ -224,6 +229,7 @@ export default function CrmPage() {
   const [onlyActivas, setOnlyActivas] = useState(false);
   const [bucket, setBucket] = useState<CrmBoardBucket>("seguimiento");
   const [period, setPeriod] = useState<CrmBoardPeriod>("mes");
+  const [stageFilter, setStageFilter] = useState<StageBucketId | "todas">("todas");
   const [boardQuery, setBoardQuery] = useState("");
   const [showColumns, setShowColumns] = useState(false);
   const [ficha, setFicha] = useState<FichaTarget | null>(null);
@@ -640,9 +646,11 @@ export default function CrmPage() {
       period,
       query: boardQuery,
       bucket,
+      stageCounts: data?.stageCounts || null,
+      stageFilter,
       money: (value) => moneyLabel(value, currency),
     });
-  }, [data?.operacion, data?.followups, offer, period, boardQuery, bucket, currency]);
+  }, [data?.operacion, data?.followups, data?.stageCounts, offer, period, boardQuery, bucket, stageFilter, currency]);
 
   const now = data?.now || {};
   const rendimiento = data?.rendimiento;
@@ -678,6 +686,8 @@ export default function CrmPage() {
               onOffer={setOffer}
               period={period}
               onPeriod={setPeriod}
+              stage={stageFilter}
+              onStage={setStageFilter}
               showColumns={showColumns}
               onToggleColumns={() => {
                 setShowColumns((value) => !value);
@@ -696,32 +706,11 @@ export default function CrmPage() {
 
             {showColumns && (
             <>
-            {offers.length > 1 && (
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant={offer === "todas" ? "primary" : "outline"}
-                  onClick={() => setOffer("todas")}
-                >
-                  Todas
-                </Button>
-                {offers.map((row) => (
-                  <Button
-                    key={row.id}
-                    size="sm"
-                    variant={offer === row.productName ? "primary" : "outline"}
-                    className="h-auto min-h-11 max-w-full whitespace-normal text-left lg:min-h-0"
-                    onClick={() => setOffer(row.productName)}
-                  >
-                    {row.productName}
-                  </Button>
-                ))}
-              </div>
-            )}
-
+            {/* Offer filter lives only in the board dropdown above (no repeated chips). */}
             <AhoraGlance
               now={now}
               money={money}
+              seguimiento={board.seguimiento}
               onOpen={(target) => {
                 if (target === "activas") {
                   setOnlyActivas(true);
@@ -932,7 +921,7 @@ export default function CrmPage() {
                 empty={
                   commissionsBase.length > 0 && commissions.length === 0
                     ? "Nada con estos filtros."
-                    : "Todavía no hay dinero cobrado en llamadas."
+                    : cobradoSinComision(operacionBase, (value) => money(value))
                 }
               />
             )}
@@ -1230,16 +1219,19 @@ function CashEditor({
 function AhoraGlance({
   now,
   money,
+  seguimiento,
   onOpen,
 }: {
   now: Record<string, number>;
   money: (value: number | null | undefined) => string;
+  /** Same numbers as Inicio (seguimientoCounts). */
+  seguimiento: { hoy: number; total: number };
   onOpen: (target: "activas" | "hoy" | "dinero") => void;
 }) {
-  const acciones = followupCardStatus(now.seguimientosHoy || 0, now.seguimientosVencidos || 0);
+  const people = (n: number) => (n === 1 ? "1 persona" : `${n} personas`);
   const items: { id: "activas" | "hoy" | "dinero"; label: string; value: string }[] = [
-    { id: "activas", label: "Leads activos", value: String(now.oportunidadesActivas || 0) },
-    { id: "hoy", label: "Acciones de hoy", value: acciones },
+    { id: "hoy", label: "En seguimiento", value: people(seguimiento.total) },
+    { id: "hoy", label: "Para hoy", value: seguimiento.hoy ? people(seguimiento.hoy) : "Nadie" },
     { id: "dinero", label: "Dinero en juego", value: money(now.dineroEnJuego) },
   ];
   return (
@@ -1248,7 +1240,7 @@ function AhoraGlance({
       <div className="divide-y divide-separator1 border-t border-separator1">
         {items.map((item) => (
           <button
-            key={item.id}
+            key={item.label}
             type="button"
             onClick={() => onOpen(item.id)}
             className="flex w-full items-baseline justify-between gap-4 py-3 text-left"
@@ -1258,7 +1250,6 @@ function AhoraGlance({
           </button>
         ))}
       </div>
-      <p className="text-xs text-fg3">{ACTIVA_EXPLAIN}</p>
     </div>
   );
 }
@@ -1383,7 +1374,7 @@ function OperacionSheet({
     { key: "tipo", label: "Tipo de seguimiento", width: 180, hideOnMobile: true, value: (row) => plainStatus(shownFollowupKind(row, glanceFollowup(row, followups))) },
     { key: "acuerdo", label: "Acuerdo", width: 140, value: (row) => row.acuerdo },
     { key: "razon", label: "Razón no cierre", width: 140, value: (row) => row.razonNoCierre },
-    { key: "notas", label: "Notas", width: 160, value: (row) => row.notas },
+    { key: "notas", label: "Notas", width: 160, value: (row) => cleanNote(row.notas || "") },
   ];
   const glanceOf = (row: OperacionRow) => {
     const followup = glanceFollowup(row, followups);
@@ -1469,7 +1460,7 @@ function OperacionSheet({
               ["Tipo de seguimiento", plainStatus(shownFollowupKind(selected, glanceFollowup(selected, followups)))],
               ["Acuerdo", selected.acuerdo],
               ["Razón no cierre", selected.razonNoCierre],
-              ["Notas", selected.notas],
+              ["Notas", cleanNote(selected.notas || "", 6)],
             ] as [string, string][]
           ).map(([label, value]) => (
             <p key={label} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">

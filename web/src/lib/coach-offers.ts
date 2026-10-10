@@ -20,6 +20,7 @@ export type CoachEvidence = {
   leadStatus?: string | null;
   seguimientoResultado?: string | null;
   razonNoCierre?: string | null;
+  fechaProximo?: string | null;
   oferta?: string | null;
   producto?: string | null;
   interna?: boolean;
@@ -70,6 +71,7 @@ function toOutcome(row: CoachEvidence): OutcomeCall {
     leadStatus: row.leadStatus,
     seguimientoResultado: row.seguimientoResultado,
     razonNoCierre: row.razonNoCierre,
+    fechaProximo: row.fechaProximo,
   };
 }
 

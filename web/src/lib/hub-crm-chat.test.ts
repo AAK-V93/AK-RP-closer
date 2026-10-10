@@ -1009,7 +1009,7 @@ test("a cuota adds to the Cobrado the CRM already shows and does not apply twice
   if (turn.kind !== "confirm") return;
   assert.equal(turn.proposal.changes[0]?.from, "533");
   assert.equal(turn.proposal.changes[0]?.to, "1066");
-  assert.match(turn.reply, /Cobrado de Valeria Ríos de 533 a 1\.066 \(2ª cuota\)/);
+  assert.match(turn.reply, /Cobrado de Valeria Ríos de USD 533 a USD 1\.066 \(2ª cuota\)/);
   assert.ok(turn.proposal.applyKey);
 
   const repeat = interpretCrmChat(sentence, {
@@ -1019,7 +1019,7 @@ test("a cuota adds to the Cobrado the CRM already shows and does not apply twice
   });
   assert.equal(repeat.kind, "answer");
   if (repeat.kind !== "answer") return;
-  assert.match(repeat.reply, /sigue en 1\.066/);
+  assert.match(repeat.reply, /sigue en USD 1\.066/);
   assert.match(repeat.reply, /No lo sumé otra vez/);
 
   let paid = "533";
@@ -1052,7 +1052,7 @@ test("a cuota adds to the Cobrado the CRM already shows and does not apply twice
   assert.equal(paid, "1066");
   assert.equal(cash, 1066);
   const second = await applyChatProposal(prisma as unknown as PrismaClient, "user-1", turn.proposal);
-  assert.match(second.reply, /ya está en 1\.066/);
+  assert.match(second.reply, /ya está en USD 1\.066/);
   assert.match(second.reply, /No lo sumé otra vez/);
   assert.equal(paid, "1066");
   assert.equal(cash, 1066);

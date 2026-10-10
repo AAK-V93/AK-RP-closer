@@ -179,7 +179,7 @@ export default function CoachPage() {
                   className="flex justify-between gap-3 rounded-xl border border-separator1 bg-bg1 p-4 text-sm"
                 >
                   <Link href={`/coach/${item.id}`} className="min-w-0 flex-1">
-                    <p className="font-medium">{item.productName}</p>
+                    <p className="font-medium">{closerSpanish(item.productName || "")}</p>
                     <p className="text-xs text-fg3">
                       {[
                         item.callSection === "qc_transcript"
@@ -197,7 +197,8 @@ export default function CoachPage() {
                       />
                     )}
                   </Link>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
+                  {/* «Ver» on top, the trash far below it: hard to hit by accident (and it asks first). */}
+                  <div className="flex shrink-0 flex-col items-end justify-between gap-6">
                     <Link href={`/coach/${item.id}`} className="inline-flex min-h-11 items-center text-xs text-fg3">
                       Ver
                       <ChevronRight className="h-3.5 w-3.5" />

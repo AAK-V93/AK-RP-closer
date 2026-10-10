@@ -187,10 +187,12 @@ export function CloserCoachChat({
           <Button
             type="submit"
             variant="primary"
-            disabled={sending || loading || !draft.trim()}
-            className="shrink-0 h-11"
+            disabled={sending || loading}
+            aria-label="Enviar al coach"
+            className="h-11 shrink-0 gap-1.5 px-4"
           >
             <Send className="h-4 w-4" />
+            Enviar
           </Button>
         </div>
       </form>

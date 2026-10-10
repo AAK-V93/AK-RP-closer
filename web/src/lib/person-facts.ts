@@ -1,8 +1,12 @@
-import { agreementSummary, agreementFromField, wholeSentences, type AgreementSummary } from "@/lib/agreement-summary";
+import { agreementSummary, agreementFromField, cleanNote, type AgreementSummary } from "@/lib/agreement-summary";
 import { calendarDaysBetween, zonedDayKey } from "@/lib/crm-time";
 import { followupStage, type FollowupStage } from "@/lib/followup-stage";
-import { closerFacingNote, messageIdeas, shownOffer, type OfferScript } from "@/lib/inicio-view";
-import { samePersonName } from "@/lib/lead-match";
+import { closerFacingNote, shownOffer, type OfferScript } from "@/lib/inicio-view";
+import { personMessages } from "@/lib/person-messages";
+import { filingNamesFullyMatch, normalizePersonName, samePersonName } from "@/lib/lead-match";
+import { personOutcome, type OutcomeCall } from "@/lib/outcome-counts";
+import { cleanReason } from "@/lib/crm-operacion";
+import { dealMoney, saleCall } from "@/lib/deal-money";
 import { moneyLabel } from "@/lib/crm-operacion";
 import { plainStatus } from "@/lib/plain-labels";
 
@@ -104,6 +108,8 @@ export type PersonFacts = {
   history: HistoryItem[];
   messages: string[];
   openAlertId: string;
+  /** Newest CRM call of the person (to save a phone when there is no lead yet). */
+  callId: string;
 };
 
 const MONTHS_SHORT = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -135,25 +141,96 @@ function callDay(call: FactCall) {
   return dayOf(call.recordedAt || call.createdAt || null);
 }
 
+function callNameOf(call: FactCall) {
+  const filing = filingOf(call.filingJson);
+  return String(filing.cliente_real || call.leadName || "").trim();
+}
+
+const NAME_PARTICLES = new Set(["de", "del", "la", "las", "los", "y", "e", "da", "do", "van", "von"]);
+
+function nameTokens(value: string) {
+  return normalizePersonName(value)
+    .split(" ")
+    .filter((part) => part.length > 1 && !NAME_PARTICLES.has(part));
+}
+
+/**
+ * A call stamped with this lead but whose own full name is clearly another person:
+ * only the first name is shared («Carlos Ramírez» vs «Carlos y Luciana Quito»).
+ * Old filings (before full-name matching, oct 2026) linked calls by first name.
+ * We don't change the data; we just don't mix that call into this person.
+ */
+export function callNamesSomeoneElse(leadName: string, callName: string) {
+  const lead = nameTokens(leadName);
+  const call = nameTokens(callName);
+  if (lead.length < 2 || call.length < 2) return false;
+  if (filingNamesFullyMatch(leadName, callName)) return false;
+  const surnames = new Set(lead.slice(1));
+  return !call.some((token) => surnames.has(token));
+}
+
 /** Calls of this person: stamped with the lead id, or the same full name. */
 export function callsForPerson(lead: { id: string; name: string }, calls: readonly FactCall[]) {
   return calls.filter((call) => {
     const filing = filingOf(call.filingJson);
-    if (filing.lead_id) return filing.lead_id === lead.id;
+    if (filing.lead_id) {
+      if (filing.lead_id === lead.id) return !callNamesSomeoneElse(lead.name, callNameOf(call));
+      // A person who only exists on calls («name:…») keeps a call that an old filing stamped on someone else.
+      return lead.id.startsWith("name:") && samePersonName(lead.name, callNameOf(call));
+    }
     const name = String(call.leadName || filing.cliente_real || "").trim();
     return Boolean(name) && samePersonName(lead.name, name);
   });
 }
 
-const ENDED_STATUS = /^(cerrad|ganad|perdid|cliente)/i;
+/** The rows the CRM tabs use to say Cerró / Perdido, for this person's calls. */
+function outcomeRows(
+  lead: Pick<FactLead, "status" | "razonNoCierre"> | null,
+  calls: readonly FactCall[],
+  openDays: readonly string[] = [],
+): OutcomeCall[] {
+  const rows: OutcomeCall[] = calls.map((call) => {
+    const filing = filingOf(call.filingJson);
+    return {
+      cliente: "x",
+      fecha: callDay(call),
+      estadoAgenda: String(filing.estado_agenda || call.estadoAgenda || ""),
+      leadStatus: lead?.status || "",
+      seguimientoResultado: String(filing.seguimiento_resultado || ""),
+      razonNoCierre: cleanReason(String(filing.razon_no_cierre || "") || String(lead?.razonNoCierre || "")),
+      fechaProximo: String(filing.proximo_seguimiento || "").trim().slice(0, 10),
+    };
+  });
+  for (const day of openDays) rows.push({ cliente: "x", leadStatus: lead?.status || "", fechaProximo: day });
+  if (!rows.length && lead) rows.push({ cliente: "x", leadStatus: lead.status || "", razonNoCierre: cleanReason(lead.razonNoCierre) });
+  return rows;
+}
 
-function statusOf(lead: FactLead | null, last: FactCall | undefined) {
+/**
+ * Cerró / Perdido / En seguimiento with the SAME rule as the CRM tabs, so a person in
+ * Perdidos is Perdido in the ficha and the chat too. The status wins over follow-ups.
+ */
+export function personStatus(
+  lead: Pick<FactLead, "status" | "razonNoCierre"> | null,
+  calls: readonly FactCall[],
+  alerts: readonly Pick<FactAlert, "resolvedAt" | "dueAt">[] = [],
+) {
   const raw = String(lead?.status || "").trim().toLowerCase();
-  const estado = String(filingOf(last?.filingJson).estado_agenda || last?.estadoAgenda || "").toUpperCase();
-  const lost = /perdid/.test(raw) || String(filingOf(last?.filingJson).seguimiento_resultado || "") === "perdido";
-  if (lost) return { status: "Perdido", ended: true };
-  if (/cerrad|ganad|cliente/.test(raw) || estado === "CIERRE VENTA") return { status: "Cerró", ended: true };
-  return { status: "En seguimiento", ended: ENDED_STATUS.test(raw) };
+  const openDays = alerts.filter((row) => !row.resolvedAt).map((row) => dayOf(row.dueAt || null)).filter(Boolean);
+  const outcome = personOutcome(outcomeRows(lead, calls, openDays));
+  if (outcome.kind === "won" || /cerrad|ganad|cliente/.test(raw)) {
+    return { status: "Cerró", ended: true, lost: false, reason: "" };
+  }
+  if (outcome.kind === "lost") return { status: "Perdido", ended: true, lost: true, reason: outcome.reason };
+  return { status: "En seguimiento", ended: false, lost: false, reason: "" };
+}
+
+function statusOf(
+  lead: Pick<FactLead, "status" | "razonNoCierre"> | null,
+  calls: readonly FactCall[],
+  alerts: readonly Pick<FactAlert, "resolvedAt" | "dueAt">[] = [],
+) {
+  return personStatus(lead, calls, alerts);
 }
 
 const RAZON_PHRASE: Record<string, string> = {
@@ -177,9 +254,31 @@ function money(value: number | null | undefined) {
   return Number.isFinite(n) && n > 0 ? moneyLabel(n, "USD") : "";
 }
 
-function moneyText(value: string | null | undefined) {
-  const n = Number(String(value || "").replace(/[^\d.]/g, ""));
-  return Number.isFinite(n) && n > 0 ? moneyLabel(n, "USD") : "";
+
+function words(value: string) {
+  return new Set(
+    value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word.length > 3),
+  );
+}
+
+/** Drops near-copies («Llamar el viernes para cerrar tras hablarlo con la socia» after the longer one). */
+function uniqNear(values: string[]) {
+  const kept: { text: string; words: Set<string> }[] = [];
+  for (const value of uniq(values)) {
+    const mine = words(value);
+    const twin = kept.some((row) => {
+      const shared = [...mine].filter((word) => row.words.has(word)).length;
+      const smaller = Math.min(mine.size, row.words.size) || 1;
+      return shared / smaller >= 0.6;
+    });
+    if (!twin) kept.push({ text: value, words: mine });
+  }
+  return kept.map((row) => row.text);
 }
 
 function uniq(values: string[]) {
@@ -210,14 +309,14 @@ const RESULT_LABEL: Record<string, string> = {
  * Null for cerrados and perdidos.
  */
 export function personStage(args: {
-  lead: Pick<FactLead, "status"> | null;
+  lead: Pick<FactLead, "status" | "razonNoCierre"> | null;
   calls: readonly FactCall[];
-  alerts?: readonly Pick<FactAlert, "resolvedAt" | "resultado">[];
+  alerts?: readonly Pick<FactAlert, "resolvedAt" | "resultado" | "dueAt">[];
 }): FollowupStage | null {
   const calls = [...args.calls].sort((a, b) => callDay(b).localeCompare(callDay(a)));
   const last = calls[0];
   const lastFiling = filingOf(last?.filingJson);
-  if (statusOf(args.lead as FactLead | null, last).ended) return null;
+  if (statusOf(args.lead, calls, (args.alerts || []) as FactAlert[]).ended) return null;
   return followupStage({
     status: args.lead?.status,
     callDates: calls.map((call) => call.recordedAt || call.createdAt || null),
@@ -230,12 +329,12 @@ export function personStage(args: {
  * Stage label per lead id (and «call:<id>» for calls with no lead) for the CRM sheets.
  * Empty string = no stage (cerrado / perdido). Pure: the caller loads the rows read-only.
  */
-export function stagesByLead(args: {
+export function stageMapByLead(args: {
   leads: readonly Pick<FactLead, "id" | "name" | "status">[];
   calls: readonly FactCall[];
-  alerts: readonly (Pick<FactAlert, "resolvedAt" | "resultado"> & { leadId: string })[];
-}): Record<string, string> {
-  const out: Record<string, string> = {};
+  alerts: readonly (Pick<FactAlert, "resolvedAt" | "resultado" | "dueAt"> & { leadId: string })[];
+}): Record<string, FollowupStage | null> {
+  const out: Record<string, FollowupStage | null> = {};
   const byLead = new Map<string, (typeof args.alerts)[number][]>();
   for (const alert of args.alerts) {
     const list = byLead.get(alert.leadId) || [];
@@ -247,6 +346,8 @@ export function stagesByLead(args: {
   const loose: FactCall[] = [];
   for (const call of args.calls) {
     const leadId = String(filingOf(call.filingJson).lead_id || "");
+    const owner = leadId ? args.leads.find((lead) => lead.id === leadId) : undefined;
+    if (owner && callNamesSomeoneElse(owner.name, callNameOf(call))) continue;
     if (!leadId) {
       loose.push(call);
       continue;
@@ -259,13 +360,22 @@ export function stagesByLead(args: {
   for (const lead of args.leads) {
     const calls = [...(stamped.get(lead.id) || []), ...callsForPerson(lead, loose)];
     for (const call of calls) claimed.add(call.id);
-    out[lead.id] = personStage({ lead, calls, alerts: byLead.get(lead.id) || [] })?.label || "";
+    out[lead.id] = personStage({ lead, calls, alerts: byLead.get(lead.id) || [] });
   }
   for (const call of args.calls) {
     if (claimed.has(call.id)) continue;
-    out[`call:${call.id}`] = personStage({ lead: null, calls: [call] })?.label || "";
+    out[`call:${call.id}`] = personStage({ lead: null, calls: [call] });
   }
   return out;
+}
+
+export function stagesByLead(args: Parameters<typeof stageMapByLead>[0]): Record<string, string> {
+  return Object.fromEntries(Object.entries(stageMapByLead(args)).map(([key, stage]) => [key, stage?.label || ""]));
+}
+
+/** Attempts since the last call per lead id / «call:<id>»; null = no stage (cerrado / perdido). For the CRM stage filter. */
+export function stageCountsByLead(args: Parameters<typeof stageMapByLead>[0]): Record<string, number | null> {
+  return Object.fromEntries(Object.entries(stageMapByLead(args)).map(([key, stage]) => [key, stage ? stage.count : null]));
 }
 
 export function buildPersonFacts(args: {
@@ -276,6 +386,8 @@ export function buildPersonFacts(args: {
   alerts?: readonly FactAlert[];
   scripts?: OfferScript[];
   now?: Date;
+  /** Day (YYYY-MM-DD) of the call the ficha was opened from, when it is not a CRM call (old Fathom row). */
+  openedFromDay?: string | null;
 }): PersonFacts {
   const now = args.now || new Date();
   const today = zonedDayKey(now);
@@ -285,7 +397,7 @@ export function buildPersonFacts(args: {
   const last = calls[0];
   const lastFiling = filingOf(last?.filingJson);
   const alerts = [...(args.alerts || [])];
-  const { status, ended } = statusOf(lead, last);
+  const { status, ended, lost, reason: lostReason } = statusOf(lead, calls, alerts);
 
   const offer =
     shownOffer(lead?.offerName) ||
@@ -302,7 +414,7 @@ export function buildPersonFacts(args: {
   const proximo = String(lastFiling.proximo_seguimiento || "");
   const nextDay = ended ? "" : dayOf(open?.dueAt) || (/^\d{4}-\d{2}-\d{2}/.test(proximo) ? proximo.slice(0, 10) : "") || dayOf(lead?.nextStepAt || null);
 
-  const summary = agreementSummary({
+  const summary: AgreementSummary = agreementSummary({
     agreements: [lastFiling.acuerdo_seguimiento, lead?.nextStep, ...calls.slice(1).map((call) => filingOf(call.filingJson).acuerdo_seguimiento)],
     notes: [lastFiling.notas_crm, last?.summary, lead?.lastSummary],
     tipo: ended ? "" : lastFiling.tipo_seguimiento || open?.type || "",
@@ -312,6 +424,40 @@ export function buildPersonFacts(args: {
   if (summary.agreed) {
     summary.agreed = closerFacingNote(summary.agreed);
     summary.text = [summary.agreed, summary.missing].filter(Boolean).join(" ");
+  }
+
+  // Money: one truth (deal-money), the same the CRM row and Comisiones read.
+  const sale = saleCall(
+    calls.map((call) => ({
+      call,
+      venta: call.ventaTotal ?? filingOf(call.filingJson).venta_total,
+      cash: call.cashCollected ?? filingOf(call.filingJson).cash_collected,
+    })),
+  );
+  const deal = dealMoney({
+    venta: sale?.venta ?? (Number(String(lead?.amountTalked || "").replace(/[^\d.]/g, "")) || null),
+    cash: sale?.cash ?? (Number(String(lead?.amountPaid || "").replace(/[^\d.]/g, "")) || null),
+    saldo: sale ? (sale.call.saldoPendiente ?? filingOf(sale.call.filingJson).saldo_pendiente) : null,
+  });
+
+  // The status wins: a Perdido says it was lost and why; a Cerró says what was paid.
+  if (lost) {
+    const why = objectionPhrase(lostReason);
+    const text = why ? `Se perdió. Lo que frenó la venta fue ${why}.` : "Se perdió. No quedó anotada la razón.";
+    summary.agreed = "";
+    summary.missing = "";
+    summary.text = text;
+    summary.clear = true;
+  } else if (status === "Cerró") {
+    const paid =
+      deal.total > 0 && deal.falta > 0
+        ? `Cerró. Pagó ${money(deal.pagado) || "USD 0"} de ${money(deal.total)}; falta ${money(deal.falta)}.`
+        : deal.total > 0
+          ? `Cerró. Pagó ${money(deal.pagado || deal.total)}.`
+          : "Cerró.";
+    summary.missing = "";
+    summary.text = [paid, summary.agreed].filter(Boolean).join(" ");
+    summary.clear = true;
   }
 
   const lastCallDay = last ? callDay(last) : "";
@@ -330,6 +476,10 @@ export function buildPersonFacts(args: {
     if (!day || !RESULT_LABEL[result]) continue;
     history.push({ day, date: shortDate(day, today), label: `Seguimiento · ${RESULT_LABEL[result]}`, kind: "followup" });
   }
+  const fromDay = /^\d{4}-\d{2}-\d{2}$/.test(String(args.openedFromDay || "")) ? String(args.openedFromDay) : "";
+  if (fromDay && !history.some((item) => item.kind === "call" && item.day === fromDay)) {
+    history.push({ day: fromDay, date: shortDate(fromDay, today), label: "Llamada", kind: "call" });
+  }
   history.sort((a, b) => b.day.localeCompare(a.day) || (a.kind === "call" ? -1 : 1));
 
   const lastContact = history[0]
@@ -346,9 +496,7 @@ export function buildPersonFacts(args: {
       .filter((value) => value && !/^otro$/i.test(value)),
   );
   const objections = uniq([String(lead?.objections || "").trim(), ...razones].filter(Boolean)).map(objectionPhrase).filter(Boolean);
-  const venta = calls.map((call) => money(call.ventaTotal ?? filingOf(call.filingJson).venta_total)).find(Boolean) || moneyText(lead?.amountTalked);
-  const cash = calls.reduce((sum, call) => sum + (Number(call.cashCollected ?? filingOf(call.filingJson).cash_collected) || 0), 0);
-  const saldo = money(last?.saldoPendiente ?? lastFiling.saldo_pendiente);
+  const venta = money(deal.total);
   const modo = calls.map((call) => String(call.modoPago || filingOf(call.filingJson).modo_pago || "").trim()).find(Boolean) || "";
 
   const details = {
@@ -356,9 +504,9 @@ export function buildPersonFacts(args: {
     objeciones: objections.join("; "),
     presupuesto: venta,
     formaPago: modo ? plainStatus(modo).toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "",
-    pagado: money(cash) || moneyText(lead?.amountPaid),
-    saldo,
-    acuerdos: uniq(
+    pagado: money(deal.pagado),
+    saldo: money(deal.falta),
+    acuerdos: uniqNear(
       calls
         .map((call) => agreementFromField(filingOf(call.filingJson).acuerdo_seguimiento))
         .concat(agreementFromField(lead?.nextStep))
@@ -366,23 +514,23 @@ export function buildPersonFacts(args: {
         .filter(Boolean),
     ),
     razonNoCierre: razones.join("; "),
-    notas: uniq(
+    notas: uniqNear(
       calls
-        .map((call) => wholeSentences(String(filingOf(call.filingJson).notas_crm || call.summary || ""), 3))
+        .map((call) => closerFacingNote(cleanNote(String(filingOf(call.filingJson).notas_crm || call.summary || ""), 3)))
         .filter(Boolean),
     ).slice(0, 4),
   };
 
-  const messages = ended
-    ? []
-    : messageIdeas({
-        name,
-        offer,
-        suggested: open?.mensajeSugerido || "",
-        scripts: args.scripts || [],
-        step: summary.clear ? summary.agreed : "",
-        tipo: lastFiling.tipo_seguimiento || open?.type || "",
-      });
+  const messages = personMessages({
+    firstName: firstNameOf(name),
+    offer,
+    status: lost ? "lost" : status === "Cerró" ? "won" : "open",
+    agreed: summary.agreed,
+    tipo: String(lastFiling.tipo_seguimiento || open?.type || ""),
+    objection: [lead?.objections, ...razones].filter(Boolean).join("; "),
+    decisor: String(lead?.decider || ""),
+    falta: status === "Cerró" && deal.falta > 0 ? money(deal.falta) : "",
+  });
 
   return {
     leadId: lead?.id || "",
@@ -401,6 +549,7 @@ export function buildPersonFacts(args: {
     history,
     messages,
     openAlertId: open?.id || "",
+    callId: last?.id || "",
   };
 }
 

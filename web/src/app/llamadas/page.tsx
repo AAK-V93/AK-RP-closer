@@ -14,7 +14,7 @@ import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
 import { internasSinCliente, joinDistinct } from "@/lib/crm-noise";
 import { formatBogotaDay } from "@/lib/crm-time";
-import { pendingHeading, pendingPromptActions, sliceCallHistory, type HistoryScope } from "@/lib/llamadas-density";
+import { pendingHeading, pendingPromptActions, QUEUE_PREVIEW, sliceCallHistory, type HistoryScope } from "@/lib/llamadas-density";
 import { plainStatus, porConfirmarLabel } from "@/lib/plain-labels";
 
 type CallRow = {
@@ -60,10 +60,12 @@ function PendingCard({
   item,
   disabled,
   onSend,
+  onOpen,
 }: {
   item: Review;
   disabled: boolean;
   onSend: (body: Record<string, string>) => void;
+  onOpen: (item: Review, name: string) => void;
 }) {
   const [otherDate, setOtherDate] = useState("");
   const [answer, setAnswer] = useState("");
@@ -73,7 +75,15 @@ function PendingCard({
   return (
     <div className="space-y-3 rounded-2xl border border-separator1 bg-bg1 p-4">
       <div>
-        <p className="text-[15px] font-semibold text-fg0">{pendingHeading(item)}</p>
+        {(() => {
+          const heading = pendingHeading(item);
+          const person = !/^(sin nombre|llamada)\b/i.test(heading) && !/^\d/.test(heading);
+          return person ? (
+            <PersonNameButton name={heading} onOpen={() => onOpen(item, heading)} className="text-[15px]" />
+          ) : (
+            <p className="text-[15px] font-semibold text-fg0">{heading}</p>
+          );
+        })()}
         <p className="text-[13px] text-fg3">{shownDate(item.date)}</p>
       </div>
       {item.question && <p className="text-sm text-fg1">{item.question}</p>}
@@ -267,6 +277,7 @@ export default function LlamadasPage() {
   const [showInternas, setShowInternas] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [ficha, setFicha] = useState<FichaTarget | null>(null);
+  const [showAllQueue, setShowAllQueue] = useState(false);
   const decidedSetup = useRef(false);
 
   const loadCalls = () =>
@@ -390,14 +401,26 @@ export default function LlamadasPage() {
                     {porConfirmarLabel(queue.length)}
                   </p>
                 </div>
-                {queue.map((item) => (
+                {(showAllQueue ? queue : queue.slice(0, QUEUE_PREVIEW)).map((item) => (
                   <PendingCard
                     key={item.id}
                     item={item}
                     disabled={reviewing}
                     onSend={(body) => void sendReview(item, body)}
+                    onOpen={(row, name) =>
+                      setFicha({ name, callId: row.id, day: String(row.date || "").slice(0, 10) || undefined })
+                    }
                   />
                 ))}
+                {queue.length > QUEUE_PREVIEW && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllQueue((value) => !value)}
+                    className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-separator1 bg-bg1 px-4 text-sm font-medium text-fg0"
+                  >
+                    {showAllQueue ? "Ver menos" : `Ver todas (${queue.length})`}
+                  </button>
+                )}
               </section>
             )}
             {showSetup ? (

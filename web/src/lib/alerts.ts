@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { DEFAULT_FOLLOWUP_TARGET } from "@/lib/followup-stage";
 import { addDays, alertBucket, parseCrmPrefs } from "@/lib/crm-prefs";
 import { RAZONES_NO_CIERRE } from "@/lib/crm-catalog";
 import { commissionOnAmount, periodStart } from "@/lib/commission";
@@ -231,13 +232,14 @@ export async function applyAlertOutcome(
         ? "COBRO_VENCIDO"
         : row.type;
     const copy = copyFor(nextType, intentos);
-    if (intentos >= 3) {
+    // Suggest Perdido only at the shared target (10), never on its own: the closer decides.
+    if (intentos >= DEFAULT_FOLLOWUP_TARGET) {
       const next = await prisma.leadAlert.create({
         data: {
           userId,
           leadId: row.leadId,
           type: nextType,
-          question: `Tercer intento con ${row.lead.name}. ¿Lo marco perdido?`,
+          question: `Seguimiento ${intentos} de ${DEFAULT_FOLLOWUP_TARGET} con ${row.lead.name} sin respuesta. ¿Lo marco perdido?`,
           dueAt: addDays(now, 1),
           enJuego: row.enJuego,
           canal: copy.canal === "LLAMADA" ? "LLAMADA" : row.canal,
