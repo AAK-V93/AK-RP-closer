@@ -115,7 +115,7 @@ test("on 1 Oct, today's two operación rows count and Ricardo's overdue date doe
   assert.equal(byName.get("Ricardo Verastegui")?.id, "alert-ricardo");
   assert.equal(
     byName.get("Ricardo Verastegui")?.proximaAccion,
-    "confirmar la reunión · vencido",
+    "confirmar la reunión · atrasado",
   );
   assert.equal(byName.get("Kimlen Garcia")?.estado, "HOY");
   assert.equal(byName.get("Alfredo y Felipe")?.estado, "HOY");
@@ -200,7 +200,7 @@ test("on 2 Oct Carlos is pendiente de hoy and the test leads are in the list", (
   assert.equal(byName.get("Ricardo Verástegui")?.estado, "VENCIDO");
   assert.match(
     byName.get("Ricardo Verástegui")?.proximaAccion || "",
-    /vencido/,
+    /atrasado/,
   );
   assert.doesNotMatch(
     byName.get("Ricardo Verástegui")?.proximaAccion || "",
@@ -454,10 +454,10 @@ test("the desk shows days late, a next step, and never a bare seguimiento", () =
   assert.match(lines[0]?.reason || "", /para hoy/);
   assert.match(lines[0]?.reason || "", /cuota de 1\.064 vence hoy/);
   assert.equal(lines[1]?.name, "Carlos Ramírez");
-  assert.match(lines[1]?.reason || "", /vencido hace 12 días/);
+  assert.match(lines[1]?.reason || "", /Hace 12 días sin respuesta/);
   assert.match(lines[1]?.reason || "", /último contacto el 20\/9\/2026/);
   assert.match(lines[1]?.reason || "", /prometió decidir el viernes/);
-  assert.match(lines[2]?.reason || "", /vencido hace 3 días/);
+  assert.match(lines[2]?.reason || "", /Hace 3 días sin respuesta/);
   assert.match(lines[2]?.reason || "", /último contacto el 28\/9\/2026/);
   assert.match(lines[2]?.reason || "", /retomar el contacto/);
   for (const line of lines) {
@@ -466,14 +466,16 @@ test("the desk shows days late, a next step, and never a bare seguimiento", () =
   }
   const today = formatPendingToday(lines, 8);
   const calls = formatWhoToCall(lines);
-  assert.match(today, /2 seguimientos vencidos/);
+  assert.match(today, /2 seguimientos atrasados/);
+  assert.doesNotMatch(today, /vencid/i);
   assert.match(today, /1 para hoy/);
   assert.match(today, /1 cobro/);
   assert.match(today, /8 llamadas por clasificar/);
   assert.match(calls, /más dinero primero/);
-  assert.match(calls, /sin monto, más días vencido y luego la etapa/);
+  assert.match(calls, /sin monto, más días sin respuesta y luego la etapa/);
   assert.match(calls, /1\. Valeria Ríos\./);
-  assert.match(calls, /Vencido hace 12 días/);
+  assert.match(calls, /Hace 12 días sin respuesta/);
+  assert.doesNotMatch(calls, /vencid/i);
   assert.notEqual(today, calls);
   assert.equal(formatPendingDesk(lines, 8), today);
   assert.doesNotMatch(calls, /\.\./);
@@ -516,11 +518,11 @@ test("a past meeting is rewritten and a zero day still names today and cobros", 
     "2026-10-03",
   );
   assert.equal(lines[0]?.name, "Ricardo");
-  assert.match(lines[0]?.reason || "", /vencido hace 7 días/);
+  assert.match(lines[0]?.reason || "", /Hace 7 días sin respuesta/);
   assert.match(lines[0]?.reason || "", /tenían reunión el 26 sep, reagendar/);
   assert.doesNotMatch(lines[0]?.reason || "", /transcri/);
   assert.equal(lines[1]?.name, "Nuria Solís");
-  assert.match(lines[1]?.reason || "", /vencido hace 5 días/);
+  assert.match(lines[1]?.reason || "", /Hace 5 días sin respuesta/);
   assert.match(lines[1]?.reason || "", /pedir la decisión/);
   assert.equal(lines[2]?.name, "Ana Quispe");
   const calls = formatWhoToCall(lines);
@@ -529,8 +531,8 @@ test("a past meeting is rewritten and a zero day still names today and cobros", 
     assert.doesNotMatch(line, /\.\./);
   }
   assert.equal(
-    deskCallLine(1, "Ricardo", "vencido hace 7 días."),
-    "1. Ricardo. Vencido hace 7 días.",
+    deskCallLine(1, "Ricardo", "hace 7 días sin respuesta."),
+    "1. Ricardo. Hace 7 días sin respuesta.",
   );
   const onlyLate = formatPendingToday(
     lines.filter((row) => row.kind !== "cobro"),
@@ -578,7 +580,7 @@ test("a long agreement becomes a short imperative and the line cuts on a whole w
   const clipped = deskCallLine(
     1,
     "Elber",
-    "vencido hace 12 días, último contacto el 20/9/2026, " + step,
+    "hace 12 días sin respuesta, último contacto el 20/9/2026, " + step,
   );
   assert.equal(clipped.endsWith("…"), false);
   assert.match(clipped, /final\.$/);
@@ -590,7 +592,7 @@ test("a call line keeps the offer name and drops the contact before the step", (
   const line = deskCallLine(
     3,
     "Maria Patricia",
-    "vencido hace 48 días, último contacto el 15/8/2026, reenviar la oferta de Círculo Millonario y el plan",
+    "hace 48 días sin respuesta, último contacto el 15/8/2026, reenviar la oferta de Círculo Millonario y el plan",
   );
   assert.match(line, /Círculo Millonario/);
   assert.doesNotMatch(line, /Círculo…|…/);
@@ -599,7 +601,7 @@ test("a call line keeps the offer name and drops the contact before the step", (
   const jessica = deskCallLine(
     1,
     "Jessica",
-    "vencido hace 48 días, último contacto el 15/8/2026, reenviar la oferta de Círculo Millonario con el plan de pagos completo",
+    "hace 48 días sin respuesta, último contacto el 15/8/2026, reenviar la oferta de Círculo Millonario con el plan de pagos completo",
   );
   assert.match(jessica, /Círculo Millonario/);
   assert.doesNotMatch(jessica, /…/);

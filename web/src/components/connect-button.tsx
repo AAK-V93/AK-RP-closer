@@ -98,8 +98,7 @@ export function ConnectButton() {
       ) : (
         <>
           <PhoneCall className="h-4 w-4 mr-2 shrink-0" />
-          <span className="md:hidden">Entrar a la reunión</span>
-          <span className="hidden md:inline">Entrar a la reunión — tú hablas primero</span>
+          Entrar a la reunión — tú hablas primero
         </>
       )}
     </Button>

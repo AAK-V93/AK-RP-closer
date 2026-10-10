@@ -11,6 +11,7 @@ import { BarChart } from "@/components/bar-chart";
 import { HelpNote, MetricCard, SectionHeading } from "@/components/metric-card";
 import { ProjectionCard } from "@/components/projection-card";
 import { CrmAsk } from "@/components/crm-ask";
+import { CrmBoardView } from "@/components/crm-board";
 import { SheetTable, sheetCell, type SheetColumn } from "@/components/crm-sheet";
 import { Input } from "@/components/ui/input";
 import {
@@ -49,9 +50,17 @@ import {
 import { dineroEnJuegoNote, saldoPorCobrarNote, type PipelineLine } from "@/lib/crm-pipeline";
 import { followupCardStatus } from "@/lib/home-desk";
 import { PipelineDetail } from "@/components/pipeline-detail";
-import { foldLeadName, followupSnapshot, isMeetingFollowup, shownFollowupKind } from "@/lib/crm-followups";
+import {
+  foldLeadName,
+  followupSnapshot,
+  isMeetingFollowup,
+  openFollowupCountOf,
+  shownFollowupKind,
+  stripStoredFollowupMark,
+} from "@/lib/crm-followups";
 import { LOST_REASONS, lostScopeMessage, openFollowupCount } from "@/lib/followup-desk";
 import { zonedDayKey } from "@/lib/crm-time";
+import { buildCrmBoard, type CrmBoardBucket, type CrmBoardPeriod } from "@/lib/crm-board";
 import {
   addCalendarDays,
   deskUndoMessage,
@@ -114,6 +123,7 @@ type Followup = {
   closesOnHecho?: boolean;
   nextOnHecho?: string;
   suggestedNext?: string;
+  leadStatus?: string;
 };
 
 type Commission = {
@@ -207,6 +217,12 @@ export default function CrmPage() {
   const [undo, setUndo] = useState<{ id: string; message: string; snapshot: Dash } | null>(null);
   const [showInternas, setShowInternas] = useState(false);
   const [onlyActivas, setOnlyActivas] = useState(false);
+  const [bucket, setBucket] = useState<CrmBoardBucket>("seguimiento");
+  const [period, setPeriod] = useState<CrmBoardPeriod>("mes");
+  const [boardQuery, setBoardQuery] = useState("");
+  const [showColumns, setShowColumns] = useState(false);
+  const [askSeed, setAskSeed] = useState<{ id: number; text: string } | null>(null);
+  const askNonce = useRef(0);
   const saving = useRef(false);
 
   const load = () =>
@@ -224,10 +240,14 @@ export default function CrmPage() {
 
   useEffect(() => {
     const hash = window.location.hash.replace("#", "") as ModuleId;
-    if (MODULES.some((item) => item.id === hash)) setModule(hash);
+    if (MODULES.some((item) => item.id === hash)) {
+      setModule(hash);
+      setShowColumns(true);
+    }
     if (new URLSearchParams(window.location.search).get("activas") === "1") {
       setOnlyActivas(true);
       setModule("operacion");
+      setShowColumns(true);
     }
   }, []);
 
@@ -576,6 +596,47 @@ export default function CrmPage() {
     [commissionsBase, listFilter],
   );
   const showListFilters = module === "operacion" || module === "seguimientos" || module === "comisiones";
+  const board = useMemo(() => {
+    const calls = asList<OperacionRow>(data?.operacion).filter((row) => !row.interna);
+    const people = asList<Followup>(data?.followups);
+    return buildCrmBoard({
+      calls: calls.map((row) => ({
+        id: row.id,
+        cliente: row.cliente,
+        oferta: row.oferta,
+        producto: row.producto,
+        fecha: row.fecha,
+        fechaProximo: row.fechaProximo,
+        estadoAgenda: row.estadoAgenda,
+        leadStatus: row.leadStatus,
+        venta: row.venta,
+        cash: row.cash,
+        saldo: row.saldo,
+        modoPago: row.modoPago,
+        seguimientoResultado: row.seguimientoResultado,
+        razonNoCierre: row.razonNoCierre,
+        notas: row.notas,
+      })),
+      followups: people.map((row) => ({
+        id: row.id,
+        cliente: row.cliente,
+        dueAt: row.dueAt,
+        proximo: row.proximo,
+        hilo: row.hilo,
+        tipo: row.tipo,
+        enJuego: row.enJuego,
+        oferta: row.oferta,
+        leadStatus: row.leadStatus,
+        acuerdo: row.acuerdo,
+        proximaAccion: row.proximaAccion,
+      })),
+      offer,
+      period,
+      query: boardQuery,
+      bucket,
+      money: (value) => moneyLabel(value, currency),
+    });
+  }, [data?.operacion, data?.followups, offer, period, boardQuery, bucket, currency]);
 
   const now = data?.now || {};
   const rendimiento = data?.rendimiento;
@@ -585,10 +646,6 @@ export default function CrmPage() {
   return (
     <AppShell wide>
       <div className="space-y-4">
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-fg3">Centro de control comercial</p>
-          <h1 className="text-2xl font-light">CRM</h1>
-        </div>
         {status !== "authenticated" ? (
           <Button asChild variant="primary">
             <Link href="/login?callbackUrl=/crm">Entrar</Link>
@@ -598,20 +655,44 @@ export default function CrmPage() {
         ) : !data ? (
           <CrmSkeleton />
         ) : (
-          <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start xl:gap-4">
+          <div className="pb-24 min-[1200px]:grid min-[1200px]:grid-cols-[minmax(0,1fr)_320px] min-[1200px]:items-start min-[1200px]:gap-4 min-[1200px]:pb-0">
           <div className="min-w-0 max-w-full space-y-4 overflow-x-hidden">
+            <div>
+              <h1 className="font-display text-[32px] font-semibold leading-tight tracking-[-0.01em] text-fg0 md:text-[40px]">CRM</h1>
+              {board.subtitle && <p className="mt-1 text-sm text-fg3">{board.subtitle}</p>}
+            </div>
+            <CrmBoardView
+              board={board}
+              query={boardQuery}
+              onQuery={setBoardQuery}
+              bucket={bucket}
+              onBucket={setBucket}
+              offer={offer}
+              offers={offers}
+              onOffer={setOffer}
+              period={period}
+              onPeriod={setPeriod}
+              showColumns={showColumns}
+              onToggleColumns={() => {
+                setShowColumns((value) => !value);
+                if (!showColumns) setModule("operacion");
+              }}
+              onAsk={(person) => {
+                askNonce.current += 1;
+                setAskSeed({ id: askNonce.current, text: person.ask });
+              }}
+            />
             {!data.readyCrm && (
-              <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 space-y-2">
-                <p className="text-sm">
-                  {data.missingCrm?.question ||
-                    "Falta el bloque comercial de la oferta para calcular ventas y comisión con precisión."}
-                </p>
-                <Button asChild variant="primary" size="sm">
-                  <Link href="/ofertas">Completar en Ofertas</Link>
-                </Button>
-              </div>
+              <p className="text-xs text-fg3">
+                En Ofertas falta cómo te pagan comisión.{" "}
+                <Link href="/ofertas" className="font-medium text-fg0 underline">
+                  Completar
+                </Link>
+              </p>
             )}
 
+            {showColumns && (
+            <>
             {offers.length > 1 && (
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -844,11 +925,16 @@ export default function CrmPage() {
                 }
               />
             )}
+            </>
+            )}
           </div>
           <CrmAsk
             rows={followupsBase}
             money={(value) => money(value)}
             hidden={Boolean(openCall || openAlert)}
+            seed={askSeed}
+            onSeedConsumed={() => setAskSeed(null)}
+            onChanged={() => void refresh()}
           />
           </div>
         )}
@@ -994,7 +1080,7 @@ function AhoraSheet({
         <p className="text-xs text-fg3">{AHORA_TAB_NOTE}</p>
         <dl className="divide-y divide-separator1 border-t border-separator1">
           <QuietFact label="Pendientes de hoy" value={String(now.seguimientosHoy || 0)} />
-          <QuietFact label="Vencidos" value={String(now.seguimientosVencidos || 0)} />
+          <QuietFact label="Atrasados" value={String(now.seguimientosVencidos || 0)} />
           <QuietFact label="Agendas de hoy" value={String(now.agendasHoy || 0)} />
           <QuietFact label="Dinero en juego" value={money(now.dineroEnJuego)} />
           <QuietFact label="Saldo por cobrar" value={money(now.saldoPorCobrar || 0)} />
@@ -1005,7 +1091,7 @@ function AhoraSheet({
           <QuietFact label="Llamadas agendadas" value={String(now.agendasFuturas || 0)} />
         </dl>
         <HelpNote>
-          <p>Pendientes de hoy son los seguimientos que toca hacer hoy. Vencidos son los que ya debían salir.</p>
+          <p>Pendientes de hoy son los seguimientos que toca hacer hoy. Atrasados son los que ya debían salir.</p>
           <p>{dineroEnJuegoNote(now.pipelineLeads || 0)} Pendiente de cobro es lo ya acordado que aún no entró.</p>
           <p>{saldoPorCobrarNote(now.saldoPorCobrar || 0)}</p>
           <p>Comisión pendiente es tu parte de lo cobrado. Agendas de hoy y llamadas agendadas son citas en el calendario, no los seguimientos abiertos.</p>
@@ -1570,7 +1656,11 @@ function DashboardSheet({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <MetricCard label="Oportunidades activas" value={String(data.now?.oportunidadesActivas || 0)} tone="brand" />
           <MetricCard label="Llamadas agendadas" value={String(data.now?.agendasFuturas || 0)} tone="brand" />
-          <MetricCard label="Seguimientos abiertos" value={String(data.followups?.length || 0)} tone="brand" />
+          <MetricCard
+            label="Seguimientos abiertos"
+            value={String(openFollowupCountOf(data.followups || []))}
+            tone="brand"
+          />
           <MetricCard label="Cierres del mes" value={String(mes?.cierres || 0)} tone="brand" />
         </div>
         <p className="text-[11px] text-fg3">{ACTIVA_EXPLAIN}</p>
@@ -1633,12 +1723,7 @@ function isSegunda(value: string) {
 }
 
 function sameFollowupText(shown: string, note: string) {
-  const norm = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/\s*·\s*(vencido|pendiente de hoy)\s*$/i, "")
-      .replace(/\s+/g, " ")
-      .trim();
+  const norm = (value: string) => stripStoredFollowupMark(value).toLowerCase().replace(/\s+/g, " ").trim();
   const left = norm(shown);
   const right = norm(note);
   if (!left || !right) return false;
@@ -1990,7 +2075,6 @@ function SeguimientosSheet({
           { key: "toque", label: "Último toque", width: 180, value: (row) => row.ultimoToque || "sin toques" },
           { key: "accion", label: "Próxima acción", width: 240, value: (row) => row.proximaAccion || row.queHacer || row.acuerdo || row.question },
           { key: "juego", label: "En juego", width: 120, align: "right", value: (row) => (row.enJuego ? money(row.enJuego) : "—") },
-          { key: "temp", label: "Temperatura", width: 120, value: (row) => row.temperatura || "—" },
         ]}
         rows={rows}
         getId={(row) => row.id}

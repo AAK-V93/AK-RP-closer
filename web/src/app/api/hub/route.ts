@@ -24,7 +24,6 @@ import {
   OFFER_PASTE_TEXT,
   offerPasteReplyAllowed,
   recognizedCrmQuestion,
-  visibleHubThread,
   isChatCancel,
   looksLikeFilingAnswer,
   messageTargetsOtherLead,
@@ -72,6 +71,20 @@ import {
 import { getHomeState } from "@/lib/home-state";
 import { parseCrmPrefs, parseMonthlyGoalUsd, patchCrmPref, saveMonthlyGoal } from "@/lib/crm-prefs";
 import { applyHubUtterance, parseHubUtterance } from "@/lib/hub-utterance";
+import {
+  bogotaDateLine,
+  bogotaMonthName,
+  buildInicioList,
+  goalProgress,
+  lastCloseInfo,
+  monthCommissionUsd,
+  offerRules,
+  paraLlegarLines,
+  startSteps,
+  type InicioBlock,
+} from "@/lib/inicio-view";
+import { foldLeadName } from "@/lib/crm-followups";
+import { periodOutcomes } from "@/lib/outcome-counts";
 import { vapidPublicKey } from "@/lib/web-push";
 import { Prisma } from "@prisma/client";
 
@@ -133,27 +146,14 @@ export async function GET(request: NextRequest) {
     ]);
     mark("ensure", ensureStarted);
 
-    const threadStarted = performance.now();
-    const threadPromise = loadThread(prisma, userId, THREAD_HUB)
-      .catch((error) => {
-        console.error("hub GET thread", error);
-        return null;
-      })
-      .finally(() => mark("thread", threadStarted));
     const snapshot = await hubSnapshot(prisma, userId, timings);
-    const loaded = await threadPromise;
-    const messages = visibleHubThread(
-      (loaded?.messages || []).map((line) =>
-        line.role === "coach" ? { ...line, content: labelCrmProse(line.content) } : line,
-      ),
-    );
     const serializeStarted = performance.now();
-    const payload = JSON.stringify({ messages, snapshot });
+    const payload = JSON.stringify({ snapshot });
     mark("serialize", serializeStarted, `${payload.length}b`);
     mark("total", origin);
     const dur = (name: string) => timings.find((row) => row.name === name)?.dur || 0;
     const wave = Math.max(
-      ...["home", "user", "offers", "dashboard", "leads", "filings", "recent", "analyzed", "callCount", "thread", "projection"].map(
+      ...["home", "user", "offers", "dashboard", "leads", "filings", "recent", "analyzed", "callCount", "projection"].map(
         dur,
       ),
     );
@@ -1106,6 +1106,7 @@ async function hubSnapshot(
     pendingOfferExtract,
     needsPushPrompt:
       home.phase !== "a" && !prefs.pushPromptedAt && Boolean(vapidPublicKey()),
+    inicio: null as InicioBlock | null,
   };
   timings?.push({ name: "phase", dur: 0, desc: home.phase });
   if (home.phase !== "c") {
@@ -1130,6 +1131,20 @@ async function hubSnapshot(
       timings?.push({ name: "projection", dur: 0, desc: "in-memory" });
     } catch (error) {
       console.error("hub projection", error);
+    }
+    let inicio: InicioBlock | null = null;
+    try {
+      inicio = inicioBlock({
+        dash,
+        offers,
+        unclassified,
+        metaUsd: goalBundle.monthlyGoalUsd,
+        projection: goalBundle.projection,
+        hasCalls: home.hasRealCalls,
+      });
+      timings?.push({ name: "inicio", dur: 0, desc: "in-memory" });
+    } catch (error) {
+      console.error("hub inicio", error);
     }
     const desk = {
       unclassified,
@@ -1195,11 +1210,128 @@ async function hubSnapshot(
       projection: goalBundle.projection,
       pendingOfferExtract,
       needsPushPrompt: !prefs.pushPromptedAt && Boolean(vapidPublicKey()),
+      inicio,
     };
   } catch (error) {
     console.error("hub snapshot crm", error);
     return empty;
   }
+}
+
+/** «Qué quedó» is the agreement written on the follow-up's call, the same one /crm shows as Acuerdo. */
+function withCallAgreement<T extends { callId?: string; cliente?: string; proximo?: string; contexto?: string }>(
+  rows: T[],
+  operacion: { id: string; acuerdo?: string; notas?: string }[],
+  leads: { name?: string | null; nextStep?: string | null }[],
+) {
+  const byCall = new Map(operacion.map((row) => [row.id, String(row.acuerdo || "").trim()]));
+  const noteByCall = new Map(operacion.map((row) => [row.id, String(row.notas || "").trim()]));
+  const nextByName = new Map<string, string>();
+  for (const lead of leads) {
+    const key = foldLeadName(String(lead.name || ""));
+    const next = String(lead.nextStep || "").trim();
+    if (key && next) nextByName.set(key, next);
+  }
+  return rows.map((row) => {
+    const proximo = String(row.proximo || "");
+    return {
+      ...row,
+      callAcuerdo: byCall.get(String(row.callId || "")) || "",
+      callNote: noteByCall.get(String(row.callId || "")) || "",
+      leadNextStep: nextByName.get(foldLeadName(String(row.cliente || ""))) || "",
+      proximoNote: proximo.replace(/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?/, "").trim(),
+    };
+  });
+}
+
+/** Confirmed closes already sitting in Operación. No extra query. */
+function confirmedCloses(
+  operacion: {
+    id?: string;
+    cliente?: string;
+    oferta?: string;
+    producto?: string;
+    estadoAgenda?: string;
+    interna?: boolean;
+    filingStatus?: string;
+  }[],
+) {
+  return operacion
+    .filter((row) => {
+      if (row.interna) return false;
+      if (String(row.id || "").startsWith("lead:")) return false;
+      if (String(row.filingStatus || "") !== "confirmed") return false;
+      if (String(row.estadoAgenda || "").toUpperCase() !== "CIERRE VENTA") return false;
+      return Boolean(String(row.cliente || "").trim());
+    })
+    .map((row) => ({
+      name: String(row.cliente || "").trim(),
+      offer: String(row.oferta || row.producto || "").trim(),
+    }))
+    .filter((row) => row.offer);
+}
+
+/** Inicio's goal card and list, from rows the dashboard already loaded. No extra query. */
+function inicioBlock(args: {
+  dash: Awaited<ReturnType<typeof crmDashboard>>;
+  offers: { productName: string; commercial: unknown }[];
+  unclassified: number;
+  metaUsd: number | null;
+  projection: ReturnType<typeof projectionFromDashboard>["projection"];
+  hasCalls: boolean;
+}): InicioBlock {
+  const now = new Date();
+  const { dash } = args;
+  const goal = goalProgress({
+    llevasUsd: monthCommissionUsd(dash.commissions, now),
+    metaUsd: args.metaUsd,
+    now,
+  });
+  const list = buildInicioList({
+    followups: withCallAgreement(dash.followups, dash.operacion, dash.leads),
+    rules: offerRules(args.offers),
+    mesCash: dash.rendimiento.mes.cash,
+    now,
+    successes: confirmedCloses(dash.operacion),
+    calls: dash.operacion,
+    leadOffers: dash.leads.map((row) => ({ name: row.name, offer: row.offerName })),
+  });
+  const outcomes = periodOutcomes({
+    calls: dash.operacion
+      .filter((row) => !row.interna)
+      .map((row) => ({
+        cliente: row.cliente,
+        fecha: row.fecha,
+        estadoAgenda: row.estadoAgenda,
+        leadStatus: row.leadStatus,
+        seguimientoResultado: row.seguimientoResultado,
+        razonNoCierre: row.razonNoCierre,
+      })),
+    period: "mes",
+    now,
+  });
+  const offersLoaded = args.offers.some((row) => String(row.productName || "").trim());
+  return {
+    dateLine: bogotaDateLine(now),
+    monthName: bogotaMonthName(now),
+    goal,
+    paraLlegar: paraLlegarLines({
+      llevasUsd: goal.llevasUsd,
+      metaUsd: goal.metaUsd,
+      offerName: dash.offers[0]?.productName || "",
+      projection: args.projection,
+      lastClose: lastCloseInfo(dash.operacion, now),
+      outcomes,
+    }),
+    list,
+    porConfirmar: args.unclassified,
+    onboarding: startSteps({
+      hasGoal: goal.metaUsd != null,
+      openFollowups: list.total,
+      offersLoaded,
+      hasCalls: args.hasCalls,
+    }),
+  };
 }
 
 function nextHubActions(snapshot: Awaited<ReturnType<typeof hubSnapshot>>) {

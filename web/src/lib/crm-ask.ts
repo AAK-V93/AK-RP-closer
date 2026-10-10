@@ -1,4 +1,12 @@
 import { weekKey } from "@/lib/crm-filters";
+import {
+  compareFollowupRank,
+  followupCalendarDay,
+  followupRankInput,
+  stripStoredFollowupMark,
+} from "@/lib/crm-followups";
+import { zonedDayKey } from "@/lib/crm-time";
+import { closerFacingNote } from "@/lib/inicio-view";
 import { countPhrase, plainStatus } from "@/lib/plain-labels";
 
 export type CrmAskRow = {
@@ -18,6 +26,7 @@ export type CrmAskRow = {
   temperatura?: string;
   acuerdo?: string;
   queHacer?: string;
+  proximo?: string;
 };
 
 function fold(value: string) {
@@ -27,17 +36,10 @@ function fold(value: string) {
     .replace(/\p{M}/gu, "");
 }
 
-function localDay(date: Date) {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
-}
-
 function addDays(day: string, count: number) {
   const [year, month, date] = day.split("-").map(Number);
-  const next = new Date(year, month - 1, date);
-  next.setDate(next.getDate() + count);
-  return localDay(next);
+  const next = new Date(Date.UTC(year, month - 1, date + count));
+  return next.toISOString().slice(0, 10);
 }
 
 function shortDay(day: string) {
@@ -47,19 +49,14 @@ function shortDay(day: string) {
   return `${date} ${months[month - 1]}`;
 }
 
-function dueDay(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value || "").slice(0, 10);
-  return localDay(date);
+function rowDay(row: CrmAskRow) {
+  return followupCalendarDay({ proximo: row.proximo, dueAt: row.dueAt });
 }
 
-function canalLabel(value?: string) {
-  const raw = String(value || "").trim().toUpperCase();
-  if (raw === "WHATSAPP") return "WhatsApp";
-  if (raw === "LLAMADA") return "Llamada";
-  if (raw === "EMAIL") return "Email";
-  if (!raw) return "";
-  return plainStatus(raw);
+function bySharedRank(rows: CrmAskRow[], now: Date) {
+  return [...rows].sort((a, b) =>
+    compareFollowupRank(followupRankInput(a, now), followupRankInput(b, now)),
+  );
 }
 
 function actionOf(row: CrmAskRow) {
@@ -67,11 +64,12 @@ function actionOf(row: CrmAskRow) {
 }
 
 function pendingToday(row: CrmAskRow, today: string) {
-  return /pendiente de hoy/i.test(actionOf(row)) || dueDay(row.dueAt) <= today;
+  const due = rowDay(row);
+  return /pendiente de hoy/i.test(actionOf(row)) || (Boolean(due) && due <= today);
 }
 
 function whenLabel(row: CrmAskRow, today: string) {
-  const due = dueDay(row.dueAt);
+  const due = rowDay(row);
   if (pendingToday(row, today)) {
     return due < today ? `pendiente desde ${shortDay(due)}` : "hoy, pendiente";
   }
@@ -80,11 +78,25 @@ function whenLabel(row: CrmAskRow, today: string) {
   return shortDay(due);
 }
 
-function howLabel(row: CrmAskRow) {
-  const canal = canalLabel(row.canal);
-  const action = actionOf(row);
-  const phone = row.telefono?.trim();
-  return [canal, action, phone].filter(Boolean).join(" · ");
+/** Drop stage words and timing the bullet already says («Seguimiento · … · seguimiento · atrasado»). */
+function actionDetail(row: CrmAskRow) {
+  const stripped = stripStoredFollowupMark(actionOf(row))
+    .replace(/\s*·\s*(vencido|atrasado|pendiente de hoy|hace \d+ d[ií]as sin respuesta)\b/gi, "")
+    .replace(/\s*·\s*pendiente desde\b[^·]*/gi, "")
+    .replace(/\s*·\s*/g, " · ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(?:·\s*)+|(?:\s*·)+$/g, "")
+    .trim();
+  if (!stripped || /^(seguimiento|seguimientos|atrasado|pendiente(?: de hoy)?)$/i.test(stripped)) return "";
+  return stripped;
+}
+
+/** «Hoy toca 1 seguimiento» / «Hoy tocan 18 seguimientos». */
+function hoyIntro(count: number, tail: "." | ":") {
+  const n = Math.trunc(Number(count) || 0);
+  const verb = Math.abs(n) === 1 ? "toca" : "tocan";
+  return `Hoy ${verb} ${countPhrase(n, "seguimiento", "seguimientos")}${tail}`;
 }
 
 function nameScore(cliente: string, question: string) {
@@ -142,16 +154,13 @@ function mentions(question: string, words: string[]) {
 }
 
 function lineOf(row: CrmAskRow, today: string, money?: (value: number) => string) {
-  const tipo = plainStatus(row.hilo || row.tipo);
-  const paso = row.paso && row.paso !== "—" ? `paso ${row.paso}` : "";
+  const action = closerFacingNote(actionDetail(row));
+  const when = whenLabel(row, today);
   const juego = row.enJuego && money ? money(row.enJuego) : "";
-  const head = [row.cliente, tipo, paso].filter(Boolean).join(" · ");
   const bits = [
-    head,
-    `Cuándo: ${whenLabel(row, today)}`,
-    howLabel(row) ? `Cómo: ${howLabel(row)}` : "",
+    row.cliente,
+    action || (when ? `No quedó un acuerdo anotado. La fecha guardada es ${when}.` : ""),
     juego ? `En juego: ${juego}` : "",
-    row.ultimoToque ? `Último toque: ${row.ultimoToque}` : "",
     row.oferta ? `Oferta: ${row.oferta}` : "",
   ].filter(Boolean);
   return bits.join("\n");
@@ -159,7 +168,16 @@ function lineOf(row: CrmAskRow, today: string, money?: (value: number) => string
 
 function brief(row: CrmAskRow, today: string) {
   const tipo = plainStatus(row.hilo || row.tipo);
-  return `• ${[row.cliente, tipo, whenLabel(row, today), howLabel(row)].filter(Boolean).join(" · ")}`;
+  const action = closerFacingNote(actionDetail(row));
+  const tipoFold = fold(tipo);
+  const actionFold = fold(action);
+  const showTipo =
+    Boolean(tipo) &&
+    tipo !== "—" &&
+    !/^seguimiento$/i.test(tipo) &&
+    !(actionFold && (actionFold === tipoFold || actionFold.includes(tipoFold)));
+  // Channel once, on the single-person line. A list of bullets does not end each row with «· WhatsApp».
+  return `• ${[row.cliente, showTipo ? tipo : "", action, whenLabel(row, today)].filter(Boolean).join(" · ")}`;
 }
 
 export function answerCrmFollowups(
@@ -168,10 +186,10 @@ export function answerCrmFollowups(
   opts?: { now?: Date; money?: (value: number) => string },
 ) {
   const now = opts?.now || new Date();
-  const today = localDay(now);
+  const today = zonedDayKey(now);
   const asked = question.trim();
   if (!rows.length) return "No hay seguimientos abiertos en el CRM.";
-  if (!asked) return "Pregunta a quién, cuándo o cómo.";
+  if (!asked) return "Pregunta con quién quedaste.";
 
   const people = bestPeople(rows, asked);
   const wantsHow = mentions(asked, ["como", "mensaje", "que le digo", "que digo", "canal"]);
@@ -198,9 +216,12 @@ export function answerCrmFollowups(
 
   const hasIntent = wantsHow || wantsWhen || wantsWho || todayOnly || tomorrowOnly || weekOnly;
   if (!hasIntent) {
-    const due = rows.filter((row) => pendingToday(row, today));
-    if (!due.length) return "Pregunta a quién, cuándo o cómo. Hoy no toca ninguno.";
-    return `Hoy toca ${countPhrase(due.length, "seguimiento", "seguimientos")}. Pregunta a quién, cuándo o cómo.\n${due
+    const due = bySharedRank(
+      rows.filter((row) => pendingToday(row, today)),
+      now,
+    );
+    if (!due.length) return "Hoy no toca ninguno. Pregunta con quién quedaste.";
+    return `${hoyIntro(due.length, ".")}\n${due
       .slice(0, 8)
       .map((row) => brief(row, today))
       .join("\n")}`;
@@ -208,22 +229,24 @@ export function answerCrmFollowups(
 
   let pool = rows;
   if (todayOnly) pool = rows.filter((row) => pendingToday(row, today));
-  else if (tomorrowOnly) pool = rows.filter((row) => dueDay(row.dueAt) === addDays(today, 1));
+  else if (tomorrowOnly) pool = rows.filter((row) => rowDay(row) === addDays(today, 1));
   else if (weekOnly) {
     const week = weekKey(today);
-    pool = rows.filter((row) => weekKey(dueDay(row.dueAt)) === week);
+    pool = rows.filter((row) => weekKey(rowDay(row)) === week);
   }
+  pool = bySharedRank(pool, now);
 
   if (!pool.length) {
-    const next = [...rows].sort((a, b) => dueDay(a.dueAt).localeCompare(dueDay(b.dueAt)))[0];
-    if (todayOnly) return `Hoy no toca ninguno. El próximo es ${next.cliente}, ${whenLabel(next, today)}.`;
+    const next = bySharedRank(rows, now)[0];
+    if (todayOnly && next) return `Hoy no toca ninguno. El próximo es ${next.cliente}, ${whenLabel(next, today)}.`;
+    if (todayOnly) return "Hoy no toca ninguno.";
     if (tomorrowOnly) return "Mañana no hay seguimientos.";
     if (weekOnly) return "Esta semana no hay seguimientos.";
     return "No hay seguimientos con eso.";
   }
 
   const title = todayOnly
-    ? `Hoy toca ${countPhrase(pool.length, "seguimiento", "seguimientos")}:`
+    ? `${hoyIntro(pool.length, ":")}`
     : tomorrowOnly
       ? `Mañana ${countPhrase(pool.length, "seguimiento", "seguimientos")}:`
       : weekOnly

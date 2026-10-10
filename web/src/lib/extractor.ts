@@ -446,6 +446,15 @@ export function enrichExtractorFollowup(
 
 export type ExtractorGap = { field: string; question: string; options?: string[] };
 
+/** One tap for a named lead: the follow-up kind, or that nothing was left. */
+function followupKindGap(name: string): ExtractorGap {
+  return {
+    field: "tipo_seguimiento",
+    question: `¿Qué seguimiento quedó con ${name}? (segunda reunión, pago, decisión, retomar)`,
+    options: ["Segunda reunión", "Pago", "Decisión", "Retomar", "No quedó"],
+  };
+}
+
 export function extractorGap(
   parsed: ExtractorJson,
   readyCrm: boolean,
@@ -466,6 +475,7 @@ export function extractorGap(
     return {
       field: "estado_agenda",
       question: `¿${name} asistió, no asistió, reprogramó, acordó o cerró?`,
+      options: ["Asistió", "No asistió", "Reprogramó", "Acordó sin pago", "Cerró"],
     };
   }
   const offerNames = (offers || []).map((offer) => offer.productName).filter(Boolean);
@@ -498,10 +508,7 @@ export function extractorGap(
     }
   }
   if (parsed.requiere_seguimiento === true && !parsed.tipo_seguimiento) {
-    return {
-      field: "tipo_seguimiento",
-      question: `¿Qué seguimiento quedó con ${name}? (segunda reunión, pago, decisión, retomar)`,
-    };
+    return followupKindGap(name);
   }
   if (parsed.requiere_seguimiento === true && !parsed.proximo_seguimiento) {
     return {
@@ -510,23 +517,24 @@ export function extractorGap(
     };
   }
   if (parsed.requiere_seguimiento === null) {
-    return {
-      field: "requiere_seguimiento",
-      question: `¿Quedó algún seguimiento con ${name}?`,
-    };
+    return followupKindGap(name);
   }
   if (!readyCrm) {
     if (parsed.requiere_revision_humana) {
+      if (parsed.cliente_real && !parsed.tipo_seguimiento) return followupKindGap(name);
+      if (parsed.motivo_revision) {
+        return { field: "revision", question: parsed.motivo_revision };
+      }
       return {
         field: "revision",
-        question:
-          parsed.motivo_revision ||
-          `¿Se hizo la llamada con ${name}? Asistió, no asistió o reprogramó`,
+        question: `¿Se hizo la llamada con ${name}? Asistió, no asistió o reprogramó`,
+        options: ["Asistió", "No asistió", "Reprogramó"],
       };
     }
     return null;
   }
   if (parsed.requiere_revision_humana) {
+    if (parsed.cliente_real && !parsed.tipo_seguimiento) return followupKindGap(name);
     return {
       field: "revision",
       question:

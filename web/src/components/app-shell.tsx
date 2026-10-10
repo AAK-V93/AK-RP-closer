@@ -1,10 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
+import { Home, Mic, MoreHorizontal, Phone, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import {
+  MORE_LINKS,
+  accountIdentity,
+  avatarLetter,
+  moreActive,
+  navActive,
+  phoneBarTabs,
+} from "@/lib/mobile-nav";
 
 const NAV = [
   { href: "/", label: "Inicio" },
@@ -16,16 +34,138 @@ const NAV = [
   { href: "/biblioteca", label: "Biblioteca" },
 ];
 
+const TAB_ICONS: Record<string, typeof Home> = {
+  "/": Home,
+  "/llamadas": Phone,
+  "/practicar": Mic,
+  "/crm": Users,
+};
+
+const TAB_CLASS =
+  "flex h-16 min-w-0 flex-col items-center justify-center gap-1 text-[11px] text-fg3 aria-[current=page]:font-semibold aria-[current=page]:text-fg0";
+
+/** Fixed bottom tab bar, phones only. The desktop keeps the top pill menu. */
+export function MobileTabBar({ path, showCrm }: { path: string; showCrm: boolean | null }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const tabs = phoneBarTabs(showCrm);
+  const onMore = moreActive(path);
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [path]);
+  return (
+    <>
+      <nav
+        aria-label="Menú"
+        className="fixed inset-x-0 bottom-0 z-40 min-w-0 max-w-full border-t border-separator1 bg-bg1 pb-[env(safe-area-inset-bottom)] md:hidden"
+      >
+        <ul
+          className="grid min-w-0"
+          style={{ gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))` }}
+        >
+          {tabs.map((tab) => {
+            const Icon = TAB_ICONS[tab.href] || Home;
+            const active = navActive(path, tab.href);
+            return (
+              <li key={tab.href} className="min-w-0">
+                <Link href={tab.href} aria-current={active ? "page" : undefined} className={TAB_CLASS}>
+                  <Icon aria-hidden className="h-[22px] w-[22px]" strokeWidth={active ? 2.3 : 2} />
+                  {tab.label}
+                </Link>
+              </li>
+            );
+          })}
+          <li className="min-w-0">
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={moreOpen}
+              aria-current={onMore ? "page" : undefined}
+              onClick={() => setMoreOpen(true)}
+              className={`${TAB_CLASS} w-full`}
+            >
+              <MoreHorizontal aria-hidden className="h-[22px] w-[22px]" strokeWidth={onMore ? 2.3 : 2} />
+              Más
+            </button>
+          </li>
+        </ul>
+      </nav>
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent
+          side="bottom"
+          className="rounded-t-2xl border-separator1 bg-bg1 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 md:hidden"
+        >
+          <SheetTitle className="font-display text-xl text-fg0">Más</SheetTitle>
+          <SheetDescription className="sr-only">Coach, Ofertas y Biblioteca</SheetDescription>
+          <ul className="divide-y divide-separator1 border-t border-separator1">
+            {MORE_LINKS.map((link) => (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  aria-current={navActive(path, link.href) ? "page" : undefined}
+                  className="flex h-14 items-center text-base text-fg0 aria-[current=page]:font-semibold"
+                  onClick={() => setMoreOpen(false)}
+                >
+                  {link.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+
+function UserMenu({ name, email }: { name?: string | null; email?: string | null }) {
+  const who = accountIdentity(name, email);
+  const mail = String(email || "").trim();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Tu cuenta"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full"
+        >
+          <span className="grid h-8 w-8 place-items-center rounded-full border border-separator1 bg-bg2 text-[13px] font-semibold text-fg2">
+            {avatarLetter(name, email)}
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-48">
+        {who && who !== mail && (
+          <DropdownMenuLabel className="truncate text-xs font-normal text-fg2">{who}</DropdownMenuLabel>
+        )}
+        {mail && <DropdownMenuLabel className="truncate text-xs font-normal text-fg3">{mail}</DropdownMenuLabel>}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="min-h-11 lg:min-h-0" onSelect={() => void signOut({ callbackUrl: "/" })}>
+          Salir
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function AppShell({
   children,
   wide = false,
+  fill = false,
+  reserveTabs,
+  tabBar,
 }: {
   children: React.ReactNode;
   wide?: boolean;
+  /** Lock the shell to the screen so a practice room can pin its button. */
+  fill?: boolean;
+  /** False hides the phone-tab padding. Omit it to keep the default. */
+  reserveTabs?: boolean;
+  /** Phone tabs. Omit for the default bar. Null hides them. */
+  tabBar?: ReactNode | null;
 }) {
   const path = usePathname();
   const { data, status } = useSession();
-  const [showCrm, setShowCrm] = useState(false);
+  const [showCrm, setShowCrm] = useState<boolean | null>(null);
+  const signedIn = status === "authenticated";
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -37,11 +177,20 @@ export function AppShell({
       .catch(() => undefined);
   }, [status, path]);
 
-  const items = NAV.filter((item) => !item.crm || showCrm);
+  const items = NAV.filter((item) => !item.crm || showCrm === true);
+  // Room for the fixed tab bar and the iPhone home indicator. Desktop keeps py-6.
+  const signedPad = " pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-6";
+  const tabPadding = !signedIn ? "" : reserveTabs === false ? " pb-3 md:pb-6" : signedPad;
+  const phoneTabs = signedIn ? (tabBar !== undefined ? tabBar : <MobileTabBar path={path} showCrm={showCrm} />) : null;
 
   return (
-    <div className="min-h-screen bg-bg0 flex flex-col">
-      <header className="border-b border-separator1">
+    <div
+      className={
+        "flex w-full min-w-0 max-w-full flex-col overflow-x-clip bg-bg0 " +
+        (fill ? "h-dvh max-h-dvh overflow-hidden" : "min-h-screen")
+      }
+    >
+      <header className="min-w-0 max-w-full border-b border-separator1 shrink-0">
         <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-3">
           <Link href="/" className="inline-flex h-11 min-h-[44px] shrink-0 items-center font-display text-lg">
             Closer Trainer
@@ -68,19 +217,8 @@ export function AppShell({
             })}
           </nav>
           <div className="flex items-center gap-2 shrink-0">
-            {status === "authenticated" ? (
-              <>
-                <span className="text-xs text-fg3 truncate hidden sm:inline max-w-[140px]">
-                  {data?.user?.email}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => signOut({ callbackUrl: "/" })}
-                >
-                  Salir
-                </Button>
-              </>
+            {signedIn ? (
+              <UserMenu name={data?.user?.name} email={data?.user?.email} />
             ) : (
               <Button asChild variant="ghost" size="sm" className="text-tone-info">
                 <Link href="/login">Entrar</Link>
@@ -88,34 +226,19 @@ export function AppShell({
             )}
           </div>
         </div>
-        <nav className="relative md:hidden">
-          <div className="flex gap-1 overflow-x-auto px-3 pb-2 text-xs [scrollbar-width:thin]">
-            {items.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="inline-flex h-11 min-h-[44px] shrink-0 items-center rounded-full border border-separator1 px-3 text-tone-info"
-                style={{ minHeight: 44, height: 44 }}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </div>
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-bg0 to-transparent"
-          />
-        </nav>
       </header>
       <main
         className={
-          wide
-            ? "flex-1 w-full px-4 md:px-8 py-6"
-            : "flex-1 max-w-3xl w-full mx-auto px-4 md:px-6 py-6"
+          (wide
+            ? "min-w-0 w-full max-w-full flex-1 overflow-x-clip px-4 md:px-8"
+            : "mx-auto min-w-0 w-full max-w-3xl flex-1 overflow-x-clip px-4 md:px-6") +
+          (fill ? " flex min-h-0 flex-col overflow-hidden py-3 md:py-4" : " py-6") +
+          tabPadding
         }
       >
         {children}
       </main>
+      {phoneTabs}
     </div>
   );
 }

@@ -9,7 +9,16 @@ import {
   formatWhoToCall,
   type DeskLine,
 } from "@/lib/crm-followups";
-import { zonedDayBounds, zonedDayKey, zonedMonthRange, zonedWeekRange } from "@/lib/crm-time";
+import { normalizeProximo } from "@/lib/call-normalize";
+import { instantFromProximo, proximoFromInstant } from "@/lib/followup-desk";
+import {
+  formatCrmStamp,
+  zonedDayBounds,
+  zonedDayKey,
+  zonedMidnight,
+  zonedMonthRange,
+  zonedWeekRange,
+} from "@/lib/crm-time";
 import { loadCashNotes } from "@/lib/crm-cash-notes";
 import { parseCommercial, looksLikeOfferBlob } from "@/lib/offer-commercial";
 import {
@@ -43,6 +52,8 @@ export type ChatLead = {
   nextStep: string;
   lastSummary: string;
   amountPaid: string;
+  /** Stored próximo seguimiento. A Date is shown in Bogotá as `YYYY-MM-DD HH:mm`. */
+  nextStepAt?: Date | string | null;
 };
 
 /** The name the CRM row shows. Exact, including accents. */
@@ -287,19 +298,168 @@ function offerList(ctx: ChatContext) {
   return offerRefsOf(ctx).map((offer) => offer.productName);
 }
 
+const LEAD_UPDATE_HINT =
+  /\b(se llama|pag(?:ar(?:a|e)?|o|amos|aron|ad[oa]|ue)|qued(?:amos|aron|aste|o|e)|acordamos|comprometimos|oferta|producto|cash|borra|elimina|quita|anula|reserva|cuota|abono|avisaba|acuerdo|agende)\b/;
+
+const UNCHANGED_REPLY = "No cambié nada: ya estaba así.";
+
 function looksLikeLeadUpdate(text: string) {
-  return /\b(se llama|pag[oó]|pagad[oa]|pagu[eé]|quedamos|oferta|producto|cash|borra|elimina|quita|anula|reserva|cuota|abono|avisaba|acuerdo|agend[eé])\b/i.test(
-    text,
-  );
+  return LEAD_UPDATE_HINT.test(fold(text));
 }
 
 function unclearLeadUpdate(text: string, leads: ChatLead[]): ChatTurn | null {
-  if (/[?¿]/.test(text) && !/\b(pag[oó]|quedamos|se llama)\b/i.test(text)) return null;
+  if (!looksLikeLeadUpdate(text)) return null;
+  if (/[?¿]/.test(text) && !LEAD_UPDATE_HINT.test(fold(text))) return null;
   if (isChatRequest(text) && !/\b(se llama|pag[oó]|producto de|oferta de)\b/i.test(text)) return null;
   const mention = leadMention(text, leads);
-  if (mention.kind !== "clarify") return null;
-  if (!looksLikeLeadUpdate(text)) return null;
-  return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
+  if (mention.kind === "clarify") return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
+  if (mention.kind === "none" && /^(?:con\s+)?\S+\s+(?:me\s+)?(?:pag|qued|acord|compromet)/i.test(text)) {
+    const head = fold(text.replace(/^(?:con\s+)/i, "").split(/\s+/)[0] || "");
+    if (head && head !== "me" && head !== "yo") {
+      return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+    }
+  }
+  return null;
+}
+
+const DETAIL_CLAUSE =
+  /(?:^|\s)((?:tras|despu[eé]s de|luego de|para que|con su|con el|con la)\b.+)$/i;
+
+function agreementWords(value: string) {
+  return fold(value)
+    .split(" ")
+    .filter((word) => word.length > 2 || /\d/.test(word));
+}
+
+function wordsInOrder(needle: string, hay: string) {
+  const need = agreementWords(needle);
+  const have = agreementWords(hay);
+  if (!need.length) return false;
+  let at = 0;
+  for (const word of need) {
+    const found = have.indexOf(word, at);
+    if (found < 0) return false;
+    at = found + 1;
+  }
+  return true;
+}
+
+/**
+ * A shorter proposal must not wipe a longer acuerdo.
+ * If the new text is already inside the old one, keep the old one.
+ * If both talk about the same next step, append the detail the new text dropped.
+ */
+export function mergeAgreementText(existing: string, proposed: string) {
+  const old = existing.replace(/\s+/g, " ").trim();
+  const next = proposed.replace(/\s+/g, " ").trim();
+  if (!old) return next;
+  if (!next) return old;
+  const oldFold = fold(old);
+  const nextFold = fold(next);
+  if (!oldFold || !nextFold || oldFold === nextFold) return old;
+  if (oldFold.includes(nextFold) || (wordsInOrder(next, old) && old.length >= next.length)) return old;
+  if (nextFold.includes(oldFold)) return next;
+  const clause = old.match(DETAIL_CLAUSE);
+  if (!clause || clause.index == null) return next;
+  const extra = clause[1].replace(/\s+/g, " ").trim();
+  const extraFold = fold(extra);
+  if (!extraFold || nextFold.includes(extraFold)) return next;
+  const shared = ["llamar", "qued", "acuerdo", "revis", "pagar", "cobrar", "reun"].some(
+    (token) => oldFold.includes(token) && nextFold.includes(token),
+  );
+  if (shared) return `${next} ${extra}`.replace(/\s+/g, " ").trim();
+  return next;
+}
+
+function withMergedAgreements(changes: ChatChange[]) {
+  return changes.map((change) => {
+    if (change.field !== "nextStep") return change;
+    const to = mergeAgreementText(change.from, change.to);
+    return to === change.to ? change : { ...change, to };
+  });
+}
+
+function withoutNoops(changes: ChatChange[]) {
+  return withMergedAgreements(changes).filter((change) => fold(change.from) !== fold(change.to));
+}
+
+function proposalTurn(leadId: string, leadName: string, changes: ChatChange[]): ChatTurn {
+  const real = withoutNoops(changes);
+  if (!real.length) return { kind: "answer", reply: UNCHANGED_REPLY };
+  const proposal: ChatProposal = { leadId, leadName, changes: real };
+  return { kind: "confirm", reply: confirmReply(leadName, real), proposal };
+}
+
+/** `new Date("YYYY-MM-DD")` is UTC midnight. That is a date-only save, not 19:00 the day before in Bogotá. */
+function isUtcDateOnlyInstant(value: Date) {
+  return (
+    value.getUTCHours() === 0 &&
+    value.getUTCMinutes() === 0 &&
+    value.getUTCSeconds() === 0 &&
+    value.getUTCMilliseconds() === 0
+  );
+}
+
+/** Próximo the CRM column prints: the call's próximo string, else the lead instant in America/Bogota. */
+function shownFollowup(lead: ChatLead, calls: ChatCall[]) {
+  const call = calls.find(
+    (row) =>
+      fold(row.leadName) === fold(lead.name) ||
+      fold(row.leadName) === fold(shownCrmName(lead)) ||
+      sameDisplayedPerson(lead.name, row.leadName),
+  );
+  const filed = normalizeProximo(call?.proximo || "");
+  if (filed) return filed;
+  return formatLeadNextStep(lead.nextStepAt);
+}
+
+function formatLeadNextStep(value: Date | string | null | undefined) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}T00:00:00(?:\.\d+)?Z$/i.test(trimmed)) return trimmed.slice(0, 10);
+  }
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+    if (isUtcDateOnlyInstant(value)) return value.toISOString().slice(0, 10);
+    return proximoFromInstant(value) || formatCrmStamp(value);
+  }
+  return formatCrmStamp(value);
+}
+
+/** Hour already on the CRM row. A date-only edit keeps it, and the confirmation prints it. */
+function previousFollowupClock(lead: ChatLead, calls: ChatCall[]) {
+  return shownFollowup(lead, calls).match(/(\d{2}:\d{2})\s*$/)?.[1] || "";
+}
+
+function stampKeepingClock(when: string, lead: ChatLead, calls: ChatCall[]) {
+  const text = when.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const clock = previousFollowupClock(lead, calls);
+  return clock ? `${text} ${clock}` : text;
+}
+
+/**
+ * A bare weekday inside «en que el viernes me avisaba» is the story, not a new
+ * follow-up. A day number or a clock in that acuerdo is a date to propose.
+ */
+function acuerdoFollowup(step: string, now?: Date) {
+  if (/\ben que\b/.test(fold(step)) && !/\d/.test(step)) return null;
+  return inferFollowupDate(step, now || new Date());
+}
+
+/** Date-only stays on that Bogotá calendar day. A clock is Bogotá wall time. */
+function instantFromChatWhen(to: string) {
+  const text = to.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-").map(Number);
+    if (!year || !month || !day) return null;
+    return zonedMidnight(year, month, day);
+  }
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(text)) {
+    return instantFromProximo(text.replace("T", " "));
+  }
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function recall(text: string, ctx: ChatContext): ChatTurn | null {
@@ -399,38 +559,95 @@ function rename(text: string, ctx: ChatContext): ChatTurn | null {
 
 function schedule(text: string, ctx: ChatContext): ChatTurn | null {
   const match = text.match(
-    /^(?:con\s+)?(.+?)\s+quedamos(?:\s+de\s+vernos|\s+en\s+vernos|\s+para)?\s+(.+)$/i,
+    /^(?:con\s+)?(.+?)\s+quedamos\s+(de vernos|en vernos|para vernos)\s+(.+)$/i,
   );
   if (!match) return null;
   const lead = leadInMessage(ctx.leads, match[1]) || leadInMessage(ctx.leads, text);
   if (!lead) return { kind: "answer", reply: "¿Con quién quedaste? Dime el nombre." };
-  const when = inferFollowupDate(match[2], ctx.now || new Date());
+  const when = inferFollowupDate(match[3], ctx.now || new Date());
   if (!when) {
     return {
       kind: "answer",
       reply: `No entendí la fecha con ${lead.name}. Dila como «9 de octubre a las 5 pm».`,
     };
   }
-  const spoken = tidyName(match[2]);
-  const proposal: ChatProposal = {
-    leadId: lead.id,
-    leadName: lead.name,
-    changes: [
-      {
-        field: "nextStep",
-        label: "Acuerdo",
-        from: lead.nextStep,
-        to: `Vernos ${spoken}`,
-      },
-      {
+  const acuerdo = tidyName(`quedamos ${match[2]} ${tidyName(match[3])}`);
+  return proposalTurn(lead.id, lead.name, [
+    { field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: acuerdo },
+    {
+      field: "nextStepAt",
+      label: "Próximo seguimiento",
+      from: shownFollowup(lead, ctx.calls),
+      to: stampKeepingClock(when, lead, ctx.calls),
+    },
+  ]);
+}
+
+const SPOKEN_VERB =
+  "qued(?:amos|aron|aste|[eé]|o|ó)|acordamos|nos\\s+comprometimos";
+
+/** «Kimlen quedó en llamar el lunes» keeps the closer's words as the acuerdo. */
+function spokenAgreement(text: string, ctx: ChatContext): ChatTurn | null {
+  const match = text.match(
+    new RegExp(`^(?:con\\s+)?(.+?)\\s+(${SPOKEN_VERB})(?:\\s+en)?\\s+(.+)$`, "i"),
+  );
+  if (!match) return null;
+  const lead =
+    leadInMessage(ctx.leads, match[1].replace(/:\s*$/, "")) || leadInMessage(ctx.leads, text);
+  if (!lead) return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+  const verb = match[2];
+  const rest = tidyName(match[3]);
+  if (!rest) return null;
+  const keepVerb = /^(?:quedamos|acordamos|nos\s+comprometimos)$/i.test(verb);
+  const source = text.trim().replace(/^(?:con\s+)/i, "");
+  const at = source.toLowerCase().indexOf(verb.toLowerCase());
+  const step = keepVerb && at >= 0 ? tidyName(source.slice(at)) : rest;
+  if (!step) return null;
+  const changes: ChatChange[] = [
+    { field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step },
+  ];
+  if (fold(step) !== fold(lead.nextStep)) {
+    const when = acuerdoFollowup(step, ctx.now);
+    if (when) {
+      changes.push({
         field: "nextStepAt",
         label: "Próximo seguimiento",
-        from: "",
-        to: when,
-      },
-    ],
-  };
-  return { kind: "confirm", reply: confirmReply(lead.name, proposal.changes), proposal };
+        from: shownFollowup(lead, ctx.calls),
+        to: stampKeepingClock(when, lead, ctx.calls),
+      });
+    }
+  }
+  return proposalTurn(lead.id, lead.name, changes);
+}
+
+/** «próximo seguimiento el…», «llámalo el…», «agenda para el…» move Próximo seguimiento. */
+function moveFollowup(text: string, ctx: ChatContext): ChatTurn | null {
+  const match = text.match(
+    /^(?:con\s+)?(?:(.+?)\s*[:,]?\s+)?(?:pr[oó]ximo\s+seguimiento|seguimiento|ll[aá]malo|agenda(?:r)?\s+para)\s+((?:el|este|para(?:\s+el)?|hoy|ma[nñ]ana)\b.+)$/i,
+  );
+  if (!match) return null;
+  const prefix = (match[1] || "").replace(/[:\s]+$/g, "").trim();
+  if (prefix.split(/\s+/).filter(Boolean).length > 6) return null;
+  const when = inferFollowupDate(match[2], ctx.now || new Date());
+  if (!when) return null;
+  const mention = leadMention(prefix || text, ctx.leads);
+  if (mention.kind === "clarify") {
+    return { kind: "answer", reply: leadClarifyReply(mention.candidates) };
+  }
+  if (mention.kind !== "exact") {
+    if (prefix) return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+    return { kind: "answer", reply: "¿De quién es el seguimiento? Dime el nombre." };
+  }
+  const lead = ctx.leads.find((row) => row.id === mention.lead.id);
+  if (!lead) return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
+  return proposalTurn(lead.id, lead.name, [
+    {
+      field: "nextStepAt",
+      label: "Próximo seguimiento",
+      from: shownFollowup(lead, ctx.calls),
+      to: stampKeepingClock(when, lead, ctx.calls),
+    },
+  ]);
 }
 
 export function deskQuestionKind(text: string): "calls" | "summary" | null {
@@ -702,14 +919,23 @@ export function readAppliedCash(prefs: unknown): AppliedCash | null {
   return { leadId: row.leadId, key: row.key, to: String(row.to) };
 }
 
+function spokenPayer(raw: string) {
+  const name = tidyName(raw).replace(/:\s*$/, "").trim();
+  const folded = fold(name);
+  if (!folded || /^(me|yo|el|ella|ellos|el cliente)$/.test(folded)) return "";
+  return name;
+}
+
 function payment(text: string, ctx: ChatContext): ChatTurn | null {
   const match = text.match(
-    /^(?:con\s+)?(.+?)\s+(?:me\s+)?pag[oó](?:\s+(?:la|una|el)\s+(?:(?:primera|segunda|tercera|cuarta|siguiente|\d+)\s+)?cuota|\s+la\s+reserva)?(?:\s+de)?\s*(?:usd\s*)?(\d[\d.\s]*?)(?:\s*usd)?\s*$/i,
+    /^(?:con\s+)?(.+?)?\s*(?:me\s+)?pag[oó](?:\s+(?:la|una|el)\s+(?:(?:primera|segunda|tercera|cuarta|siguiente|\d+)\s+)?cuota|\s+la\s+reserva)?(?:\s+de)?(?:\s*(?:usd\s*)?(\d[\d.\s]*?))?(?:\s*usd)?\s*$/i,
   );
   if (!match) return null;
-  const lead = leadInMessage(ctx.leads, match[1]) || leadInMessage(ctx.leads, text);
-  const amount = parseMoney(match[2]);
-  if (!lead) return { kind: "answer", reply: "¿Quién pagó? Dime el nombre del cliente." };
+  const payer = spokenPayer(match[1] || "");
+  const lead = payer ? leadInMessage(ctx.leads, payer) || leadInMessage(ctx.leads, text) : null;
+  const amount = match[2] ? parseMoney(match[2]) : null;
+  if (!payer) return { kind: "answer", reply: "¿Quién pagó? Dime el nombre del cliente." };
+  if (!lead) return { kind: "answer", reply: "No encontré ese lead. No cambié nada." };
   if (!amount) return { kind: "answer", reply: `¿Cuánto pagó ${lead.name}?` };
   const current = paidNow(lead.amountPaid);
   const cuota = /cuota/i.test(text);
@@ -787,16 +1013,19 @@ function clearPayment(text: string, ctx: ChatContext): ChatTurn | null {
 }
 
 function offerEdit(text: string, ctx: ChatContext): ChatTurn | null {
-  const match =
+  const explicit =
     text.match(
       /^(?:la oferta|el producto)(?:\s+de\s+(.+?))?\s+(?:es|queda|queda en|ser[aá])\s+(.+)$/i,
     ) || text.match(/^(.+?)\s+(?:tiene|va por|quiere)\s+(?:la oferta|el producto)\s+(.+)$/i);
+  const bare = explicit ? null : text.match(/^(.+?)\s+va por\s+(.+)$/i);
+  const match = explicit || bare;
   if (!match) return null;
   const rawOffer = tidyName(match[2] || "");
   if (!rawOffer) return null;
   const refs = offerRefsOf(ctx);
   const names = refs.map((offer) => offer.productName).join(", ") || "ninguna";
   const plan = planProductoWrite(rawOffer, refs);
+  if (bare && !plan.producto) return null;
   if (plan.action === "request") {
     return {
       kind: "answer",
@@ -899,6 +1128,8 @@ export function interpretCrmChat(text: string, ctx: ChatContext): ChatTurn {
     offerEdit(raw, ctx) ||
     recall(raw, ctx) ||
     schedule(raw, ctx) ||
+    spokenAgreement(raw, ctx) ||
+    moveFollowup(raw, ctx) ||
     clearPayment(raw, ctx) ||
     payment(raw, ctx) ||
     askFacts(raw, ctx) ||
@@ -965,18 +1196,20 @@ export function proposalFromLoosePatch(
   }
   const changes: ChatChange[] = [];
   let warning = "";
+  let same = false;
   if (offerPlan?.action === "request") {
     warning = "";
   } else if (offerPlan?.action === "unread") {
     warning = "";
   } else if (offerPlan?.action === "acuerdo" && offerPlan.acuerdo) {
-    const step = tidyName(String(patch.nextStep || "")) || offerPlan.acuerdo;
-    if (fold(step) !== fold(lead.nextStep)) {
-      changes.push({ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step });
-    }
+    const step = tidyName(offerPlan.acuerdo) || tidyName(String(patch.nextStep || ""));
+    if (fold(step) === fold(lead.nextStep)) same = true;
+    else changes.push({ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step });
   } else if (rawOffer && !exactOffer) {
     warning = `«${rawOffer}» no es una oferta. Las tuyas son: ${names}. `;
-  } else if (exactOffer && fold(exactOffer) !== fold(lead.offerName)) {
+  } else if (exactOffer && fold(exactOffer) === fold(lead.offerName)) {
+    same = true;
+  } else if (exactOffer) {
     changes.push({
       field: "offer",
       label: "Producto/Oferta",
@@ -986,29 +1219,42 @@ export function proposalFromLoosePatch(
   }
   const renamed = tidyName(String(patch.name || ""));
   const shown = shownCrmName(lead);
-  if (renamed && renamed !== shown && fold(message).includes(fold(renamed))) {
-    changes.push({ field: "name", label: "Nombre", from: shown, to: renamed });
+  if (renamed && fold(message).includes(fold(renamed))) {
+    if (renamed === shown) same = true;
+    else changes.push({ field: "name", label: "Nombre", from: shown, to: renamed });
   }
   const step = tidyName(String(patch.nextStep || ""));
-  if (
-    step &&
-    !isChatRequest(step) &&
-    offerPlan?.action !== "acuerdo" &&
-    fold(step) !== fold(lead.nextStep) &&
-    fold(step) !== fold(rawOffer)
-  ) {
-    changes.push({ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step });
+  if (step && !isChatRequest(step) && offerPlan?.action !== "acuerdo" && fold(step) !== fold(rawOffer)) {
+    if (fold(step) === fold(lead.nextStep)) same = true;
+    else changes.push({ field: "nextStep", label: "Acuerdo", from: lead.nextStep, to: step });
   }
   const when = String(patch.nextStepAt || "").trim();
-  if (when && /^\d{4}-\d{2}-\d{2}/.test(when)) {
-    changes.push({ field: "nextStepAt", label: "Próximo seguimiento", from: "", to: when });
+  const inferred =
+    when && /^\d{4}-\d{2}-\d{2}/.test(when)
+      ? when
+      : step && fold(step) !== fold(lead.nextStep)
+        ? acuerdoFollowup(step, ctx.now) || ""
+        : "";
+  if (inferred && /^\d{4}-\d{2}-\d{2}/.test(inferred)) {
+    const stamped = stampKeepingClock(inferred, lead, ctx.calls);
+    const fromWhen = shownFollowup(lead, ctx.calls);
+    if (fold(fromWhen) === fold(stamped)) same = true;
+    else {
+      changes.push({
+        field: "nextStepAt",
+        label: "Próximo seguimiento",
+        from: fromWhen,
+        to: stamped,
+      });
+    }
   }
   const cash = patch.amountPaid ? parseMoney(String(patch.amountPaid)) : null;
   if (cash) {
     const current = paidNow(lead.amountPaid);
     const cuota = /cuota/i.test(message);
     const next = cuota ? current + Number(cash) : Number(cash);
-    if (!(cuota === false && current === next)) {
+    if (cuota === false && current === next) same = true;
+    else {
       changes.push({
         field: "cash",
         label: "Cobrado",
@@ -1018,22 +1264,20 @@ export function proposalFromLoosePatch(
     }
   }
   const notes = tidyName(String(patch.lastSummary || ""));
-  if (
-    notes &&
-    !isChatRequest(notes) &&
-    fold(notes) !== fold(lead.lastSummary) &&
-    fold(notes) !== fold(rawOffer)
-  ) {
-    changes.push({ field: "notes", label: "Notas", from: lead.lastSummary, to: notes });
+  if (notes && !isChatRequest(notes) && fold(notes) !== fold(rawOffer)) {
+    if (fold(notes) === fold(lead.lastSummary)) same = true;
+    else changes.push({ field: "notes", label: "Notas", from: lead.lastSummary, to: notes });
   }
-  if (!changes.length) {
+  const real = withoutNoops(changes);
+  if (!real.length) {
     if (warning) return { kind: "answer", reply: `${warning}No cambié nada.`.trim() };
+    if (same || changes.length) return { kind: "answer", reply: UNCHANGED_REPLY };
     return { kind: "none" };
   }
-  const proposal: ChatProposal = { leadId: lead.id, leadName: shownCrmName(lead), changes };
+  const proposal: ChatProposal = { leadId: lead.id, leadName: shownCrmName(lead), changes: real };
   return {
     kind: "confirm",
-    reply: `${warning}${confirmReply(shownCrmName(lead), changes)}`.trim(),
+    reply: `${warning}${confirmReply(shownCrmName(lead), real)}`.trim(),
     proposal,
   };
 }
@@ -1141,9 +1385,8 @@ export async function applyChatProposal(
       }
       if (change.field === "nextStep") data.nextStep = to;
       if (change.field === "nextStepAt") {
-        const iso = to.includes("T") ? to : to.replace(" ", "T");
-        const date = new Date(iso.length === 16 ? `${iso}:00.000Z` : iso);
-        if (!Number.isNaN(date.getTime())) data.nextStepAt = date;
+        const date = instantFromChatWhen(to);
+        if (date) data.nextStepAt = date;
       }
       if (change.field === "cash") cashChange = { ...change, to };
       if (change.field === "notes") data.lastSummary = to;
@@ -1558,6 +1801,7 @@ async function loadCrmChatRead(prisma: PrismaClient, userId: string, raw: string
           name: true,
           offerName: true,
           nextStep: true,
+          nextStepAt: true,
           lastSummary: true,
           amountPaid: true,
         },
@@ -1641,6 +1885,7 @@ export async function answerCrmChat(prisma: PrismaClient, userId: string, text: 
     name: row.name,
     offerName: row.offerName,
     nextStep: row.nextStep,
+    nextStepAt: row.nextStepAt,
     lastSummary: row.lastSummary,
     amountPaid: row.amountPaid,
   }));

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { answerCrmFollowups, type CrmAskRow } from "./crm-ask";
 
@@ -48,7 +49,8 @@ const rows: CrmAskRow[] = [
 test("answers who is due today from the CRM rows", () => {
   const text = answerCrmFollowups(rows, "¿a quién hoy?", { now });
   assert.match(text, /María Pérez/);
-  assert.match(text, /WhatsApp/);
+  assert.match(text, /Hoy toca 1 seguimiento:/);
+  assert.equal(text.includes("WhatsApp"), false);
   assert.equal(text.includes("Ana Ruiz"), false);
   assert.equal(text.includes("Luis Gómez"), false);
 });
@@ -59,9 +61,11 @@ test("answers when and how for one person, including the script", () => {
     money: (value) => `USD ${value}`,
   });
   assert.match(text, /María Pérez/);
-  assert.match(text, /Cuándo: hoy, pendiente/);
-  assert.match(text, /Cómo: WhatsApp · Cobrar decisión/);
-  assert.match(text, /\+50760001111/);
+  assert.match(text, /Cobrar decisión/);
+  assert.equal(text.includes("WhatsApp"), false);
+  assert.equal(text.includes("Cuándo:"), false);
+  assert.equal(text.includes("Cómo:"), false);
+  assert.equal(text.includes("+507"), false);
   assert.match(text, /En juego: USD 1300/);
   assert.match(text, /María, ¿lo hablaste con tu esposo\?/);
   assert.equal(text.includes("Luis"), false);
@@ -80,9 +84,75 @@ test("tomorrow lists only that day", () => {
   assert.equal(text.includes("Ana"), false);
 });
 
+test("a list bullet does not repeat seguimiento and atrasado", () => {
+  const text = answerCrmFollowups(
+    [
+      {
+        id: "e",
+        cliente: "Elber",
+        dueAt: new Date(2026, 8, 23, 13, 0, 0).toISOString(),
+        hilo: "SEGUIMIENTO",
+        proximaAccion: "seguimiento · atrasado",
+        canal: "WHATSAPP",
+        proximo: "2026-09-23",
+      },
+    ],
+    "¿A quién llamo hoy?",
+    { now },
+  );
+  assert.match(text, /Elber/);
+  assert.match(text, /pendiente desde/);
+  assert.equal(text.includes("WhatsApp"), false);
+  assert.equal((text.match(/seguimiento/gi) || []).length, 1);
+  assert.equal(/atrasado/i.test(text), false);
+});
+
+test("a today list uses the plural verb and the human agreement, without a channel on every line", () => {
+  const text = answerCrmFollowups(
+    [
+      {
+        id: "e",
+        cliente: "Elber",
+        dueAt: new Date(2026, 8, 23, 13, 0, 0).toISOString(),
+        hilo: "DECISION",
+        proximaAccion: "El cliente evaluará la propuesta enviada y dará una respuesta o decisión.",
+        canal: "WHATSAPP",
+        proximo: "2026-09-23",
+      },
+      {
+        id: "j",
+        cliente: "Jessica Pajuelo",
+        dueAt: new Date(2026, 8, 23, 13, 0, 0).toISOString(),
+        hilo: "SEGUIMIENTO",
+        proximaAccion: "seguimiento · atrasado",
+        canal: "WHATSAPP",
+        proximo: "2026-09-23",
+      },
+    ],
+    "¿A quién llamo hoy?",
+    { now },
+  );
+  assert.match(text, /^Hoy tocan 2 seguimientos:/);
+  assert.match(text, /Quedó en revisar la propuesta y dar una respuesta/);
+  assert.equal(/el cliente/i.test(text), false);
+  assert.equal(text.includes("WhatsApp"), false);
+});
+
 test("empty CRM does not invent a follow-up", () => {
   assert.equal(
     answerCrmFollowups([], "¿a quién hoy?", { now }),
     "No hay seguimientos abiertos en el CRM.",
   );
+});
+
+test("the ask panel is a side column at 1200px and a 64px bar below that", () => {
+  const ask = readFileSync(new URL("../components/crm-ask.tsx", import.meta.url), "utf8");
+  const crm = readFileSync(new URL("../app/crm/page.tsx", import.meta.url), "utf8");
+  assert.match(ask, /min-width: 1200px/);
+  assert.equal(ask.includes("min-width: 1280px"), false);
+  assert.match(ask, /min-\[1200px\]:sticky min-\[1200px\]:top-4/);
+  assert.match(ask, /flex h-16 max-h-16 min-w-0 items-center gap-2 border-t border-separator1 px-3 min-\[1200px\]:hidden/);
+  assert.match(ask, /min-\[1200px\]:hidden/);
+  assert.match(crm, /min-\[1200px\]:grid min-\[1200px\]:grid-cols-\[minmax\(0,1fr\)_320px\]/);
+  assert.equal(crm.includes("xl:grid xl:grid-cols-[minmax(0,1fr)_320px]"), false);
 });

@@ -12,6 +12,13 @@ test("infers ISO and relative Spanish follow-up dates", () => {
   assert.equal(inferFollowupDate("en 3 días", CALL), "2026-09-20");
 });
 
+test("a weekday plus a day number is that calendar day", () => {
+  const now = new Date("2026-10-01T12:00:00.000Z");
+  assert.equal(inferFollowupDate("el viernes 9", now), "2026-10-09");
+  assert.equal(inferFollowupDate("el miércoles 7 a las 3 pm", now), "2026-10-07 15:00");
+  assert.equal(inferFollowupDate("el lunes", now), "2026-10-05");
+});
+
 test("returns null when there is no date", () => {
   assert.equal(inferFollowupDate("hablamos luego", CALL), null);
 });

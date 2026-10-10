@@ -10,7 +10,9 @@ import {
   analyzeCardStatus,
   coachCardStatus,
   followupCardStatus,
+  clientPatternPhrase,
   practiceCardFromGuides,
+  spokenPracticeFocus,
 } from "./home-desk";
 import { quickFollowupIso } from "./followup-date";
 
@@ -44,8 +46,8 @@ test("nine corrections do not auto-classify yet", () => {
 test("home cards keep a status line even when nothing is pending", () => {
   assert.equal(analyzeCardStatus(5), "5 sin clasificar");
   assert.equal(analyzeCardStatus(0), "Todo al día");
-  assert.equal(followupCardStatus(4, 1), "4 pendientes de hoy · 1 vencido");
-  assert.equal(followupCardStatus(0, 3), "3 vencidos");
+  assert.equal(followupCardStatus(4, 1), "4 pendientes de hoy · 1 atrasado");
+  assert.equal(followupCardStatus(0, 3), "3 atrasados");
   assert.equal(followupCardStatus(1, 0), "1 pendiente de hoy");
   assert.equal(followupCardStatus(0, 0), "Todo al día");
   assert.equal(coachCardStatus({ newPattern: true, analyzedThisWeek: 2 }), "Nuevo patrón detectado");
@@ -82,22 +84,58 @@ test("the practice card keeps the drill off the hub payload", () => {
   );
   assert.equal(card.practiceStatus, "resolver el precio antes de cerrar");
   assert.equal(card.newPattern, true);
+  const pattern = practiceCardFromGuides([
+    {
+      drills: ["resolver el precio antes de cerrar"],
+      missingInLosses: ["lo tengo que consultar"],
+      ready: true,
+    },
+  ]);
+  assert.equal(pattern.pattern, "Pierdes cierres cuando te dicen “lo tengo que consultar”");
+  assert.equal(
+    clientPatternPhrase("Manejo efectivo de la objeción de necesitar consultarlo con alguien"),
+    "lo tengo que consultar",
+  );
+  assert.equal(
+    practiceCardFromGuides([
+      {
+        drills: ["Manejo efectivo de la objeción de necesitar consultarlo con alguien"],
+        missingInLosses: ["Manejo efectivo de la objeción de necesitar consultarlo con alguien"],
+      },
+    ]).pattern,
+    "Pierdes cierres cuando te dicen “lo tengo que consultar”",
+  );
+  assert.equal(clientPatternPhrase("Manejo efectivo del silencio en el cierre"), "");
+  assert.equal(
+    practiceCardFromGuides([{ drills: ["solo el ejercicio"], missingInLosses: ["Manejo efectivo del silencio en el cierre"] }])
+      .pattern,
+    "",
+  );
+  assert.equal(pattern.drill, "resolver el precio antes de cerrar");
+  assert.equal(
+    pattern.practiceHref,
+    `/practicar?focus=${encodeURIComponent("lo tengo que consultar")}`,
+  );
+  assert.equal(spokenPracticeFocus("lo tengo que consultar"), "lo tengo que consultar");
+  assert.equal(spokenPracticeFocus("resolver el precio antes de cerrar"), "");
+  assert.equal(practiceCardFromGuides([{ drills: ["solo el ejercicio"], missingInLosses: [] }]).pattern, "");
   const empty = practiceCardFromGuides([{ drills: [], ready: false }]);
   assert.equal(empty.practiceHref, "/practicar");
   assert.equal(empty.practiceStatus, "Elige con quién practicar");
   assert.equal(empty.newPattern, false);
   const hub = readFileSync(new URL("../app/api/hub/route.ts", import.meta.url), "utf8");
   const screen = readFileSync(new URL("../components/home-screen.tsx", import.meta.url), "utf8");
+  const inicio = readFileSync(new URL("../components/inicio-home.tsx", import.meta.url), "utf8");
   const practice = readFileSync(new URL("../app/api/hub/practice/route.ts", import.meta.url), "utf8");
   assert.equal(hub.includes("loadLiveGuides"), false);
   assert.equal(hub.includes("practiceCardFromGuides"), false);
-  assert.match(screen, /\/api\/hub\/practice/);
-  assert.match(screen, /Elige con quién practicar/);
-  assert.match(screen, /DeskRowStatus/);
-  assert.match(screen, /title=\{status\}/);
-  assert.match(screen, /min-w-0/);
-  assert.match(screen, /grid-cols-\[7\.5rem_minmax\(0,1fr\)\]/);
-  assert.doesNotMatch(screen, /items-baseline justify-between gap-4 py-4[\s\S]{0,120}line-clamp-2/);
+  // «Lo que más te frena» loads the drill after the hub, and hides without a pattern.
+  assert.match(inicio, /\/api\/hub\/practice/);
+  assert.match(inicio, /Lo que más te frena/);
+  assert.match(inicio, /card\.pattern/);
+  assert.match(inicio, /Empieza en 3 pasos/);
+  assert.match(inicio, /Qué le mandas a/);
+  assert.match(inicio, /min-w-0/);
   assert.doesNotMatch(screen, /phase \|\| "a"/);
   assert.match(practice, /practiceCardFromGuides/);
   assert.match(practice, /select: \{ productName: true, playbook: true \}/);

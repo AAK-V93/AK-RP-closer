@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { classifyAndFileCall, maybeCreateAlert } from "@/lib/call-intelligence";
 import { loadOffersForCrm } from "@/lib/crm-apply";
-import { findMatchingLead } from "@/lib/lead-match";
+import { matchLeadForChat } from "@/lib/lead-match";
 import type { OfferForCrm } from "@/lib/offer-commercial";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
 import { canonicalOfferName } from "@/lib/producto-guard";
@@ -122,11 +122,9 @@ export async function applyCrmChatUpdate(
   await ensureCrmTables(prisma);
 
   const leads = await prisma.lead.findMany({ where: { userId } });
-  const existing = findMatchingLead(
-    leads,
-    name,
-    patch.company,
-  );
+  const linked = matchLeadForChat(leads, name);
+  if (linked.kind !== "one") return null;
+  const existing = linked.lead;
   const status = normalizeStatus(patch.status);
   const nextStepAt = parseDue(patch.nextStepAt);
   const offers = await loadOffersForCrm(prisma, userId);
@@ -145,15 +143,8 @@ export async function applyCrmChatUpdate(
     decider: patch.decider?.trim() || existing?.decider || "",
   };
 
-  const lead = existing
-    ? await prisma.lead.update({ where: { id: existing.id }, data })
-    : await prisma.lead.create({
-        data: { userId, name, ...data },
-      });
-
-  if (existing) {
-    await resolveOpenAlertsForLead(prisma, userId, lead.id);
-  }
+  const lead = await prisma.lead.update({ where: { id: existing.id }, data });
+  await resolveOpenAlertsForLead(prisma, userId, lead.id);
 
   await maybeCreateAlert(prisma, userId, lead.id, name, {
     nextStep: data.nextStep,

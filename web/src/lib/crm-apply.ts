@@ -16,7 +16,7 @@ import {
   type ExtractorJson,
 } from "@/lib/extractor";
 import { followupIsClosed } from "@/lib/crm-followups";
-import { findMatchingLead } from "@/lib/lead-match";
+import { matchLeadForFiling } from "@/lib/lead-match";
 import { resolveOpenAlertsForLead } from "@/lib/alerts";
 import {
   deadlineDaysForPago,
@@ -30,7 +30,7 @@ import { addDays, parseCrmPrefs, parseFollowupDate, patchCrmPref } from "@/lib/c
 import { canonicalTipo } from "@/lib/call-normalize";
 import { inferCallDate, inferFollowupDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
 import { zonedDayKey } from "@/lib/crm-time";
-import { isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
+import { agendaFromCloserWords, isNonSalesCall, normalizeEstadoAgenda } from "@/lib/call-kind";
 import { statusFromEstadoAgenda } from "@/lib/crm-activa";
 import { recordExtractorFeedback } from "@/lib/extractor-feedback";
 
@@ -348,6 +348,7 @@ export async function applyExtractorToCrm(
   const saldo = moneyOk ? parsed.saldo_pendiente : null;
 
   let leadId: string | null = null;
+  let leaveUnclassified = false;
   const catalogOpen = offersCatalogOpen(offerRefs);
   const acceptedOffer = catalogOpen ? applyProductoGuard(parsed, offerRefs).producto : "";
   if (!catalogOpen) parsed.producto = null;
@@ -357,7 +358,23 @@ export async function applyExtractorToCrm(
   let matched = acceptedOffer ? offers.find((offer) => offer.productName === acceptedOffer) || null : null;
   if (parsed.cliente_real && !isNonSalesCall(parsed.estado_agenda)) {
     const leads = await prisma.lead.findMany({ where: { userId } });
-    const existing = findMatchingLead(leads, parsed.cliente_real);
+    const linked = matchLeadForFiling(leads, parsed.cliente_real);
+    if (linked.kind === "ambiguous" || (followupOnly && linked.kind === "none")) {
+      if (!followupOnly && linked.kind === "ambiguous") leaveUnclassified = true;
+      else if (followupOnly) {
+        return {
+          callRecordId,
+          leadId: null,
+          parsed,
+          summary: extractorOneLiner(parsed),
+          unclassified: linked.kind === "ambiguous",
+        };
+      }
+    }
+    const existing = linked.kind === "one" ? linked.lead : null;
+    if (leaveUnclassified) {
+      delete (parsed as ExtractorJson & { lead_id?: string }).lead_id;
+    } else {
     offerName = keptOfferName(acceptedOffer, existing?.offerName, offerRefs);
     matched = acceptedOffer ? offers.find((offer) => offer.productName === acceptedOffer) || null : null;
     const status = leadStatusFromAgenda(parsed.estado_agenda);
@@ -413,7 +430,7 @@ export async function applyExtractorToCrm(
 
     if (followupOnly) {
       await stampLeadOnCall(prisma, userId, callRecordId, lead.id);
-      return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed) };
+      return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed), unclassified: false };
     }
 
     if (moneyOk && cash && cash > 0) {
@@ -435,10 +452,11 @@ export async function applyExtractorToCrm(
       recordedAt: callAt,
       estado: parsed.estado_agenda,
     });
+    }
   }
 
   if (followupOnly) {
-    return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed) };
+    return { callRecordId, leadId, parsed, summary: extractorOneLiner(parsed), unclassified: false };
   }
 
   const summary = extractorOneLiner(parsed);
@@ -460,9 +478,9 @@ export async function applyExtractorToCrm(
       offerName: keptOfferName(acceptedOffer, row.offerName, offerRefs),
       trainsBot: trainsBot(parsed.estado_agenda),
       summary,
-      filingStatus: "confirmed",
+      filingStatus: leaveUnclassified ? "pending" : "confirmed",
       filingJson: parsed as unknown as Prisma.InputJsonValue,
-      confirmedAt: new Date(),
+      confirmedAt: leaveUnclassified ? null : new Date(),
       estadoAgenda: parsed.estado_agenda || "",
       ventaTotal: venta,
       cashCollected: cash,
@@ -471,7 +489,7 @@ export async function applyExtractorToCrm(
     },
   });
 
-  return { callRecordId, leadId, parsed, summary };
+  return { callRecordId, leadId, parsed, summary, unclassified: leaveUnclassified };
 }
 
 async function spawnAlertsFromExtractor(
@@ -540,7 +558,9 @@ export function fillExtractorField(
   const text = value.trim();
   const n = Number(text.replace(/[^\d.-]/g, ""));
   if (field === "cliente_real") next.cliente_real = text;
-  if (field === "estado_agenda") next.estado_agenda = normalizeEstadoAgenda(text);
+  if (field === "estado_agenda") {
+    next.estado_agenda = agendaFromCloserWords(text) || normalizeEstadoAgenda(text);
+  }
   if (field === "producto") {
     next.producto = text;
     next.confianza.producto = 95;
@@ -548,7 +568,11 @@ export function fillExtractorField(
   if (field === "venta_total" && Number.isFinite(n)) next.venta_total = n;
   if (field === "cash_collected" && Number.isFinite(n)) next.cash_collected = n;
   if (field === "modo_pago") next.modo_pago = text;
-  if (field === "tipo_seguimiento") next.tipo_seguimiento = canonicalTipo(text) || null;
+  if (field === "tipo_seguimiento") {
+    const tipo = canonicalTipo(text);
+    next.tipo_seguimiento = tipo || null;
+    if (tipo) next.requiere_seguimiento = true;
+  }
   if (field === "proximo_seguimiento") {
     next.proximo_seguimiento = inferFollowupDate(text, new Date()) || text;
     next.confianza.proximo_seguimiento = 95;
@@ -564,11 +588,9 @@ export function fillExtractorField(
   if (field === "revision") {
     next.requiere_revision_humana = false;
     next.motivo_revision = null;
-    if (/no show/i.test(text)) next.estado_agenda = "NO SHOW";
-    else if (/reprog/i.test(text)) next.estado_agenda = "REPROGRAMA";
-    else if (/cerr/i.test(text) || /pag/i.test(text)) next.estado_agenda = "CIERRE VENTA";
-    else if (/acuerdo/i.test(text)) next.estado_agenda = "ACUERDO SIN PAGO";
-    else if (/show/i.test(text)) next.estado_agenda = "SHOW";
+    const fromChip = agendaFromCloserWords(text);
+    if (fromChip) next.estado_agenda = fromChip;
+    else if (/pag/i.test(text)) next.estado_agenda = "CIERRE VENTA";
   }
   next.confianza = {
     ...next.confianza,
@@ -857,7 +879,8 @@ export async function repairMissingFollowups(prisma: PrismaClient, userId: strin
       if (!proximo && !requiere) continue;
       const key = cliente.toLowerCase();
       if (seen.has(key)) continue;
-      const lead = findMatchingLead(leads, cliente);
+      const linked = matchLeadForFiling(leads, cliente);
+      const lead = linked.kind === "one" ? linked.lead : null;
       if (lead && covered.has(lead.id)) {
         seen.add(key);
         continue;

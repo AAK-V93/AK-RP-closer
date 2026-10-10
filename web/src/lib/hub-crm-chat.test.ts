@@ -26,6 +26,7 @@ import {
   OFFER_PASTE_TEXT,
   visibleHubThread,
   interpretCrmChat,
+  mergeAgreementText,
   loadLeadTranscript,
   looksLikeFilingAnswer,
   readPendingChat,
@@ -119,16 +120,16 @@ test("a meeting time is a confirmation for that lead", () => {
   );
 });
 
-test("a partial first name asks before any update", () => {
+test("a unique first name resolves to that lead", () => {
   const turn = interpretCrmChat(
     "Con Sofia quedamos de vernos el viernes 9 de octubre a las 5 pm",
     ctx,
   );
-  assert.equal(turn.kind, "answer");
-  if (turn.kind !== "answer") return;
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.proposal.leadId, "sofia");
   assert.match(turn.reply, /Sofía Mamani/);
-  assert.match(turn.reply, /No cambié nada/);
-  assert.doesNotMatch(turn.reply, /^Listo/i);
+  assert.match(turn.reply, /¿Confirmo\?/);
 });
 
 test("a payment names Carlos and not Edson", () => {
@@ -141,13 +142,13 @@ test("a payment names Carlos and not Edson", () => {
   assert.doesNotMatch(turn.reply, /Edson/);
 });
 
-test("a first name that is not the full lead does not write the payment", () => {
+test("a unique first name updates that lead's payment", () => {
   const turn = interpretCrmChat("Carlos me pagó la reserva de 2000 USD", ctx);
-  assert.equal(turn.kind, "answer");
-  if (turn.kind !== "answer") return;
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.proposal.leadId, "carlos");
+  assert.equal(turn.proposal.changes[0]?.to, "2000");
   assert.match(turn.reply, /Carlos Ramírez/);
-  assert.match(turn.reply, /No cambié nada/);
-  assert.doesNotMatch(turn.reply, /^Listo/i);
   assert.doesNotMatch(turn.reply, /Edson/);
 });
 
@@ -376,7 +377,7 @@ test("rename plus transcript does not write the agreement into the offer", () =>
   assert.doesNotMatch(turn.reply, /Producto/);
 });
 
-test("a loose model patch follows the lead named in this message", () => {
+test("a loose model patch follows the unique first name in this message", () => {
   const turn = proposalFromLoosePatch(
     {
       name: "Edson",
@@ -386,11 +387,11 @@ test("a loose model patch follows the lead named in this message", () => {
     { ...ctx, offers: ["Círculo Millonario"] },
     "Carlos me pagó la reserva de 2000 USD",
   );
-  assert.equal(turn.kind, "answer");
-  if (turn.kind !== "answer") return;
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.proposal.leadId, "carlos");
+  assert.equal(turn.proposal.changes.some((change) => change.field === "name"), false);
   assert.match(turn.reply, /Carlos Ramírez/);
-  assert.match(turn.reply, /No cambié nada/);
-  assert.doesNotMatch(turn.reply, /^Listo/i);
   assert.doesNotMatch(turn.reply, /Edson/);
 });
 
@@ -414,6 +415,169 @@ test("an agreement in offerName becomes the acuerdo of the exact lead", () => {
   );
   assert.match(turn.reply, /Edson/);
   assert.doesNotMatch(turn.reply, /Carlos/);
+});
+
+const diego: ChatLead = {
+  id: "diego",
+  name: "Diego Huamán",
+  offerName: "",
+  nextStep: "Llamar el jueves",
+  lastSummary: "",
+  amountPaid: "",
+  nextStepAt: new Date("2026-10-07T20:00:00.000Z"),
+};
+
+test("quedó en pagar asks which Diego before writing", () => {
+  const withDiego = { ...ctx, leads: [...leads, diego] };
+  for (const text of [
+    "Diego Huamen quedó en pagar el lunes",
+    "Diego Huamen quedamos en pagar el lunes",
+    "Diego Huamen quedaron en pagar el lunes",
+    "Diego Huamen va a pagar el lunes",
+    "Diego Huamen pagó el lunes",
+    "Diego Huamen pago el lunes",
+    "Diego Huamen pagará el lunes",
+  ]) {
+    const turn = interpretCrmChat(text, withDiego);
+    assert.equal(turn.kind, "answer", text);
+    if (turn.kind !== "answer") continue;
+    assert.match(turn.reply, /¿Te refieres a Diego Huamán\?/);
+    assert.match(turn.reply, /No cambié nada/);
+    assert.equal("proposal" in turn, false);
+  }
+});
+
+test("a unique first name, a shared first name, and a misspelling", () => {
+  const kimlen = {
+    id: "kimlen",
+    name: "Kimlen García",
+    offerName: "",
+    nextStep: "",
+    lastSummary: "",
+    amountPaid: "",
+  };
+  const unique = interpretCrmChat("Kimlen quedó en llamar el lunes", {
+    ...ctx,
+    leads: [...leads, kimlen],
+  });
+  assert.equal(unique.kind, "confirm");
+  if (unique.kind === "confirm") {
+    assert.equal(unique.proposal.leadId, "kimlen");
+    assert.equal(unique.proposal.changes.find((change) => change.field === "nextStep")?.to, "llamar el lunes");
+  }
+  const edson = interpretCrmChat("Edson pagó 2000", ctx);
+  assert.equal(edson.kind, "confirm");
+  if (edson.kind === "confirm") assert.equal(edson.proposal.leadId, "edson");
+
+  const shared = interpretCrmChat("Carlos quedó en llamar el lunes", {
+    ...ctx,
+    leads: [
+      ...leads,
+      {
+        id: "carlos-2",
+        name: "Carlos Quito",
+        offerName: "",
+        nextStep: "",
+        lastSummary: "",
+        amountPaid: "",
+      },
+    ],
+  });
+  assert.equal(shared.kind, "answer");
+  if (shared.kind === "answer") {
+    assert.match(shared.reply, /¿Te refieres a Carlos Ramírez o a Carlos Quito\?/);
+    assert.match(shared.reply, /No cambié nada/);
+    assert.equal("proposal" in shared, false);
+  }
+
+  const missed = interpretCrmChat("Etsson pagó 2000", ctx);
+  assert.equal(missed.kind, "answer");
+  if (missed.kind === "answer") {
+    assert.match(missed.reply, /¿Te refieres a Edson\?/);
+    assert.match(missed.reply, /No cambié nada/);
+    assert.equal("proposal" in missed, false);
+  }
+
+  const unknown = interpretCrmChat("Nadie quedó en llamar el lunes", ctx);
+  assert.equal(unknown.kind, "answer");
+  if (unknown.kind === "answer") assert.match(unknown.reply, /No encontré ese lead/);
+});
+
+test("va por a saved offer does not need the word oferta", () => {
+  const turn = interpretCrmChat("Diego Huamán va por Círculo Millonario", {
+    ...ctx,
+    leads: [...leads, diego],
+    offers: ["Círculo Millonario"],
+  });
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(turn.proposal.leadId, "diego");
+  assert.equal(turn.proposal.changes[0]?.field, "offer");
+  assert.equal(turn.proposal.changes[0]?.to, "Círculo Millonario");
+  assert.doesNotMatch(turn.reply, /Puedo decirte el cobrado/);
+});
+
+test("va por an alias resolves, and an unknown phrase is not an offer", () => {
+  const saved = interpretCrmChat("Diego Huamán va por círculo", {
+    ...ctx,
+    leads: [...leads, diego],
+    offerRefs: [{ productName: "Círculo Millonario", aliases: ["círculo"] }],
+  });
+  assert.equal(saved.kind, "confirm");
+  if (saved.kind === "confirm") {
+    assert.equal(saved.proposal.changes[0]?.to, "Círculo Millonario");
+  }
+  const missed = interpretCrmChat("Diego Huamán va por un plan distinto", {
+    ...ctx,
+    leads: [...leads, diego],
+    offers: ["Círculo Millonario"],
+  });
+  assert.equal(missed.kind, "none");
+});
+
+test("the user's acuerdo wins over the model's Vernos rewrite", () => {
+  const turn = proposalFromLoosePatch(
+    {
+      offerName: "quedamos en que el viernes me avisaba",
+      nextStep: "Vernos en que el viernes me avisaba",
+    },
+    { ...ctx, leads: [...leads, diego], offers: ["Círculo Millonario"] },
+    "Diego Huamán quedamos en que el viernes me avisaba",
+  );
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(
+    turn.proposal.changes.find((change) => change.field === "nextStep")?.to,
+    "quedamos en que el viernes me avisaba",
+  );
+  assert.equal(
+    turn.proposal.changes.some((change) => change.to.includes("Vernos")),
+    false,
+  );
+});
+
+test("próximo seguimiento shows the stored Bogotá time, not a dash", () => {
+  const turn = proposalFromLoosePatch(
+    { nextStepAt: "2026-10-09 17:00" },
+    { ...ctx, leads: [...leads, diego], offers: ["Círculo Millonario"] },
+    "Diego Huamán el viernes a las 5",
+  );
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  const when = turn.proposal.changes.find((change) => change.field === "nextStepAt");
+  assert.equal(when?.from, "2026-10-07 15:00");
+  assert.match(turn.reply, /2026-10-07 15:00/);
+  assert.doesNotMatch(turn.reply, /«—»/);
+  const scheduled = interpretCrmChat(
+    "Con Diego Huamán quedamos de vernos el viernes 9 de octubre a las 5 pm",
+    { ...ctx, leads: [...leads, diego] },
+  );
+  assert.equal(scheduled.kind, "confirm");
+  if (scheduled.kind !== "confirm") return;
+  assert.equal(
+    scheduled.proposal.changes.find((change) => change.field === "nextStepAt")?.from,
+    "2026-10-07 15:00",
+  );
 });
 
 test("a reply about another lead is replaced with the one named now", () => {
@@ -635,11 +799,12 @@ test("clearing Carlos's cash asks before writing zero", async () => {
     assert.match(turn.reply, /Cobrado/);
     assert.match(turn.reply, /¿Confirmo\?/);
   }
-  const fuzzy = interpretCrmChat("Carlos no ha pagado nada", paid);
-  assert.equal(fuzzy.kind, "answer");
-  if (fuzzy.kind === "answer") {
-    assert.match(fuzzy.reply, /Carlos Ramírez/);
-    assert.doesNotMatch(fuzzy.reply, /^Listo/i);
+  const byFirst = interpretCrmChat("Carlos no ha pagado nada", paid);
+  assert.equal(byFirst.kind, "confirm");
+  if (byFirst.kind === "confirm") {
+    assert.equal(byFirst.proposal.leadId, "carlos");
+    assert.equal(byFirst.proposal.changes[0]?.to, "0");
+    assert.match(byFirst.reply, /Carlos Ramírez/);
   }
 
   const { prisma, calls } = fakeCrm();
@@ -958,7 +1123,8 @@ test("pending today is a summary and who to call is a ranked list", () => {
   assert.equal(summary.kind, "answer");
   assert.equal(calls.kind, "answer");
   if (summary.kind !== "answer" || calls.kind !== "answer") return;
-  assert.match(summary.reply, /1 seguimiento vencido/);
+  assert.match(summary.reply, /1 seguimiento atrasado/);
+  assert.doesNotMatch(summary.reply, /vencid/i);
   assert.match(summary.reply, /1 para hoy/);
   assert.match(summary.reply, /1 cobro/);
   assert.match(summary.reply, /8 llamadas por clasificar/);
@@ -1209,7 +1375,12 @@ test("the hub paste cannot run for a recognized CRM question", () => {
   assert.equal(route.includes("loadLiveGuides"), false);
   assert.match(route, /returned-offer-paste/);
   assert.match(route, /status: 503/);
-  assert.match(route, /visibleHubThread/);
+  const getBody = route.slice(route.indexOf("export async function GET"), route.indexOf("export async function POST"));
+  assert.doesNotMatch(getBody, /loadThread/);
+  assert.doesNotMatch(getBody, /visibleHubThread/);
+  const threadRoute = readFileSync(new URL("../app/api/hub/thread/route.ts", import.meta.url), "utf8");
+  assert.match(threadRoute, /visibleHubThread/);
+  assert.match(threadRoute, /loadThread/);
   assert.match(route, /cache-control": "no-store"/);
   assert.match(route, /blockedOfferPasteReply/);
   const crmBlock = route.slice(route.indexOf("if (crmReply)"), route.indexOf("if (recognizedCrmQuestion"));
@@ -1415,4 +1586,327 @@ test("the hub thread read keeps the newest lines", async () => {
   assert.equal(loaded.messages.length, 80);
   assert.equal(loaded.messages[0]?.content, "linea 10");
   assert.equal(loaded.messages.at(-1)?.content, "linea 89");
+});
+
+test("quedamos keeps the closer's words and does not rewrite them as Vernos", () => {
+  const turn = interpretCrmChat("Diego Huamán: quedamos en que el viernes me avisaba", {
+    ...ctx,
+    leads: [...leads, diego],
+  });
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  const acuerdo = turn.proposal.changes.find((change) => change.field === "nextStep");
+  assert.equal(acuerdo?.to, "quedamos en que el viernes me avisaba");
+  assert.equal(turn.proposal.changes.some((change) => /vernos/i.test(change.to)), false);
+  assert.equal("nextStepAt" in Object.fromEntries(turn.proposal.changes.map((change) => [change.field, true])), false);
+});
+
+test("quedé, quedaron, acordamos and nos comprometimos keep the user's acuerdo", () => {
+  const kimlen = {
+    id: "kimlen",
+    name: "Kimlen García",
+    offerName: "",
+    nextStep: "",
+    lastSummary: "",
+    amountPaid: "",
+  };
+  const cases = [
+    ["Kimlen quedé en llamar el lunes", "llamar el lunes"],
+    ["Kimlen quedaron en llamar el lunes", "llamar el lunes"],
+    ["Kimlen acordamos llamar el lunes", "acordamos llamar el lunes"],
+    ["Kimlen nos comprometimos a llamar el lunes", "nos comprometimos a llamar el lunes"],
+  ] as const;
+  for (const [text, acuerdo] of cases) {
+    const turn = interpretCrmChat(text, { ...ctx, leads: [...leads, kimlen] });
+    assert.equal(turn.kind, "confirm", text);
+    if (turn.kind !== "confirm") continue;
+    assert.equal(turn.proposal.changes.find((change) => change.field === "nextStep")?.to, acuerdo, text);
+    assert.equal(turn.proposal.changes.some((change) => /vernos/i.test(change.to)), false, text);
+  }
+});
+
+test("an unchanged acuerdo is not proposed and nothing is saved", () => {
+  const same = interpretCrmChat("Diego Huamán quedó en llamar el jueves", {
+    ...ctx,
+    leads: [...leads, diego],
+  });
+  assert.equal(same.kind, "answer");
+  if (same.kind === "answer") {
+    assert.equal(same.reply, "No cambié nada: ya estaba así.");
+    assert.equal("proposal" in same, false);
+  }
+  const patch = proposalFromLoosePatch(
+    { nextStep: "Llamar el jueves", nextStepAt: "2026-10-07 15:00" },
+    { ...ctx, leads: [...leads, diego] },
+    "Diego Huamán sigue igual",
+  );
+  assert.equal(patch.kind, "answer");
+  if (patch.kind === "answer") {
+    assert.equal(patch.reply, "No cambié nada: ya estaba así.");
+    assert.equal("proposal" in patch, false);
+  }
+});
+
+test("a payment without an amount asks how much and writes nothing", () => {
+  const turn = interpretCrmChat("Carlos me pagó la reserva", ctx);
+  assert.equal(turn.kind, "answer");
+  if (turn.kind !== "answer") return;
+  assert.match(turn.reply, /¿Cuánto pagó Carlos Ramírez\?/);
+  assert.equal("proposal" in turn, false);
+  const shared = interpretCrmChat("Carlos me pagó la reserva", {
+    ...ctx,
+    leads: [
+      ...leads,
+      {
+        id: "carlos-2",
+        name: "Carlos Quito",
+        offerName: "",
+        nextStep: "",
+        lastSummary: "",
+        amountPaid: "",
+      },
+    ],
+  });
+  assert.equal(shared.kind, "answer");
+  if (shared.kind === "answer") {
+    assert.match(shared.reply, /¿Te refieres a Carlos Ramírez o a Carlos Quito\?/);
+    assert.equal("proposal" in shared, false);
+  }
+});
+
+test("a named missing payer is not the same as a payment with no name", () => {
+  const missing = interpretCrmChat("Nadie me pagó 500", ctx);
+  assert.equal(missing.kind, "answer");
+  if (missing.kind === "answer") {
+    assert.match(missing.reply, /No encontré ese lead\. No cambié nada\./);
+    assert.doesNotMatch(missing.reply, /¿Quién pagó\?/);
+  }
+  const unnamed = interpretCrmChat("me pagó 500", ctx);
+  assert.equal(unnamed.kind, "answer");
+  if (unnamed.kind === "answer") {
+    assert.match(unnamed.reply, /¿Quién pagó\?/);
+    assert.doesNotMatch(unnamed.reply, /No encontré ese lead/);
+  }
+  const bare = interpretCrmChat("pagó 500", ctx);
+  assert.equal(bare.kind, "answer");
+  if (bare.kind === "answer") assert.match(bare.reply, /¿Quién pagó\?/);
+});
+
+test("the proposal shows the CRM próximo, including a date stored as UTC midnight", () => {
+  const midnight = {
+    ...diego,
+    nextStepAt: new Date("2026-10-09T00:00:00.000Z"),
+  };
+  const fromCrm = proposalFromLoosePatch(
+    { nextStepAt: "2026-10-10 15:00" },
+    {
+      ...ctx,
+      leads: [...leads, midnight],
+      calls: [
+        ...ctx.calls,
+        { leadName: "Diego Huamán", acuerdo: "", notas: "", proximo: "2026-10-09 15:00" },
+      ],
+    },
+    "Diego Huamán el sábado a las 3",
+  );
+  assert.equal(fromCrm.kind, "confirm");
+  if (fromCrm.kind === "confirm") {
+    assert.equal(
+      fromCrm.proposal.changes.find((change) => change.field === "nextStepAt")?.from,
+      "2026-10-09 15:00",
+    );
+    assert.doesNotMatch(fromCrm.reply, /2026-10-08/);
+  }
+  const fromInstant = proposalFromLoosePatch(
+    { nextStepAt: "2026-10-10" },
+    { ...ctx, leads: [...leads, midnight] },
+    "Diego Huamán el sábado",
+  );
+  assert.equal(fromInstant.kind, "confirm");
+  if (fromInstant.kind === "confirm") {
+    assert.equal(
+      fromInstant.proposal.changes.find((change) => change.field === "nextStepAt")?.from,
+      "2026-10-09",
+    );
+    assert.doesNotMatch(fromInstant.reply, /2026-10-08 19:00/);
+  }
+});
+
+test("a date-only save is that Bogotá calendar day and a clock is Bogotá wall time", async () => {
+  let stored: Date | null = null;
+  let filingProximo = "";
+  const prisma = {
+    lead: {
+      findFirst: async () => ({
+        id: "diego",
+        name: "Diego Huamán",
+        offerName: "",
+        nextStep: "",
+        nextStepAt: null,
+        lastSummary: "",
+        amountPaid: "",
+      }),
+      update: async ({ data }: { data: { nextStepAt?: Date } }) => {
+        stored = data.nextStepAt || null;
+        return data;
+      },
+    },
+    callRecord: {
+      findFirst: async () => ({
+        id: "call-1",
+        filingJson: {},
+        leadName: "Diego Huamán",
+        recordedAt: new Date("2026-10-01T15:00:00.000Z"),
+        createdAt: new Date("2026-10-01T15:00:00.000Z"),
+      }),
+      update: async (args: { data?: { filingJson?: { proximo_seguimiento?: string } } }) => {
+        filingProximo = String(args.data?.filingJson?.proximo_seguimiento || "");
+      },
+    },
+  } as unknown as PrismaClient;
+  const day = await applyChatProposal(prisma, "user-1", {
+    leadId: "diego",
+    leadName: "Diego Huamán",
+    changes: [{ field: "nextStepAt", label: "Próximo seguimiento", from: "", to: "2026-10-09" }],
+  });
+  assert.match(day.reply, /Listo/);
+  assert.equal(stored?.toISOString(), "2026-10-09T05:00:00.000Z");
+  assert.equal(filingProximo, "2026-10-09");
+  const clock = await applyChatProposal(prisma, "user-1", {
+    leadId: "diego",
+    leadName: "Diego Huamán",
+    changes: [{ field: "nextStepAt", label: "Próximo seguimiento", from: "", to: "2026-10-09 15:00" }],
+  });
+  assert.match(clock.reply, /Listo/);
+  assert.equal(stored?.toISOString(), "2026-10-09T20:00:00.000Z");
+  assert.equal(filingProximo, "2026-10-09 15:00");
+});
+
+test("próximo seguimiento, llámalo and agenda para propose that date", () => {
+  const withDiego = { ...ctx, leads: [...leads, diego] };
+  const phrases = [
+    "Diego Huáman: próximo seguimiento el viernes 9",
+    "Diego Huamán seguimiento el viernes 9",
+    "Diego Huamán llámalo el viernes 9",
+    "Diego Huamán agenda para el viernes 9",
+  ];
+  for (const text of phrases) {
+    const turn = interpretCrmChat(text, withDiego);
+    assert.equal(turn.kind, "confirm", text);
+    if (turn.kind !== "confirm") continue;
+    assert.equal(turn.proposal.leadId, "diego", text);
+    assert.equal(
+      turn.proposal.changes.find((change) => change.field === "nextStepAt")?.to,
+      "2026-10-09 15:00",
+      text,
+    );
+    assert.match(turn.reply, /2026-10-09 15:00/, text);
+    assert.doesNotMatch(turn.reply, /Puedo decirte el cobrado/, text);
+  }
+  const missed = interpretCrmChat("Diego Huamen: próximo seguimiento el viernes 9", withDiego);
+  assert.equal(missed.kind, "answer");
+  if (missed.kind === "answer") {
+    assert.match(missed.reply, /¿Te refieres a Diego Huamán\?/);
+    assert.equal("proposal" in missed, false);
+  }
+});
+
+test("an acuerdo with a date also proposes Próximo seguimiento", () => {
+  const turn = interpretCrmChat(
+    "Diego Huamán quedamos en llamar el miércoles 7 de octubre a las 3 pm",
+    {
+      ...ctx,
+      leads: [
+        ...leads,
+        { ...diego, nextStepAt: new Date("2026-10-02T15:00:00.000Z") },
+      ],
+    },
+  );
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(
+    turn.proposal.changes.find((change) => change.field === "nextStep")?.to,
+    "quedamos en llamar el miércoles 7 de octubre a las 3 pm",
+  );
+  assert.equal(
+    turn.proposal.changes.find((change) => change.field === "nextStepAt")?.to,
+    "2026-10-07 15:00",
+  );
+  assert.equal(turn.proposal.changes.some((change) => /vernos/i.test(change.to)), false);
+  const pay = interpretCrmChat("Diego Huamán quedó en pagar el lunes", {
+    ...ctx,
+    leads: [...leads, diego],
+  });
+  assert.equal(pay.kind, "confirm");
+  if (pay.kind !== "confirm") return;
+  assert.equal(pay.proposal.changes.find((change) => change.field === "nextStep")?.to, "pagar el lunes");
+  assert.equal(
+    pay.proposal.changes.find((change) => change.field === "nextStepAt")?.to,
+    "2026-10-05 15:00",
+  );
+  assert.match(pay.reply, /2026-10-05 15:00/);
+});
+
+test("a shorter acuerdo keeps the longer detail instead of replacing it", () => {
+  const long = "quedamos en llamar el miércoles 7 de octubre a las 3 pm tras revisarlo con su contador";
+  assert.equal(
+    mergeAgreementText(long, "quedamos en llamar el miércoles 7 de octubre a las 3 pm"),
+    long,
+  );
+  assert.equal(
+    mergeAgreementText(
+      "quedamos en llamar tras revisarlo con su contador",
+      "quedamos en llamar el miércoles 7 de octubre a las 3 pm",
+    ),
+    "quedamos en llamar el miércoles 7 de octubre a las 3 pm tras revisarlo con su contador",
+  );
+  assert.equal(mergeAgreementText("Llamar el jueves", "pagar el lunes"), "pagar el lunes");
+  const kept = interpretCrmChat("Diego Huamán: quedamos en llamar el miércoles 7 de octubre a las 3 pm", {
+    ...ctx,
+    leads: [...leads, { ...diego, nextStep: long }],
+  });
+  if (kept.kind === "confirm") {
+    assert.equal(kept.proposal.changes.find((change) => change.field === "nextStep"), undefined);
+    assert.doesNotMatch(kept.reply, /a «quedamos en llamar el miércoles 7 de octubre a las 3 pm»/);
+  } else {
+    assert.equal(kept.kind, "answer");
+    if (kept.kind === "answer") assert.match(kept.reply, /No cambié nada/);
+  }
+  const merged = interpretCrmChat("Diego Huamán quedamos en llamar el miércoles 7 de octubre a las 3 pm", {
+    ...ctx,
+    leads: [
+      ...leads,
+      {
+        ...diego,
+        nextStep: "quedamos en llamar tras revisarlo con su contador",
+        nextStepAt: new Date("2026-10-02T15:00:00.000Z"),
+      },
+    ],
+  });
+  assert.equal(merged.kind, "confirm");
+  if (merged.kind !== "confirm") return;
+  assert.match(
+    merged.proposal.changes.find((change) => change.field === "nextStep")?.to || "",
+    /contador/,
+  );
+  assert.match(
+    merged.proposal.changes.find((change) => change.field === "nextStep")?.to || "",
+    /3 pm/,
+  );
+});
+
+test("a date-only proposal says the previous hour it will keep", () => {
+  const turn = proposalFromLoosePatch(
+    { nextStepAt: "2026-10-09" },
+    { ...ctx, leads: [...leads, diego] },
+    "Diego Huamán el viernes 9",
+  );
+  assert.equal(turn.kind, "confirm");
+  if (turn.kind !== "confirm") return;
+  assert.equal(
+    turn.proposal.changes.find((change) => change.field === "nextStepAt")?.to,
+    "2026-10-09 15:00",
+  );
+  assert.match(turn.reply, /2026-10-09 15:00/);
+  assert.doesNotMatch(turn.reply, /«2026-10-09»/);
 });

@@ -1,3 +1,5 @@
+import { humanizeSlashDates } from "@/lib/crm-time";
+
 const STATUS_LABELS: Record<string, string> = {
   SHOW: "Asistió",
   "NO SHOW": "No asistió",
@@ -24,12 +26,12 @@ const STATUS_LABELS: Record<string, string> = {
   PRE_COBRANZA: "Antes del cobro",
   VALIDACION: "Validación",
   EXPERIENCIA: "Experiencia",
-  COBRO_VENCIDO: "Cobro vencido",
+  COBRO_VENCIDO: "Cobro atrasado",
   COMISION: "Comisión",
   AGENDA_CHECK: "¿Se hizo?",
   ONBOARDING: "Bienvenida",
   HOY: "Hoy",
-  VENCIDO: "Vencido",
+  VENCIDO: "Atrasado",
   "PRÓXIMO": "Próximo",
   SI: "Sí",
   SÍ: "Sí",
@@ -151,6 +153,62 @@ export function presentChatState(value: unknown, key = ""): unknown {
     out[child] = presentChatState(inner, child);
   }
   return out;
+}
+
+/** Same sentence as Inicio's banner. Llamadas must use this, not a second wording. */
+export function porConfirmarLabel(count: number) {
+  const n = Math.max(0, Math.trunc(Number(count) || 0));
+  return n === 1 ? "Tienes 1 llamada por confirmar" : `Tienes ${n} llamadas por confirmar`;
+}
+
+const SMALL_NAME = new Set(["de", "del", "la", "el", "los", "las", "y", "e", "en"]);
+
+/** «KATHERINE REINOSO» → «Katherine Reinoso». A slash date becomes «30 sep». */
+export function readableTitle(value: string | null | undefined, now = new Date()) {
+  const text = String(value || "").trim();
+  const letters = text.replace(/[^\p{L}]/gu, "");
+  let shown = text;
+  if (letters.length >= 4) {
+    const upper = letters.replace(/[^\p{Lu}]/gu, "");
+    if (upper.length / letters.length >= 0.7) {
+      shown = text
+        .toLocaleLowerCase("es")
+        .split(/(\s+)/)
+        .map((part, index) => {
+          if (!part.trim()) return part;
+          if (index > 0 && SMALL_NAME.has(part)) return part;
+          return part.charAt(0).toLocaleUpperCase("es") + part.slice(1);
+        })
+        .join("");
+    }
+  }
+  return humanizeSlashDates(shown, now);
+}
+
+const GENERIC_CALL_TITLE = /^(llamada|impromptu|google meet|zoom|meet|reuni[oó]n)\b/i;
+
+/** A recording title that is already a person's name, not a date or a meeting label. */
+export function personLikeTitle(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (text.length < 3 || text.length > 80) return "";
+  if (/\d/.test(text) || /[·|/]/.test(text)) return "";
+  if (GENERIC_CALL_TITLE.test(text)) return "";
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 1 || words.length > 5) return "";
+  return text;
+}
+
+/**
+ * The question uses the name already stored on the call.
+ * The extractor's other spelling (Katherine vs Katerine) is not a new person.
+ */
+export function questionWithStoredName(question: string, storedName: string, parsedName: string) {
+  const stored = storedName.trim();
+  const parsed = parsedName.trim();
+  const text = String(question || "");
+  if (!stored || !parsed || stored === parsed) return text;
+  if (!text.includes(parsed)) return text;
+  return text.split(parsed).join(stored);
 }
 
 /** "1 llamada real" / "4 llamadas reales". */

@@ -5,22 +5,15 @@ import Link from "next/link";
 import { Loader2, Upload } from "lucide-react";
 import { HomeSkeleton } from "@/components/page-skeleton";
 import { CycleIntro } from "@/components/cycle-intro";
-import { HubChat, type HubSnapshot } from "@/components/hub-chat";
+import type { HubSnapshot } from "@/components/hub-chat";
+import { InicioHome } from "@/components/inicio-home";
 import { OfferExtractReview } from "@/components/offer-extract-review";
 import { ProjectionCard } from "@/components/projection-card";
-import { PushEnable } from "@/components/push-enable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/hooks/use-toast";
 import type { HomeState } from "@/lib/home-state";
-import { moneyLabel } from "@/lib/crm-operacion";
-import { ACTIVA_EXPLAIN } from "@/lib/crm-activa";
-import { dineroEnJuegoNote, saldoPorCobrarNote } from "@/lib/crm-pipeline";
-import { PipelineDetail } from "@/components/pipeline-detail";
-import { DeskRowStatus } from "@/components/desk-row-status";
-import { followupCardStatus } from "@/lib/home-desk";
 import {
   filterPersistableOffers,
   offerSavedLabel,
@@ -30,6 +23,10 @@ import {
 import { offerToSavePayload, type ExtractedOffer } from "@/lib/offer-commercial";
 import { OFFER_EXTRACT_PROGRESS, runOfferExtraction } from "@/lib/offer-upload";
 import { HUB_RETRY_MS, hubLoadRetry, invalidateHub, loadHub } from "@/lib/hub-client";
+
+/** Onboarding keeps the old reading width. The configured Inicio is the 1040px layout. */
+const NARROW = "mx-auto w-full min-w-0 max-w-3xl";
+const WIDE = "mx-auto w-full min-w-0 max-w-[1040px]";
 
 export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSnapshot | null }) {
   const [snapshot, setSnapshot] = useState<HubSnapshot | null>(initialSnapshot);
@@ -76,13 +73,17 @@ export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSn
   }, []);
 
   if (loading) {
-    return <HomeSkeleton />;
+    return (
+      <div className={NARROW}>
+        <HomeSkeleton />
+      </div>
+    );
   }
 
   const home = snapshot?.home;
   if (!home) {
     return (
-      <div className="space-y-3">
+      <div className={`${NARROW} space-y-3`}>
         <p className="text-sm text-destructive">
           {error || "No pude cargar el inicio. Pulsa Reintentar."}
         </p>
@@ -105,7 +106,7 @@ export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSn
     home.offersUnreadable && home.phase === "a" ? (home.hasRealCalls ? "c" : "b") : home.phase;
 
   return (
-    <div className="space-y-6">
+    <div className={`${phase === "c" ? WIDE : NARROW} space-y-6`}>
       {error && <p className="text-xs text-destructive">{error}</p>}
       {home.offersUnreadable && (
         <p className="text-sm text-destructive">
@@ -123,13 +124,7 @@ export function HomeScreen({ initialSnapshot = null }: { initialSnapshot?: HubSn
       {phase === "b" && (
         <NoviceB snapshot={snapshot} onRefresh={() => void load(true)} />
       )}
-      {phase === "c" && (
-        <ConfiguredC
-          snapshot={snapshot}
-          onRefresh={() => void load(true)}
-          onLiveSnapshot={(next) => setSnapshot(next)}
-        />
-      )}
+      {phase === "c" && <ConfiguredC snapshot={snapshot} onRefresh={() => void load(true)} />}
     </div>
   );
 }
@@ -472,7 +467,6 @@ function NoviceB({
           onSaveGoal={saveGoal}
         />
       )}
-      <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
       <div className="divide-y divide-separator1 border-t border-separator1">
         <Link href="/practicar" className="flex items-baseline justify-between gap-4 py-4">
           <span className="text-fg0">Práctica por voz</span>
@@ -494,148 +488,15 @@ function NoviceB({
 function ConfiguredC({
   snapshot,
   onRefresh,
-  onLiveSnapshot,
 }: {
   snapshot: HubSnapshot | null;
   onRefresh: () => void;
-  onLiveSnapshot: (next: HubSnapshot) => void;
 }) {
-  const desk = snapshot?.desk;
-  const [practice, setPractice] = useState<{
-    practiceHref: string;
-    practiceStatus: string;
-    newPattern: boolean;
-  } | null>(null);
-  const [savingGoal, setSavingGoal] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/hub/practice")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { practiceHref?: string; practiceStatus?: string; newPattern?: boolean } | null) => {
-        if (cancelled || !data?.practiceStatus) return;
-        setPractice({
-          practiceHref: data.practiceHref || "/practicar",
-          practiceStatus: data.practiceStatus,
-          newPattern: Boolean(data.newPattern),
-        });
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  const saveGoal = async (usd: number) => {
-    setSavingGoal(true);
-    try {
-      await fetch("/api/hub", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ monthlyGoalUsd: usd }),
-      });
-      invalidateHub();
-      toast({
-        title: `Guardé tu meta: USD ${Math.round(usd)}`,
-        duration: 3000,
-      });
-      onRefresh();
-    } finally {
-      setSavingGoal(false);
-    }
-  };
   return (
-    <div className="space-y-8">
-      <ProjectionCard
-        projection={snapshot?.projection || null}
-        needsGoal={snapshot?.needsMonthlyGoal}
-        saving={savingGoal}
-        onSaveGoal={saveGoal}
-      />
-      <div>
-        <h2 className="text-sm text-fg3">De un vistazo</h2>
-        <div className="mt-1 divide-y divide-separator1 border-t border-separator1">
-          <HomeRow
-            href="/crm?activas=1#operacion"
-            title="Leads activos"
-            status={String(snapshot?.now?.oportunidadesActivas || 0)}
-          />
-          <HomeRow
-            href="/crm#seguimientos"
-            title="Acciones de hoy"
-            status={followupCardStatus(
-              snapshot?.now?.seguimientosHoy || 0,
-              snapshot?.now?.seguimientosVencidos || 0,
-            )}
-          />
-          <HomeRow
-            href="/crm#seguimientos"
-            title="Dinero en juego"
-            status={moneyLabel(snapshot?.now?.dineroEnJuego)}
-          />
-          <HomeRow
-            href="/crm#dashboard"
-            title="Saldo por cobrar"
-            status={moneyLabel(snapshot?.now?.saldoPorCobrar || 0)}
-          />
-        </div>
-        <p className="mt-2 text-xs text-fg3">{ACTIVA_EXPLAIN}</p>
-        <p className="mt-1 text-xs text-fg3">
-          {dineroEnJuegoNote(snapshot?.now?.pipelineLeads || 0)}
-        </p>
-        {snapshot && (
-          <div className="mt-2 min-w-0">
-            <PipelineDetail
-              lines={snapshot.pipelineDetalle || []}
-              format={(amount) => moneyLabel(amount)}
-            />
-          </div>
-        )}
-        <p className="mt-1 text-xs text-fg3">{saldoPorCobrarNote(snapshot?.now?.saldoPorCobrar || 0)}</p>
-      </div>
-      <PushEnable needsPrompt={snapshot?.needsPushPrompt} onDone={onRefresh} />
-      <div>
-        <h2 className="text-sm text-fg3">Qué hacer</h2>
-        <div className="mt-1 divide-y divide-separator1 border-t border-separator1">
-          <HomeRow href="/llamadas" title="Analizar" status={desk?.analyzeStatus || "Todo al día"} />
-          <HomeRow
-            href={practice?.practiceHref || desk?.practiceHref || "/practicar"}
-            title="Práctica"
-            status={practice?.practiceStatus || desk?.practiceStatus || "Elige con quién practicar"}
-          />
-          <HomeRow
-            href="/crm#seguimientos"
-            title="Seguimientos"
-            status={desk?.followupStatus || "Todo al día"}
-          />
-          <HomeRow
-            href="/coach"
-            title="Coach"
-            status={
-              practice?.newPattern ? "Nuevo patrón detectado" : desk?.coachStatus || "Sin novedades"
-            }
-          />
-          <HomeRow href="/ofertas" title="Oferta" status="Precios, pagos y comisión" />
-        </div>
-      </div>
-      <HubChat
-        variant="dock"
-        initialSnapshot={snapshot}
-        onSnapshot={(next) => {
-          if (next) onLiveSnapshot(next);
-        }}
-      />
-    </div>
-  );
-}
-
-function HomeRow({ href, title, status }: { href: string; title: string; status: string }) {
-  return (
-    <Link
-      href={href}
-      className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-4 py-4"
-      title={status}
-    >
-      <span className="text-fg0">{title}</span>
-      <DeskRowStatus status={status} />
-    </Link>
+    <InicioHome
+      inicio={snapshot?.inicio || null}
+      projection={snapshot?.projection || null}
+      onRefresh={onRefresh}
+    />
   );
 }

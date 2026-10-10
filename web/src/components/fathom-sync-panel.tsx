@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { defaultImportSinceDate, toDateInputValue } from "@/lib/fathom-import";
-import { countPhrase } from "@/lib/plain-labels";
+import { formatBogotaSpoken, formatIsoDayLong } from "@/lib/crm-time";
+import { countPhrase, readableTitle } from "@/lib/plain-labels";
 
 type FathomStatus = {
   connected: boolean;
@@ -25,9 +26,7 @@ const FATHOM_API_SETTINGS = "https://fathom.video/settings/api";
 function FathomApiKeyHelp() {
   return (
     <div className="rounded-xl border border-separator1 bg-bg0 p-3 space-y-2">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-        Dónde está la clave
-      </p>
+      <p className="text-sm font-medium text-fg2">Dónde está la clave</p>
       <ol className="text-sm text-fg2 space-y-1.5 list-decimal pl-4">
         <li>
           Entra a{" "}
@@ -76,6 +75,11 @@ type FathomRecordingRow = {
   practiceSessionId: string | null;
 };
 
+function orderedRecordings(rows: FathomRecordingRow[]) {
+  const rank = (row: FathomRecordingRow) => (row.hasTranscript && !row.analyzed ? 0 : row.analyzed ? 2 : 1);
+  return [...rows].sort((a, b) => rank(a) - rank(b));
+}
+
 export function FathomSyncPanel({
   authenticated,
 }: {
@@ -92,6 +96,8 @@ export function FathomSyncPanel({
   const [coachReady, setCoachReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importSince, setImportSince] = useState(defaultImportSinceDate);
+  const [showRecordings, setShowRecordings] = useState(false);
+  const [showEveryRecording, setShowEveryRecording] = useState(false);
 
   const load = useCallback(async () => {
     if (!authenticated) {
@@ -306,7 +312,7 @@ export function FathomSyncPanel({
   const pickRecording = async (id: string, title: string) => {
     setSyncing(true);
     setError(null);
-    setSyncMessage(`Auditando ${title}…`);
+    setSyncMessage(`Revisando ${title}…`);
     try {
       const data = await postJson<{
         recording?: { practiceSessionId?: string; title?: string };
@@ -320,8 +326,8 @@ export function FathomSyncPanel({
       }
       setSyncMessage(
         data.partial
-          ? `Guardada (QC parcial): ${data.recording?.title || title}`
-          : `No pude auditar ${title}`,
+          ? `Guardada, revisión a medias: ${data.recording?.title || title}`
+          : `No pude revisar ${title}`,
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
@@ -402,29 +408,32 @@ export function FathomSyncPanel({
             </span>
             {typeof status.total === "number" && (
               <span>
-                {status.analyzed || 0} revisadas · {status.withTranscript || 0} con
-                transcripción
+                {countPhrase(status.analyzed || 0, "revisada", "revisadas")} ·{" "}
+                {status.withTranscript || 0} con transcripción
                 {status.skipped ? ` · ${status.skipped} omitidas` : ""}
               </span>
             )}
             {status.lastSyncAt && (
               <span className="text-fg3">
-                Última actualización: {new Date(status.lastSyncAt).toLocaleString("es")}
+                Última actualización: {formatBogotaSpoken(status.lastSyncAt)}
               </span>
             )}
           </div>
           <div className="space-y-1 max-w-xs">
             <Label htmlFor="fathom-import-since">Importar desde</Label>
+            <p className="text-sm text-fg0">{formatIsoDayLong(importSince) || "Elige el día"}</p>
             <Input
               id="fathom-import-since"
               type="date"
+              lang="es-CO"
               value={importSince}
               onChange={(e) => setImportSince(e.target.value)}
               disabled={syncing || connecting}
+              aria-label={formatIsoDayLong(importSince) || "Importar desde"}
             />
             <p className="text-xs text-fg3">
               {status.autoIngest
-                ? "Las nuevas llegan solas. El botón reintenta las omitidas de este rango y re-audita las que quedaron a medias."
+                ? "Las nuevas llegan solas. El botón reintenta las omitidas de este rango y vuelve a revisar las que quedaron a medias."
                 : "En local no puede entrar sola (la app de grabación necesita HTTPS). En producción se activa al abrir esta pantalla. El botón trae el historial y reintenta las omitidas."}
             </p>
           </div>
@@ -469,36 +478,41 @@ export function FathomSyncPanel({
 
       {recordings.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-fg3">
-            Llamadas importadas
-          </p>
-          <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-            {recordings.map((row) => (
+          <button
+            type="button"
+            className="text-sm font-medium text-fg2 underline-offset-2 hover:underline"
+            onClick={() => setShowRecordings((value) => !value)}
+          >
+            {showRecordings ? "Ocultar grabaciones" : `Ver grabaciones (${recordings.length})`}
+          </button>
+          {showRecordings && (
+            <div className="space-y-2">
+              {orderedRecordings(recordings)
+                .slice(0, showEveryRecording ? recordings.length : 6)
+                .map((row) => (
               <div
                 key={row.id}
                 className="rounded-xl border border-separator1 bg-bg0 px-3 py-2 flex items-start justify-between gap-3"
               >
                 <div className="min-w-0">
-                  <p className="text-sm truncate" title={row.title}>
-                    {row.title}
+                  <p className="text-sm whitespace-normal break-words" title={row.title}>
+                    {readableTitle(row.title)}
                   </p>
                   <p className="text-xs text-fg3">
-                    {row.recordedAt
-                      ? new Date(row.recordedAt).toLocaleString("es")
-                      : "Sin fecha"}
+                    {row.recordedAt ? formatBogotaSpoken(row.recordedAt) : "Sin fecha"}
                     {row.analyzed
-                      ? " · auditada"
+                      ? " · revisada"
                       : row.skipped
                         ? " · omitida"
                         : row.hasTranscript
-                          ? " · pendiente de auditar"
+                          ? " · pendiente de revisar"
                           : " · sin transcripción"}
                   </p>
                 </div>
                 <div className="flex gap-2 shrink-0">
                   {row.analyzed && row.practiceSessionId && (
                     <Button asChild size="sm" variant="ghost">
-                      <Link href={`/coach/${row.practiceSessionId}`}>Ver QC</Link>
+                      <Link href={`/coach/${row.practiceSessionId}`}>Ver la revisión</Link>
                     </Button>
                   )}
                   {row.hasTranscript && (
@@ -509,13 +523,23 @@ export function FathomSyncPanel({
                       disabled={syncing}
                       onClick={() => pickRecording(row.id, row.title)}
                     >
-                      {row.analyzed ? "Re-auditar" : "Auditar"}
+                      {row.analyzed ? "Volver a revisar" : "Revisar"}
                     </Button>
                   )}
                 </div>
               </div>
-            ))}
-          </div>
+                ))}
+              {recordings.length > 6 && !showEveryRecording && (
+                <button
+                  type="button"
+                  className="text-sm text-fg2 underline-offset-2 hover:underline"
+                  onClick={() => setShowEveryRecording(true)}
+                >
+                  Ver las {recordings.length}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

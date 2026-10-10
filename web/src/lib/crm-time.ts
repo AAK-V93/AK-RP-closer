@@ -15,6 +15,25 @@ export function zonedDayKey(date: Date, timeZone = CRM_TIMEZONE) {
   return `${year}-${month}-${day}`;
 }
 
+/** `2026-10-07 15:00` in the closer's zone. A stamp already written that way is kept. */
+export function formatCrmStamp(value: Date | string | null | undefined, timeZone = CRM_TIMEZONE) {
+  if (value == null || value === "") return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(trimmed)) {
+      return trimmed.slice(0, 16).replace("T", " ");
+    }
+    const date = new Date(trimmed);
+    if (Number.isNaN(date.getTime())) return "";
+    return formatCrmStamp(date, timeZone);
+  }
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return "";
+  const parts = zonedParts(value, timeZone);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  const hour = parts.hour === 24 ? 0 : parts.hour;
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(hour)}:${pad(parts.minute)}`;
+}
+
 export function formatCrmDate(date: Date, timeZone = CRM_TIMEZONE) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("es-CO", {
@@ -130,6 +149,88 @@ export function zonedDayBounds(at: Date, timeZone = CRM_TIMEZONE) {
     to: new Date(from.getTime() + 86_400_000),
     key: zonedDayKey(at, timeZone),
   };
+}
+
+const MONTHS_SHORT = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const MONTHS_LONG = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
+];
+
+function clockLabel(hour: number, minute: number) {
+  const suffix = hour >= 12 ? "pm" : "am";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
+/** «5 oct, 8:47 pm» in Bogotá. A bare calendar day stays empty. */
+export function formatBogotaSpoken(value: Date | string | null | undefined, now = new Date()) {
+  if (value == null || value === "") return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = zonedParts(date);
+  if (!parts.year) return "";
+  const month = MONTHS_SHORT[parts.month - 1] || "";
+  const year = parts.year === zonedParts(now).year ? "" : ` ${parts.year}`;
+  return `${parts.day} ${month}${year}, ${clockLabel(parts.hour, parts.minute)}`;
+}
+
+/** «9 de mayo de 2026» from `YYYY-MM-DD`, without shifting the day through UTC. */
+export function formatIsoDayLong(value: string | null | undefined) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return "";
+  const month = MONTHS_LONG[Number(match[2]) - 1];
+  const day = Number(match[3]);
+  if (!month || !day) return "";
+  return `${day} de ${month} de ${match[1]}`;
+}
+
+/**
+ * «30/9/2026» → «30 sep» in Bogotá (day/month, the closer's calendar).
+ * Display only. A stored next follow-up is not rewritten here — Katherine Rodríguez's
+ * 2027-05-18 05:00 is real data for Kali and must stay in the database.
+ */
+export function humanizeSlashDates(value: string, now = new Date()) {
+  const yearNow = zonedParts(now).year;
+  return String(value || "").replace(/\b(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})\b/g, (full, dayRaw, monthRaw, yearRaw) => {
+    const day = Number(dayRaw);
+    const month = Number(monthRaw);
+    let year = Number(yearRaw);
+    if (year < 100) year += 2000;
+    if (!day || !month || month > 12 || day > 31) return full;
+    const short = MONTHS_SHORT[month - 1];
+    if (!short) return full;
+    return year === yearNow ? `${day} ${short}` : `${day} ${short} ${year}`;
+  });
+}
+
+/** «3 oct» or «3 oct 2025» in Bogotá. */
+export function formatBogotaDay(value: Date | string | null | undefined, now = new Date()) {
+  if (value == null || value === "") return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    const [year, month, day] = value.trim().split("-").map(Number);
+    const short = MONTHS_SHORT[month - 1] || "";
+    if (!short || !day) return "";
+    return year === zonedParts(now).year ? `${day} ${short}` : `${day} ${short} ${year}`;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = zonedParts(date);
+  const short = MONTHS_SHORT[parts.month - 1] || "";
+  if (!short || !parts.day) return "";
+  return parts.year === zonedParts(now).year
+    ? `${parts.day} ${short}`
+    : `${parts.day} ${short} ${parts.year}`;
 }
 
 /** Signed whole days from `today` (YYYY-MM-DD) to `dueDay`. Negative means overdue. */

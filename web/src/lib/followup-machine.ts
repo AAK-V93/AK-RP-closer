@@ -1,4 +1,4 @@
-import { CRM_TIMEZONE, zonedDayKey } from "@/lib/crm-time";
+import { calendarDaysBetween, CRM_TIMEZONE, zonedDayKey, zonedMidnight, zonedParts } from "@/lib/crm-time";
 
 export type ThreadTipo =
   | "DECISION"
@@ -167,6 +167,24 @@ export function stepDue(step: StepDef, anchors: ThreadAnchors, _now: Date) {
   return due;
 }
 
+/** The same clock in Bogotá, N days and hours after `now`. Colombia does not change the clock. */
+export function dueFromHecho(now: Date, days: number, hours = 0, timeZone = CRM_TIMEZONE) {
+  const parts = zonedParts(now, timeZone);
+  const midnight = zonedMidnight(parts.year, parts.month, parts.day, timeZone);
+  const clock = ((parts.hour * 60 + parts.minute) * 60 + parts.second) * 1000;
+  return new Date(midnight.getTime() + clock + days * DAY + hours * 3_600_000);
+}
+
+/**
+ * Next step after Hecho. A step counted from the sequence start
+ * is counted again from this moment, in Bogotá. Payment and meeting
+ * steps keep their own anchor.
+ */
+export function hechoStepDue(step: StepDef, anchors: ThreadAnchors, now: Date) {
+  if (step.from === "start") return dueFromHecho(now, step.days, step.hours || 0);
+  return stepDue(step, anchors, now);
+}
+
 export function pasoLabel(paso: number, total: number) {
   const shown = Math.min(Math.max(paso, 0) + 1, total);
   return `${shown} de ${total}`;
@@ -200,7 +218,11 @@ export function nextActionText(
   if (askLost) return "preguntar si se perdió";
   const dueKey = zonedDayKey(due, timeZone);
   const todayKey = zonedDayKey(now, timeZone);
-  if (dueKey < todayKey) return `${accion} · vencido`;
+  if (dueKey < todayKey) {
+    const late = Math.max(1, -calendarDaysBetween(dueKey, todayKey));
+    const when = late === 1 ? "hace 1 día sin respuesta" : `hace ${late} días sin respuesta`;
+    return `${accion} · ${when}`;
+  }
   if (dueKey === todayKey) return `${accion} · pendiente de hoy`;
   return accion;
 }
@@ -239,7 +261,7 @@ export function advanceThread(args: {
       estado: "activo",
       pasoActual: paso,
       askLost: Boolean(step.askLost),
-      dueAt: stepDue(step, args.anchors, args.now),
+      dueAt: hechoStepDue(step, args.anchors, args.now),
       spawn: null,
       touchResultado: "enviado",
     };

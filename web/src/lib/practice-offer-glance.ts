@@ -3,7 +3,16 @@ import {
   parseCommercial,
   savedBonusNames,
 } from "@/lib/offer-commercial";
+import { countPhrase } from "@/lib/plain-labels";
 import { clipVisible } from "@/lib/visible-text";
+
+/** Chip text for the offer switcher. No trailing dot when a status is missing. */
+export function offerSwitchLabel(name: string, bonusCount: number) {
+  const clean = String(name || "").replace(/\s+/g, " ").trim() || "Oferta";
+  const count = Math.max(0, Math.trunc(Number(bonusCount) || 0));
+  if (count <= 0) return clean;
+  return `${clean} · ${count === 1 ? "1 bono" : `${count} bonos`}`;
+}
 
 export type PracticeOfferGlance = {
   blurb: string;
@@ -46,6 +55,51 @@ export function practiceOfferLoadState(input: { ok: boolean; offer?: unknown }) 
   if (!input.ok) return "error" as const;
   if (!input.offer) return "empty" as const;
   return "ready" as const;
+}
+
+export type OfferPracticeMaterial = {
+  line: string;
+  imported: number;
+  recordings: number;
+};
+
+/**
+ * Ofertas counts practice material (imported texts, plus recordings when the
+ * offer uses them). Coach counts llamadas con persona. The numbers stay as
+ * stored; only the label separates the two piles.
+ */
+export function offerPracticeMaterialLine(input: {
+  transcriptCount?: number;
+  fathomCount?: number;
+  includeFathom?: boolean;
+}): OfferPracticeMaterial {
+  const total = Math.max(0, Math.trunc(Number(input.transcriptCount) || 0));
+  const fathom = Math.max(0, Math.trunc(Number(input.fathomCount) || 0));
+  const recordings = input.includeFathom && fathom > 0 && fathom <= total ? fathom : 0;
+  const imported = total - recordings;
+  const parts: string[] = [];
+  if (imported > 0) parts.push(countPhrase(imported, "transcripción", "transcripciones"));
+  if (recordings > 0) parts.push(countPhrase(recordings, "grabación", "grabaciones"));
+  if (!parts.length) {
+    return {
+      line: "Todavía no hay transcripciones ni grabaciones para practicar.",
+      imported: 0,
+      recordings: 0,
+    };
+  }
+  const split = parts.join(" y ");
+  if (recordings > 0 && imported > 0) {
+    return {
+      line: `${split} para practicar esta oferta (${total} en total). Las llamadas con persona están en Coach.`,
+      imported,
+      recordings,
+    };
+  }
+  const line =
+    recordings > 0
+      ? `${split} para practicar esta oferta. Las llamadas con persona están en Coach.`
+      : `${split} para practicar esta oferta.`;
+  return { line, imported, recordings };
 }
 
 export function practiceOfferGlance(input: {

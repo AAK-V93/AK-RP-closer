@@ -53,9 +53,12 @@ export function hubTtfbBefore(s: HubSegmentMs) {
   return s.prisma + s.ensure + Math.max(snapshot, s.thread);
 }
 
-/** One wave after this batch. Projection is computed in memory. */
+/**
+ * One wave after this batch. Projection is computed in memory.
+ * The 80-message thread is not on this GET: the chat loads it from /api/hub/thread.
+ */
 export function hubTtfbAfter(s: HubSegmentMs) {
-  return s.prisma + s.ensure + Math.max(s.home, s.prefs, s.dashboard, s.filings, s.thread);
+  return s.prisma + s.ensure + Math.max(s.home, s.prefs, s.dashboard, s.filings);
 }
 
 /**

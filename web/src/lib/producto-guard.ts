@@ -269,20 +269,30 @@ export function leadMention<T extends { id: string; name: string }>(
     .sort((a, b) => foldProducto(b.name).length - foldProducto(a.name).length);
   if (exact[0]) return { kind: "exact", lead: exact[0] };
 
-  const tokens = folded.split(" ").filter((part) => part.length >= 4 && !NAME_STOP.has(part));
-  const found: T[] = [];
-  const seen = new Set<string>();
-  const add = (lead: T) => {
-    if (seen.has(lead.id)) return;
-    seen.add(lead.id);
-    found.push(lead);
-  };
+  const tokens = folded.split(" ").filter((part) => part.length >= 3 && !NAME_STOP.has(part));
+  const firstHits: T[] = [];
+  const fuzzyHits: T[] = [];
+  const seenFirst = new Set<string>();
+  const seenFuzzy = new Set<string>();
   for (const lead of leads) {
     const parts = foldProducto(lead.name).split(" ").filter(Boolean);
     const first = parts[0] || "";
-    if (first.length < 4 || NAME_STOP.has(first)) continue;
-    if (tokens.includes(first) && parts.length > 1) {
-      add(lead);
+    if (first.length >= 3 && !NAME_STOP.has(first) && tokens.includes(first)) {
+      const nearMiss = tokens.some((token) => {
+        if (token === first || parts.includes(token) || token.length < 5) return false;
+        return parts.some(
+          (part) => part.length >= 5 && editDistance(token, part) >= 1 && editDistance(token, part) <= 2,
+        );
+      });
+      if (nearMiss) {
+        if (!seenFuzzy.has(lead.id)) {
+          seenFuzzy.add(lead.id);
+          fuzzyHits.push(lead);
+        }
+      } else if (!seenFirst.has(lead.id)) {
+        seenFirst.add(lead.id);
+        firstHits.push(lead);
+      }
       continue;
     }
     if (first.length < 5) continue;
@@ -290,13 +300,18 @@ export function leadMention<T extends { id: string; name: string }>(
       if (token.length < 5 || token === first) continue;
       const distance = editDistance(token, first);
       if (distance >= 1 && distance <= 2) {
-        add(lead);
+        if (!seenFuzzy.has(lead.id)) {
+          seenFuzzy.add(lead.id);
+          fuzzyHits.push(lead);
+        }
         break;
       }
     }
   }
-  if (!found.length) return { kind: "none" };
-  return { kind: "clarify", candidates: found.slice(0, 3) };
+  if (fuzzyHits.length) return { kind: "clarify", candidates: fuzzyHits.slice(0, 3) };
+  if (firstHits.length === 1) return { kind: "exact", lead: firstHits[0] };
+  if (firstHits.length > 1) return { kind: "clarify", candidates: firstHits.slice(0, 3) };
+  return { kind: "none" };
 }
 
 export function leadClarifyReply(candidates: { name: string }[]) {
@@ -304,7 +319,7 @@ export function leadClarifyReply(candidates: { name: string }[]) {
   if (!names.length) return "No encontré ese lead. No cambié nada.";
   if (names.length === 1) return `¿Te refieres a ${names[0]}? No cambié nada.`;
   const last = names[names.length - 1];
-  return `¿Te refieres a ${names.slice(0, -1).join(", ")} o ${last}? No cambié nada.`;
+  return `¿Te refieres a ${names.slice(0, -1).join(", ")} o a ${last}? No cambié nada.`;
 }
 
 /** "Listo" is only for a write that already named the lead. */

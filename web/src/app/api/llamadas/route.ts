@@ -7,6 +7,28 @@ import { fileCallQuietly } from "@/lib/file-call";
 import { listPendingFilings, reviewPendingCall } from "@/lib/call-intelligence";
 import { crmLeadRefs, filingLeadId, type CrmLeadRef } from "@/lib/lead-match";
 
+function queueItem(row: {
+  id: string;
+  title: string;
+  leadName?: string;
+  question: string;
+  field: string;
+  showToggle: boolean;
+  options?: string[];
+  date: string | null;
+}) {
+  return {
+    id: row.id,
+    title: row.title,
+    leadName: row.leadName || "",
+    question: row.question,
+    field: row.field,
+    showToggle: row.showToggle,
+    options: row.options || [],
+    date: row.date,
+  };
+}
+
 export async function GET() {
   try {
     const auth = await requireWorkspaceUser();
@@ -167,15 +189,7 @@ export async function GET() {
     ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
     const pending = await listPendingFilings(auth.prisma, auth.userId);
-    const queue = pending.map((row) => ({
-      id: row.id,
-      title: row.title,
-      question: row.question,
-      field: row.field,
-      showToggle: row.showToggle,
-      options: row.options || [],
-      date: row.date,
-    }));
+    const queue = pending.map(queueItem);
     const review = queue[0] || null;
 
     return NextResponse.json({ calls, review, queue, unclassified: queue.length });
@@ -207,15 +221,7 @@ export async function POST(request: Request) {
           value: body.value,
         });
         const pending = await listPendingFilings(auth.prisma, auth.userId);
-        const queue = pending.map((row) => ({
-          id: row.id,
-          title: row.title,
-          question: row.question,
-          field: row.field,
-          showToggle: row.showToggle,
-          options: row.options || [],
-          date: row.date,
-        }));
+        const queue = pending.map(queueItem);
         return NextResponse.json({
           ok: true,
           result,

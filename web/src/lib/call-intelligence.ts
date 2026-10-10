@@ -22,7 +22,7 @@ import { isNonSalesCall } from "@/lib/call-kind";
 import { visibleCallTitle } from "@/lib/crm-noise";
 import { classifiablePending } from "@/lib/classify-queue";
 import { type CrmLeadRef } from "@/lib/lead-match";
-import { labelCrmProse } from "@/lib/plain-labels";
+import { labelCrmProse, personLikeTitle, questionWithStoredName } from "@/lib/plain-labels";
 import { classifyCallIntake, isInternalMeetingTitle } from "@/lib/call-intake";
 import { inferCallDate, isPasteHeading, pastedCallTitle } from "@/lib/followup-date";
 import { zonedDayKey } from "@/lib/crm-time";
@@ -247,11 +247,13 @@ export async function classifyAndFileCall(
     }
   }
 
+  let applied: Awaited<ReturnType<typeof applyExtractorToCrm>> = null;
   if (!nonSales && parsed.cliente_real && (parsed.proximo_seguimiento || parsed.requiere_seguimiento === true)) {
-    await applyExtractorToCrm(prisma, userId, row.id, parsed, offers, !auto);
+    applied = await applyExtractorToCrm(prisma, userId, row.id, parsed, offers, !auto);
   } else if (auto && !nonSales) {
-    await applyExtractorToCrm(prisma, userId, row.id, parsed, offers);
+    applied = await applyExtractorToCrm(prisma, userId, row.id, parsed, offers);
   }
+  const unclassified = Boolean(applied?.unclassified);
   if (auto && !nonSales) {
     const { fulfillAgendado } = await import("@/lib/agenda");
     await fulfillAgendado(prisma, userId, {
@@ -264,8 +266,8 @@ export async function classifyAndFileCall(
   return {
     ...parsed,
     callRecordId: row.id,
-    filingStatus,
-    autoApplied: auto && !nonSales,
+    filingStatus: unclassified ? "pending" : filingStatus,
+    autoApplied: auto && !nonSales && !unclassified,
     gap,
     summary,
   };
@@ -605,14 +607,20 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
         callAt: row.recordedAt,
       });
       const gap = extractorGap(parsed, readyCrm, offers);
-      const question = labelCrmProse(gap?.question || row.summary);
+      const storedName = String(row.leadName || "").trim() || personLikeTitle(row.title);
+      const question = questionWithStoredName(
+        labelCrmProse(gap?.question || row.summary),
+        storedName,
+        String(parsed.cliente_real || ""),
+      );
       return {
         id: row.id,
         title: visibleCallTitle({
           title: row.title,
-          leadName: parsed.cliente_real || row.leadName,
+          leadName: storedName || parsed.cliente_real || row.leadName,
           date: row.recordedAt || row.createdAt,
         }),
+        leadName: storedName || String(parsed.cliente_real || "").trim() || "",
         date: (row.recordedAt || row.createdAt)?.toISOString?.() || null,
         source: row.source,
         sourceId: row.sourceId,
@@ -660,6 +668,7 @@ export async function listPendingFilings(prisma: PrismaClient, userId: string) {
         leadName: filing.leadName,
         date: row.recordedAt || row.createdAt,
       }),
+      leadName: String(filing.leadName || "").trim(),
       date: (row.recordedAt || row.createdAt)?.toISOString?.() || null,
       source: row.source,
       sourceId: row.sourceId,

@@ -67,6 +67,75 @@ export function libraryScriptLine(args: {
   return `${libraryKindLabel(args.type)} · ${libraryKindLabel(args.canal)}${score} · ${usagePhrase(Number(args.uses) || 0)}`;
 }
 
+export type LibrarySituation = { id: string; label: string };
+
+type SituationSource = {
+  title?: string | null;
+  description?: string | null;
+  tags?: string[] | null;
+  items?: { type?: string | null; recomendacion?: string | null }[] | null;
+};
+
+/** Closer situations. A chip appears only when some guion already says it. */
+const SITUATION_HINTS: { id: string; label: string; pattern: RegExp }[] = [
+  { id: "no-contesta", label: "No contesta", pattern: /no contest/i },
+  { id: "lo-consulto", label: "Lo consulto", pattern: /\bconsult/i },
+  { id: "desconfiado", label: "Desconfiado", pattern: /desconfiad/i },
+  { id: "pago", label: "Pago", pattern: /\b(pago|cobro)\b/i },
+  { id: "decision", label: "Decisión", pattern: /decisi/i },
+  { id: "segunda", label: "Segunda reunión", pattern: /segunda reuni/i },
+  { id: "retomar", label: "Retomar contacto", pattern: /\bretomar\b/i },
+];
+
+function situationHaystack(pack: SituationSource) {
+  const bits = [pack.title, pack.description, ...(pack.tags || [])];
+  for (const item of pack.items || []) {
+    bits.push(item.type, libraryKindLabel(item.type), item.recomendacion);
+  }
+  return bits.filter(Boolean).join("\n");
+}
+
+/**
+ * Filters for the situations that already exist in these guiones.
+ * «Lo consulto» stays hidden until a guion actually mentions it.
+ */
+export function librarySituationOptions(packs: SituationSource[]): LibrarySituation[] {
+  const rows = packs || [];
+  const found = SITUATION_HINTS.filter((hint) =>
+    rows.some((pack) => hint.pattern.test(situationHaystack(pack))),
+  );
+  const covered = new Set(found.map((hint) => hint.id));
+  const extras: LibrarySituation[] = [];
+  const seen = new Set<string>();
+  for (const pack of rows) {
+    for (const item of pack.items || []) {
+      const type = String(item.type || "").trim();
+      if (!type) continue;
+      const id = `tipo:${type.toUpperCase()}`;
+      if (seen.has(id)) continue;
+      const label = libraryKindLabel(type);
+      if (SITUATION_HINTS.some((hint) => hint.pattern.test(type) || hint.pattern.test(label))) continue;
+      if (covered.has(id)) continue;
+      seen.add(id);
+      extras.push({ id, label });
+    }
+  }
+  extras.sort((a, b) => a.label.localeCompare(b.label, "es"));
+  return [...found, ...extras];
+}
+
+export function packMatchesSituation(pack: SituationSource, situationId: string) {
+  const id = String(situationId || "").trim();
+  if (!id) return true;
+  if (id.startsWith("tipo:")) {
+    const type = id.slice(5);
+    return (pack.items || []).some((item) => String(item.type || "").trim().toUpperCase() === type);
+  }
+  const hint = SITUATION_HINTS.find((row) => row.id === id);
+  if (!hint) return true;
+  return hint.pattern.test(situationHaystack(pack));
+}
+
 export function libraryRateLabel(kind: "enviados" | "cierres", rate: number) {
   const pct = Math.round((Number(rate) || 0) * 100);
   if (kind === "enviados") return `se envió ${pct}%`;
