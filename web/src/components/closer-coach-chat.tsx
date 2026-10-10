@@ -31,6 +31,8 @@ async function readApiJson(response: Response) {
       message?: ChatLine;
       notes?: CoachNotes;
       level?: number;
+      staleIds?: string[];
+      stale?: { text: string; ask: string };
     };
   } catch {
     throw new Error("El servidor devolvió un error. Recarga e inténtalo de nuevo.");
@@ -47,6 +49,10 @@ export function CloserCoachChat({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Old exercises about a business the closer doesn't sell: shown behind a note, never as current.
+  const [staleIds, setStaleIds] = useState<string[]>([]);
+  const [staleCopy, setStaleCopy] = useState<{ text: string; ask: string } | null>(null);
+  const [openStale, setOpenStale] = useState<string[]>([]);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(false);
   const startedRef = useRef(false);
@@ -63,6 +69,8 @@ export function CloserCoachChat({
         if (!r.ok) throw new Error(data.error || "No se pudo cargar el coach");
         if (cancelled) return;
         setMessages(data.messages || []);
+        setStaleIds(Array.isArray(data.staleIds) ? data.staleIds : []);
+        setStaleCopy(data.stale || null);
         if (data.notes) applyNotes(data.notes, data.level ?? 1);
         if ((data.messages || []).length === 0 && !startedRef.current) {
           startedRef.current = true;
@@ -108,6 +116,11 @@ export function CloserCoachChat({
     const text = draft.trim();
     if (!text || sending) return;
     setDraft("");
+    await send(text);
+  };
+
+  const send = async (text: string) => {
+    if (!text || sending) return;
     setError(null);
     stickRef.current = true;
     const optimistic: ChatLine = {
@@ -158,7 +171,25 @@ export function CloserCoachChat({
             <p className="text-[10px] uppercase tracking-wide text-fg3 mb-1">
               {line.role === "user" ? "Tú" : "Coach"}
             </p>
-            {line.role === "coach" ? (
+            {line.role === "coach" && staleIds.includes(line.id) && !openStale.includes(line.id) ? (
+              <div data-stale-exercise className="space-y-2">
+                <p className="text-fg2">{staleCopy?.text || "Este ejercicio era de antes y no usaba tu oferta."}</p>
+                <div className="flex flex-wrap gap-2">
+                  {staleCopy?.ask ? (
+                    <Button type="button" size="sm" variant="primary" className="min-h-11" disabled={sending} onClick={() => void send(staleCopy.ask)}>
+                      Pedir un ejercicio con mi oferta
+                    </Button>
+                  ) : (
+                    <Button asChild size="sm" variant="primary" className="min-h-11">
+                      <a href="/ofertas">Añadir mi oferta</a>
+                    </Button>
+                  )}
+                  <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={() => setOpenStale((ids) => [...ids, line.id])}>
+                    Ver el ejercicio anterior
+                  </Button>
+                </div>
+              </div>
+            ) : line.role === "coach" ? (
               <CoachMarkdown text={closerSpanish(line.content)} />
             ) : (
               line.content

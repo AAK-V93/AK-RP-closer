@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { generateGeminiJson } from "@/lib/gemini";
-import { coachOffersBlock } from "@/lib/coach-grounding";
+import { coachOffersBlock, isInventedExercise, notesForPrompt, STALE_EXERCISE_NOTE, staleExerciseCopy } from "@/lib/coach-grounding";
 import { CLOSER_COACH_SYSTEM_PROMPT } from "@/lib/closer-coach-prompt";
 import {
   compactTrainingEvidence,
@@ -25,13 +25,30 @@ function parseModelJson(text: string) {
   return JSON.parse(cleaned);
 }
 
+function loadOffers(prisma: PrismaClient, userId: string) {
+  return prisma.userOffer.findMany({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+    take: 8,
+    select: { productName: true, productDescription: true, pitchSummary: true },
+  });
+}
+
 export async function getCoachThread(prisma: PrismaClient, userId: string) {
-  const loaded = await loadThread(prisma, userId, THREAD_COACH);
+  const [loaded, offers] = await Promise.all([loadThread(prisma, userId, THREAD_COACH), loadOffers(prisma, userId)]);
+  // Exercises generated before grounding (about a business the closer doesn't sell) are flagged,
+  // not deleted: the panel hides them behind a note and offers one with a real offer.
+  const staleIds = loaded.messages
+    .filter((m) => m.role === "coach" && isInventedExercise(m.content, offers))
+    .map((m) => m.id);
   return {
     level: loaded.notes.level,
-    niche: loaded.notes.niche,
-    notes: loaded.notes,
+    niche: notesForPrompt(loaded.notes).niche,
+    notes: notesForPrompt(loaded.notes),
     messages: loaded.messages,
+    staleIds,
+    stale: staleExerciseCopy(offers),
+    hasOffers: offers.length > 0,
   };
 }
 
@@ -52,19 +69,14 @@ export async function runCoachTurn(
       orderBy: { createdAt: "desc" },
       take: limit,
     }),
-    prisma.userOffer.findMany({
-      where: { userId },
-      orderBy: { updatedAt: "desc" },
-      take: 8,
-      select: { productName: true, productDescription: true, pitchSummary: true },
-    }),
+    loadOffers(prisma, userId),
   ]);
 
-  const notes = loaded.notes;
+  const notes = notesForPrompt(loaded.notes);
   const evidence = compactTrainingEvidence(sessions, limit);
   const history = loaded.messages.slice(-16).map((m) => ({
     role: m.role,
-    content: m.content.slice(0, 2500),
+    content: m.role === "coach" && isInventedExercise(m.content, offers) ? STALE_EXERCISE_NOTE : m.content.slice(0, 2500),
   }));
 
   const prompt = `${CLOSER_COACH_SYSTEM_PROMPT}
@@ -139,4 +151,4 @@ Tu trabajo ahora:
 
 No me des teoría genérica. Prioriza desempeño observado. Si hay huecos de descubrimiento que alimentan objeciones de dinero, conéctalos explícitamente.
 
-Termina con el siguiente ejercicio que debo hacer HOY. Escribe en español claro: presentación de la oferta, descubrimiento, ejercicio, Reconoce, Relaciona y Devuelve la pregunta, Publicidad pagada. No uses pitch, discovery, drill, Acknowledge, Associate, Ask Back ni Paid Media.`;
+Termina con el siguiente ejercicio que debo hacer HOY. Escribe en español claro: presentación de la oferta, descubrimiento, ejercicio, Reconoce, Relaciona y Devuelve la pregunta. No uses pitch, discovery, drill, Acknowledge, Associate ni Ask Back.`;

@@ -139,7 +139,7 @@ test("Valeria: ficha, CRM row and Comisiones say the same money (1.597 = 1.066 +
   assert.match(facts.details.saldo, /531/);
   assert.equal(
     cobradoSinComision([{ cliente: "Valeria Ríos", venta: 1597, cash: 1066, saldo: 1064 }], usd),
-    "Cobraste USD 1.066 de 1 persona y falta cobrar USD 531. No sale comisión porque en Ofertas falta decir cómo te pagan.",
+    "De USD 1.597 vendidos, cobraste USD 1.066 de 1 persona y falta cobrar USD 531. No sale comisión porque en Ofertas falta decir cómo te pagan.",
   );
   assert.equal(cobradoSinComision([], usd), "Todavía no hay dinero cobrado en llamadas.");
   // Without a sale total, the stored saldo is all we have.
@@ -218,14 +218,19 @@ test("the stage filter keeps only En seguimiento people in that bucket", () => {
   const all = buildCrmBoard({ calls: [], followups, now: NOW, period: "todo", stageCounts });
   assert.equal(all.counts.seguimiento, 3);
   const mid = buildCrmBoard({ calls: [], followups, now: NOW, period: "todo", stageCounts, stageFilter: "3-5" });
-  assert.deepEqual([...mid.hoy, ...mid.rows].map((row) => row.name), ["Beto Gómez"]);
+  assert.deepEqual(mid.rows.map((row) => row.name), ["Beto Gómez"]);
   const sin = buildCrmBoard({ calls: [], followups, now: NOW, period: "todo", stageCounts, stageFilter: "sin" });
-  assert.deepEqual([...sin.hoy, ...sin.rows].map((row) => row.name), ["Ana Pérez"]);
+  assert.deepEqual(sin.rows.map((row) => row.name), ["Ana Pérez"]);
   const many = buildCrmBoard({ calls: [], followups, now: NOW, period: "todo", stageCounts, stageFilter: "mas-10" });
-  assert.deepEqual([...many.hoy, ...many.rows].map((row) => row.name), ["Cata Ruiz"]);
-  // Only the En seguimiento tab is filtered (Cerrados/Perdidos have no stage), and a name search ignores it.
+  assert.deepEqual(many.rows.map((row) => row.name), ["Cata Ruiz"]);
+  // «A quién contactar hoy» is not filtered; the tab list (and its count) is.
+  assert.deepEqual(mid.hoy.map((row) => row.name), all.hoy.map((row) => row.name));
+  assert.equal(mid.counts.seguimiento, 1);
+  // While searching, the stage filter still applies to En seguimiento people.
   const search = buildCrmBoard({ calls: [], followups, now: NOW, period: "todo", stageCounts, stageFilter: "sin", query: "beto" });
-  assert.deepEqual(search.rows.map((row) => row.name), ["Beto Gómez"]);
+  assert.deepEqual(search.rows.map((row) => row.name), []);
+  const searchMid = buildCrmBoard({ calls: [], followups, now: NOW, period: "todo", stageCounts, stageFilter: "3-5", query: "beto" });
+  assert.deepEqual(searchMid.rows.map((row) => row.name), ["Beto Gómez"]);
 });
 
 test("a name search looks in every tab and every month (Adriana in Perdidos, Gina in Cerrados last month)", () => {

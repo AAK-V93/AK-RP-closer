@@ -13,7 +13,7 @@ import { sequenceFor, hechoStepDue, FOLLOWUP_SEQUENCES, type ThreadTipo } from "
 import { proximoFromInstant, suggestNextFollowup } from "@/lib/followup-desk";
 import { loadCashNotes } from "@/lib/crm-cash-notes";
 import { explainVentas, datedCashPayments, offerPrices, rollupCalls, type RollupCall, type RollupOffer } from "@/lib/crm-rollup";
-import { findMatchingLead } from "@/lib/lead-match";
+import { findMatchingLead, trustedLeadId } from "@/lib/lead-match";
 import { summarizePipeline } from "@/lib/crm-pipeline";
 import { countedSale, shownBalance, shownMoney } from "@/lib/stated-deal";
 import { applyCallRepair, planCallRepair, repairImportedCallFields } from "@/lib/call-normalize";
@@ -109,9 +109,12 @@ export async function crmDashboard(
     const base = asRollupCall(row);
     const filing = (row.filingJson || {}) as { lead_id?: string; cliente_real?: string };
     const named = leads.map((item) => ({ id: item.id, name: item.name, company: item.company || "" }));
-    const match =
-      named.find((item) => item.id === String(filing.lead_id || "")) ||
-      findMatchingLead(named, row.leadName || filing.cliente_real || "");
+    const stamped = trustedLeadId(filing.lead_id, filing.cliente_real || row.leadName, named);
+    const match = stamped
+      ? named.find((item) => item.id === stamped)
+      : filing.lead_id
+        ? undefined
+        : findMatchingLead(named, row.leadName || filing.cliente_real || "");
     const lead = match ? leads.find((item) => item.id === match.id) : undefined;
     const booked = commissionByCall.get(row.id);
     const filingName = (row.filingJson as { cliente_real?: string } | null)?.cliente_real;
@@ -311,6 +314,7 @@ export async function crmDashboard(
   ];
 
   const leadByName = new Map(leads.map((lead) => [lead.name.trim().toLowerCase(), lead]));
+  const leadNameById = new Map(leads.map((lead) => [lead.id, lead.name]));
   const leadIdByCall = new Map<string, string>();
   for (const alert of alerts) {
     if (alert.callRecordId && alert.leadId) leadIdByCall.set(alert.callRecordId, alert.leadId);
@@ -331,9 +335,13 @@ export async function crmDashboard(
       return [
         {
           ...view,
-          leadId:
-            leadIdByCall.get(row.id) ||
-            String((row.filingJson as { lead_id?: string } | null)?.lead_id || ""),
+          // A call that clearly names someone else is its own person, even if an
+          // old filing stamped it on a lead («Carlos y Luciana Quito» ≠ Carlos Ramírez).
+          leadId: trustedLeadId(
+            leadIdByCall.get(row.id) || String((row.filingJson as { lead_id?: string } | null)?.lead_id || ""),
+            view.cliente,
+            leadNameById,
+          ),
           leadStatus: statusByLead.get(foldLeadName(view.cliente)) || "",
           venta: shownMoney(view.venta, { at, prices }),
           cash: shownMoney(view.cash, { at, prices }),

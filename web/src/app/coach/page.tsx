@@ -174,11 +174,8 @@ export default function CoachPage() {
             <h2 className="text-lg font-medium text-fg0">Últimas prácticas</h2>
             <div className="space-y-2">
               {asList<CoachingInsights["recent"][number]>(insights.recent).map((item) => (
-                <div
-                  key={item.id}
-                  className="flex justify-between gap-3 rounded-xl border border-separator1 bg-bg1 p-4 text-sm"
-                >
-                  <Link href={`/coach/${item.id}`} className="min-w-0 flex-1">
+                <div key={item.id} className="rounded-xl border border-separator1 bg-bg1 p-4 text-sm">
+                  <Link href={`/coach/${item.id}`} className="block min-w-0">
                     <p className="font-medium">{closerSpanish(item.productName || "")}</p>
                     <p className="text-xs text-fg3">
                       {[
@@ -197,10 +194,10 @@ export default function CoachPage() {
                       />
                     )}
                   </Link>
-                  {/* «Ver» on top, the trash far below it: hard to hit by accident (and it asks first). */}
-                  <div className="flex shrink-0 flex-col items-end justify-between gap-6">
-                    <Link href={`/coach/${item.id}`} className="inline-flex min-h-11 items-center text-xs text-fg3">
-                      Ver
+                  {/* «Ver» on the left and the trash on the far right of a separate row: never stacked. */}
+                  <div className="mt-3 flex items-center justify-between gap-6 border-t border-separator1 pt-2">
+                    <Link href={`/coach/${item.id}`} className="inline-flex min-h-11 items-center gap-1 text-xs font-medium text-fg1">
+                      Ver análisis
                       <ChevronRight className="h-3.5 w-3.5" />
                     </Link>
                     <DeleteAnalysisButton sessionId={item.id} iconOnly variant="ghost" onDeleted={loadInsights} />

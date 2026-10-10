@@ -210,14 +210,15 @@ export function CrmBoardView({
           <option value="anterior">Mes anterior</option>
           <option value="todo">Todos</option>
         </select>
-        {onStage && bucket === "seguimiento" && !query.trim() && (
+        {/* Stays while typing a search: it narrows the En seguimiento hits. */}
+        {onStage && (bucket === "seguimiento" || query.trim()) && (
           <>
             <label className="sr-only" htmlFor="crm-etapa">
               Seguimientos hechos
             </label>
             <select
               id="crm-etapa"
-              className={SELECT}
+              className={`${SELECT} min-w-[13.5rem] shrink-0`}
               value={stage}
               onChange={(event) => onStage(event.target.value as StageBucketId | "todas")}
             >

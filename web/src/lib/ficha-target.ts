@@ -61,8 +61,10 @@ export function fichaFromBoard(person: {
   callId?: string;
   alertId?: string;
   offer?: string;
+  day?: string;
 }): FichaTarget {
   return {
+    ...(person.day ? { day: person.day } : {}),
     name: person.name,
     leadId: person.leadId || undefined,
     callId: person.callId || undefined,

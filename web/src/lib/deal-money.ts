@@ -52,8 +52,10 @@ export function cobradoSinComision(
   }
   const pagado = [...byPerson.values()].reduce((sum, deal) => sum + deal.pagado, 0);
   const falta = [...byPerson.values()].reduce((sum, deal) => sum + deal.falta, 0);
+  const total = [...byPerson.values()].reduce((sum, deal) => sum + deal.total, 0);
   if (pagado <= 0) return "Todavía no hay dinero cobrado en llamadas.";
   const people = byPerson.size === 1 ? "1 persona" : `${byPerson.size} personas`;
   const faltaText = falta > 0 ? ` y falta cobrar ${money(falta)}` : "";
-  return `Cobraste ${money(pagado)} de ${people}${faltaText}. No sale comisión porque en Ofertas falta decir cómo te pagan.`;
+  const soldText = total > pagado ? `De ${money(total)} vendidos, c` : "C";
+  return `${soldText}obraste ${money(pagado)} de ${people}${faltaText}. No sale comisión porque en Ofertas falta decir cómo te pagan.`;
 }

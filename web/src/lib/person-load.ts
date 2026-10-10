@@ -95,7 +95,11 @@ export function findPerson(
 ): PersonRef | null {
   if (target.leadId) {
     const hit = people.find((person) => person.leadId === target.leadId);
-    if (hit) return hit;
+    // A tap on a call that clearly names someone else opens that call's person, not the lead.
+    const tapped = target.callId
+      ? loaded.calls.find((row) => row.id === String(target.callId).replace(/^call:/, ""))
+      : undefined;
+    if (hit && !(tapped && callNamesSomeoneElse(hit.name, callName(tapped)))) return hit;
   }
   if (target.callId) {
     const id = target.callId.replace(/^call:/, "");

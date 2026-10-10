@@ -302,8 +302,12 @@ function escapeRegExp(value: string) {
 }
 
 /** Chat chips: about the list until the chat is about one person, then about that person. */
-export function chatSuggestions(contextName?: string | null) {
+export function chatSuggestions(contextName?: string | null, status?: string | null) {
   const first = String(contextName || "").trim().split(/\s+/)[0] || "";
   if (!first) return ["¿A quién llamo hoy?", "¿Cuántos seguimientos tengo?", "¿A quién mañana?"];
+  // A Perdido gets no message to write: ask why it was lost instead.
+  if (/^perdid/i.test(String(status || "").trim())) {
+    return [`¿Por qué se perdió ${first}?`, "¿A quién llamo hoy?", "¿Cuántos seguimientos tengo?"];
+  }
   return [`¿En qué quedé con ${first}?`, `¿Qué le escribo a ${first}?`, "¿A quién llamo hoy?"];
 }
