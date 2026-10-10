@@ -21,6 +21,6 @@ build-backend = "setuptools.build_meta"
 # dies with "Multiple top-level modules: main, turn_config".
 # `packages = []` keeps tests/ out of the wheel.
 [tool.setuptools]
-py-modules = ["main", "turn_config"]
+py-modules = ["main", "turn_config", "long_practice", "warm_job"]
 packages = []
 

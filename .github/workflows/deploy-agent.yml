@@ -10,6 +10,18 @@ on:
         options:
           - deploy
         default: "deploy"
+      target:
+        description: "production is allowed only on main. preview needs a separate agent id."
+        required: true
+        type: choice
+        options:
+          - production
+          - preview
+        default: "production"
+      preview_agent_id:
+        description: "LiveKit agent id for preview. Must not be the production id CA_QJvJAcPCMvRT."
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -28,14 +40,51 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Choose LiveKit agent
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          TARGET: ${{ inputs.target }}
+          PREVIEW_AGENT_ID: ${{ inputs.preview_agent_id }}
+        run: |
+          set -euo pipefail
+          TARGET="${TARGET:-production}"
+          if [ "$EVENT_NAME" = "push" ]; then
+            TARGET="production"
+          fi
+          if [ "$TARGET" = "production" ] && [ "$REF" != "refs/heads/main" ]; then
+            echo "Refusing to deploy ${REF} onto the production agent CA_QJvJAcPCMvRT."
+            echo "Use target=preview with a different preview_agent_id."
+            exit 1
+          fi
+          if [ "$TARGET" = "preview" ]; then
+            if [ "$REF" = "refs/heads/main" ]; then
+              echo "Refusing to deploy main onto a preview agent."
+              exit 1
+            fi
+            if [ -z "$PREVIEW_AGENT_ID" ]; then
+              echo "preview_agent_id is required for a preview deploy."
+              exit 1
+            fi
+            if [ "$PREVIEW_AGENT_ID" = "CA_QJvJAcPCMvRT" ]; then
+              echo "preview_agent_id must not be the production agent."
+              exit 1
+            fi
+            AGENT_ID="$PREVIEW_AGENT_ID"
+          else
+            AGENT_ID="CA_QJvJAcPCMvRT"
+          fi
+          echo "AGENT_ID=$AGENT_ID" >> "$GITHUB_ENV"
+          echo "Deploy target ${TARGET} agent ${AGENT_ID} from ${REF}"
+
       - name: Create temporary livekit.toml
         run: |
-          cat > agent/livekit.toml << 'EOF'
+          cat > agent/livekit.toml << EOF
           [project]
             subdomain = "rp-sulkfgmx"
 
           [agent]
-            id = "CA_QJvJAcPCMvRT"
+            id = "${AGENT_ID}"
           EOF
           echo "✅ Created temporary livekit.toml for deployment"
           cat agent/livekit.toml
@@ -56,7 +105,7 @@ jobs:
           echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**LiveKit project:** rp-sulkfgmx" >> $GITHUB_STEP_SUMMARY
-          echo "**Agent ID:** CA_QJvJAcPCMvRT" >> $GITHUB_STEP_SUMMARY
+          echo "**Agent ID:** ${AGENT_ID}" >> $GITHUB_STEP_SUMMARY
           echo "**Working Directory:** agent" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

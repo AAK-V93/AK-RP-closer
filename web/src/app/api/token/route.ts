@@ -14,7 +14,7 @@ import { authOptions } from "@/lib/auth";
 import { loadPracticeContext } from "@/lib/workspace";
 import { loadReplayCall } from "@/lib/replay-call";
 import { ensureWorkspaceTables, getPrisma } from "@/lib/prisma";
-import { dispatchPracticeAgent } from "@/lib/practice-dispatch";
+import { dispatchPracticeAgent, practiceAgentName } from "@/lib/practice-dispatch";
 import { liveGuideForPrompt } from "@/lib/live-guide";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
@@ -196,7 +196,7 @@ export async function POST(request: Request) {
         name: roomName,
         agents: [
           new RoomAgentDispatch({
-            agentName: "closer-trainer",
+            agentName: practiceAgentName(),
             metadata: metadataJson,
           }),
         ],

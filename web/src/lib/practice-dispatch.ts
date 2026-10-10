@@ -15,6 +15,11 @@ export function practiceWarmMetadata() {
   return JSON.stringify({ warm: true });
 }
 
+export function practiceAgentName(env?: { LIVEKIT_AGENT_NAME?: string | undefined }) {
+  const name = (env ?? process.env).LIVEKIT_AGENT_NAME?.trim();
+  return name || "closer-trainer";
+}
+
 /**
  * Wake the LiveKit worker before the closer taps Entrar.
  * This is not LIVEKIT_PREDISPATCH: the user token still dispatches on join.
@@ -41,7 +46,7 @@ export async function warmPracticeWorker(args: {
     /* already created this minute */
   }
   const dispatch = new AgentDispatchClient(host, args.apiKey, args.apiSecret);
-  await dispatch.createDispatch(roomName, "closer-trainer", {
+  await dispatch.createDispatch(roomName, practiceAgentName(), {
     metadata: practiceWarmMetadata(),
   });
   return true;
@@ -71,7 +76,7 @@ export async function dispatchPracticeAgent(args: {
     /* room may already exist */
   }
   const dispatch = new AgentDispatchClient(host, args.apiKey, args.apiSecret);
-  await dispatch.createDispatch(args.roomName, "closer-trainer", {
+  await dispatch.createDispatch(args.roomName, practiceAgentName(), {
     metadata: args.metadata,
   });
   return true;
