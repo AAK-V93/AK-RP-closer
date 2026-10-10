@@ -101,11 +101,12 @@ test("calls and losses without an offer sit in Sin oferta so the month adds up",
   assert.equal(board.monthCalls, "9 llamadas este mes");
   const circulo = board.offers.find((row) => row.offerName === "Círculo Millonario");
   const fertilidad = board.offers.find((row) => row.offerName === "Fertilidad Consciente");
-  const suelta = board.offers.find((row) => row.offerName === "Sin oferta");
+  const suelta = board.offers.find((row) => row.offerName === "Sin oferta anotada");
   assert.equal(circulo?.monthCalls, "4 llamadas este mes");
   assert.equal(circulo?.monthVersus, "1 cerrado · 1 perdido");
   assert.equal(fertilidad?.monthCalls, "2 llamadas este mes");
-  assert.equal(fertilidad?.monthVersus, "0 cerrados · perdidos sin datos");
+  // Losses are known on the board, but one has no offer noted: «0 perdidos anotados», not «sin datos».
+  assert.equal(fertilidad?.monthVersus, "0 cerrados · 0 perdidos anotados");
   assert.equal(suelta?.monthCalls, "3 llamadas este mes");
   assert.equal(suelta?.monthVersus, "0 cerrados · 1 perdido");
 });

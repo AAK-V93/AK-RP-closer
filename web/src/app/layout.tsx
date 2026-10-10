@@ -6,6 +6,7 @@ import { Fraunces, Public_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthSessionProvider } from "@/components/auth-session-provider";
 import { authOptions } from "@/lib/auth";
+import { VersionNotice } from "@/components/version-notice";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
@@ -53,6 +54,7 @@ export default async function RootLayout({
           <AuthSessionProvider session={session}>
             {children}
             <Toaster />
+            <VersionNotice />
           </AuthSessionProvider>
         </ThemeProvider>
       </body>

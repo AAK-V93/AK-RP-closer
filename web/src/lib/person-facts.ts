@@ -9,6 +9,7 @@ import { cleanReason } from "@/lib/crm-operacion";
 import { dealMoney, saleCall } from "@/lib/deal-money";
 import { moneyLabel } from "@/lib/crm-operacion";
 import { plainStatus } from "@/lib/plain-labels";
+import { followupIsClosed } from "@/lib/crm-followups";
 
 /**
  * Everything the ficha and the chat know about one person, from rows that are
@@ -92,6 +93,8 @@ export type PersonFacts = {
   stage: FollowupStage | null;
   /** Next follow-up day (YYYY-MM-DD) or empty. */
   nextDay: string;
+  /** The newest call's follow-up was marked done with no new date: «Sin fecha de seguimiento». */
+  followupClosed: boolean;
   lastCallDay: string;
   lastContact: { day: string; kind: "call" | "followup"; resultado: string } | null;
   details: {
@@ -139,6 +142,20 @@ export function firstNameOf(name: string) {
 
 function callDay(call: FactCall) {
   return dayOf(call.recordedAt || call.createdAt || null);
+}
+
+function stamp(value: Date | string | null | undefined) {
+  const time = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+/**
+ * Newest call first, the same order the CRM reads (recordedAt desc, then createdAt desc).
+ * Two copies of the same call (Carlos, 30 sep) → the one saved later wins: it carries the
+ * follow-up actions («No contestó», «Hecho»).
+ */
+export function newestCallFirst(a: FactCall, b: FactCall) {
+  return stamp(b.recordedAt || b.createdAt) - stamp(a.recordedAt || a.createdAt) || stamp(b.createdAt) - stamp(a.createdAt);
 }
 
 function callNameOf(call: FactCall) {
@@ -293,7 +310,7 @@ export function personStage(args: {
   calls: readonly FactCall[];
   alerts?: readonly Pick<FactAlert, "resolvedAt" | "resultado" | "dueAt">[];
 }): FollowupStage | null {
-  const calls = [...args.calls].sort((a, b) => callDay(b).localeCompare(callDay(a)));
+  const calls = [...args.calls].sort(newestCallFirst);
   const last = calls[0];
   const lastFiling = filingOf(last?.filingJson);
   if (statusOf(args.lead, calls, (args.alerts || []) as FactAlert[]).ended) return null;
@@ -398,7 +415,7 @@ export function buildPersonFacts(args: {
   const today = zonedDayKey(now);
   const lead = args.lead;
   const name = String(lead?.name || args.name || "").trim();
-  const calls = [...args.calls].sort((a, b) => callDay(b).localeCompare(callDay(a)));
+  const calls = [...args.calls].sort(newestCallFirst);
   const last = calls[0];
   const lastFiling = filingOf(last?.filingJson);
   const alerts = [...(args.alerts || [])];
@@ -417,7 +434,11 @@ export function buildPersonFacts(args: {
     .filter((row) => !row.resolvedAt)
     .sort((a, b) => dayOf(a.dueAt).localeCompare(dayOf(b.dueAt)))[0];
   const proximo = String(lastFiling.proximo_seguimiento || "");
-  const nextDay = ended ? "" : dayOf(open?.dueAt) || (/^\d{4}-\d{2}-\d{2}/.test(proximo) ? proximo.slice(0, 10) : "") || dayOf(lead?.nextStepAt || null);
+  // Same rule as the CRM row (crm-operacion seguimientoCerrado → alignFollowups): the newest call
+  // closed its follow-up («Hecho») with no new date, and nothing is open → no pending day. An older
+  // copy of the call or the lead's old nextStepAt must not bring that date back.
+  const followupClosed = !ended && !open && Boolean(last) && followupIsClosed(lastFiling);
+  const nextDay = ended || followupClosed ? "" : dayOf(open?.dueAt) || (/^\d{4}-\d{2}-\d{2}/.test(proximo) ? proximo.slice(0, 10) : "") || dayOf(lead?.nextStepAt || null);
 
   const summary: AgreementSummary = agreementSummary({
     agreements: [lastFiling.acuerdo_seguimiento, lead?.nextStep, ...calls.slice(1).map((call) => filingOf(call.filingJson).acuerdo_seguimiento)],
@@ -444,6 +465,13 @@ export function buildPersonFacts(args: {
     cash: sale?.cash ?? (Number(String(lead?.amountPaid || "").replace(/[^\d.]/g, "")) || null),
     saldo: sale ? (sale.call.saldoPendiente ?? filingOf(sale.call.filingJson).saldo_pendiente) : null,
   });
+
+  if (followupClosed) {
+    summary.agreed = "";
+    summary.missing = "";
+    summary.text = "Ya hiciste el seguimiento que acordaron. No quedó otra fecha.";
+    summary.clear = true;
+  }
 
   // The status wins: a Perdido says it was lost and why; a Cerró says what was paid.
   if (lost) {
@@ -556,6 +584,7 @@ export function buildPersonFacts(args: {
     summary,
     stage,
     nextDay,
+    followupClosed,
     lastCallDay,
     lastContact,
     details,
@@ -567,8 +596,10 @@ export function buildPersonFacts(args: {
 }
 
 /** «Pendiente desde el 23 sep (16 días)», «Le toca el 12 oct», «Hoy». */
-export function nextLine(facts: Pick<PersonFacts, "nextDay">, now = new Date()) {
-  if (!facts.nextDay) return "";
+export const NO_FOLLOWUP_DATE = "Sin fecha de seguimiento";
+
+export function nextLine(facts: Pick<PersonFacts, "nextDay"> & { followupClosed?: boolean }, now = new Date()) {
+  if (!facts.nextDay) return facts.followupClosed ? NO_FOLLOWUP_DATE : "";
   const today = zonedDayKey(now);
   const diff = calendarDaysBetween(facts.nextDay, today);
   if (diff === 0) return "Le toca hoy";

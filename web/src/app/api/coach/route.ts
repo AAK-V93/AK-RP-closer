@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { ensureCrmTables, getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { buildCoachingInsights } from "@/lib/coaching";
 import { buildCoachOffers } from "@/lib/coach-offers";
+import { filingLeadId, trustedLeadId } from "@/lib/lead-match";
+import { shownOffer } from "@/lib/inicio-view";
 import { evidenceSessionFilter } from "@/lib/chat-threads";
 import { isCoachThreadSection } from "@/lib/closer-coach";
 import { loadLiveGuides } from "@/lib/live-guide";
@@ -47,13 +49,17 @@ export async function GET() {
         loadDashboardCalls(prisma, session.user.id),
         prisma.lead.findMany({
           where: { userId: session.user.id },
-          select: { name: true, status: true, offerName: true, razonNoCierre: true },
+          select: { id: true, name: true, status: true, offerName: true, razonNoCierre: true },
         }),
       ]);
       const leadByName = new Map(leads.map((lead) => [lead.name.trim().toLowerCase(), lead]));
       const statusByName = new Map(leads.map((lead) => [foldLeadName(lead.name), lead.status]));
+      const leadById = new Map(leads.map((lead) => [lead.id, lead]));
+      const leadNameById = new Map(leads.map((lead) => [lead.id, lead.name]));
       const evidence = allCalls.map((call) => {
-        const lead = leadByName.get((call.leadName || "").trim().toLowerCase()) || null;
+        // The lead the call was filed to (unless the call names someone else), then the same name.
+        const stamped = trustedLeadId(filingLeadId(call.filingJson), call.leadName, leadNameById);
+        const lead = (stamped && leadById.get(stamped)) || leadByName.get((call.leadName || "").trim().toLowerCase()) || null;
         const view = operacionFromCall(call, lead);
         return {
           id: view.id,
@@ -64,7 +70,8 @@ export async function GET() {
           seguimientoResultado: view.seguimientoResultado,
           razonNoCierre: view.razonNoCierre,
           fechaProximo: view.fechaProximo,
-          oferta: view.oferta || view.producto,
+          // The call's own offer first, then the offer saved on its lead.
+          oferta: shownOffer(view.oferta) || shownOffer(view.producto) || shownOffer(lead?.offerName) || "",
           producto: view.producto,
           interna: view.interna,
         };
