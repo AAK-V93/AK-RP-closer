@@ -16,6 +16,8 @@ export type SheetColumn<T> = {
   mobileExtra?: (row: T) => string | number | null | undefined;
   hideOnMobile?: boolean;
   value: (row: T) => string | number | null | undefined;
+  /** Optional cell content (e.g. a tappable name). `value` still feeds the tooltip. */
+  render?: (row: T) => ReactNode;
 };
 
 export function sheetCell(value: string | number | null | undefined) {
@@ -166,7 +168,7 @@ export function SheetTable<T>({
                                   : "line-clamp-3"
                             }
                           >
-                            {mobileCellText(col.key, value, narrow)}
+                            {col.render && value !== "—" ? col.render(row) : mobileCellText(col.key, value, narrow)}
                           </div>
                           {extra && extra !== "—" ? (
                             <div className="mt-0.5 text-xs text-fg3">{extra}</div>

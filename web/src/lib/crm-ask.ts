@@ -256,3 +256,19 @@ export function answerCrmFollowups(
   const more = pool.length > 12 ? `\n… y ${pool.length - 12} más.` : "";
   return `${title}\n${shown.join("\n")}${more}`;
 }
+
+/** A change the closer is telling us (pago, nombre, perdido). It goes to the hub and waits for «Guardar». */
+export function looksLikeCrmWrite(text: string) {
+  if (/[?¿]/.test(text)) return false;
+  return /(?<![\p{L}])(me pag[oó]|pagu[eé]|ya pag[oó]|pag[oó]|se llama|m[aá]rcalo|perdido|cuota de|reserva de|abono|quedamos|le escrib[ií]|la llam[eé]|lo llam[eé]|le mand[eé]|habl[eé] con)(?![\p{L}])/iu.test(
+    text,
+  );
+}
+
+/** Where a chat message goes: a «sí/no» to a pending change or a write → hub; a question → the person answer. */
+export function crmAskRoute(text: string, hasPending: boolean): "hub" | "ask" {
+  const value = text.trim();
+  if (hasPending && /^(s[ií]|no|confirmo|cancelar|cancela)$/i.test(value)) return "hub";
+  if (looksLikeCrmWrite(value)) return "hub";
+  return "ask";
+}

@@ -44,12 +44,14 @@ const DrawerContent = React.forwardRef<
     <DrawerPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed bg-neutral-800 inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-xl",
+        // Always a dark sheet. `dark` flips ink and surface tokens so labels
+        // are not paper-brown on brown. The grabber stays light either way.
+        "dark fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-xl bg-background text-foreground",
         className
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-neutral-100 dark:bg-neutral-800" />
+      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-neutral-100" />
       <DrawerFallbackLabels>{children}</DrawerFallbackLabels>
     </DrawerPrimitive.Content>
   </DrawerPortal>

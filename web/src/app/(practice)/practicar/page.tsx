@@ -11,7 +11,8 @@ export const metadata: Metadata = {
 
 export default function PracticePage() {
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4 md:flex-row">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4 md:min-h-[calc(100dvh-7.5rem)] md:flex-row">
+      {/* On a laptop the page scrolls: every setting under «Cómo practicar» stays reachable. */}
       <aside className="hidden min-h-0 overflow-y-auto rounded-2xl border border-separator1 bg-bg1 p-4 md:block md:w-[340px] md:shrink-0">
         <Suspense fallback={null}>
           <TrainingSetupForm />

@@ -550,24 +550,21 @@ export function TrainingSetupForm() {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Idioma del prospecto</FormLabel>
-                <Select
-                  disabled={shouldConnect}
-                  onValueChange={field.onChange}
-                  value={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
+                {/* Native select: the chosen language shows once, and the phone opens its own picker. */}
+                <FormControl>
+                  <select
+                    disabled={shouldConnect}
+                    value={field.value}
+                    onChange={(event) => field.onChange(event.target.value)}
+                    className="h-11 min-h-11 w-full rounded-md border border-separator1 bg-bg1 px-3 text-sm text-fg0 disabled:opacity-60"
+                  >
                     {LANGUAGES.map((lang) => (
-                      <SelectItem key={lang.code} value={lang.code}>
+                      <option key={lang.code} value={lang.code}>
                         {lang.label}
-                      </SelectItem>
+                      </option>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </select>
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
@@ -593,7 +590,7 @@ export function TrainingSetupForm() {
                         onClick={() => field.onChange(voice.id)}
                         className={
                           field.value === voice.id
-                            ? "inline-flex h-11 min-h-11 items-center rounded-full bg-fg0 px-3 text-sm font-medium text-[#FBF8F2]"
+                            ? "inline-flex h-11 min-h-11 items-center rounded-full bg-fg0 px-3 text-sm font-medium text-bg0"
                             : "inline-flex h-11 min-h-11 items-center rounded-full border border-separator2 bg-bg0 px-3 text-sm text-fg0"
                         }
                       >

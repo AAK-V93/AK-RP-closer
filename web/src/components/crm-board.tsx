@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { WhenChip } from "@/components/inicio-home";
 import {
   CRM_BOARD_BUCKETS,
@@ -36,8 +36,11 @@ function PersonCell({ person }: { person: CrmBoardPerson }) {
         {person.initials}
       </span>
       <span className="min-w-0">
-        <span className="block whitespace-normal break-words text-[15px] font-medium leading-snug text-fg0 sm:truncate">
-          {person.name}
+        <span className="flex min-w-0 items-center gap-1 text-[15px] font-medium leading-snug text-fg0">
+          <span className="min-w-0 whitespace-normal break-words underline decoration-separator2 decoration-1 underline-offset-4 group-hover:decoration-fg0 sm:truncate">
+            {person.name}
+          </span>
+          <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-fg3 group-hover:text-fg0" />
         </span>
         {person.offer && (
           <span className="block whitespace-normal break-words text-[13px] text-fg3 sm:truncate">{person.offer}</span>
@@ -71,7 +74,7 @@ export function CrmBoardView({
   onOffer,
   period,
   onPeriod,
-  onAsk,
+  onOpen,
   showColumns,
   onToggleColumns,
 }: {
@@ -85,7 +88,7 @@ export function CrmBoardView({
   onOffer: (value: string) => void;
   period: CrmBoardPeriod;
   onPeriod: (value: CrmBoardPeriod) => void;
-  onAsk: (person: CrmBoardPerson) => void;
+  onOpen: (person: CrmBoardPerson) => void;
   showColumns: boolean;
   onToggleColumns: () => void;
 }) {
@@ -120,9 +123,9 @@ export function CrmBoardView({
               <li key={person.id}>
                 <button
                   type="button"
-                  onClick={() => onAsk(person)}
-                  className="flex min-h-11 w-full flex-col items-stretch gap-1.5 py-2.5 text-left sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-                  aria-label={`Preguntar en qué quedaste con ${person.name}`}
+                  onClick={() => onOpen(person)}
+                  className="group flex min-h-11 w-full flex-col items-stretch gap-1.5 py-2.5 text-left hover:bg-bg0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                  aria-label={`Abrir la ficha de ${person.name}`}
                 >
                   <PersonCell person={person} />
                   {person.chip && (
@@ -231,9 +234,9 @@ export function CrmBoardView({
               <li key={`${person.bucket}-${person.id}`}>
                 <button
                   type="button"
-                  onClick={() => onAsk(person)}
-                  className="grid w-full grid-cols-1 items-center gap-2 px-3 py-3 text-left hover:bg-bg0 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] sm:gap-3 sm:px-4"
-                  aria-label={`Preguntar en qué quedaste con ${person.name}`}
+                  onClick={() => onOpen(person)}
+                  className="group grid w-full grid-cols-1 items-center gap-2 px-3 py-3 text-left hover:bg-bg0 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] sm:gap-3 sm:px-4"
+                  aria-label={`Abrir la ficha de ${person.name}`}
                 >
                   <PersonCell person={person} />
                   <PayCell person={person} />
@@ -253,7 +256,7 @@ export function CrmBoardView({
       </div>
       )}
       <p className="text-[13px] text-fg3">
-        Toca un nombre y se lo preguntas al chat. ¿Algo más fino? Pídeselo: «los que no cerraron en septiembre».
+        Toca un nombre para ver su ficha. ¿Algo más fino? Pregúntale al chat: «los que no cerraron en septiembre».
       </p>
     </div>
   );

@@ -29,7 +29,7 @@ export function PracticeShell({ children }: { children: ReactNode }) {
   return (
     <AppShell
       wide
-      fill
+      fill={shouldConnect || isConnecting ? true : "phone"}
       reserveTabs={visible}
       tabBar={visible ? <MobileTabBar path={path} showCrm={showCrm} /> : null}
     >

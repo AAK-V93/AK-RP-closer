@@ -11,7 +11,7 @@ import {
   withEveryActiveLead,
 } from "./crm-activa";
 import { deleteOperacionRow, leadStateFromRemaining } from "./crm-delete-row";
-import { derivedPaso, operacionGlance } from "./crm-glance";
+import { operacionGlance, rowStage } from "./crm-glance";
 import {
   AHORA_TAB_NOTE,
   COBRADO_PERIOD_NOTE,
@@ -361,35 +361,40 @@ test("solo activas renders the active lead that has no call row", () => {
   assert.equal(mismatched[0]?.leadStatus, "seguimiento");
 });
 
-test("a follow-up type gets a step even when none is stored", () => {
-  assert.equal(derivedPaso({ tipo: "DECISION", paso: "—" }), "Paso 1 de 4");
-  assert.equal(derivedPaso({ tipo: "DECISION", paso: "2 de 4" }), "Paso 2 de 4");
-  assert.equal(derivedPaso({ tipo: "RETOMAR", intentos: 1 }), "Paso 2 de 3");
-  assert.equal(derivedPaso({ tipo: "SEGUNDA REUNION" }), "Paso 1 de 1");
-  assert.equal(derivedPaso({ tipo: "SEGUIMIENTO" }), "Paso 1 de 1");
+test("CRM sheets show the same stage as the ficha, never «Paso N de M»", () => {
+  const stages = { "l-1": "Seguimiento 4 de 10", "l-2": "", "call:c-9": "Sin seguimiento aún" };
+  assert.equal(rowStage(stages, { leadId: "l-1", callId: "c-1" }), "Seguimiento 4 de 10");
+  assert.equal(rowStage(stages, { leadId: "l-2" }), "");
+  assert.equal(rowStage(stages, { callId: "c-9" }), "Sin seguimiento aún");
+  assert.equal(rowStage(stages, { leadId: "l-x" }), "");
+  assert.equal(rowStage(null, { leadId: "l-1" }), "");
   const diego = operacionGlance({
     fecha: "2026-09-30",
     tipoSeguimiento: "DECISION",
-    paso: "—",
+    etapa: rowStage(stages, { leadId: "l-1" }),
     fechaProximo: "2026-10-03 10:00",
   });
-  assert.equal(diego.paso, "Paso 1 de 4");
-  assert.match(diego.line, /Paso 1 de 4/);
+  assert.equal(diego.etapa, "Seguimiento 4 de 10");
+  assert.match(diego.line, /Seguimiento 4 de 10/);
+  assert.doesNotMatch(diego.line, /Paso/);
   assert.match(diego.line, /Siguiente: Decisión/);
+  const lost = operacionGlance({ fecha: "2026-09-30", etapa: rowStage(stages, { leadId: "l-2" }) });
+  assert.equal(lost.etapa, "");
+  assert.doesNotMatch(lost.line, /Seguimiento \d|Paso/);
 });
 
-test("operación glance names the step, the last contact and what is next", () => {
+test("operación glance names the stage, the last contact and what is next", () => {
   const glance = operacionGlance({
     fecha: "2026-09-30",
     ultimoContacto: "2026-10-02",
-    paso: "2 de 4",
+    etapa: "Sin seguimiento aún",
     tipoSeguimiento: "SEGUNDA_REUNION",
     fechaProximo: "2026-10-03 10:00",
   });
-  assert.equal(glance.paso, "Paso 2 de 4");
+  assert.equal(glance.etapa, "Sin seguimiento aún");
   assert.equal(glance.ultimoContacto, "2026-10-02");
   assert.equal(glance.siguiente, "Segunda reunión · 2026-10-03 10:00");
-  assert.match(glance.line, /Paso 2 de 4/);
+  assert.match(glance.line, /Sin seguimiento aún/);
   assert.match(glance.line, /Último contacto 2026-10-02/);
 });
 

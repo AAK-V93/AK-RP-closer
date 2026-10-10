@@ -1,3 +1,4 @@
+import { isAttempt } from "@/lib/followup-stage";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { applyAlertOutcome, resolveOpenAlertsForLead, type AlertOutcome } from "@/lib/alerts";
 import { dueDayFromProximo, followupIsClosed } from "@/lib/crm-followups";
@@ -483,6 +484,7 @@ async function snapshotUndo(
         resultado: String(filing.seguimiento_resultado || ""),
         cerrado: String(filing.seguimiento_cerrado || ""),
         intentos: Number(filing.seguimiento_intentos || 0) || 0,
+        contactos: Number(filing.seguimiento_contactos || 0) || 0,
         requiere: requiereOf(filing),
         razonNoCierre: String(filing.razon_no_cierre || ""),
       };
@@ -528,6 +530,10 @@ async function writeCalls(
       filing.seguimiento_resultado = args.resultado;
       filing.seguimiento_cerrado = "";
       if (RESCHEDULE.has(args.resultado)) filing.seguimiento_intentos = intentos + 1;
+    }
+    // Only Hecho and No contestó are follow-up attempts (stage «Seguimiento N de 10»).
+    if (isWinning && isAttempt(args.resultado)) {
+      filing.seguimiento_contactos = (Number(filing.seguimiento_contactos || 0) || 0) + 1;
     }
     if (isWinning || args.closed) filing.seguimiento_undo = args.undo;
     else delete filing.seguimiento_undo;
