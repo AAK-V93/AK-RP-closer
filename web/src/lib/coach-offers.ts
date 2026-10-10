@@ -159,14 +159,56 @@ function topObjection(rows: CoachEvidence[], monthKey: string): CoachObjection |
   return pick("mes") || pick("todo");
 }
 
-function cardFor(rows: CoachEvidence[], offerName: string, now: Date): CoachOfferCard | null {
+export const NO_OFFER_LABEL = "Sin oferta anotada";
+
+/**
+ * One offer per person from the most reliable linked source: any of their calls (filing
+ * producto / offerName) or their lead. When a person has exactly one known offer, their rows
+ * without one take it (Maria Leydis: lead without offer, call with Círculo Millonario). Two
+ * different offers, or none at all, stay as they are: nothing is guessed.
+ */
+export function attributeOffers(rows: CoachEvidence[]): CoachEvidence[] {
+  const offersByPerson = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const offer = offerOf(row);
+    const person = foldLeadName(String(row.cliente || ""));
+    if (!offer || !person) continue;
+    const set = offersByPerson.get(person) || new Set<string>();
+    set.add(offer);
+    offersByPerson.set(person, set);
+  }
+  return rows.map((row) => {
+    if (offerOf(row)) return row;
+    const set = offersByPerson.get(foldLeadName(String(row.cliente || "")));
+    return set && set.size === 1 ? { ...row, oferta: [...set][0] } : row;
+  });
+}
+
+/**
+ * When the whole board knows about losses, an offer with none says «0 perdidos» (or «0 perdidos
+ * anotados» if some losses have no offer noted), never «perdidos sin datos».
+ */
+function withKnownLosses<T extends { won: number | null; lost: number | null }>(
+  outcome: T,
+  knownLost: boolean,
+): T {
+  return knownLost && outcome.lost == null ? { ...outcome, lost: 0 } : outcome;
+}
+
+function cardFor(
+  rows: CoachEvidence[],
+  offerName: string,
+  now: Date,
+  known: { lostMonth: boolean; lostAll: boolean; looseLost: boolean } = { lostMonth: false, lostAll: false, looseLost: false },
+): CoachOfferCard | null {
   const monthKey = zonedMonthRange(now).key;
-  const month = periodOutcomes({ calls: rows.map(toOutcome), period: "mes", now });
-  const all = periodOutcomes({ calls: rows.map(toOutcome), period: "todo", now });
+  const month = withKnownLosses(periodOutcomes({ calls: rows.map(toOutcome), period: "mes", now }), known.lostMonth);
+  const all = withKnownLosses(periodOutcomes({ calls: rows.map(toOutcome), period: "todo", now }), known.lostAll);
   const monthCalls = callsInMonth(rows, monthKey);
   const historyCalls = callsAll(rows);
-  const monthVersus = outcomeSentences(month).versus;
-  const historyVersus = outcomeSentences(all).versus;
+  const noted = (text: string) => (known.looseLost ? text.replace(/(^|· )0 perdidos$/, "$10 perdidos anotados") : text);
+  const monthVersus = noted(outcomeSentences(month).versus);
+  const historyVersus = noted(outcomeSentences(all).versus);
   const same =
     month.won === all.won &&
     month.lost === all.lost &&
@@ -188,8 +230,12 @@ export function buildCoachOffers(args: {
 }): CoachBoard {
   const now = args.now || new Date();
   const monthKey = zonedMonthRange(now).key;
-  const visible = args.calls.filter((row) => !row.interna);
+  const visible = attributeOffers(args.calls.filter((row) => !row.interna));
   const month = periodOutcomes({ calls: visible.map(toOutcome), period: "mes", now });
+  const all = periodOutcomes({ calls: visible.map(toOutcome), period: "todo", now });
+  const looseRows = unassignedRows(visible);
+  const looseAll = periodOutcomes({ calls: looseRows.map(toOutcome), period: "todo", now });
+  const known = { lostMonth: month.lost != null, lostAll: all.lost != null, looseLost: (looseAll.lost || 0) > 0 };
   const names: string[] = [];
   const seen = new Set<string>();
   const push = (name: string) => {
@@ -208,10 +254,11 @@ export function buildCoachOffers(args: {
         visible.filter((row) => offerOf(row).toLocaleLowerCase("es") === name.toLocaleLowerCase("es")),
         name,
         now,
+        known,
       ),
     )
     .filter((row): row is CoachOfferCard => Boolean(row));
-  const loose = cardFor(unassignedRows(visible), "Sin oferta", now);
+  const loose = cardFor(looseRows, NO_OFFER_LABEL, now, { ...known, looseLost: false });
   if (loose) offers.push(loose);
 
   return {

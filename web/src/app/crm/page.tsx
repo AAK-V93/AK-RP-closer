@@ -1,7 +1,7 @@
 "use client";
 
 import { cleanNote } from "@/lib/agreement-summary";
-import { cobradoSinComision } from "@/lib/deal-money";
+import { cobradoSinComision, commissionSummaryLine } from "@/lib/deal-money";
 import type { StageBucketId } from "@/lib/followup-stage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -2220,11 +2220,8 @@ function ComisionesSheet({
   const selected = rows.find((row) => row.id === openId) || null;
   return (
     <div className="space-y-2">
-      {resumen && (
-        <p className="text-sm">
-          Generada {money(resumen.generada)} · cobrada {money(resumen.cobrada)} ·
-          pendiente {money(resumen.pendiente)} ({pctLabel(resumen.pctCobrado)})
-        </p>
+      {commissionSummaryLine(resumen, (value) => money(value)) && (
+        <p className="text-sm">{commissionSummaryLine(resumen, (value) => money(value))}</p>
       )}
       <SheetTable
         columns={[
@@ -2239,9 +2236,9 @@ function ComisionesSheet({
           { key: "oferta", label: "Oferta", width: 140, value: (row) => row.oferta },
           { key: "venta", label: "Venta", width: 90, align: "right", value: (row) => money(row.venta) },
           { key: "cash", label: "Cobrado", width: 110, align: "right", value: (row) => money(row.cash) },
-          { key: "pct", label: "%", width: 60, align: "right", value: (row) => pctLabel(row.pct) },
-          { key: "gen", label: "Generada", width: 100, align: "right", value: (row) => money(row.generada) },
-          { key: "cob", label: "Cobrada", width: 100, align: "right", value: (row) => money(row.cobrada) },
+          { key: "pct", label: "% comisión", width: 90, align: "right", value: (row) => pctLabel(row.pct) },
+          { key: "gen", label: "Comisión", width: 100, align: "right", value: (row) => money(row.generada) },
+          { key: "cob", label: "Comisión cobrada", width: 130, align: "right", value: (row) => money(row.cobrada) },
           { key: "estado", label: "Estado", width: 110, value: (row) => plainStatus(row.estado) },
           { key: "fcobro", label: "Fecha cobro", width: 90, value: (row) => row.fechaCobro?.slice(0, 10) },
         ]}

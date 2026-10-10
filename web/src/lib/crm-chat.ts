@@ -183,7 +183,7 @@ export function factsForModel(facts: PersonFacts, now = new Date()) {
     resumen: facts.summary.text,
     acuerdo: !facts.ended && facts.summary.clear ? facts.summary.agreed : null,
     falta: facts.summary.missing || null,
-    proximo: facts.nextDay ? nextLine(facts, now) : null,
+    proximo: facts.nextDay || facts.followupClosed ? nextLine(facts, now) : null,
     etapa: facts.stage?.label || null,
     ultimo_contacto: facts.lastContact
       ? { fecha: shortDate(facts.lastContact.day, today), tipo: facts.lastContact.kind === "call" ? "llamada" : "seguimiento", resultado: facts.lastContact.resultado || null }
@@ -213,6 +213,7 @@ export function chatPrompt(args: {
     "Responde exactamente lo que pregunta, usando solo DATOS. Si el dato no está, dilo en una frase. No inventes fechas, montos ni acuerdos.",
     "No hables de la grabación ni de la transcripción.",
     "Si estado es «Perdido» o «Cerró», no hables de próximos pasos para cerrar: di el estado y, si está, la razón.",
+    "Si proximo es «Sin fecha de seguimiento», el seguimiento que acordaron ya se hizo y no hay otra fecha: no digas que quedó pendiente ni que toca llamar ese día.",
     "La RESPUESTA_BASE ya es correcta; puedes decirla más natural pero no agregues hechos que no estén en DATOS.",
     'Devuelve solo JSON: {"reply": "..."}',
     "",

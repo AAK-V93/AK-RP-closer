@@ -59,3 +59,18 @@ export function cobradoSinComision(
   const soldText = total > pagado ? `De ${money(total)} vendidos, c` : "C";
   return `${soldText}obraste ${money(pagado)} de ${people}${faltaText}. No sale comisión porque en Ofertas falta decir cómo te pagan.`;
 }
+
+/**
+ * The commission line in Comisiones. It is the closer's commission, never the sale money,
+ * so it says «Tu comisión». Hidden (empty) when no commission was generated yet (no rule in
+ * Ofertas), so «USD 0» never sits next to «cobraste USD 1.066».
+ */
+export function commissionSummaryLine(
+  resumen: { generada?: number | null; cobrada?: number | null; pendiente?: number | null; pctCobrado?: number | null } | null | undefined,
+  money: (value: number) => string,
+) {
+  const generada = Number(resumen?.generada) || 0;
+  if (!resumen || generada <= 0) return "";
+  const pct = Math.round((Number(resumen.pctCobrado) || 0) * 100);
+  return `Tu comisión: ${money(generada)} generada · ${money(Number(resumen.cobrada) || 0)} cobrada · ${money(Number(resumen.pendiente) || 0)} por cobrar (${pct}% cobrado).`;
+}
