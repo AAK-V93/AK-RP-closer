@@ -23,7 +23,7 @@ const SUGGESTIBLE = { confirmedAt: { not: null }, dismissed: false, missingFromS
 const TO_REVIEW = { confirmedAt: null, dismissed: false, missingFromSourceAt: null };
 
 export async function readOffersPage(db: Db, userId: string) {
-  const [offers, review, fathom, drive] = await Promise.all([
+  const [offers, review, fathom, drive, calls] = await Promise.all([
     db.offer.findMany({
       where: { userId, archivedAt: null },
       orderBy: { createdAt: "asc" },
@@ -48,9 +48,18 @@ export async function readOffersPage(db: Db, userId: string) {
       orderBy: { offerId: "asc" },
       take: OFFERS_TAKE,
     }),
-    db.fathomConnection.findUnique({ where: { userId }, select: { lastSyncAt: true } }),
+    db.fathomConnection.findUnique({ where: { userId }, select: { lastSyncAt: true, backfillStatus: true, backfillImported: true, webhookId: true } }),
     db.googleDriveConnection.findUnique({ where: { userId }, select: { id: true } }),
+    // «Tus llamadas»: calls still being summarized or whose summary failed (no transcript, no brief)
+    db.call.groupBy({
+      by: ["state"],
+      where: { userId, state: { in: ["PROCESSING", "BRIEF_FAILED"] } },
+      _count: { _all: true },
+      orderBy: { state: "asc" },
+      take: 2,
+    }),
   ]);
+  const byState = new Map(calls.map((c) => [c.state, c._count._all]));
   const toReview = new Map(review.map((r) => [r.offerId, r._count._all]));
   return {
     offers: offers.map((o) => ({
@@ -68,7 +77,10 @@ export async function readOffersPage(db: Db, userId: string) {
       sources: o._count.caseSources,
       casesToReview: toReview.get(o.id) ?? 0,
     })),
-    fathom: fathom ? { connected: true, lastSyncAt: iso(fathom.lastSyncAt) } : { connected: false, lastSyncAt: null },
+    fathom: fathom
+      ? { connected: true, webhook: Boolean(fathom.webhookId), lastSyncAt: iso(fathom.lastSyncAt), backfill: fathom.backfillStatus, imported: fathom.backfillImported }
+      : { connected: false, webhook: false, lastSyncAt: null, backfill: "NONE" as const, imported: 0 },
+    calls: { processing: byState.get("PROCESSING") ?? 0, failed: byState.get("BRIEF_FAILED") ?? 0 },
     driveConnected: Boolean(drive),
   };
 }

@@ -5,6 +5,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { goalProgress, toCents } from "@/lib/metrics";
 import { getStartSteps, getTodayHeader, getUserSettings } from "@/lib/read/cached";
+import { after } from "next/server";
+import { showLink } from "@/lib/hidden-links";
+import { runBackfillBurst } from "@/lib/ingest/backfill";
+import { getPrisma } from "@/lib/prisma";
 import { bogotaDay } from "@/lib/time/bogota";
 import { formatCents } from "@/lib/format/money";
 import { daysText, monthName } from "@/lib/format/goal";
@@ -12,6 +16,8 @@ import { V2Nav } from "@/components/v2/nav";
 import { IconCheck, IconChev, IconFlag, IconPhone, IconUpload } from "@/components/v2/icons";
 
 export const dynamic = "force-dynamic";
+// the Fathom rebuild burst runs after the response while it is RUNNING (no cron, no polling)
+export const maxDuration = 60;
 
 const WEEKDAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 function dayTitle(day: string) {
@@ -31,6 +37,18 @@ export default async function HomePage() {
     getTodayHeader(userId, today),
     getUserSettings(userId),
   ]);
+  if (steps.backfill === "RUNNING") {
+    // one burst per visit; the lease in the DB keeps two visits from overlapping
+    after(async () => {
+      const db = getPrisma();
+      if (!db) return;
+      try {
+        await runBackfillBurst(db, userId);
+      } catch (error) {
+        console.warn("[fathom] burst on Hoy failed:", error instanceof Error ? error.message.slice(0, 160) : "unknown");
+      }
+    });
+  }
   const done = [Boolean(steps.goal), steps.hasOffer, steps.hasCall];
   const doneCount = done.filter(Boolean).length;
   const current = done.findIndex((d) => !d);
@@ -53,6 +71,15 @@ export default async function HomePage() {
         <h1 className="page" style={{ marginTop: 6 }}>{doneCount < 3 ? "Te damos la bienvenida" : "Hoy"}</h1>
         {doneCount < 3 && (
           <div className="pagesub">En unos minutos la app sabrá a quién escribirle y cómo vas con tu meta. Tú solo dale lo básico.</div>
+        )}
+
+        {showLink("hoy.confirmar") && (header.counters?.pendingConfirmCount ?? 0) > 0 && (
+          <div className="card pad hgoal">
+            <div className="hs">
+              {header.counters!.pendingConfirmCount === 1 ? "Tienes 1 llamada por confirmar." : `Tienes ${header.counters!.pendingConfirmCount} llamadas por confirmar.`}
+            </div>
+            <Link className="link" href="/confirmar">Confirmar <IconChev /></Link>
+          </div>
         )}
 
         {goal && progress && (
@@ -113,12 +140,17 @@ export default async function HomePage() {
               <div className={cls(2)}>
                 <span className="n">{done[2] ? <IconCheck /> : 3}</span>
                 <h3>Trae tu primera llamada</h3>
-                <p>Conecta Fathom o sube una grabación. Con eso armo tu lista de seguimientos.</p>
+                <p>Conecta Fathom o sube la transcripción de una llamada. Con eso armo tu lista de seguimientos.</p>
                 <div className="r">
                   {steps.hasCall ? (
                     <><IconCheck />Ya llegó tu primera llamada</>
+                  ) : steps.backfill === "RUNNING" ? (
+                    <span className="small">Estoy trayendo tus llamadas de Fathom. Sigo cada vez que entras aquí.</span>
                   ) : (
-                    <span className="pill grey"><IconPhone />Muy pronto en esta versión</span>
+                    <>
+                      <Link className={`btn ${current === 2 ? "pri" : "sec"}`} href="/ofertas?llamadas=conectar#llamadas"><IconPhone />Conectar Fathom</Link>
+                      <Link className="btn sec" href="/ofertas?llamadas=subir#llamadas"><IconUpload />Subir una llamada</Link>
+                    </>
                   )}
                 </div>
               </div>

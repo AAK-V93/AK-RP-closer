@@ -3,7 +3,7 @@
 // No runtime DDL, no ensure*, no repairs at read time.
 // Plan: closer-arquitectura/plan-tecnico-rediseno-v2-2026-10-11.md, section 1.1.
 // Not yet (each comes with its own PR): Deal, DealInstallment,
-// CoachInsight, LeadMessageIdeas.
+// LeadMessageIdeas.
 
 generator client {
   provider      = "prisma-client-js"
@@ -45,6 +45,11 @@ enum LeadStatus {
 enum CallSource {
   FATHOM
   UPLOAD
+}
+
+enum CoachInsightKind {
+  BIEN
+  MEJORAR
 }
 
 enum CallOutcome {
@@ -158,26 +163,33 @@ model User {
   proposedChanges   ProposedChange[]
   monthStats        UserMonthStats[]
   monthlyGoals      MonthlyGoal[]
+  coachInsights     CoachInsight[]
   weeklyGoals       WeeklyGoal[]
   practiceSessions  PracticeSession[]
   pushSubscriptions PushSubscription[]
 }
 
 model FathomConnection {
-  id               String         @id @default(cuid())
-  userId           String         @unique
-  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  apiKeyEnc        String
-  webhookId        String?
-  webhookSecretEnc String?
-  webhookToken     String?
-  importSince      DateTime?
-  lastSyncAt       DateTime?
-  backfillCursor   String?
-  backfillStatus   BackfillStatus @default(NONE)
-  backfillUntil    DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  id                  String         @id @default(cuid())
+  userId              String         @unique
+  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKeyEnc           String
+  webhookId           String?
+  webhookSecretEnc    String?
+  webhookToken        String?
+  /// where THIS deployment told Fathom to deliver; only a webhook whose host is ours is ever deleted
+  webhookUrl          String?
+  importSince         DateTime?
+  lastSyncAt          DateTime?
+  backfillCursor      String?
+  backfillStatus      BackfillStatus @default(NONE)
+  backfillUntil       DateTime?
+  /// one burst at a time: a burst claims the connection until this instant (also set from Retry-After)
+  backfillLockedUntil DateTime?
+  /// calls brought by the current rebuild (for «Traje N llamadas»)
+  backfillImported    Int            @default(0)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   @@index([webhookToken])
 }
@@ -383,7 +395,11 @@ model Call {
   durationSec      Int?
   /// Fathom default summary (English, may be missing). Only the model and "Ver todo" read it.
   summaryEn        String?
+  /// Fathom action items (English), one per line «[HH:MM:SS] (responsable) texto». Only the model reads them.
+  actionItemsEn    String?
   brief            Json?
+  /// failed brief attempts (BRIEF_FAILED shows a retry)
+  briefAttempts    Int          @default(0)
   briefVersion     Int          @default(0)
   oneLine          String?      @db.VarChar(140)
   suggestedOutcome CallOutcome?
@@ -395,6 +411,7 @@ model Call {
 
   transcript      CallTranscript?
   objections      CallObjection[]
+  insights        CoachInsight[]
   lastCallOf      Lead[]           @relation("LeadLastCall")
   leadEvents      LeadEvent[]
   proposedChanges ProposedChange[]
@@ -415,6 +432,22 @@ model CallTranscript {
   charCount Int
 
   @@index([userId])
+}
+
+/// «Lo que aprendí de tus llamadas reales» (plan 1.4): a field of the same brief JSON, no extra model call.
+model CoachInsight {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  callId    String
+  call      Call             @relation(fields: [callId], references: [id], onDelete: Cascade)
+  kind      CoachInsightKind
+  text      String
+  createdAt DateTime         @default(now())
+  seenAt    DateTime?
+
+  @@index([userId, createdAt])
+  @@index([userId, callId])
 }
 
 model CallObjection {

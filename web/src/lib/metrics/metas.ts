@@ -145,8 +145,38 @@ export function monthCompare(current: MonthNumbers | null, previous: MonthNumber
   };
 }
 
-/** «Ponte una meta» ideas: fixed amounts, plus last month's earnings only if that row exists. */
-export const GOAL_IDEAS_CENTS = [200_000, 300_000, 400_000];
+/**
+ * «Ponte una meta» ideas (Arquitectura, PR 5): only from her own last month,
+ * in any currency: the same, +20 % and +50 %, rounded to whole units. No
+ * history (or nothing earned) → no ideas at all, just the field.
+ */
+export function goalIdeas(lastMonthEarnedCents: number | null): Array<{ cents: number; label: "igual" | "+20%" | "+50%" }> {
+  if (lastMonthEarnedCents === null || !(lastMonthEarnedCents > 0)) return [];
+  const unit = (c: number) => Math.max(100, Math.round(c / 100) * 100);
+  return [
+    { cents: unit(lastMonthEarnedCents), label: "igual" as const },
+    { cents: unit(lastMonthEarnedCents * 1.2), label: "+20%" as const },
+    { cents: unit(lastMonthEarnedCents * 1.5), label: "+50%" as const },
+  ].filter((idea, i, all) => all.findIndex((o) => o.cents === idea.cents) === i);
+}
+
+/** Kali's rule: 6 to 10 attempts per person; the hint aims at 6 in 3 weeks. */
+export const FOLLOWUP_ATTEMPTS_TARGET = 6;
+export const FOLLOWUP_WEEKS = 3;
+
+/**
+ * Weekly follow-ups hint (suggestion only, never saved): M = ceil(Σ max(0, 6 −
+ * attemptsSinceLastCall) over the people in SEGUIMIENTO / 3). `groups` holds
+ * how many people have each attempt count (those already at 6+ add nothing).
+ * null when nobody is in follow-up or nobody needs more attempts.
+ */
+export function followupsHint(groups: Array<{ attempts: number; people: number }>, following: number) {
+  if (!(following > 0)) return null;
+  let missing = 0;
+  for (const g of groups) missing += Math.max(0, FOLLOWUP_ATTEMPTS_TARGET - g.attempts) * g.people;
+  const perWeek = Math.ceil(missing / FOLLOWUP_WEEKS);
+  return perWeek > 0 ? { people: following, perWeek } : null;
+}
 
 // ---------- Screen view (composition of the functions above) ----------
 
@@ -160,6 +190,8 @@ export type MetasInput = {
   weekGoal: { meetingsTarget: number; followupsTarget: number } | null;
   lastWeekGoal: { meetingsTarget: number; followupsTarget: number } | null;
   weekDone: { meetings: number; attempts: number };
+  /** people in SEGUIMIENTO under 6 attempts, by attempt count */
+  attemptGroups: Array<{ attempts: number; people: number }>;
   near: Array<StakeLead & { oneLine: string | null; attemptsSinceLastCall: number }>;
   counters: CountersRow | null;
 };
@@ -218,6 +250,7 @@ export function metasView(input: MetasInput, offers: MetasOffer[], userCurrency:
   return {
     pace,
     lastMonthEarnedCents: prevEarned !== null && prevEarned > 0 ? prevEarned : null,
+    goalIdeas: goalIdeas(prevEarned),
     goal,
     chosen,
     week: {
@@ -228,6 +261,7 @@ export function metasView(input: MetasInput, offers: MetasOffer[], userCurrency:
         meetings: weekGoalSuggestionMeetings(chosen, input.week, input.month, input.weekGoal),
         followups: input.weekGoal?.followupsTarget ?? input.lastWeekGoal?.followupsTarget ?? null,
       },
+      followupsHint: followupsHint(input.attemptGroups, input.counters?.followingCount ?? 0),
     },
     numbers: {
       hasData: curAll !== null,

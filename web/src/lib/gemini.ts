@@ -8,6 +8,8 @@ const GEMINI_MODELS = [
 export type GeminiOptions = {
   timeoutMs?: number;
   models?: string[];
+  /** structured output (OpenAPI subset: type, nullable, enum, properties, required, items) */
+  responseSchema?: object;
 };
 
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -54,6 +56,7 @@ export async function generateGeminiParts(
             generationConfig: {
               temperature,
               responseMimeType: "application/json",
+              ...(options.responseSchema ? { responseSchema: options.responseSchema } : {}),
               ...(maxOutputTokens ? { maxOutputTokens } : {}),
             },
           }),

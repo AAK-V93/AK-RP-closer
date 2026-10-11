@@ -1,0 +1,25 @@
+{
+  "title": "Pedro Ruiz - seguimiento",
+  "meeting_title": null,
+  "recording_id": 555000111,
+  "url": "https://fathom.video/calls/555000111",
+  "share_url": "https://fathom.video/share/nullSUM555",
+  "created_at": "2026-10-06T15:45:00Z",
+  "scheduled_start_time": "2026-10-06T15:00:00Z",
+  "scheduled_end_time": "2026-10-06T15:45:00Z",
+  "recording_start_time": null,
+  "recording_end_time": null,
+  "transcript_language": "es",
+  "transcript": [
+    { "speaker": { "display_name": "Kali", "matched_calendar_invitee_email": null }, "text": "Pedro, ¿cómo te fue con la propuesta?", "timestamp": "00:00:12" },
+    { "speaker": { "display_name": "Pedro Ruiz", "matched_calendar_invitee_email": "pedro@ruiz.co" }, "text": "La revisé, pero ahora no es el momento, quizás el otro año.", "timestamp": "00:12:40" },
+    { "speaker": { "display_name": "Kali", "matched_calendar_invitee_email": null }, "text": "Entiendo. ¿Qué tendría que pasar para que sí fuera el momento?", "timestamp": "00:30:05" },
+    { "speaker": { "display_name": "Pedro Ruiz", "matched_calendar_invitee_email": "pedro@ruiz.co" }, "text": "Que cierre el contrato grande. No te prometo nada.", "timestamp": "00:41:07" }
+  ],
+  "default_summary": null,
+  "action_items": null,
+  "calendar_invitees": [
+    { "name": "Pedro Ruiz", "matched_speaker_display_name": "Pedro Ruiz", "email": "pedro@ruiz.co", "is_external": true, "email_domain": "ruiz.co" }
+  ],
+  "recorded_by": { "name": "Kali", "email": "kali@closer.example", "team": null, "email_domain": "closer.example" }
+}

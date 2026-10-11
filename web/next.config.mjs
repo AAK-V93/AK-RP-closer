@@ -6,6 +6,8 @@ const BUILD_ID =
 
 const nextConfig = {
   env: { NEXT_PUBLIC_BUILD_ID: BUILD_ID },
+  // «Subir una llamada» sends the transcript file to a Server Action (default limit is 1 MB)
+  experimental: { serverActions: { bodySizeLimit: "3mb" } },
   serverExternalPackages: ["@prisma/client", "@prisma/adapter-neon", "bcryptjs", "web-push", "unpdf"],
   webpack(config) {
     config.module.rules.push({
