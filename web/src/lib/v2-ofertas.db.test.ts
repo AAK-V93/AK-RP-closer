@@ -48,7 +48,8 @@ after(async () => {
 test("offers: create, edit, commission flows to the offer's people, empty page reads", { skip }, async () => {
   const empty = await readOffersPage(db, userId);
   assert.deepEqual(empty.offers, []);
-  assert.deepEqual(empty.fathom, { connected: false, lastSyncAt: null });
+  assert.deepEqual(empty.fathom, { connected: false, lastSyncAt: null, backfill: "NONE", imported: 0 });
+  assert.deepEqual(empty.calls, { processing: 0, failed: 0 });
 
   const created = await upsertOffer(db, userId, { name: "Fertilidad Consciente", currency: "USD", priceCash: "2.000" }, opts);
   assert.ok(created.ok);

@@ -9,6 +9,13 @@ export const tags = {
   offers: (userId: string) => `u:${userId}:offers`,
   practice: (userId: string) => `u:${userId}:practice`,
   profile: (userId: string) => `u:${userId}:profile`,
+  /**
+   * Fathom rebuild progress (PR 5). Its own tag because the burst runs in
+   * after(): Next drops a revalidateTag inside after() for a tag the same
+   * request already revalidated, so «Conectar» revalidates offers and the
+   * burst revalidates fathom.
+   */
+  fathom: (userId: string) => `u:${userId}:fathom`,
 };
 
 /** Seconds. 600 for what depends on «hoy» (midnight Bogotá has no write to invalidate it). */
@@ -23,6 +30,7 @@ export type WriteEffect = {
   offers?: boolean;
   practice?: boolean;
   profile?: boolean;
+  fathom?: boolean;
 };
 
 /** Tags a write must invalidate. A lead change also touches lists (leads). */
@@ -36,6 +44,7 @@ export function tagsForWrite(userId: string, effect: WriteEffect): string[] {
   if (effect.offers) out.add(tags.offers(userId));
   if (effect.practice) out.add(tags.practice(userId));
   if (effect.profile) out.add(tags.profile(userId));
+  if (effect.fathom) out.add(tags.fathom(userId));
   return [...out];
 }
 
@@ -47,6 +56,12 @@ export const WRITE_EFFECTS = {
   confirmCall: (leadId: string | null): WriteEffect => ({ stats: true, pending: true, leadIds: leadId ? [leadId] : [], leads: true }),
   logAttempt: (leadId: string): WriteEffect => ({ stats: true, leadIds: [leadId] }),
   ingestCall: (): WriteEffect => ({ pending: true, practice: true, stats: true }),
+  // Ingesta (PR 5). The calls card in Mis ofertas reads with the pending tag too.
+  briefIngestedCall: (): WriteEffect => ({ pending: true, practice: true, stats: true }),
+  retryCallBrief: (): WriteEffect => ({ pending: true, practice: true, stats: true }),
+  saveFathomConnection: (): WriteEffect => ({ offers: true }),
+  disconnectFathom: (): WriteEffect => ({ offers: true, fathom: true }),
+  saveBackfillProgress: (): WriteEffect => ({ fathom: true }),
   applyProposedChange: (leadId: string | null): WriteEffect => ({ stats: true, leads: true, pending: true, leadIds: leadId ? [leadId] : [] }),
   setGoal: (): WriteEffect => ({ goal: true }),
   // Metas (PR 4)

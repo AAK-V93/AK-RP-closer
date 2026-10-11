@@ -89,7 +89,7 @@ test("empty first: no goal, no calls, no previous month", { skip }, async () => 
   assert.equal(v.blocker, null);
   assert.deepEqual(data.weekDone, { meetings: 0, attempts: 0 });
   assert.equal(data.weekGoal, null);
-  assert.deepEqual(await readStartSteps(db, userId, "2026-10-01"), { goal: null, hasOffer: false, hasCall: false });
+  assert.deepEqual(await readStartSteps(db, userId, "2026-10-01"), { goal: null, hasOffer: false, hasCall: false, backfill: "NONE" });
 });
 
 test("setGoal: validation, one row per month overwritten, past months kept as history", { skip }, async () => {

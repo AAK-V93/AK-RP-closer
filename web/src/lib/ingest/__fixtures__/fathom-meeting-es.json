@@ -1,0 +1,44 @@
+{
+  "title": "Llamada de descubrimiento - Laura Gómez",
+  "meeting_title": "Laura Gómez <> Kali",
+  "recording_id": 987654321,
+  "url": "https://fathom.video/calls/987654321",
+  "share_url": "https://fathom.video/share/abcES987",
+  "created_at": "2026-10-08T22:01:30Z",
+  "scheduled_start_time": "2026-10-08T21:00:00Z",
+  "scheduled_end_time": "2026-10-08T22:00:00Z",
+  "recording_start_time": "2026-10-08T21:02:00Z",
+  "recording_end_time": "2026-10-08T21:54:30Z",
+  "calendar_invitees_domains_type": "one_or_more_external",
+  "transcript_language": "es",
+  "transcript": [
+    { "speaker": { "display_name": "Kali", "matched_calendar_invitee_email": "kali@closer.example" }, "text": "Hola Laura, ¿me escuchas bien?", "timestamp": "00:00:04" },
+    { "speaker": { "display_name": "Laura Gómez", "matched_calendar_invitee_email": "laura.gomez@gmail.com" }, "text": "Sí, perfecto. Gracias por el espacio.", "timestamp": "00:00:09" },
+    { "speaker": { "display_name": "Kali", "matched_calendar_invitee_email": "kali@closer.example" }, "text": "Cuéntame qué te llevó a agendar.", "timestamp": "00:01:15" },
+    { "speaker": { "display_name": "Laura Gómez", "matched_calendar_invitee_email": "laura.gomez@gmail.com" }, "text": "Quiero vender mis servicios en línea y no sé por dónde empezar.", "timestamp": "00:01:30" },
+    { "speaker": { "display_name": "Kali", "matched_calendar_invitee_email": "kali@closer.example" }, "text": "El programa Mentoría 90 días cuesta 2.000 dólares de contado o tres cuotas de 750.", "timestamp": "00:38:02" },
+    { "speaker": { "display_name": "Laura Gómez", "matched_calendar_invitee_email": "laura.gomez@gmail.com" }, "text": "Me interesa, pero lo tengo que hablar con mi esposo.", "timestamp": "00:41:10" },
+    { "speaker": { "display_name": "Kali", "matched_calendar_invitee_email": "kali@closer.example" }, "text": "Perfecto. ¿Hablamos el viernes a las 3 con él en la llamada?", "timestamp": "00:49:45" },
+    { "speaker": { "display_name": "Laura Gómez", "matched_calendar_invitee_email": "laura.gomez@gmail.com" }, "text": "Sí, el viernes a las 3 nos conectamos los dos.", "timestamp": "00:50:02" }
+  ],
+  "default_summary": {
+    "template_name": "general",
+    "markdown_formatted": "## Summary\nLaura wants to sell her services online. Kali presented Mentoría 90 días (USD 2,000 cash or 3 payments of 750). Laura needs to talk to her husband; follow-up call Friday at 3pm with both.\n"
+  },
+  "action_items": [
+    {
+      "description": "Send Laura the payment link and program details",
+      "user_generated": false,
+      "completed": false,
+      "recording_timestamp": "00:50:20",
+      "recording_playback_url": "https://fathom.video/calls/987654321?timestamp=3020",
+      "assignee": { "name": "Kali", "email": "kali@closer.example", "team": "Sales" }
+    }
+  ],
+  "calendar_invitees": [
+    { "name": "Kali", "matched_speaker_display_name": "Kali", "email": "kali@closer.example", "is_external": false, "email_domain": "closer.example" },
+    { "name": "Laura Gómez", "matched_speaker_display_name": "Laura Gómez", "email": "laura.gomez@gmail.com", "is_external": true, "email_domain": "gmail.com" }
+  ],
+  "recorded_by": { "name": "Kali", "email": "kali@closer.example", "team": "Sales", "email_domain": "closer.example" },
+  "crm_matches": null
+}

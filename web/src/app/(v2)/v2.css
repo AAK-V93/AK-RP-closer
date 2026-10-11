@@ -283,3 +283,7 @@
   .v2 .hghost .gr{grid-template-columns:42px 1fr}
   .v2 .hghost .gr>:nth-child(3){display:none}
 }
+/* Tus llamadas (PR 5) */
+.v2 .callsx{margin-top:10px;display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.v2 .callsx>.form{flex:1 1 100%}
+.v2 .calls a.small{color:var(--ink2);text-decoration:underline;text-underline-offset:3px}

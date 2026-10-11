@@ -9,8 +9,9 @@ import type { OfferCard } from "@/lib/read/offers";
 import { requireUserId } from "@/lib/session";
 import { commissionLine, priceLine } from "@/lib/format/offer";
 import { OfferForm } from "@/components/v2/offer-form";
-import { IconCheck, IconPen, IconPhone, IconPlus, IconUpload } from "@/components/v2/icons";
+import { IconCheck, IconPen, IconPlus, IconUpload } from "@/components/v2/icons";
 import { V2Nav } from "@/components/v2/nav";
+import { CallsCard } from "./calls";
 import { CasesTab, CommissionTab, PricesTab, ScriptsTab, archiveForm, hrefFor, offerFormValues } from "./parts";
 
 export const dynamic = "force-dynamic";
@@ -62,31 +63,6 @@ function OfferCardView({ offer, selected }: { offer: OfferCard; selected: boolea
       ) : (
         <div className="ok">Todo listo para practicar y escribir mensajes.</div>
       )}
-    </div>
-  );
-}
-
-function CallsCard({ connected }: { connected: boolean }) {
-  return (
-    <div className="card calls">
-      <div className="ci"><IconPhone /></div>
-      <div>
-        <div className="t">Tus llamadas</div>
-        <div className="s">
-          {connected ? (
-            <>
-              <span className="pill green" style={{ fontSize: 12, padding: "2px 9px" }}><span className="dot" />Conectado a Fathom</span>
-              Tus llamadas nuevas llegan solas.
-            </>
-          ) : (
-            <>Todavía no conectas tus llamadas. Muy pronto podrás conectar Fathom o subir una grabación desde aquí.</>
-          )}
-        </div>
-      </div>
-      <button type="button" className="btn sec sm" disabled title="Muy pronto">
-        <IconUpload />Subir una llamada
-      </button>
-      <span className="small muted">{connected ? "Cambiar conexión: muy pronto" : "Conectar Fathom: muy pronto"}</span>
     </div>
   );
 }
@@ -187,7 +163,7 @@ export default async function OffersPage({ searchParams }: { searchParams: Promi
           </div>
         )}
 
-        <CallsCard connected={page.fathom.connected} />
+        <CallsCard fathom={page.fathom} calls={page.calls} open={one(sp.llamadas)} />
       </div>
     </>
   );

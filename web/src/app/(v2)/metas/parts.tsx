@@ -1,7 +1,8 @@
 // Metas blocks. Server components; choices are plain forms (no client JS).
 import Link from "next/link";
 import type { DayKey } from "@/lib/time/bogota";
-import { type metasView, GOAL_IDEAS_CENTS, missingPerCloseLabel, pathKey, pathMissingLabel } from "@/lib/metrics";
+import { showLink } from "@/lib/hidden-links";
+import { type metasView, goalIdeas, missingPerCloseLabel, pathKey, pathMissingLabel } from "@/lib/metrics";
 import type { Compared } from "@/lib/metrics";
 import { formatCents } from "@/lib/format/money";
 import {
@@ -39,8 +40,8 @@ export function GoalForm({
   from: "new" | "edit";
   initial?: string;
 }) {
-  // fixed ideas are USD amounts (mockup 09c); other currencies only get last month's figure
-  const ideas = currency === "USD" ? GOAL_IDEAS_CENTS : [];
+  // ideas only from her own last month (same, +20 %, +50 %), in her currency; none without history
+  const ideas = goalIdeas(lastMonthEarnedCents);
   return (
     <form action={setGoalAction}>
       <input type="hidden" name="from" value={from} />
@@ -51,18 +52,14 @@ export function GoalForm({
         </label>
         <span className="lab">de comisión</span>
       </div>
-      {ideas.length > 0 && (
+      {lastMonthEarnedCents !== null && ideas.length > 0 && (
         <div className="quick">
-          <span className="lb">Ideas:</span>
-          {ideas.map((c) => (
-            <button key={c} type="submit" name="idea" value={String(c / 100)} className="chipf">{formatCents(c, currency)}</button>
+          <span className="lb">En {monthName(prevMonth)} ganaste {formatCents(lastMonthEarnedCents, currency)}. Ideas:</span>
+          {ideas.map((idea) => (
+            <button key={idea.cents} type="submit" name="idea" value={String(idea.cents / 100)} className="chipf">
+              {formatCents(idea.cents, currency)}{idea.label === "igual" ? " (lo mismo)" : ` (${idea.label})`}
+            </button>
           ))}
-        </div>
-      )}
-      {lastMonthEarnedCents !== null && (
-        <div className="quick" style={{ marginTop: 8 }}>
-          <span className="lb">En {monthName(prevMonth)} ganaste {formatCents(lastMonthEarnedCents, currency)}.</span>
-          <button type="submit" name="idea" value={String(lastMonthEarnedCents / 100)} className="chipf">Usar esa cifra</button>
         </div>
       )}
       <div style={{ marginTop: 22, display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -213,14 +210,17 @@ export function WeekCard({ view, week, today, editing }: { view: View; week: Day
         <div className="note">
           {left.length ? `Te faltan ${left.join(" y ")}.` : "Cumpliste tu meta de esta semana."}
           {chosen && ` Tu camino elegido: ${pathTitle(chosen)}.`}
-          <div style={{ marginTop: 10 }}><Link className="link" href="/metas?semana=1">Cambiar la meta de la semana</Link></div>
+          <div style={{ marginTop: 10, display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <Link className="link" href="/metas?semana=1">Cambiar la meta de la semana</Link>
+            {showLink("metas.semana.a-quien-escribir") && <Link className="link" href="/personas?tab=seguimiento">Ver a quién escribirle</Link>}
+          </div>
         </div>
       )}
       {showForm && (
         <form action={setWeekAction} className="note form">
           <div>
             {w.suggestion.meetings !== null && !saved
-              ? `Te sugiero ${plural(w.suggestion.meetings, "reunión", "reuniones")}: sale de tu camino elegido repartido en las semanas que quedan del mes. Cámbialo si quieres.`
+              ? `Te sugiero ≈ ${plural(w.suggestion.meetings, "reunión", "reuniones")}: sale de tu camino elegido repartido en las semanas que quedan del mes, contando esta. Cámbialo si quieres.`
               : !chosen && !saved
                 ? "Pon cuántas reuniones y seguimientos quieres hacer esta semana. Si eliges un camino, te sugiero las reuniones."
                 : !saved
@@ -237,6 +237,14 @@ export function WeekCard({ view, week, today, editing }: { view: View; week: Day
               <input name="followupsTarget" inputMode="numeric" defaultValue={w.suggestion.followups ?? ""} />
             </label>
           </div>
+          {w.followupsHint && (
+            <div className="small muted">
+              {w.followupsHint.people === 1
+                ? "Para llevar a tu persona en seguimiento"
+                : `Para llevar a tus ${w.followupsHint.people} personas`}{" "}
+              a 6 intentos en 3 semanas: unos {w.followupsHint.perWeek} por semana.
+            </div>
+          )}
           <div className="actions">
             <Submit className="btn pri sm" pending="Guardando…">Guardar mi semana</Submit>
             {editing && <Link className="link" href="/metas">Cancelar</Link>}
@@ -341,6 +349,7 @@ export function NearCard({ view, currency }: { view: View; currency: string }) {
                 <div className="of">{[l.oneLine, `Seguimiento ${l.followUp.count} de ${l.followUp.max}`].filter(Boolean).join(" · ")}</div>
               </div>
               <div className="mo">{formatCents(l.potentialCents, currency)}<small>comisión</small></div>
+              {showLink("metas.cerca.ficha") && <Link className="link" href={`/personas/${l.id}`} aria-label={`Ver a ${l.name}`}>›</Link>}
             </div>
           ))
         )}
@@ -360,6 +369,9 @@ export function BlockerCard({ view }: { view: View }) {
             <div className="lbl">De tus llamadas que no cerraron</div>
             <div className="t">Pierdes cierres cuando te dicen «{b.label}»</div>
             <div className="w">Pasó en {b.hits} de tus {b.of} últimas llamadas que no cerraron.</div>
+            {showLink("metas.frena.practicar") && (
+              <Link className="btn sec sm" href={`/practicar?objecion=${encodeURIComponent(b.label)}`}>Practicarlo</Link>
+            )}
           </>
         ) : (
           <div className="muted">

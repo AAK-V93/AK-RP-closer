@@ -186,6 +186,8 @@ test("E: cache hits are logged in previews", () => {
 const WRITE_HELPERS = new Set([
   "invalidate", "createUserCounters", "toOneLine", "parseAmount", "validateOffer",
   "recount", "recountLeadAttempts", "recountMonthAll", "recountMonthOffer", "recountCounters",
+  // burst lease (PR 5): changes nothing a screen shows
+  "claimBackfill",
 ]);
 
 function writeFunctions(code: string) {

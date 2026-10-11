@@ -2,6 +2,7 @@
 // offer), this week's counts and targets, top 3 «en juego», counters.
 // Every query is indexed and bounded; counts are groupBy (count() is banned).
 import { type DayKey, addDaysKey, addMonthsKey, dateOnly, dateOnlyKey, weekRange } from "@/lib/time/bogota";
+import { FOLLOWUP_ATTEMPTS_TARGET } from "@/lib/metrics/metas";
 import { type Db, amount } from "./dto";
 import { OFFERS_TAKE } from "./offers";
 import { readCounters } from "./today";
@@ -20,7 +21,7 @@ export async function readGoals(db: Db, userId: string, today: DayKey, currency:
   const prevWeek = addDaysKey(week, -7);
   const { start, end } = weekRange(week);
 
-  const [goal, stats, weekGoals, meetings, attempts, near, counters] = await Promise.all([
+  const [goal, stats, weekGoals, meetings, attempts, near, counters, attemptGroups] = await Promise.all([
     db.monthlyGoal.findUnique({
       where: { userId_month: { userId, month: dateOnly(month) } },
       select: { targetCommission: true, currency: true, chosenPath: true },
@@ -64,6 +65,14 @@ export async function readGoals(db: Db, userId: string, today: DayKey, currency:
       },
     }),
     readCounters(db, userId),
+    // weekly follow-ups hint: people in SEGUIMIENTO still under 6 attempts, by attempt count (≤ 6 groups)
+    db.lead.groupBy({
+      by: ["attemptsSinceLastCall"],
+      where: { userId, status: "SEGUIMIENTO", attemptsSinceLastCall: { lt: FOLLOWUP_ATTEMPTS_TARGET } },
+      _count: { _all: true },
+      orderBy: { attemptsSinceLastCall: "asc" },
+      take: FOLLOWUP_ATTEMPTS_TARGET,
+    }),
   ]);
 
   const row = (r: (typeof stats)[number]) => ({
@@ -91,6 +100,7 @@ export async function readGoals(db: Db, userId: string, today: DayKey, currency:
     weekGoal: strip(thisWeek),
     lastWeekGoal: strip(lastWeek),
     weekDone: { meetings: meetings[0]?._count._all ?? 0, attempts: attempts[0]?._count._all ?? 0 },
+    attemptGroups: attemptGroups.map((g) => ({ attempts: g.attemptsSinceLastCall, people: g._count._all })),
     near: near.map((l) => ({ ...l, potentialCommission: amount(l.potentialCommission) })),
     counters,
   };
@@ -99,17 +109,20 @@ export type GoalsData = Awaited<ReturnType<typeof readGoals>>;
 
 /** Hoy 01b «Empieza en 3 pasos»: is there a goal this month, an offer, a call? */
 export async function readStartSteps(db: Db, userId: string, month: DayKey) {
-  const [goal, offer, call] = await Promise.all([
+  const [goal, offer, call, fathom] = await Promise.all([
     db.monthlyGoal.findUnique({
       where: { userId_month: { userId, month: dateOnly(month) } },
       select: { targetCommission: true, currency: true },
     }),
     db.offer.findFirst({ where: { userId, archivedAt: null }, select: { id: true } }),
     db.call.findFirst({ where: { userId }, select: { id: true } }),
+    db.fathomConnection.findUnique({ where: { userId }, select: { backfillStatus: true } }),
   ]);
   return {
     goal: goal ? { targetCommission: amount(goal.targetCommission)!, currency: goal.currency } : null,
     hasOffer: Boolean(offer),
     hasCall: Boolean(call),
+    /** RUNNING → Hoy runs one rebuild burst after the response */
+    backfill: fathom?.backfillStatus ?? ("NONE" as const),
   };
 }

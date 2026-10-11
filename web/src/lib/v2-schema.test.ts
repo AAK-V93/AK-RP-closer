@@ -39,9 +39,11 @@ const PR1_MODELS = [
 const PR3_MODELS = ["OfferCaseSource", "GoogleDriveConnection"];
 // PR 4 (Metas)
 const PR4_MODELS = ["MonthlyGoal", "WeeklyGoal"];
+// PR 5 (ingesta): «Lo que aprendí de tus llamadas» from the same brief
+const PR5_MODELS = ["CoachInsight"];
 
-test("schema has exactly the PR 1 + PR 3 + PR 4 models", () => {
-  assert.deepEqual(models(schema).map((m) => m.name).sort(), [...PR1_MODELS, ...PR3_MODELS, ...PR4_MODELS].sort());
+test("schema has exactly the PR 1 + PR 3 + PR 4 + PR 5 models", () => {
+  assert.deepEqual(models(schema).map((m) => m.name).sort(), [...PR1_MODELS, ...PR3_MODELS, ...PR4_MODELS, ...PR5_MODELS].sort());
 });
 
 test("old tables and later-PR tables are not in the schema", () => {
@@ -65,7 +67,6 @@ test("old tables and later-PR tables are not in the schema", () => {
     // their own PRs
     "Deal",
     "DealInstallment",
-    "CoachInsight",
     "LeadMessageIdeas",
   ]) {
     assert.equal(names.has(old), false, old);
@@ -157,11 +158,21 @@ test("statuses are Prisma enums, not free strings", () => {
   assert.equal(field("FathomConnection", "backfillStatus"), "BackfillStatus");
 });
 
-test("0_init + 1_ofertas + 2_metas, and 0_init carries the two partial unique indexes", () => {
+test("0_init + 1_ofertas + 2_metas + 3_ingesta, and 0_init carries the two partial unique indexes", () => {
   const dirs = readdirSync(path.join(WEB, "prisma/migrations")).filter((d) =>
     statSync(path.join(WEB, "prisma/migrations", d)).isDirectory(),
   );
-  assert.deepEqual(dirs.sort(), ["0_init", "1_ofertas", "2_metas"]);
+  assert.deepEqual(dirs.sort(), ["0_init", "1_ofertas", "2_metas", "3_ingesta"]);
+  // 3_ingesta only adds: a table, an enum, nullable/defaulted columns; nothing dropped
+  const pr5 = read("prisma/migrations/3_ingesta/migration.sql");
+  assert.equal(/\bDROP\b/i.test(pr5), false);
+  assert.deepEqual([...pr5.matchAll(/ADD COLUMN\s+"(\w+)" ([^,;\n]+)/g)].map((m) => `${m[1]} ${m[2].trim()}`), [
+    "actionItemsEn TEXT",
+    "briefAttempts INTEGER NOT NULL DEFAULT 0",
+    "backfillImported INTEGER NOT NULL DEFAULT 0",
+    "backfillLockedUntil TIMESTAMP(3)",
+  ]);
+  assert.match(pr5, /CREATE TABLE "CoachInsight"/);
   // 2_metas only adds tables: nothing is dropped or altered in older ones
   const pr4 = read("prisma/migrations/2_metas/migration.sql");
   assert.equal(/\bDROP\b/i.test(pr4), false);

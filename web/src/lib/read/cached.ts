@@ -99,7 +99,7 @@ export const getOffers = (userId: string) =>
   );
 
 export const getOffersPage = (userId: string) =>
-  cachedRead("offers-page", [userId], { tags: [tags.offers(userId)], revalidate: REVALIDATE.safety }, () =>
+  cachedRead("offers-page", [userId], { tags: [tags.offers(userId), tags.pending(userId), tags.fathom(userId)], revalidate: REVALIDATE.safety }, () =>
     readOffersPage(db(), userId),
   );
 
@@ -130,6 +130,6 @@ export const getStartSteps = (userId: string, today: DayKey) =>
   cachedRead(
     "start-steps",
     [userId, today.slice(0, 7)],
-    { tags: [tags.goal(userId), tags.offers(userId), tags.pending(userId)], revalidate: REVALIDATE.today },
+    { tags: [tags.goal(userId), tags.offers(userId), tags.pending(userId), tags.fathom(userId)], revalidate: REVALIDATE.today },
     () => readStartSteps(db(), userId, `${today.slice(0, 7)}-01`),
   );
