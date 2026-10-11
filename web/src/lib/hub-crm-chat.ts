@@ -1,4 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { filingObject, filingSubsetSql } from "@/lib/call-list-sql";
+import { cachedCrmRead } from "@/lib/crm-read-cache";
 import { patchCrmPref } from "@/lib/crm-prefs";
 import { inferFollowupDate } from "@/lib/followup-date";
 import {
@@ -1667,23 +1669,60 @@ export async function respondToCrmChat(
   }
 }
 
-async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Date()): Promise<MoneyBrief> {
-  const [calls, leads, offers, threads, commissions, cashNotes] = await Promise.all([
-    prisma.callRecord.findMany({
-      where: { userId, filingStatus: { not: "skipped" } },
-      select: {
-        id: true,
-        leadName: true,
-        offerName: true,
-        estadoAgenda: true,
-        ventaTotal: true,
-        cashCollected: true,
-        recordedAt: true,
-        createdAt: true,
-        filingJson: true,
-        filingStatus: true,
-      },
-    }),
+/** Newest calls the money answer reads (it used to read every call, with the whole filingJson). */
+export const CHAT_CALL_CAP = 2000;
+
+/** Only the filing keys the money math reads (rollup, pipeline, dated cuotas). */
+const MONEY_FILING_SQL = filingSubsetSql(
+  ["producto", "tipo_seguimiento", "acuerdo_seguimiento", "notas_crm", "proximo_seguimiento", "lead_id", "cliente_real", "cobros"],
+  { evidencia: ["cierre", "venta_total"] },
+);
+
+/** What the chat's CRM answers read from each call's filing (desk lines, notes, cobrado). */
+const CHAT_READ_FILING_SQL = filingSubsetSql([
+  "acuerdo_seguimiento",
+  "tipo_seguimiento",
+  "proximo_seguimiento",
+  "seguimiento_resultado",
+  "estado_agenda",
+  "venta_total",
+  "cash_collected",
+  "saldo_pendiente",
+  "notas_crm",
+  "razon_no_cierre",
+  "producto",
+  "temperatura",
+  "cliente_real",
+]);
+
+/** Money answers reuse the last read while no CRM row changed (short per-instance cache). */
+function loadChatMoney(prisma: PrismaClient, userId: string, now = new Date()): Promise<MoneyBrief> {
+  return cachedCrmRead(prisma, userId, "chat-money", () => readChatMoney(prisma, userId, now), now);
+}
+
+async function readChatMoney(prisma: PrismaClient, userId: string, now = new Date()): Promise<MoneyBrief> {
+  const [rawCalls, leads, offers, threads, commissions, cashNotes] = await Promise.all([
+    prisma.$queryRaw<
+      {
+        id: string;
+        leadName: string;
+        offerName: string;
+        estadoAgenda: string;
+        ventaTotal: number | null;
+        cashCollected: number | null;
+        recordedAt: Date | null;
+        createdAt: Date;
+        filingJson: unknown;
+        filingStatus: string;
+      }[]
+    >`
+      SELECT "id", "leadName", "offerName", "estadoAgenda", "ventaTotal", "cashCollected", "recordedAt", "createdAt",
+        "filingStatus", ${MONEY_FILING_SQL} AS "filingJson"
+      FROM "CallRecord"
+      WHERE "userId" = ${userId} AND "filingStatus" <> 'skipped'
+      ORDER BY "recordedAt" DESC, "createdAt" DESC
+      LIMIT ${CHAT_CALL_CAP}
+    `,
     prisma.lead.findMany({
       where: { userId },
         select: {
@@ -1721,6 +1760,12 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
       ),
     };
   });
+  const calls = rawCalls.map((row) => ({
+    ...row,
+    recordedAt: row.recordedAt ? new Date(row.recordedAt) : null,
+    createdAt: new Date(row.createdAt),
+    filingJson: filingObject(row.filingJson),
+  }));
   const confirmed = calls.filter((row) => row.filingStatus === "confirmed");
   const namedLeads = leads.map((lead) => ({ id: lead.id, name: lead.name, company: lead.company || "" }));
   const commissionByCall = new Map(
@@ -1810,7 +1855,10 @@ async function loadChatMoney(prisma: PrismaClient, userId: string, now = new Dat
 
 async function loadCrmChatRead(prisma: PrismaClient, userId: string, raw: string) {
   const needsClassifyCount = deskQuestionKind(raw) === "summary";
+  // Reused while no CRM row changed (short per-instance cache): a second question reads nothing big.
   const load = () =>
+    cachedCrmRead(prisma, userId, `chat-read:${needsClassifyCount ? "count" : "plain"}`, () => readAll());
+  const readAll = () =>
     Promise.all([
       prisma.user.findUnique({ where: { id: userId }, select: { crmPrefs: true } }),
       prisma.lead.findMany({
@@ -1825,22 +1873,26 @@ async function loadCrmChatRead(prisma: PrismaClient, userId: string, raw: string
           amountPaid: true,
         },
       }),
-      prisma.callRecord.findMany({
-        where: { userId, filingStatus: { not: "skipped" } },
-        orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
-        take: 2000,
-        select: {
-          leadName: true,
-          offerName: true,
-          title: true,
-          summary: true,
-          filingJson: true,
-          source: true,
-          sourceId: true,
-          cashCollected: true,
-          recordedAt: true,
-        },
-      }),
+      prisma.$queryRaw<
+        {
+          leadName: string;
+          offerName: string;
+          title: string;
+          summary: string;
+          filingJson: unknown;
+          source: string;
+          sourceId: string;
+          cashCollected: number | null;
+          recordedAt: Date | null;
+        }[]
+      >`
+        SELECT "leadName", "offerName", "title", "summary", "source", "sourceId", "cashCollected", "recordedAt",
+          ${CHAT_READ_FILING_SQL} AS "filingJson"
+        FROM "CallRecord"
+        WHERE "userId" = ${userId} AND "filingStatus" <> 'skipped'
+        ORDER BY "recordedAt" DESC, "createdAt" DESC
+        LIMIT ${CHAT_CALL_CAP}
+      `.then((rows) => rows.map((row) => ({ ...row, filingJson: filingObject(row.filingJson) }))),
       prisma.userOffer.findMany({
         where: { userId },
         select: { productName: true, commercial: true },

@@ -38,6 +38,11 @@ function vapid() {
   return { publicKey, privateKey, email };
 }
 
+/** Push keys present? Without them no push can go out, so jobs skip the database. */
+export function pushConfigured() {
+  return Boolean(vapid());
+}
+
 export function vapidPublicKey() {
   return vapid()?.publicKey || "";
 }
@@ -153,13 +158,21 @@ export function filingPushBody(args: {
   return bits.join(" · ") || "Llamada lista";
 }
 
+type PushSub = { id: string; endpoint: string; p256dh: string; auth: string };
+
 export async function sendPushToUser(
   prisma: PrismaClient,
   userId: string,
   payload: PushPayload,
+  preloadedSubs?: PushSub[],
 ) {
   if (!configureWebPush()) return { sent: 0, gone: 0 };
-  const subs = await prisma.pushSubscription.findMany({ where: { userId } });
+  const subs =
+    preloadedSubs ??
+    (await prisma.pushSubscription.findMany({
+      where: { userId },
+      select: { id: true, endpoint: true, p256dh: true, auth: true },
+    }));
   if (!subs.length) return { sent: 0, gone: 0 };
   const body = JSON.stringify({
     title: payload.title || "Closer Trainer",
@@ -197,9 +210,26 @@ export async function sendPushToUser(
   return { sent, gone };
 }
 
+/**
+ * Due alerts → push. Cheap on purpose (it runs from a scheduler): without push keys it does
+ * not touch the database; it reads the phones once and only looks for alerts of people who
+ * have a phone connected (before: up to 200 alerts + one query per alert, every run).
+ */
 export async function notifyDueAlerts(prisma: PrismaClient) {
+  if (!configureWebPush()) return { due: 0, pushed: 0 };
+  const allSubs = await prisma.pushSubscription.findMany({
+    select: { id: true, userId: true, endpoint: true, p256dh: true, auth: true },
+  });
+  if (!allSubs.length) return { due: 0, pushed: 0 };
+  const subsByUser = new Map<string, PushSub[]>();
+  for (const sub of allSubs) {
+    const list = subsByUser.get(sub.userId) || [];
+    list.push(sub);
+    subsByUser.set(sub.userId, list);
+  }
   const due = await prisma.leadAlert.findMany({
     where: {
+      userId: { in: [...subsByUser.keys()] },
       resolvedAt: null,
       notifiedAt: null,
       dueAt: { lte: new Date() },
@@ -232,7 +262,7 @@ export async function notifyDueAlerts(prisma: PrismaClient) {
       alertId: alert.id,
       token,
       tag: `alert-${alert.id}`,
-    });
+    }, subsByUser.get(alert.userId) || []);
     if (out.sent > 0) {
       await prisma.leadAlert.update({
         where: { id: alert.id },

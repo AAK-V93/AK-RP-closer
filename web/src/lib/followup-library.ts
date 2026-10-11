@@ -641,7 +641,7 @@ export async function attachFollowupOptions<
   rows: T[],
 ): Promise<(T & { opciones: FollowupOption[]; selectedId: string })[]> {
   if (!rows.length) return [];
-  const offers = await prisma.userOffer.findMany({ where: { userId } });
+  const offers = await prisma.userOffer.findMany({ where: { userId }, select: { productName: true, commercial: true } });
   const types = [
     ...new Set(rows.map((row) => row.tipo).filter((tipo) => !SKIP_OPTIONS.has(tipo))),
   ];

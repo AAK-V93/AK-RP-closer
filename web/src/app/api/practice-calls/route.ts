@@ -30,7 +30,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ replay });
     }
 
-    const workspace = await getWorkspace(auth.prisma, auth.userId, offerId);
+    // Only the offer is needed here, not the transcript corpus (up to 120 transcripts).
+    const workspace = await getWorkspace(auth.prisma, auth.userId, offerId, { corpus: false });
     if (!workspace.offer) {
       return NextResponse.json({ calls: [] });
     }

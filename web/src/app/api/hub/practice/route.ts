@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { practiceCardFromGuides } from "@/lib/home-desk";
-import { parseLiveGuide } from "@/lib/live-guide";
+import { liveGuideRows, parseLiveGuide } from "@/lib/live-guide";
 import { getPrisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -24,11 +24,7 @@ export async function GET(request: NextRequest) {
     if (hit && Date.now() - hit.at < TTL_MS) return NextResponse.json(hit.card);
     const prisma = getPrisma();
     if (!prisma) return NextResponse.json({ error: "DB" }, { status: 503 });
-    const offers = await prisma.userOffer.findMany({
-      where: { userId },
-      orderBy: { updatedAt: "desc" },
-      select: { productName: true, playbook: true },
-    });
+    const offers = await liveGuideRows(prisma, userId);
     const card = practiceCardFromGuides(
       offers.map((row) => parseLiveGuide(row.playbook, row.productName)),
     );

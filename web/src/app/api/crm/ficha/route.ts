@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { buildPersonFacts, nextLine } from "@/lib/person-facts";
 import { findPerson, loadPeople, loadPersonFacts, peopleIndex } from "@/lib/person-load";
+import { loadRecordingFicha } from "@/lib/recording-ficha-load";
+
+// Reading an old recording on demand can take a few seconds (the model, 18 s cap per try).
+export const maxDuration = 60;
 
 /** One ficha for every surface. Read-only. */
 export async function GET(request: Request) {
@@ -20,6 +24,16 @@ export async function GET(request: Request) {
     const person = findPerson(loaded, people, target);
     const now = new Date();
     if (!person) {
+      // An old call that never reached the CRM: what came out of it, read from the recording.
+      const fromRecording = await loadRecordingFicha(auth.prisma, auth.userId, target, now).catch((error) => {
+        console.error("crm ficha recording", error);
+        return null;
+      });
+      if (fromRecording) {
+        return NextResponse.json({
+          ficha: { ...fromRecording.facts, stage: null, personId: "", next: "", inCrm: false, recording: fromRecording.recording },
+        });
+      }
       const name = String(target.name || "").trim();
       if (!name) return NextResponse.json({ error: "No encontré a esa persona en tu CRM." }, { status: 404 });
       // An old call that never reached the CRM: say so instead of an empty error.

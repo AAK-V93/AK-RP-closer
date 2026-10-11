@@ -155,7 +155,8 @@ export async function POST(request: Request) {
 
     if (!batch && !skipGuide) await refreshPlaybook(auth.prisma, auth.userId, offerId);
 
-    const next = await getWorkspace(auth.prisma, auth.userId, offerId);
+    // The reply only needs counts and the list, not every transcript's text.
+    const next = await getWorkspace(auth.prisma, auth.userId, offerId, { corpus: false });
     return NextResponse.json({
       saved,
       already,
@@ -225,7 +226,7 @@ async function handleTranscriptJson(request: Request, prisma: PrismaClient, user
   const offerId = String(body.offerId || "").trim() || null;
   if (body.finalize) {
     await refreshPlaybook(prisma, userId, offerId);
-    const next = await getWorkspace(prisma, userId, offerId);
+    const next = await getWorkspace(prisma, userId, offerId, { corpus: false });
     return NextResponse.json({
       ready: next.ready,
       transcriptCount: next.transcriptCount,

@@ -39,6 +39,18 @@ import {
   type ChatProposal,
 } from "./hub-crm-chat";
 
+/** Raw reads in the fakes: CallRecord SELECTs answer with callRecord.findMany(); the cache fingerprint answers empty (no caching). */
+async function fakeCallRaw(
+  this: { callRecord?: { findMany?: (...args: unknown[]) => Promise<unknown[]> } },
+  strings: TemplateStringsArray,
+) {
+  const sql = strings.join(" ");
+  if (sql.includes("concat_ws")) return [];
+  if (sql.includes('FROM "CallRecord"')) return (await this.callRecord?.findMany?.({})) || [];
+  return [];
+}
+
+
 const leads: ChatLead[] = [
   {
     id: "sofia",
@@ -901,6 +913,7 @@ test("inicio chat proposes the shown CRM name and sí writes it", async () => {
   const prefs: Record<string, unknown> = {};
   const writes: string[] = [];
   const prisma = {
+    $queryRaw: fakeCallRaw,
     user: {
       findUnique: async () => ({ crmPrefs: { ...prefs } }),
     },
@@ -1238,6 +1251,7 @@ test("a bare no is not a filing answer", () => {
 function coldDeskPrisma(failTimes: number) {
   let tries = 0;
   return {
+    $queryRaw: fakeCallRaw,
     user: {
       findUnique: async () => {
         tries += 1;
@@ -1312,6 +1326,7 @@ test("an empty cold read still answers the desk", async () => {
 
 test("who to call uses the filing objection and leaves an empty row generic", async () => {
   const prisma = {
+    $queryRaw: fakeCallRaw,
     user: { findUnique: async () => ({ crmPrefs: null }) },
     lead: { findMany: async () => [] },
     userOffer: { findMany: async () => [] },

@@ -10,6 +10,7 @@ import { CalendarConnectPanel } from "@/components/calendar-connect-panel";
 import { Button } from "@/components/ui/button";
 import { PersonFicha, PersonNameButton } from "@/components/person-ficha";
 import { fichaFromCall, type FichaTarget } from "@/lib/ficha-target";
+import { classifyRecentlyDone, rememberClassifyDone } from "@/lib/db-quiet";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { quickFollowupIso } from "@/lib/followup-date";
 import { internasSinCliente, joinDistinct } from "@/lib/crm-noise";
@@ -310,10 +311,14 @@ export default function LlamadasPage() {
     if (status !== "authenticated") return;
     if (calls.length === 0) return;
     if (calls.every((row) => row.callType)) return;
+    // «Nothing left to file» is remembered for a while, so every visit does not ask again.
+    const pendingKey = calls.filter((row) => !row.callType).map((row) => row.id).sort().join(",");
+    if (classifyRecentlyDone(window.sessionStorage, Date.now(), pendingKey)) return;
     let cancelled = false;
     const classifyNext = async () => {
       const response = await fetch("/api/llamadas", { method: "POST" });
       const data = await response.json();
+      if (data.done) rememberClassifyDone(window.sessionStorage, Date.now(), pendingKey);
       if (cancelled || data.done) return;
       await loadCalls();
     };

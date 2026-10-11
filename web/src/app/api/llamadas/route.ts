@@ -2,10 +2,16 @@ import { NextResponse } from "next/server";
 import { requireWorkspaceUser } from "@/lib/workspace-auth";
 import { ensureCrmTables, ensureFathomTables } from "@/lib/prisma";
 import { EMPTY_TRANSCRIPT_MARK, isUsableTranscript } from "@/lib/fathom-import";
-import { durationMinutesFromTranscript, placeLibraryCall, visibleCallTitle } from "@/lib/crm-noise";
+import { placeLibraryCall, visibleCallTitle } from "@/lib/crm-noise";
 import { fileCallQuietly } from "@/lib/file-call";
 import { listPendingFilings, reviewPendingCall } from "@/lib/call-intelligence";
 import { crmLeadRefs, filingLeadId, type CrmLeadRef } from "@/lib/lead-match";
+import { Prisma } from "@prisma/client";
+
+import { DURATION_MINUTES_SQL, TAG_FILING_SQL, usableTranscriptSql } from "@/lib/call-list-sql";
+
+/** Newest calls per source on the Llamadas list. */
+const LLAMADAS_LIST_LIMIT = 80;
 
 function queueItem(row: {
   id: string;
@@ -40,28 +46,27 @@ export async function GET() {
       /* optional */
     }
 
-    const [fathom, uploads, tags, leadRows, threads, alerts] = await Promise.all([
-      auth.prisma.fathomRecording.findMany({
-        where: { userId: auth.userId },
-        orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
-        take: 80,
-        select: {
-          id: true,
-          title: true,
-          recordedAt: true,
-          syncedAt: true,
-          transcriptText: true,
-          practiceSessionId: true,
-        },
-      }),
-      auth.prisma.clientTranscript.findMany({
-        where: { userId: auth.userId },
-        orderBy: { createdAt: "desc" },
-        take: 80,
-      }),
-      auth.prisma.callRecord.findMany({
-        where: { userId: auth.userId },
-      }),
+    // Lists never carry transcript text: the database works out the duration (a number) and
+    // whether the transcript is empty. Before, each visit pulled 80 + 80 transcripts (~50 KB each).
+    const [fathom, uploads, leadRows, threads, alerts] = await Promise.all([
+      auth.prisma.$queryRaw<
+        { id: string; title: string; recordedAt: Date | string | null; syncedAt: Date | string; practiceSessionId: string | null; empty: boolean; durationMinutes: number | null }[]
+      >`
+        SELECT "id", "title", "recordedAt", "syncedAt", "practiceSessionId",
+          ("transcriptText" = ${EMPTY_TRANSCRIPT_MARK}) AS "empty",
+          ${DURATION_MINUTES_SQL} AS "durationMinutes"
+        FROM "FathomRecording"
+        WHERE "userId" = ${auth.userId}
+        ORDER BY "recordedAt" DESC NULLS LAST, "syncedAt" DESC
+        LIMIT ${LLAMADAS_LIST_LIMIT}
+      `,
+      auth.prisma.$queryRaw<{ id: string; title: string; createdAt: Date | string; durationMinutes: number | null }[]>`
+        SELECT "id", "title", "createdAt", ${DURATION_MINUTES_SQL} AS "durationMinutes"
+        FROM "ClientTranscript"
+        WHERE "userId" = ${auth.userId}
+        ORDER BY "createdAt" DESC
+        LIMIT ${LLAMADAS_LIST_LIMIT}
+      `,
       auth.prisma.lead.findMany({
         where: { userId: auth.userId },
         select: { id: true, name: true, company: true, telefono: true, email: true },
@@ -75,6 +80,35 @@ export async function GET() {
         select: { leadId: true, callRecordId: true },
       }),
     ]);
+    // Only the CRM rows of the calls on screen, and only the filing keys the list reads.
+    const shownIds = [...fathom.map((row) => row.id), ...uploads.map((row) => row.id)];
+    const tags = shownIds.length
+      ? await auth.prisma.$queryRaw<
+          {
+            id: string;
+            source: string;
+            sourceId: string;
+            leadName: string;
+            title: string;
+            recordedAt: Date | string | null;
+            summary: string;
+            callType: string;
+            result: string;
+            offerName: string;
+            trainsBot: boolean;
+            practiceSessionId: string | null;
+            filingJson: Record<string, unknown> | string | null;
+          }[]
+        >`
+          SELECT "id", "source", "sourceId", "leadName", "title", "recordedAt", "summary", "callType", "result",
+            "offerName", "trainsBot", "practiceSessionId", ${TAG_FILING_SQL} AS "filingJson"
+          FROM "CallRecord"
+          WHERE "userId" = ${auth.userId} AND "sourceId" IN (${Prisma.join(shownIds)})
+        `
+      : [];
+    for (const row of tags) {
+      if (typeof row.filingJson === "string") row.filingJson = JSON.parse(row.filingJson) as Record<string, unknown>;
+    }
     const crmLeads: CrmLeadRef[] = crmLeadRefs(
       leadRows.map((lead) => ({
         id: lead.id,
@@ -97,18 +131,19 @@ export async function GET() {
 
     const calls = [
       ...fathom
-        .filter((row) => row.transcriptText !== EMPTY_TRANSCRIPT_MARK)
+        .filter((row) => !row.empty)
         .map((row) => {
           const tag = tagMap.get(tagKey("fathom", row.id));
           const leadName = tag?.leadName || "";
           const rawTitle = tag?.title || row.title;
-          const when = row.recordedAt || tag?.recordedAt || row.syncedAt || null;
-          const date = when ? new Date(when).toISOString() : null;
+          const rawWhen = row.recordedAt || tag?.recordedAt || row.syncedAt || null;
+          const when = rawWhen ? new Date(rawWhen) : null;
+          const date = when ? when.toISOString() : null;
           const title = visibleCallTitle({
             title: rawTitle,
             leadName,
             date: when,
-            durationMinutes: durationMinutesFromTranscript(row.transcriptText),
+            durationMinutes: row.durationMinutes ?? null,
             summary: tag?.summary,
           });
           const placed = placeLibraryCall({
@@ -150,13 +185,13 @@ export async function GET() {
         const tag = tagMap.get(tagKey("upload", row.id));
         const leadName = tag?.leadName || "";
         const rawTitle = tag?.title || row.title;
-        const when = tag?.recordedAt || row.createdAt;
-        const date = when.toISOString();
+        const when = new Date(tag?.recordedAt || row.createdAt);
+        const date = new Date(when).toISOString();
         const title = visibleCallTitle({
           title: rawTitle,
           leadName,
           date: when,
-          durationMinutes: durationMinutesFromTranscript(row.transcriptText),
+          durationMinutes: row.durationMinutes ?? null,
           summary: tag?.summary,
         });
         const placed = placeLibraryCall({
@@ -246,53 +281,44 @@ export async function POST(request: Request) {
     const seen = new Set(tagged.map((row) => `${row.source}:${row.sourceId}`));
 
     const [fathom, uploads] = await Promise.all([
-      auth.prisma.fathomRecording.findMany({
-        where: { userId: auth.userId },
-        orderBy: { recordedAt: "desc" },
-        take: 30,
-        select: {
-          id: true,
-          title: true,
-          transcriptText: true,
-          recordedAt: true,
-        },
-      }),
-      auth.prisma.clientTranscript.findMany({
-        where: { userId: auth.userId },
-        orderBy: { createdAt: "desc" },
-        take: 30,
-        select: {
-          id: true,
-          title: true,
-          transcriptText: true,
-          createdAt: true,
-        },
-      }),
+      // Length only; the one transcript to file is loaded below.
+      auth.prisma.$queryRaw<{ id: string; title: string; recordedAt: Date | null; usable: boolean }[]>`
+        SELECT "id", "title", "recordedAt",
+          ${usableTranscriptSql(EMPTY_TRANSCRIPT_MARK)} AS "usable"
+        FROM "FathomRecording" WHERE "userId" = ${auth.userId}
+        ORDER BY "recordedAt" DESC NULLS LAST LIMIT 30
+      `,
+      auth.prisma.$queryRaw<{ id: string; title: string; createdAt: Date; usable: boolean }[]>`
+        SELECT "id", "title", "createdAt",
+          ${usableTranscriptSql(EMPTY_TRANSCRIPT_MARK)} AS "usable"
+        FROM "ClientTranscript" WHERE "userId" = ${auth.userId}
+        ORDER BY "createdAt" DESC LIMIT 30
+      `,
     ]);
 
-    const pendingFathom = fathom.find(
-      (row) =>
-        !seen.has(`fathom:${row.id}`) && isUsableTranscript(row.transcriptText),
-    );
-    const pendingUpload = uploads.find(
-      (row) =>
-        !seen.has(`upload:${row.id}`) && isUsableTranscript(row.transcriptText),
-    );
-    const next = pendingFathom
+    const pendingFathom = fathom.find((row) => !seen.has(`fathom:${row.id}`) && row.usable);
+    const pendingUpload = pendingFathom ? undefined : uploads.find((row) => !seen.has(`upload:${row.id}`) && row.usable);
+    const fathomText = pendingFathom
+      ? (await auth.prisma.fathomRecording.findFirst({ where: { id: pendingFathom.id, userId: auth.userId }, select: { transcriptText: true } }))?.transcriptText || ""
+      : "";
+    const uploadText = pendingUpload
+      ? (await auth.prisma.clientTranscript.findFirst({ where: { id: pendingUpload.id, userId: auth.userId }, select: { transcriptText: true } }))?.transcriptText || ""
+      : "";
+    const next = pendingFathom && isUsableTranscript(fathomText)
       ? {
           source: "fathom" as const,
           sourceId: pendingFathom.id,
           title: pendingFathom.title,
-          transcript: pendingFathom.transcriptText,
-          recordedAt: pendingFathom.recordedAt,
+          transcript: fathomText,
+          recordedAt: pendingFathom.recordedAt ? new Date(pendingFathom.recordedAt) : null,
         }
-      : pendingUpload
+      : pendingUpload && isUsableTranscript(uploadText)
         ? {
             source: "upload" as const,
             sourceId: pendingUpload.id,
             title: pendingUpload.title,
-            transcript: pendingUpload.transcriptText,
-            recordedAt: pendingUpload.createdAt,
+            transcript: uploadText,
+            recordedAt: new Date(pendingUpload.createdAt),
           }
         : null;
 

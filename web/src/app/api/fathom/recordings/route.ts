@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireFathomUser } from "@/lib/fathom-auth";
 import { visibleCallTitle } from "@/lib/crm-noise";
+import { EMPTY_TRANSCRIPT_MARK } from "@/lib/fathom-import";
 
 export async function GET() {
   try {
@@ -8,21 +9,26 @@ export async function GET() {
     if ("error" in auth && auth.error) return auth.error;
     const { prisma, userId } = auth;
 
-    const rows = await prisma.fathomRecording.findMany({
-      where: { userId },
-      orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
-      take: 200,
-      select: {
-        id: true,
-        fathomRecordingId: true,
-        title: true,
-        shareUrl: true,
-        recordedAt: true,
-        syncedAt: true,
-        transcriptText: true,
-        practiceSessionId: true,
-      },
-    });
+    // Only whether there is a transcript, never the text itself (each one is ~50 KB).
+    const rows = await prisma.$queryRaw<
+      {
+        id: string;
+        fathomRecordingId: string;
+        title: string;
+        shareUrl: string;
+        recordedAt: Date | string | null;
+        syncedAt: Date | string;
+        practiceSessionId: string | null;
+        hasTranscript: boolean;
+      }[]
+    >`
+      SELECT "id", "fathomRecordingId", "title", "shareUrl", "recordedAt", "syncedAt", "practiceSessionId",
+        (length(btrim("transcriptText")) > 0 AND "transcriptText" <> ${EMPTY_TRANSCRIPT_MARK}) AS "hasTranscript"
+      FROM "FathomRecording"
+      WHERE "userId" = ${userId}
+      ORDER BY "recordedAt" DESC NULLS LAST, "syncedAt" DESC
+      LIMIT 200
+    `;
 
     const tags = await prisma.callRecord.findMany({
       where: { userId, source: "fathom" },
@@ -37,14 +43,12 @@ export async function GET() {
         title: visibleCallTitle({
           title: row.title,
           leadName: leadByRecording.get(row.id),
-          date: row.recordedAt,
+          date: row.recordedAt ? new Date(row.recordedAt) : null,
         }),
         shareUrl: row.shareUrl,
-        recordedAt: row.recordedAt?.toISOString() || null,
-        syncedAt: row.syncedAt.toISOString(),
-        hasTranscript:
-          row.transcriptText.trim().length > 0 &&
-          row.transcriptText !== "[sin transcripción]",
+        recordedAt: row.recordedAt ? new Date(row.recordedAt).toISOString() : null,
+        syncedAt: new Date(row.syncedAt).toISOString(),
+        hasTranscript: Boolean(row.hasTranscript),
         analyzed:
           Boolean(row.practiceSessionId) && row.practiceSessionId !== "skipped",
         skipped: row.practiceSessionId === "skipped",

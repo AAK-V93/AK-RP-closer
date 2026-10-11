@@ -139,7 +139,8 @@ test("the practice card keeps the drill off the hub payload", () => {
   assert.match(inicio, /min-w-0/);
   assert.doesNotMatch(screen, /phase \|\| "a"/);
   assert.match(practice, /practiceCardFromGuides/);
-  assert.match(practice, /select: \{ productName: true, playbook: true \}/);
+  // Only the live guide part of each playbook travels from the database.
+  assert.match(practice, /liveGuideRows\(prisma, userId\)/);
 });
 
 test("the practice row keeps the full drill so line-clamp can ellipsize", () => {

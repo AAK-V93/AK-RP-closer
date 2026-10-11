@@ -54,6 +54,17 @@ export async function getWorkspace(
       prisma.userOffer.findMany({
         where: { userId },
         orderBy: { updatedAt: "desc" },
+        // Every column but the playbook (the biggest); only the open offer's playbook is read, below.
+        select: {
+          id: true,
+          productName: true,
+          productDescription: true,
+          pitchSummary: true,
+          includeFathom: true,
+          commercial: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       }),
     (rows) => rows.length === 0,
   );
@@ -68,6 +79,9 @@ export async function getWorkspace(
     (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
   )[0];
   const active = pickWorkspaceOffer(offers, offerId);
+  const activePlaybook = active
+    ? ((await prisma.userOffer.findFirst({ where: { id: active.id, userId }, select: { playbook: true } }))?.playbook ?? {})
+    : {};
   const includeLegacy = Boolean(oldest && active && oldest.id === active.id);
   const transcriptWhere = active
     ? {
@@ -159,7 +173,7 @@ export async function getWorkspace(
     fathomSamples = [];
     usableUploads = uploads.filter((row) => isUsableTranscript(row.transcriptText)).length;
   }
-  const playbook = active ? parsePlaybook(active.playbook) : emptyPlaybook();
+  const playbook = active ? parsePlaybook(activePlaybook) : emptyPlaybook();
   const transcriptCount = usableUploads + (active?.includeFathom ? fathomCount : 0);
   const offerReady = Boolean(active?.productName.trim()) && transcriptCount > 0;
   const canPractice = offers.some((row) => Boolean(row.productName.trim()));
@@ -187,7 +201,7 @@ export async function getWorkspace(
         }
       : null,
     playbook,
-    liveGuide: active ? parseLiveGuide(active.playbook, active.productName) : emptyLiveGuide(""),
+    liveGuide: active ? parseLiveGuide(activePlaybook, active.productName) : emptyLiveGuide(""),
     playbookReady: isPlaybookReady(playbook),
     transcripts: uploads.map((row) => ({
       id: row.id,
