@@ -12,6 +12,11 @@ import type { IngestInput, Invitee } from "@/lib/ingest/meeting";
 import { readIgnored, readSaved } from "@/lib/read/confirm";
 import { readPending } from "@/lib/read/pending";
 import { readTodayHeader } from "@/lib/read/today";
+import { readFicha } from "@/lib/read/ficha";
+import { readGoals } from "@/lib/read/goals";
+import { readDealDefaults } from "@/lib/read/confirm";
+import { otherCurrencyNotes } from "@/lib/format/currency-note";
+import { logAttempt, undoAttempt } from "@/lib/write/events";
 import { startOfDayInstant } from "@/lib/time/bogota";
 import { confirmCall, undoProposedChange } from "@/lib/write/confirm";
 import { briefIngestedCall, ingestCall, recoverIgnoredCall } from "@/lib/write/ingest";
@@ -85,11 +90,12 @@ async function snapshot(userId: string) {
   const [stats, counters, leads, calls, deals, tasks, events, suggestions] = await Promise.all([
     db.userMonthStats.findMany({ where: { userId }, orderBy: [{ month: "asc" }, { offerId: "asc" }], take: 50, select: { month: true, offerId: true, callsHeld: true, closedCount: true, lostCount: true, attemptsCount: true, salesTotal: true, cashCollected: true, commissionEarned: true } }),
     db.userCounters.findUnique({ where: { userId }, select: { pendingConfirmCount: true, followingCount: true, lastCloseAt: true, lastCloseLeadName: true, callsSinceLastClose: true, ignoredCount: true, topObjectionLabel: true } }),
-    db.lead.findMany({ where: { userId }, orderBy: { id: "asc" }, take: 50, select: { id: true, name: true, status: true, closedAt: true, lostAt: true, lostReason: true, lastCallId: true, lastCallAt: true, lastContactAt: true, nextContactAt: true, nextMeetingAt: true, oneLine: true, whereLeft: true, decider: true, offerId: true, potentialCommission: true, attemptsSinceLastCall: true } }),
+    db.lead.findMany({ where: { userId }, orderBy: { id: "asc" }, take: 50, select: { id: true, name: true, status: true, closedAt: true, lostAt: true, lostReason: true, lastCallId: true, lastCallAt: true, lastContactAt: true, nextContactAt: true, nextMeetingAt: true, needsMeetingDate: true, oneLine: true, whereLeft: true, decider: true, offerId: true, potentialCommission: true, attemptsSinceLastCall: true } }),
     db.call.findMany({ where: { userId }, orderBy: { id: "asc" }, take: 50, select: { id: true, state: true, outcome: true, confirmedAt: true, leadId: true, offerId: true } }),
     db.deal.findMany({ where: { userId, status: "ACTIVO" }, orderBy: { id: "asc" }, take: 50, select: { id: true } }),
-    db.followUpTask.findMany({ where: { userId }, orderBy: { id: "asc" }, take: 50, select: { id: true, kind: true, status: true } }),
-    db.leadEvent.findMany({ where: { userId }, orderBy: { id: "asc" }, take: 50, select: { id: true, type: true } }),
+    // what is live: «Deshacer» cancels the task and compensates the events (both stay in the history)
+    db.followUpTask.findMany({ where: { userId, status: "OPEN" }, orderBy: { id: "asc" }, take: 50, select: { id: true, kind: true, status: true } }),
+    db.leadEvent.findMany({ where: { userId, undoneAt: null, type: { not: "UNDO" } }, orderBy: { id: "asc" }, take: 50, select: { id: true, type: true } }),
     db.proposedChange.findMany({ where: { userId, origin: "BRIEF" }, orderBy: { id: "asc" }, take: 50, select: { id: true, status: true } }),
   ]);
   // a stats row that only holds zeros reads the same as no row (screens show 0 either way)
@@ -277,4 +283,165 @@ test("«Ignoradas (N)»: an internal call does not vanish; «No era interna» br
   assert.deepEqual(await recoverIgnoredCall(db, userId, callId, { revalidate, now: NOW }), { ok: false, error: "Esa llamada ya no está entre las ignoradas." });
   const done = await confirmCall(db, userId, { callId, version: await version(callId), outcome: "SEGUIMIENTO" }, { revalidate, now: NOW });
   assert.ok(done.ok);
+});
+
+
+test("intento + «Deshacer»: a compensating UNDO event, nothing deleted; the attempt counter, the month and the week come back exactly", { skip }, async () => {
+  const userId = await newUser("attempt");
+  const offerId = await offer(userId);
+  const leadId = await lead(userId, "Sofía Prieto", { offerId });
+  const at1 = new Date("2026-10-07T15:00:00Z"); // Wednesday of the week of NOW
+  const first = await logAttempt(db, userId, { leadId, result: "NO_CONTESTO", channel: "WHATSAPP" }, { revalidate, now: at1 });
+  assert.ok(first.ok);
+  const before = await snapshot(userId);
+  const beforeGoals = await readGoals(db, userId, "2026-10-11", "USD");
+  const beforeFicha = await readFicha(db, userId, leadId);
+  assert.equal(before.leads[0].attemptsSinceLastCall, 1);
+  assert.equal(beforeGoals.weekDone.attempts, 1);
+
+  tagsSeen.length = 0;
+  const second = await logAttempt(db, userId, { leadId, result: "RESPONDIO", note: "Me dijo que el lunes", eventId: "tap-0001-aaaa" }, { revalidate, now: NOW });
+  const again = await logAttempt(db, userId, { leadId, result: "RESPONDIO", note: "Me dijo que el lunes", eventId: "tap-0001-aaaa" }, { revalidate, now: NOW });
+  assert.ok(second.ok && again.ok);
+  for (const t of [`u:${userId}:stats`, `u:${userId}:leads`, `u:${userId}:lead:${leadId}`]) assert.ok(tagsSeen.includes(t), t);
+  const mid = await snapshot(userId);
+  assert.equal(mid.leads[0].attemptsSinceLastCall, 2, "the same tap twice is one attempt");
+  assert.equal(mid.leads[0].lastContactAt, NOW.toISOString());
+  assert.equal((await readGoals(db, userId, "2026-10-11", "USD")).weekDone.attempts, 2);
+  assert.equal(mid.stats.find((m: { offerId: string | null }) => m.offerId === null).attemptsCount, 2);
+  assert.equal((await readFicha(db, userId, leadId))!.attempts.length, 2);
+
+  assert.ok(second.ok && again.ok && second.eventId === again.eventId);
+  const tapId = second.ok ? second.eventId : "";
+  // the same token from another user is another row (never theirs)
+  const other = await newUser("attempt-other");
+  const otherLead = await lead(other, "Otra Persona");
+  const o = await logAttempt(db, other, { leadId: otherLead, result: "RESPONDIO", eventId: "tap-0001-aaaa" }, { revalidate, now: NOW });
+  assert.ok(o.ok && o.eventId !== tapId);
+  assert.equal((await logAttempt(db, other, { leadId, result: "RESPONDIO" }, { revalidate, now: NOW })).ok, false, "not their person");
+
+  const original = await db.leadEvent.findUniqueOrThrow({ where: { id: tapId } });
+  const undone = await undoAttempt(db, userId, tapId, { revalidate, now: new Date("2026-10-11T15:05:00Z") });
+  const twice = await undoAttempt(db, userId, tapId, { revalidate, now: new Date("2026-10-11T15:06:00Z") });
+  assert.equal((await undoAttempt(db, other, tapId, { revalidate, now: NOW })).ok, false, "not their attempt");
+  assert.ok(undone.ok && twice.ok);
+
+  // every number is exactly what it was before the attempt
+  assert.deepEqual(await snapshot(userId), before);
+  const g = await readGoals(db, userId, "2026-10-11", "USD");
+  assert.equal(g.weekDone.attempts, beforeGoals.weekDone.attempts);
+  assert.deepEqual(g.attemptGroups, beforeGoals.attemptGroups);
+  assert.deepEqual(await readFicha(db, userId, leadId), beforeFicha);
+
+  // both events stay in the history; the original keeps its content
+  const history = await db.leadEvent.findMany({ where: { userId }, orderBy: { at: "asc" }, take: 10 });
+  assert.deepEqual(history.map((e) => e.type), ["ATTEMPT", "ATTEMPT", "UNDO"]);
+  const after1 = history.find((e) => e.id === tapId)!;
+  const undo = history.find((e) => e.type === "UNDO")!;
+  assert.deepEqual({ ...after1, undoneAt: null, undoneByEventId: null }, original);
+  assert.deepEqual([after1.undoneAt, after1.undoneByEventId], [new Date("2026-10-11T15:05:00Z"), undo.id]);
+  assert.equal(undo.leadId, leadId);
+  assert.equal(history.filter((e) => e.undoneAt).length, 1, "a second «Deshacer» adds nothing");
+});
+
+test("«Deshacer» a confirmation: the CALL event stays in the history with undoneAt and an UNDO event; the task is canceled, not deleted", { skip }, async () => {
+  const userId = await newUser("undo-hist");
+  const offerId = await offer(userId);
+  const leadId = await lead(userId, "Laura Gómez", { offerId, email: "laura@example.test" });
+  const callId = await pendingCall(userId, "2026-10-08T20:00:00Z", { estado_lead: "pendiente_pago" }, [{ name: "Laura Gómez", email: "laura@example.test" }]);
+  const r = await confirmCall(db, userId, { callId, version: await version(callId), outcome: "SEGUIMIENTO" }, { revalidate, now: NOW });
+  assert.ok(r.ok && r.changeId);
+  assert.equal(r.leadId, leadId);
+  await undoProposedChange(db, userId, r.changeId!, { revalidate, now: NOW });
+  const events = await db.leadEvent.findMany({ where: { userId }, orderBy: { type: "asc" }, take: 10, select: { type: true, undoneAt: true, undoneByEventId: true, proposedChangeId: true } });
+  assert.deepEqual(events.map((e) => [e.type, Boolean(e.undoneAt), e.proposedChangeId]), [["CALL", true, r.changeId], ["UNDO", false, r.changeId]]);
+  const tasks = await db.followUpTask.findMany({ where: { userId }, take: 5, select: { kind: true, status: true } });
+  assert.deepEqual(tasks, [{ kind: "COBRAR", status: "CANCELED" }]);
+  // tapping again after «Deshacer» works like the first time
+  const r2 = await confirmCall(db, userId, { callId, version: await version(callId), outcome: "SEGUIMIENTO" }, { revalidate, now: NOW });
+  assert.ok(r2.ok && r2.changeId && r2.changeId !== r.changeId);
+  assert.equal((await db.followUpTask.findMany({ where: { userId, status: "OPEN" }, take: 5 })).length, 1);
+  assert.equal((await db.leadEvent.findMany({ where: { userId, undoneAt: null, type: "CALL" }, take: 5 })).length, 1);
+});
+
+test("sales in another currency are not added and not dropped silently: «+ N ventas en EUR no incluidas» on Hoy and Metas", { skip }, async () => {
+  const userId = await newUser("cur");
+  const usd = await offer(userId, "Mentoría USD");
+  const eur = (await db.offer.create({ data: { userId, name: "Programa Madrid", commissionType: "PER_CLOSE", commissionValue: "400", currency: "EUR" }, select: { id: true } })).id;
+  const people = [["Ana Ruiz", eur], ["Bea Sanz", eur], ["Carla Paz", usd]] as const;
+  let day = 5;
+  for (const [name, offerId] of people) {
+    const leadId = await lead(userId, name, { offerId });
+    const callId = await pendingCall(userId, `2026-10-0${day++}T16:00:00Z`, { cliente_real: name, estado_lead: "cerrado" });
+    const r = await confirmCall(db, userId, { callId, version: await version(callId), outcome: "CERRO", who: `lead:${leadId}`, deal: { amountTotal: "1000" } }, { revalidate, now: NOW });
+    assert.ok(r.ok, JSON.stringify(r));
+  }
+  const header = await readTodayHeader(db, userId, "2026-10-01");
+  assert.deepEqual(header.dealCurrencies, [{ currency: "EUR", count: 2 }, { currency: "USD", count: 1 }]);
+  assert.equal(header.stats!.commissionEarned, "500", "only the USD sale is in the USD total");
+  assert.deepEqual(otherCurrencyNotes(header.dealCurrencies, "USD"), ["+ 2 ventas en EUR no incluidas"]);
+  const goals = await readGoals(db, userId, "2026-10-11", "USD");
+  assert.deepEqual(goals.otherCurrencySales, [{ currency: "EUR", count: 2 }]);
+  // an annulled sale is not counted either
+  const eurChange = await db.proposedChange.findFirstOrThrow({ where: { userId, kind: "CONFIRM_CALL", lead: { name: "Ana Ruiz" } }, select: { id: true } });
+  await undoProposedChange(db, userId, eurChange.id, { revalidate, now: NOW });
+  assert.deepEqual(otherCurrencyNotes((await readTodayHeader(db, userId, "2026-10-01")).dealCurrencies, "USD"), ["+ 1 venta en EUR no incluida"]);
+  // September has none
+  assert.deepEqual(await readTodayHeader(db, userId, "2026-09-01").then((h) => h.dealCurrencies), []);
+});
+
+test("the amount the brief quotes stays a proposal: only «Guardar venta» writes it to the Deal", { skip }, async () => {
+  const userId = await newUser("prop");
+  const offerId = await offer(userId);
+  const leadId = await lead(userId, "Laura Gómez", { offerId, email: "laura@example.test" });
+  const callId = await pendingCall(userId, "2026-10-08T20:00:00Z", { estado_lead: "cerrado", venta_total: 2000, cash_collected: 500 });
+  const defaults = await readDealDefaults(db, userId, callId);
+  assert.equal(defaults?.amountTotal, 2000, "the form shows the brief's amount as a proposal");
+  assert.deepEqual(await db.deal.findMany({ where: { userId }, take: 5 }), [], "nothing is written before «Guardar»");
+  // saving with the field emptied («No sé todavía») keeps it unknown: the brief's number is not used
+  const r = await confirmCall(db, userId, { callId, version: await version(callId), outcome: "CERRO", who: `lead:${leadId}`, deal: { amountTotal: "", cashCollected: "" } }, { revalidate, now: NOW });
+  assert.ok(r.ok);
+  const [deal] = await db.deal.findMany({ where: { userId }, take: 5, select: { amountTotal: true, cashCollected: true } });
+  assert.deepEqual(deal, { amountTotal: null, cashCollected: null });
+});
+
+test("«Reagendar» with a date → REUNION task on that day and time, nextContactAt = that day; without a date nothing is invented: «Reagendar · sin fecha»", { skip }, async () => {
+  const userId = await newUser("reag");
+  const offerId = await offer(userId);
+  const a = await lead(userId, "Laura Gómez", { offerId, email: "laura@example.test" });
+  const b = await lead(userId, "Marta Díaz", { offerId, email: "marta@example.test" });
+  const c = await lead(userId, "Nora Vélez", { offerId, email: "nora@example.test" });
+  // with day and time (Bogotá 15:30 = 20:30Z)
+  const callA = await pendingCall(userId, "2026-10-08T20:00:00Z", { proximo_seguimiento: "2026-10-15T15:30" });
+  const ra = await confirmCall(db, userId, { callId: callA, version: await version(callA), outcome: "REAGENDAR", who: `lead:${a}` }, { revalidate, now: NOW });
+  assert.ok(ra.ok);
+  const la = await db.lead.findUniqueOrThrow({ where: { id: a }, select: { nextContactAt: true, nextMeetingAt: true, needsMeetingDate: true, status: true } });
+  assert.deepEqual(la, { nextContactAt: startOfDayInstant("2026-10-15"), nextMeetingAt: new Date("2026-10-15T20:30:00Z"), needsMeetingDate: false, status: "SEGUIMIENTO" });
+  assert.deepEqual(
+    await db.followUpTask.findMany({ where: { leadId: a }, take: 5, select: { kind: true, dueDate: true, dueAt: true, status: true, origin: true } }),
+    [{ kind: "REUNION", dueDate: new Date("2026-10-15T00:00:00Z"), dueAt: new Date("2026-10-15T20:30:00Z"), status: "OPEN", origin: "CONFIRM" }],
+  );
+  // with a day only: no time is invented
+  const callB = await pendingCall(userId, "2026-10-08T21:00:00Z", { cliente_real: "Marta Díaz", proximo_seguimiento: "2026-10-16" });
+  assert.ok((await confirmCall(db, userId, { callId: callB, version: await version(callB), outcome: "REAGENDAR", who: `lead:${b}` }, { revalidate, now: NOW })).ok);
+  assert.deepEqual(
+    await db.followUpTask.findMany({ where: { leadId: b }, take: 5, select: { kind: true, dueDate: true, dueAt: true } }),
+    [{ kind: "REUNION", dueDate: new Date("2026-10-16T00:00:00Z"), dueAt: null }],
+  );
+  // without a date: no task, no date, the person is marked «sin fecha»
+  const callC = await pendingCall(userId, "2026-10-08T22:00:00Z", { cliente_real: "Nora Vélez", proximo_seguimiento: null, promesas: [] });
+  const rc = await confirmCall(db, userId, { callId: callC, version: await version(callC), outcome: "REAGENDAR", who: `lead:${c}` }, { revalidate, now: NOW });
+  assert.ok(rc.ok && rc.changeId);
+  assert.deepEqual(await db.followUpTask.findMany({ where: { leadId: c }, take: 5 }), []);
+  assert.deepEqual(
+    await db.lead.findUniqueOrThrow({ where: { id: c }, select: { nextContactAt: true, nextMeetingAt: true, needsMeetingDate: true } }),
+    { nextContactAt: null, nextMeetingAt: null, needsMeetingDate: true },
+  );
+  assert.equal((await db.proposedChange.findUniqueOrThrow({ where: { id: rc.changeId! }, select: { preview: true } })).preview, "Guardado: reagendada · sin fecha");
+  // «Deshacer» gives the mark back
+  await undoProposedChange(db, userId, rc.changeId!, { revalidate, now: NOW });
+  assert.equal((await db.lead.findUniqueOrThrow({ where: { id: c }, select: { needsMeetingDate: true } })).needsMeetingDate, false);
+  await undoProposedChange(db, userId, ra.changeId!, { revalidate, now: NOW });
+  assert.deepEqual(await db.followUpTask.findMany({ where: { leadId: a }, take: 5, select: { kind: true, status: true } }), [{ kind: "REUNION", status: "CANCELED" }]);
+  assert.deepEqual(await db.lead.findUniqueOrThrow({ where: { id: a }, select: { nextContactAt: true, nextMeetingAt: true } }), { nextContactAt: null, nextMeetingAt: null });
 });

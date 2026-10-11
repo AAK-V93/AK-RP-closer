@@ -94,6 +94,8 @@ enum LeadEventType {
   DEAL
   NOTE
   APPLIED_CHANGE
+  /// compensating event: «Deshacer» of another event (that one gets undoneAt / undoneByEventId)
+  UNDO
 }
 
 enum AttemptResult {
@@ -357,15 +359,17 @@ model Lead {
   missing   String?
   decider   String?
 
-  lastCallId    String?
-  lastCall      Call?     @relation("LeadLastCall", fields: [lastCallId], references: [id], onDelete: SetNull)
-  lastCallAt    DateTime?
-  lastContactAt DateTime?
-  nextContactAt DateTime?
-  nextMeetingAt DateTime?
-  closedAt      DateTime?
-  lostAt        DateTime?
-  lostReason    String?
+  lastCallId       String?
+  lastCall         Call?     @relation("LeadLastCall", fields: [lastCallId], references: [id], onDelete: SetNull)
+  lastCallAt       DateTime?
+  lastContactAt    DateTime?
+  nextContactAt    DateTime?
+  nextMeetingAt    DateTime?
+  /// «Reagendar · sin fecha»: the call ended in Reagendar but no date was given (PR 7 shows «Poner fecha»)
+  needsMeetingDate Boolean   @default(false)
+  closedAt         DateTime?
+  lostAt           DateTime?
+  lostReason       String?
 
   /// denormalized, recounted on write (plan 2.2), never at read time
   attemptsSinceLastCall Int      @default(0)
@@ -527,6 +531,12 @@ model LeadEvent {
   proposedChangeId String?
   proposedChange   ProposedChange? @relation(fields: [proposedChangeId], references: [id], onDelete: SetNull)
   note             String?         @db.VarChar(300)
+  /// set once by «Deshacer»; the event keeps its content and every count/read skips it
+  undoneAt         DateTime?
+  /// the UNDO event that compensates this one
+  undoneByEventId  String?
+  undoneBy         LeadEvent?      @relation("LeadEventUndo", fields: [undoneByEventId], references: [id], onDelete: SetNull)
+  undoes           LeadEvent[]     @relation("LeadEventUndo")
 
   @@index([leadId, type, at])
   @@index([userId, type, at])

@@ -18,10 +18,10 @@ export function isOutcome(v: unknown): v is Outcome {
 }
 
 /** What «Guardado: …» says after a tap. */
-export function savedText(outcome: Outcome, pendingPayment: boolean) {
+export function savedText(outcome: Outcome, pendingPayment: boolean, noDate = false) {
   if (outcome === "CERRO") return "Guardado: venta cerrada";
   if (outcome === "PERDIDO") return "Guardado: perdido";
-  if (outcome === "REAGENDAR") return "Guardado: reagendada";
+  if (outcome === "REAGENDAR") return noDate ? "Guardado: reagendada · sin fecha" : "Guardado: reagendada";
   return pendingPayment ? "Guardado: sigue en seguimiento · pendiente de pago" : "Guardado: sigue en seguimiento";
 }
 
@@ -32,6 +32,21 @@ export function briefDay(raw: string | null | undefined): string | null {
   const d = new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00Z`);
   return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== `${m[1]}-${m[2]}-${m[3]}` ? null : `${m[1]}-${m[2]}-${m[3]}`;
 }
+
+/** Time of day from a brief date «YYYY-MM-DDTHH:mm» (Bogotá local), or null when it has none. */
+export function briefTime(raw: string | null | undefined): string | null {
+  if (!briefDay(raw)) return null;
+  const m = /^\d{4}-\d{2}-\d{2}[T ](\d{2}):(\d{2})/.exec(raw ?? "");
+  if (!m) return null;
+  const [h, min] = [Number(m[1]), Number(m[2])];
+  return h < 24 && min < 60 ? `${m[1]}:${m[2]}` : null;
+}
+
+/**
+ * «Reagendar» without a date (Lead.needsMeetingDate, stored since PR 6). PR 7 list:
+ * the ficha and Personas show this label with «Poner fecha».
+ */
+export const NO_DATE_LABEL = "Reagendar · sin fecha";
 
 /** «Cerró» form defaults, only from amounts the brief cites (parseBrief already nulled the rest). */
 export function dealDefaults(brief: Pick<CallBrief, "venta_total" | "cash_collected" | "modo_pago" | "moneda"> | null) {

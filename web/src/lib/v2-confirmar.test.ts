@@ -4,7 +4,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { OUTCOME_LABEL, PENDING_PAYMENT_LABEL, briefDay, dealDefaults, savedText } from "@/lib/confirm/choice";
+import { NO_DATE_LABEL, OUTCOME_LABEL, PENDING_PAYMENT_LABEL, briefDay, briefTime, dealDefaults, savedText } from "@/lib/confirm/choice";
+import { otherCurrencyNotes } from "@/lib/format/currency-note";
+import { HIDDEN_LINKS as HL } from "@/lib/hidden-links";
+import { undoEventId } from "@/lib/write/events";
+import { changeTask } from "@/lib/write/confirm";
 import { HIDDEN_LINKS } from "@/lib/hidden-links";
 import { confirmProgress } from "@/lib/metrics";
 import { WRITE_EFFECTS, tagsForWrite } from "@/lib/read/tags";
@@ -108,4 +112,63 @@ test("the last close and «llamadas desde el último cierre» come from the last
   const recount = read("lib/write/recount.ts");
   assert.match(recount, /FROM "Deal" d JOIN "Lead" l ON l\.id = d\."leadId"\s+WHERE d\."userId" = \$\{userId\} AND d\.status = 'ACTIVO'\s+ORDER BY d\."closedAt" DESC/);
   assert.match(recount, /u\.currency = d\.currency/);
+});
+
+
+test("history is append-only: no DELETE or content UPDATE of LeadEvent anywhere; «Deshacer» compensates with UNDO events", () => {
+  const files = ["lib/write/confirm.ts", "lib/write/events.ts", "lib/write/ingest.ts", "lib/write/recount.ts"];
+  for (const f of files) {
+    const code = stripComments(read(f));
+    assert.doesNotMatch(code, /DELETE FROM "LeadEvent"/, f);
+    for (const m of code.matchAll(/UPDATE "LeadEvent"[^`]*?SET([^`]*?)(FROM|WHERE)/g)) {
+      const cols = [...m[1].matchAll(/"(\w+)"\s*=/g)].map((c) => c[1]);
+      assert.deepEqual(cols, ["undoneAt", "undoneByEventId"], `${f}: only the undo mark changes`);
+    }
+  }
+  assert.match(read("lib/write/confirm.ts"), /compensateEvents\(db, userId, \{ leadId: p\.leadId, proposedChangeId: changeId \}/);
+  assert.equal(undoEventId("abc"), "undo_abc");
+});
+
+test("every count and read of attempts skips undone events (attemptsSinceLastCall, month, week, ficha)", () => {
+  const recount = stripComments(read("lib/write/recount.ts"));
+  const attemptSql = [...recount.matchAll(/e\.type = 'ATTEMPT'[^\n]*/g)].map((m) => m[0]);
+  assert.ok(attemptSql.length >= 4);
+  for (const line of attemptSql) assert.match(line, /e\."undoneAt" IS NULL/, line);
+  for (const f of ["lib/read/goals.ts", "lib/read/ficha.ts"]) {
+    const code = stripComments(read(f));
+    const reads = [...code.matchAll(/type: "ATTEMPT"[^}]*/g)].map((m) => m[0]);
+    assert.ok(reads.length >= 1, f);
+    for (const r of reads) assert.match(r, /undoneAt: null/, `${f}: ${r}`);
+  }
+});
+
+test("another currency is never summed nor dropped silently: «+ N ventas en <moneda> no incluidas»", () => {
+  assert.deepEqual(otherCurrencyNotes([{ currency: "EUR", count: 1 }, { currency: "USD", count: 4 }, { currency: "MXN", count: 3 }], "USD"), [
+    "+ 1 venta en EUR no incluida",
+    "+ 3 ventas en MXN no incluidas",
+  ]);
+  assert.deepEqual(otherCurrencyNotes([{ currency: "USD", count: 2 }], "USD"), []);
+  assert.match(read("app/(v2)/page.tsx"), /otherCurrencyNotes\(header\.dealCurrencies/);
+  assert.match(read("app/(v2)/metas/page.tsx"), /otherCurrencyNotes\(data\.otherCurrencySales/);
+});
+
+test("«Reagendar»: a day (and time if the brief gave one) → REUNION task; no date → nothing invented, «sin fecha»", () => {
+  assert.equal(briefTime("2026-10-15T15:30"), "15:30");
+  assert.equal(briefTime("2026-10-15"), null);
+  assert.equal(briefTime("2026-10-15T25:00"), null);
+  assert.equal(briefTime(null), null);
+  assert.equal(changeTask({ outcome: "REAGENDAR", followDay: "2026-10-15", pendingPayment: false }), "REUNION");
+  assert.equal(changeTask({ outcome: "REAGENDAR", followDay: null, pendingPayment: false }), null);
+  assert.equal(changeTask({ outcome: "SEGUIMIENTO", followDay: "2026-10-15", pendingPayment: true }), "COBRAR");
+  assert.equal(changeTask({ outcome: "SEGUIMIENTO", followDay: "2026-10-15", pendingPayment: false }), null);
+  assert.equal(savedText("REAGENDAR", false, true), "Guardado: reagendada · sin fecha");
+  assert.equal(NO_DATE_LABEL, "Reagendar · sin fecha");
+  // «Poner fecha» on the ficha / Personas arrives with PR 7 (with the ficha itself)
+  assert.ok("confirmar.ficha" in HL);
+});
+
+test("WRITE_EFFECTS: an attempt and its «Deshacer» touch Hoy, the lists, the person and the numbers", () => {
+  for (const e of [WRITE_EFFECTS.logAttempt("L1"), WRITE_EFFECTS.undoAttempt("L1")]) {
+    assert.deepEqual(tagsForWrite("U", e).sort(), ["u:U:lead:L1", "u:U:leads", "u:U:stats"]);
+  }
 });

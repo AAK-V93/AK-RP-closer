@@ -14,14 +14,26 @@ type Db = Pick<PrismaClient, "$executeRaw">;
 /** timestamp(3) columns hold UTC wall time; compare against a UTC literal, never the session zone. */
 const ts = (d: Date) => d.toISOString().replace("Z", "");
 
-/** Lead.attemptsSinceLastCall = ATTEMPT events after the last call (or since the lead was created). */
+/**
+ * Lead.attemptsSinceLastCall = live ATTEMPT events (not undone) after the last
+ * call (or since the lead was created); lastContactAt = the later of the last
+ * call and the last live attempt (an undone attempt gives it back exactly).
+ */
 export async function recountLeadAttempts(db: Db, leadId: string) {
   return db.$executeRaw`
-    UPDATE "Lead" l SET "attemptsSinceLastCall" = (
-      SELECT count(*)::int FROM "LeadEvent" e
-      WHERE e."leadId" = l.id AND e.type = 'ATTEMPT'
-        AND e."at" > COALESCE(l."lastCallAt", l."createdAt")
-    ), "updatedAt" = now()
+    UPDATE "Lead" l SET
+      "attemptsSinceLastCall" = a.n,
+      "lastContactAt" = CASE WHEN a.last IS NULL THEN l."lastCallAt" ELSE GREATEST(l."lastCallAt", a.last) END,
+      "updatedAt" = now()
+    FROM (
+      SELECT
+        (SELECT count(*)::int FROM "LeadEvent" e
+          WHERE e."leadId" = x.id AND e.type = 'ATTEMPT' AND e."undoneAt" IS NULL
+            AND e."at" > COALESCE(x."lastCallAt", x."createdAt")) AS n,
+        (SELECT max(e."at") FROM "LeadEvent" e
+          WHERE e."leadId" = x.id AND e.type = 'ATTEMPT' AND e."undoneAt" IS NULL) AS last
+      FROM "Lead" x WHERE x.id = ${leadId}
+    ) a
     WHERE l.id = ${leadId}
   `;
 }
@@ -45,7 +57,7 @@ export async function recountMonthAll(db: Db, userId: string, month: DayKey, tim
         WHERE l."userId" = ${userId} AND l.status = 'PERDIDO'
           AND l."lostAt" >= ${start}::timestamp AND l."lostAt" < ${end}::timestamp),
       (SELECT count(*)::int FROM "LeadEvent" e
-        WHERE e."userId" = ${userId} AND e.type = 'ATTEMPT'
+        WHERE e."userId" = ${userId} AND e.type = 'ATTEMPT' AND e."undoneAt" IS NULL
           AND e."at" >= ${start}::timestamp AND e."at" < ${end}::timestamp),
       m.sales, m.cash, m.commission,
       now()
@@ -87,7 +99,7 @@ export async function recountMonthOffer(db: Db, userId: string, month: DayKey, o
         WHERE l."userId" = ${userId} AND l."offerId" = ${offerId} AND l.status = 'PERDIDO'
           AND l."lostAt" >= ${start}::timestamp AND l."lostAt" < ${end}::timestamp),
       (SELECT count(*)::int FROM "LeadEvent" e JOIN "Lead" l ON l.id = e."leadId"
-        WHERE e."userId" = ${userId} AND l."offerId" = ${offerId} AND e.type = 'ATTEMPT'
+        WHERE e."userId" = ${userId} AND l."offerId" = ${offerId} AND e.type = 'ATTEMPT' AND e."undoneAt" IS NULL
           AND e."at" >= ${start}::timestamp AND e."at" < ${end}::timestamp),
       m.sales, m.cash, m.commission,
       now()

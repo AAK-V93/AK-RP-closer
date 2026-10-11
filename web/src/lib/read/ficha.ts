@@ -35,7 +35,7 @@ export async function readFicha(db: Db, userId: string, leadId: string) {
     }),
     // newest 10 attempts; those after the last call are a prefix of this list
     db.leadEvent.findMany({
-      where: { leadId, userId, type: "ATTEMPT" },
+      where: { leadId, userId, type: "ATTEMPT", undoneAt: null },
       orderBy: { at: "desc" },
       take: FICHA_ATTEMPTS_TAKE,
       select: { at: true, attemptResult: true, channel: true, note: true },

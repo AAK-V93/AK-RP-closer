@@ -15,13 +15,14 @@
 import { randomUUID } from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import { type Outcome, parseBrief } from "@/lib/ingest/brief";
-import { PENDING_PAYMENT_LABEL, briefDay, savedText } from "@/lib/confirm/choice";
+import { PENDING_PAYMENT_LABEL, briefDay, briefTime, savedText } from "@/lib/confirm/choice";
 import { centsToAmount, commissionForDeal, perCloseCommission } from "@/lib/metrics";
 import { WRITE_EFFECTS } from "@/lib/read/tags";
 import { normalizeName } from "@/lib/text/name-norm";
 import { type DayKey, bogotaDay, bogotaMonth, startOfDayInstant } from "@/lib/time/bogota";
 import { invalidate } from "./invalidate";
 import { type WriteOpts, parseAmount } from "./offers";
+import { compensateEvents } from "./events";
 import { recount } from "./recount";
 
 type Db = PrismaClient;
@@ -64,6 +65,8 @@ export type ConfirmPayload = {
   pendingPayment: boolean;
   /** day from the brief's próximo seguimiento, if it gave one */
   followDay: string | null;
+  /** «HH:mm» (Bogotá) when the brief gave a time too; only used for the REUNION task */
+  followTime?: string | null;
   deal: null | { amountTotal: string | null; cashCollected: string | null; paymentMode: PaymentMode | null; commissionAmount: string | null; currency: string };
   /** the brief's suggestions for this call: the ones the tap agreed with, and the rest */
   briefApplied: string[];
@@ -72,14 +75,14 @@ export type ConfirmPayload = {
 
 const LEAD_SNAPSHOT = {
   id: true, status: true, closedAt: true, lostAt: true, lostReason: true, lastCallId: true, lastCallAt: true,
-  lastContactAt: true, nextContactAt: true, nextMeetingAt: true, oneLine: true, whereLeft: true, decider: true,
+  lastContactAt: true, nextContactAt: true, nextMeetingAt: true, needsMeetingDate: true, oneLine: true, whereLeft: true, decider: true,
   offerId: true, potentialCommission: true, currency: true,
 } as const;
 
 type LeadSnapshot = {
   status: LeadStatus; closedAt: string | null; lostAt: string | null; lostReason: string | null;
   lastCallId: string | null; lastCallAt: string | null; lastContactAt: string | null; nextContactAt: string | null;
-  nextMeetingAt: string | null; oneLine: string | null; whereLeft: string | null; decider: string | null;
+  nextMeetingAt: string | null; needsMeetingDate?: boolean; oneLine: string | null; whereLeft: string | null; decider: string | null;
   offerId: string | null; potentialCommission: string | null; currency: string;
 };
 
@@ -87,7 +90,7 @@ export type ConfirmUndo = {
   call: { outcome: Outcome | null; confirmedAt: string | null; leadId: string | null; offerId: string | null };
   /** null: the lead was created by this change */
   lead: LeadSnapshot | null;
-  /** an OPEN task the COBRAR task replaced */
+  /** an OPEN task the COBRAR / REUNION task replaced */
   prevOpenTaskId: string | null;
   /** months and offers whose numbers the change touched (recounted again on undo) */
   months: DayKey[];
@@ -198,6 +201,7 @@ export async function confirmCall(db: Db, userId: string, choice: ConfirmChoice,
     },
     pendingPayment,
     followDay: briefDay(brief?.proximo_seguimiento),
+    followTime: briefTime(brief?.proximo_seguimiento),
     deal,
     briefApplied: suggestions.filter((s) => agreed.has(s.id)).map((s) => s.id),
     briefRejected: suggestions.filter((s) => !agreed.has(s.id)).map((s) => s.id),
@@ -206,7 +210,7 @@ export async function confirmCall(db: Db, userId: string, choice: ConfirmChoice,
   await db.$executeRaw`
     INSERT INTO "ProposedChange" ("id", "userId", "leadId", "callId", "origin", "kind", "payload", "preview", "status", "idempotencyKey", "createdAt")
     VALUES (gen_random_uuid()::text, ${userId}, ${leadId}, ${call.id}, 'CONFIRM', 'CONFIRM_CALL',
-      ${JSON.stringify(payload)}::jsonb, ${savedText(choice.outcome, pendingPayment)}, 'PENDING', ${key}, now())
+      ${JSON.stringify(payload)}::jsonb, ${savedText(choice.outcome, pendingPayment, choice.outcome === "REAGENDAR" && !payload.followDay)}, 'PENDING', ${key}, now())
     ON CONFLICT ("idempotencyKey") DO NOTHING
   `;
   const change = await db.proposedChange.findFirst({ where: { idempotencyKey: key, userId }, select: { id: true } });
@@ -233,10 +237,11 @@ export async function applyProposedChange(db: Db, userId: string, changeId: stri
   const p = change.payload as unknown as ConfirmPayload;
   if (change.status !== "PENDING") return { ok: true, changeId, leadId: p.leadId, already: true };
 
+  const taskKind = changeTask(p);
   const [call, lead, openTask] = await Promise.all([
     db.call.findFirst({ where: { id: p.callId, userId }, select: { state: true, outcome: true, confirmedAt: true, leadId: true, offerId: true } }),
     db.lead.findFirst({ where: { id: p.leadId, userId }, select: LEAD_SNAPSHOT }),
-    p.pendingPayment
+    taskKind
       ? db.followUpTask.findFirst({ where: { userId, leadId: p.leadId, status: "OPEN" }, select: { id: true } })
       : Promise.resolve(null),
   ]);
@@ -261,7 +266,7 @@ export async function applyProposedChange(db: Db, userId: string, changeId: stri
       ? {
           status: lead.status, closedAt: isoOf(lead.closedAt), lostAt: isoOf(lead.lostAt), lostReason: lead.lostReason,
           lastCallId: lead.lastCallId, lastCallAt: isoOf(lead.lastCallAt), lastContactAt: isoOf(lead.lastContactAt),
-          nextContactAt: isoOf(lead.nextContactAt), nextMeetingAt: isoOf(lead.nextMeetingAt), oneLine: lead.oneLine,
+          nextContactAt: isoOf(lead.nextContactAt), nextMeetingAt: isoOf(lead.nextMeetingAt), needsMeetingDate: lead.needsMeetingDate, oneLine: lead.oneLine,
           whereLeft: lead.whereLeft, decider: lead.decider, offerId: lead.offerId,
           potentialCommission: lead.potentialCommission?.toString() ?? null, currency: lead.currency,
         }
@@ -292,6 +297,7 @@ export async function applyProposedChange(db: Db, userId: string, changeId: stri
   // 3. the person: status and «dónde quedaron» only from their latest call
   const status = STATUS_OF[p.outcome];
   const followAt = p.followDay ? ts(startOfDayInstant(p.followDay)) : null;
+  const meetingAt = meetingInstant(p);
   const f = p.fields;
   await db.$executeRaw`
     UPDATE "Lead" l SET
@@ -308,8 +314,9 @@ export async function applyProposedChange(db: Db, userId: string, changeId: stri
       "oneLine" = CASE WHEN latest.ok THEN COALESCE(${f.oneLine ? f.oneLine.slice(0, 140) : null}, l."oneLine") ELSE l."oneLine" END,
       "whereLeft" = CASE WHEN latest.ok THEN COALESCE(${f.whereLeft}, l."whereLeft") ELSE l."whereLeft" END,
       "decider" = COALESCE(${f.decider}, l."decider"),
-      "nextContactAt" = CASE WHEN latest.ok AND ${p.outcome} = 'SEGUIMIENTO' AND ${followAt}::timestamp IS NOT NULL THEN ${followAt}::timestamp ELSE l."nextContactAt" END,
-      "nextMeetingAt" = CASE WHEN latest.ok AND ${p.outcome} = 'REAGENDAR' AND ${followAt}::timestamp IS NOT NULL THEN ${followAt}::timestamp ELSE l."nextMeetingAt" END,
+      "nextContactAt" = CASE WHEN latest.ok AND ${p.outcome} IN ('SEGUIMIENTO', 'REAGENDAR') AND ${followAt}::timestamp IS NOT NULL THEN ${followAt}::timestamp ELSE l."nextContactAt" END,
+      "nextMeetingAt" = CASE WHEN latest.ok AND ${p.outcome} = 'REAGENDAR' AND ${followAt}::timestamp IS NOT NULL THEN ${meetingAt ?? followAt}::timestamp ELSE l."nextMeetingAt" END,
+      "needsMeetingDate" = CASE WHEN latest.ok THEN (${p.outcome} = 'REAGENDAR' AND ${followAt}::timestamp IS NULL) ELSE l."needsMeetingDate" END,
       "updatedAt" = now()
     FROM (SELECT (x."lastCallAt" IS NULL OR x."lastCallAt" <= ${ts(rec)}::timestamp) AS ok FROM "Lead" x WHERE x.id = ${p.leadId}) latest
     WHERE l.id = ${p.leadId} AND l."userId" = ${userId}
@@ -320,12 +327,12 @@ export async function applyProposedChange(db: Db, userId: string, changeId: stri
       "leadId" = ${p.leadId}, "offerId" = COALESCE("offerId", ${p.offerId}), "updatedAt" = now()
     WHERE "id" = ${p.callId} AND "userId" = ${userId} AND "state" = 'PENDING_CONFIRM'
   `;
-  // 5. history (removed by «Deshacer» through proposedChangeId)
+  // 5. history (append-only: «Deshacer» adds compensating UNDO events through proposedChangeId)
   const types = ["CALL", ...(status !== "SEGUIMIENTO" ? ["STATUS"] : []), ...(p.deal ? ["DEAL"] : [])];
   await db.$executeRaw`
     INSERT INTO "LeadEvent" ("id", "userId", "leadId", "at", "type", "callId", "proposedChangeId", "note")
     SELECT gen_random_uuid()::text, ${userId}, ${p.leadId}, ${ts(rec)}::timestamp, t::"LeadEventType", ${p.callId}, ${changeId},
-      ${savedText(p.outcome, p.pendingPayment).replace(/^Guardado: /, "").slice(0, 300)}
+      ${savedText(p.outcome, p.pendingPayment, p.outcome === "REAGENDAR" && !p.followDay).replace(/^Guardado: /, "").slice(0, 300)}
     FROM unnest(${types}::text[]) AS t
     WHERE NOT EXISTS (
       SELECT 1 FROM "LeadEvent" e WHERE e."leadId" = ${p.leadId} AND e."proposedChangeId" = ${changeId} AND e.type = t::"LeadEventType"
@@ -343,8 +350,9 @@ export async function applyProposedChange(db: Db, userId: string, changeId: stri
       ON CONFLICT ("userId", "proposedChangeId") DO NOTHING
     `;
   }
-  // 7. «Pendiente de pago»: one OPEN task per lead, so the COBRAR task replaces the open one
-  if (p.pendingPayment) {
+  // 7. «Pendiente de pago» → COBRAR; «Reagendar» with a date → REUNION on that day (and time).
+  //    One OPEN task per lead, so the new task replaces the open one.
+  if (taskKind) {
     if (openTask) {
       await db.$executeRaw`
         UPDATE "FollowUpTask" SET "status" = 'CANCELED'
@@ -352,9 +360,9 @@ export async function applyProposedChange(db: Db, userId: string, changeId: stri
       `;
     }
     await db.$executeRaw`
-      INSERT INTO "FollowUpTask" ("id", "userId", "leadId", "dueDate", "kind", "note", "origin", "status", "createdAt", "proposedChangeId")
-      VALUES (gen_random_uuid()::text, ${userId}, ${p.leadId}, ${p.followDay ?? today}::date, 'COBRAR', ${PENDING_PAYMENT_LABEL},
-        'CONFIRM', 'OPEN', now(), ${changeId})
+      INSERT INTO "FollowUpTask" ("id", "userId", "leadId", "dueDate", "dueAt", "kind", "note", "origin", "status", "createdAt", "proposedChangeId")
+      VALUES (gen_random_uuid()::text, ${userId}, ${p.leadId}, ${p.followDay ?? today}::date, ${meetingAt}::timestamp, ${taskKind}::"TaskKind",
+        ${taskKind === "COBRAR" ? PENDING_PAYMENT_LABEL : null}, 'CONFIRM', 'OPEN', now(), ${changeId})
       ON CONFLICT ("leadId") WHERE "status" = 'OPEN' DO NOTHING
     `;
   }
@@ -371,6 +379,20 @@ export async function applyProposedChange(db: Db, userId: string, changeId: stri
   return { ok: true, changeId, leadId: p.leadId };
 }
 
+/** The task a confirmation creates: COBRAR for «pendiente de pago», REUNION for «Reagendar» with a date. */
+export function changeTask(p: Pick<ConfirmPayload, "pendingPayment" | "outcome" | "followDay">): "COBRAR" | "REUNION" | null {
+  if (p.pendingPayment) return "COBRAR";
+  if (p.outcome === "REAGENDAR" && p.followDay) return "REUNION";
+  return null;
+}
+
+/** The meeting as an instant when the brief gave a day AND a time (Bogotá), else null. */
+function meetingInstant(p: Pick<ConfirmPayload, "outcome" | "followDay" | "followTime">): string | null {
+  if (p.outcome !== "REAGENDAR" || !p.followDay || !p.followTime) return null;
+  const [h, m] = p.followTime.split(":").map(Number);
+  return ts(new Date(startOfDayInstant(p.followDay).getTime() + (h * 60 + m) * 60000));
+}
+
 async function recountAll(db: Db, userId: string, today: DayKey, undo: ConfirmUndo, leadId: string) {
   const offers = undo.offerIds.length ? undo.offerIds : [null];
   for (const offerId of offers) {
@@ -380,8 +402,10 @@ async function recountAll(db: Db, userId: string, today: DayKey, undo: ConfirmUn
 
 /**
  * «Deshacer»: puts back exactly what the change found. The sale is annulled
- * (ANULADO, out of every sum), the rows the change created are removed by its
- * id, the call goes back to «por confirmar» and every number is recounted.
+ * (ANULADO, out of every sum), the task it created is canceled, its history
+ * events get compensating UNDO events (never deleted), the call goes back to
+ * «por confirmar» and every number is recounted. A person the change created
+ * is removed (with its rows) unless another call was confirmed to them since.
  */
 export async function undoProposedChange(db: Db, userId: string, changeId: string, opts: WriteOpts = {}): Promise<ConfirmResult> {
   const now = opts.now ?? new Date();
@@ -404,7 +428,8 @@ export async function undoProposedChange(db: Db, userId: string, changeId: strin
     WHERE "userId" = ${userId} AND "proposedChangeId" = ${changeId} AND "status" = 'ACTIVO'
   `;
   await db.$executeRaw`
-    DELETE FROM "FollowUpTask" WHERE "leadId" = ${p.leadId} AND "proposedChangeId" = ${changeId} AND "userId" = ${userId}
+    UPDATE "FollowUpTask" SET "status" = 'CANCELED'
+    WHERE "leadId" = ${p.leadId} AND "proposedChangeId" = ${changeId} AND "userId" = ${userId} AND "status" = 'OPEN'
   `;
   if (u.prevOpenTaskId) {
     await db.$executeRaw`
@@ -413,9 +438,7 @@ export async function undoProposedChange(db: Db, userId: string, changeId: strin
         AND NOT EXISTS (SELECT 1 FROM "FollowUpTask" o WHERE o."leadId" = t."leadId" AND o."status" = 'OPEN')
     `;
   }
-  await db.$executeRaw`
-    DELETE FROM "LeadEvent" WHERE "leadId" = ${p.leadId} AND "proposedChangeId" = ${changeId} AND "userId" = ${userId}
-  `;
+  await compensateEvents(db, userId, { leadId: p.leadId, proposedChangeId: changeId }, now);
   await db.$executeRaw`
     UPDATE "Call" SET "state" = 'PENDING_CONFIRM', "outcome" = ${u.call.outcome}::"CallOutcome",
       "confirmedAt" = ${tsIso(u.call.confirmedAt)}::timestamp, "leadId" = ${u.call.leadId}, "offerId" = ${u.call.offerId}, "updatedAt" = now()
@@ -435,7 +458,7 @@ export async function undoProposedChange(db: Db, userId: string, changeId: strin
         "lostAt" = ${tsIso(l.lostAt)}::timestamp, "lostReason" = ${l.lostReason}, "lastCallId" = ${l.lastCallId},
         "lastCallAt" = ${tsIso(l.lastCallAt)}::timestamp, "lastContactAt" = ${tsIso(l.lastContactAt)}::timestamp,
         "nextContactAt" = ${tsIso(l.nextContactAt)}::timestamp, "nextMeetingAt" = ${tsIso(l.nextMeetingAt)}::timestamp,
-        "oneLine" = ${l.oneLine}, "whereLeft" = ${l.whereLeft}, "decider" = ${l.decider}, "offerId" = ${l.offerId},
+        "needsMeetingDate" = ${l.needsMeetingDate ?? false}, "oneLine" = ${l.oneLine}, "whereLeft" = ${l.whereLeft}, "decider" = ${l.decider}, "offerId" = ${l.offerId},
         "potentialCommission" = ${l.potentialCommission}::numeric, "currency" = ${l.currency}, "updatedAt" = now()
       WHERE "id" = ${p.leadId} AND "userId" = ${userId}
     `;

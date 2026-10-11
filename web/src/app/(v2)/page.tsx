@@ -11,6 +11,7 @@ import { getPrisma } from "@/lib/prisma";
 import { bogotaDay } from "@/lib/time/bogota";
 import { formatCents } from "@/lib/format/money";
 import { daysText, monthName } from "@/lib/format/goal";
+import { otherCurrencyNotes } from "@/lib/format/currency-note";
 import { V2Nav } from "@/components/v2/nav";
 import { IconCheck, IconChev, IconFlag, IconPhone, IconUpload } from "@/components/v2/icons";
 
@@ -61,6 +62,7 @@ export default async function HomePage() {
       )
     : null;
   const money = (c: number) => formatCents(c, goal?.currency ?? settings.currency);
+  const otherCurrency = otherCurrencyNotes(header.dealCurrencies ?? [], settings.currency);
 
   return (
     <>
@@ -96,6 +98,7 @@ export default async function HomePage() {
                     ? `Llegaste a tu meta · ${daysText(progress.daysLeft)}`
                     : `Te faltan ${money(progress.remaining)} · ${daysText(progress.daysLeft)}`}
               </div>
+              {otherCurrency.map((t) => <div className="hs other-cur" key={t}>{t}</div>)}
             </div>
             <Link className="link" href="/metas">Ver mi camino <IconChev /></Link>
           </div>

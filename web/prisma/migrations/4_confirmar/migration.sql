@@ -1,5 +1,7 @@
 -- PR 6 (confirmar): Deal (sale with frozen commission), CONFIRM_CALL changes with undo,
--- the task a change created (for «Deshacer»), and the count of calls set aside as internal.
+-- the task a change created (for «Deshacer»), the count of calls set aside as internal,
+-- compensating UNDO events (LeadEvent.undoneAt / undoneByEventId: nothing is deleted)
+-- and «Reagendar · sin fecha» (Lead.needsMeetingDate).
 -- CreateEnum
 CREATE TYPE "DealStatus" AS ENUM ('ACTIVO', 'ANULADO');
 
@@ -9,8 +11,18 @@ CREATE TYPE "PaymentMode" AS ENUM ('CONTADO', 'CUOTAS');
 -- AlterEnum
 ALTER TYPE "ChangeKind" ADD VALUE 'CONFIRM_CALL';
 
+-- AlterEnum
+ALTER TYPE "LeadEventType" ADD VALUE 'UNDO';
+
 -- AlterTable
 ALTER TABLE "FollowUpTask" ADD COLUMN     "proposedChangeId" TEXT;
+
+-- AlterTable
+ALTER TABLE "Lead" ADD COLUMN     "needsMeetingDate" BOOLEAN NOT NULL DEFAULT false;
+
+-- AlterTable
+ALTER TABLE "LeadEvent" ADD COLUMN     "undoneAt" TIMESTAMP(3),
+ADD COLUMN     "undoneByEventId" TEXT;
 
 -- AlterTable
 ALTER TABLE "UserCounters" ADD COLUMN     "ignoredCount" INTEGER NOT NULL DEFAULT 0;
@@ -49,6 +61,9 @@ CREATE UNIQUE INDEX "Deal_userId_proposedChangeId_key" ON "Deal"("userId", "prop
 CREATE INDEX "FollowUpTask_leadId_proposedChangeId_idx" ON "FollowUpTask"("leadId", "proposedChangeId");
 
 -- AddForeignKey
+ALTER TABLE "LeadEvent" ADD CONSTRAINT "LeadEvent_undoneByEventId_fkey" FOREIGN KEY ("undoneByEventId") REFERENCES "LeadEvent"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Deal" ADD CONSTRAINT "Deal_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -62,3 +77,4 @@ ALTER TABLE "Deal" ADD CONSTRAINT "Deal_callId_fkey" FOREIGN KEY ("callId") REFE
 
 -- AddForeignKey
 ALTER TABLE "Deal" ADD CONSTRAINT "Deal_proposedChangeId_fkey" FOREIGN KEY ("proposedChangeId") REFERENCES "ProposedChange"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+

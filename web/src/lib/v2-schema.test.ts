@@ -169,8 +169,12 @@ test("0_init + 1_ofertas + 2_metas + 3_ingesta + 4_confirmar, and 0_init carries
   assert.equal(/\bDROP\b/i.test(pr6), false);
   assert.match(pr6, /CREATE TABLE "Deal"/);
   assert.match(pr6, /ALTER TYPE "ChangeKind" ADD VALUE 'CONFIRM_CALL'/);
+  assert.match(pr6, /ALTER TYPE "LeadEventType" ADD VALUE 'UNDO'/);
   assert.deepEqual([...pr6.matchAll(/ADD COLUMN\s+"(\w+)" ([^,;\n]+)/g)].map((m) => `${m[1]} ${m[2].trim()}`), [
     "proposedChangeId TEXT",
+    "needsMeetingDate BOOLEAN NOT NULL DEFAULT false",
+    "undoneAt TIMESTAMP(3)",
+    "undoneByEventId TEXT",
     "ignoredCount INTEGER NOT NULL DEFAULT 0",
   ]);
   // 3_ingesta only adds: a table, an enum, nullable/defaulted columns; nothing dropped
