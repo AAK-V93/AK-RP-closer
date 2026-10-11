@@ -16,6 +16,8 @@ import {
   goalPath,
   goalProgress,
   meetingPace,
+  missingPerCloseLabel,
+  perCloseCommission,
   morePeople,
   openFollowUps,
   overdue,
@@ -25,7 +27,6 @@ import {
   sinceLastClose,
   sumInCurrency,
   toCents,
-  todayList,
   topBlocker,
   weekProgress,
   winRate,
@@ -189,8 +190,8 @@ test("goal path: rounding, mix, missing commission, pace", () => {
     { id: "f", name: "Fertilidad Consciente", perCloseCents: 30000 },
     { id: "x", name: "Sin comisión", perCloseCents: null },
   ];
-  const { paths, missingCommission } = goalPath(176000, offers, 6);
-  assert.deepEqual(missingCommission, ["Sin comisión"]);
+  const { paths, missing } = goalPath(176000, offers, 6);
+  assert.deepEqual(missing, [{ offerId: "x", offerName: "Sin comisión", reason: "COMMISSION" }]);
   assert.equal(paths.length, 3);
   assert.deepEqual(paths[0].closes, [{ offerId: "c", offerName: "Círculo Millonario", count: 2 }]);
   assert.equal(paths[0].meetings, 12);
@@ -199,17 +200,23 @@ test("goal path: rounding, mix, missing commission, pace", () => {
   assert.deepEqual(paths[2].closes, [{ offerId: "f", offerName: "Fertilidad Consciente", count: 6 }]);
   assert.equal(goalPath(176000, offers, null).paths[0].meetings, null); // «por confirmar»
   assert.deepEqual(goalPath(0, offers, 6).paths, []); // meta cumplida
-  assert.deepEqual(goalPath(100, [], 6), { paths: [], missingCommission: [] });
+  assert.deepEqual(goalPath(100, [], 6), { paths: [], missing: [] });
 });
 
-test("today order: due first, then commission, then fewer attempts", () => {
-  const rows = [
-    { id: "late", nextContactAt: null, potentialCommission: "5000", attemptsSinceLastCall: 0 },
-    { id: "dueSmall", nextContactAt: "2026-10-11T15:00:00Z", potentialCommission: "300", attemptsSinceLastCall: 1 },
-    { id: "dueBig", nextContactAt: "2026-10-09T15:00:00Z", potentialCommission: "900", attemptsSinceLastCall: 4 },
-    { id: "dueBig2", nextContactAt: "2026-10-10T15:00:00Z", potentialCommission: "900", attemptsSinceLastCall: 2 },
-    { id: "tomorrow", nextContactAt: "2026-10-12T15:00:00Z", potentialCommission: "900", attemptsSinceLastCall: 0 },
-  ];
-  assert.deepEqual(todayList(rows, "2026-10-11").map((r) => r.id), ["dueBig2", "dueBig", "dueSmall", "late", "tomorrow"]);
-  assert.deepEqual(todayList([], "2026-10-11"), []);
+test("PCT offer without cash price: «por confirmar», never from installments", () => {
+  const offer = {
+    commissionType: "PCT_SALE" as const,
+    commissionValue: "10",
+    priceCash: null,
+    installmentsCount: 3,
+    installmentAmount: "600",
+  };
+  assert.deepEqual(perCloseCommission(offer), { cents: null, missing: "PRICE" });
+  assert.deepEqual(perCloseCommission({ ...offer, commissionType: "PCT_CASH" }), { cents: null, missing: "PRICE" });
+  assert.deepEqual(perCloseCommission({ ...offer, priceCash: "1500" }), { cents: 15000, missing: null });
+  assert.deepEqual(perCloseCommission({ commissionType: null, commissionValue: null }), { cents: null, missing: "COMMISSION" });
+  const { paths, missing } = goalPath(100000, [{ id: "f", name: "Fertilidad Consciente", perCloseCents: null, missing: "PRICE" }], 6);
+  assert.deepEqual(paths, []);
+  assert.equal(missingPerCloseLabel(missing[0].reason, missing[0].offerName), "Falta el precio de contado de Fertilidad Consciente");
+  assert.equal(missingPerCloseLabel("COMMISSION", "Círculo"), "Falta tu comisión en Círculo");
 });

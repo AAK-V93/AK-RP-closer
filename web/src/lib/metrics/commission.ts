@@ -25,15 +25,29 @@ export function commissionForDeal(
   return Math.round((base * value) / 100 / 100);
 }
 
+export type PerClose =
+  | { cents: number; missing: null }
+  | { cents: null; missing: "COMMISSION" | "PRICE" };
+
 /**
  * Commission one more close of this offer would bring, for «en juego» and
- * «Tu camino». PCT_* use the cash price; null when something is missing
- * («Falta tu comisión en <oferta>»).
+ * «Tu camino». PCT_* use only the cash price: without priceCash it is
+ * «por confirmar» (missing PRICE), never computed from installments.
  */
-export function commissionPerClose(offer: OfferCommission): number | null {
+export function perCloseCommission(offer: OfferCommission): PerClose {
   const value = toCents(offer.commissionValue);
-  if (!offer.commissionType || value === null) return null;
-  if (offer.commissionType === "PER_CLOSE") return value;
+  if (!offer.commissionType || value === null) return { cents: null, missing: "COMMISSION" };
+  if (offer.commissionType === "PER_CLOSE") return { cents: value, missing: null };
   const price = toCents(offer.priceCash);
-  return price === null ? null : Math.round((price * value) / 100 / 100);
+  if (price === null) return { cents: null, missing: "PRICE" };
+  return { cents: Math.round((price * value) / 100 / 100), missing: null };
+}
+
+export function commissionPerClose(offer: OfferCommission): number | null {
+  return perCloseCommission(offer).cents;
+}
+
+/** What the screen says when a close of this offer cannot be valued. */
+export function missingPerCloseLabel(reason: "COMMISSION" | "PRICE", offerName: string) {
+  return reason === "PRICE" ? `Falta el precio de contado de ${offerName}` : `Falta tu comisión en ${offerName}`;
 }

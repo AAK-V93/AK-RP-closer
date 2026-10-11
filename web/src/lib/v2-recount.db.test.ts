@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { recount, recountCounters, recountLeadAttempts, recountMonthAll, recountMonthOffer } from "@/lib/write/recount";
-import { monthRange } from "@/lib/time/bogota";
+import { addDaysKey, bogotaDay, monthRange } from "@/lib/time/bogota";
 import { readPeoplePage, searchPeople } from "@/lib/read/people";
 import { readFicha, readFichaDetail } from "@/lib/read/ficha";
 import { readPending } from "@/lib/read/pending";
@@ -42,6 +42,8 @@ let userId = "";
 let otherUserId = "";
 let offerIds: string[] = [];
 const MONTHS = ["2026-09-01", "2026-10-01", "2026-11-01"];
+/** «hoy» for the counters: calls before Oct 6 (Bogotá) count as «decidiendo > 14 días» */
+const TODAY = "2026-10-20";
 // instants that sit right on the Bogotá month edges, plus ordinary ones
 const EDGE_TIMES = [
   "2026-09-01T04:59:00Z", "2026-09-01T05:00:00Z", "2026-09-15T17:00:00Z",
@@ -127,7 +129,7 @@ async function seed(owner: string, s: number) {
 /** From-scratch calculation in TypeScript over every row, independent of the SQL. */
 async function fromScratch(owner: string) {
   const [leads, calls, events, objections] = await Promise.all([
-    db.lead.findMany({ where: { userId: owner }, take: 1000, select: { id: true, name: true, status: true, offerId: true, closedAt: true, lostAt: true, lastCallAt: true, createdAt: true } }),
+    db.lead.findMany({ where: { userId: owner }, take: 1000, select: { id: true, name: true, status: true, offerId: true, closedAt: true, lostAt: true, lastCallAt: true, lastCallId: true, createdAt: true } }),
     db.call.findMany({ where: { userId: owner }, take: 1000, select: { id: true, offerId: true, state: true, outcome: true, recordedAt: true } }),
     db.leadEvent.findMany({ where: { userId: owner }, take: 1000, select: { id: true, leadId: true, type: true, at: true } }),
     db.callObjection.findMany({ where: { userId: owner }, take: 1000, select: { callId: true, label: true } }),
@@ -146,7 +148,14 @@ async function fromScratch(owner: string) {
   };
   const closed = leads.filter((l) => l.status === "CERRADO" && l.closedAt).sort((a, b) => b.closedAt!.getTime() - a.closedAt!.getTime() || (b.id > a.id ? 1 : -1));
   const lastClose = closed[0] ?? null;
-  const lost5 = calls.filter((c) => c.outcome === "PERDIDO").sort((a, b) => b.recordedAt.getTime() - a.recordedAt.getTime() || (b.id > a.id ? 1 : -1)).slice(0, 5);
+  // lost, or «decidiendo > 14 días»: lead in SEGUIMIENTO whose last call ended in SEGUIMIENTO
+  // more than 14 Bogotá days before TODAY
+  const deciding = new Set(
+    leads
+      .filter((l) => l.status === "SEGUIMIENTO" && l.lastCallId && l.lastCallAt && bogotaDay(l.lastCallAt) < addDaysKey(TODAY, -14))
+      .map((l) => l.lastCallId!),
+  );
+  const lost5 = calls.filter((c) => c.outcome === "PERDIDO" || (c.outcome === "SEGUIMIENTO" && deciding.has(c.id))).sort((a, b) => b.recordedAt.getTime() - a.recordedAt.getTime() || (b.id > a.id ? 1 : -1)).slice(0, 5);
   const hits = new Map<string, Set<string>>();
   for (const o of objections) if (lost5.some((c) => c.id === o.callId)) hits.set(o.label, (hits.get(o.label) ?? new Set()).add(o.callId));
   const top = [...hits.entries()].map(([label, s]) => ({ label, hits: s.size })).sort((a, b) => b.hits - a.hits || a.label.localeCompare(b.label, "en"))[0] ?? null;
@@ -174,7 +183,7 @@ async function storedMonth(owner: string, m: string, offerId: string | null) {
 async function recountAll(owner: string) {
   const s = await fromScratch(owner);
   for (const id of s.leadIds) await recountLeadAttempts(db, id);
-  await recountCounters(db, owner);
+  await recountCounters(db, owner, TODAY);
   for (const m of MONTHS) {
     await recountMonthAll(db, owner, m);
     if (owner === userId) for (const o of offerIds) await recountMonthOffer(db, owner, m, o);
@@ -221,7 +230,7 @@ test("(a) recount is idempotent and fixes itself after writes", { skip }, async 
   if (pending) await db.call.update({ where: { id: pending.id }, data: { state: "CONFIRMED", outcome: "SEGUIMIENTO" }, select: { id: true } });
 
   // only the touched scope is recounted (≤ 3 statements + the lead)
-  await recount(db, userId, { months: ["2026-10-01"], offerId: lead.offerId, leadId: lead.id });
+  await recount(db, userId, { today: TODAY, months: ["2026-10-01"], offerId: lead.offerId, leadId: lead.id });
   for (const m of ["2026-09-01", "2026-11-01"]) {
     await recountMonthAll(db, userId, m);
     for (const o of offerIds) await recountMonthOffer(db, userId, m, o);
@@ -247,7 +256,7 @@ test("readers: bounded, scoped to the user, plain JSON", { skip }, async () => {
   );
   assert.equal(typeof header.stats?.commissionEarned, "string");
 
-  const today = await readTodayList(db, userId);
+  const today = await readTodayList(db, userId, TODAY);
   assert.ok(today.length <= 5);
   assert.ok(today.every((r) => r.status === "SEGUIMIENTO"));
 
@@ -296,4 +305,77 @@ test("readers: bounded, scoped to the user, plain JSON", { skip }, async () => {
 
   // JSON round trip (what unstable_cache does) keeps the same shape
   for (const value of [header, today, ficha, pending]) assert.deepEqual(JSON.parse(JSON.stringify(value)), value);
+});
+
+async function freshUser(tag: string) {
+  return (await db.user.create({ data: { email: `${tag}-${Date.now()}@example.test` }, select: { id: true } })).id;
+}
+
+test("A: «A quién escribirle hoy» — due first, highest commission beats oldest", { skip }, async () => {
+  const owner = await freshUser("today");
+  const mk = (name: string, next: string | null, commission: string | null, status: "SEGUIMIENTO" | "CERRADO" = "SEGUIMIENTO") =>
+    db.lead.create({
+      data: { userId: owner, name, nameNorm: name.toLowerCase(), status, nextContactAt: next ? new Date(next) : null, potentialCommission: commission },
+      select: { id: true },
+    });
+  // 7 due (overdue or today, Bogotá): the oldest has the lowest commission
+  await mk("Vieja", "2026-09-01T15:00:00Z", "100");
+  await mk("Uno", "2026-10-15T15:00:00Z", "900");
+  await mk("Dos", "2026-10-16T15:00:00Z", "700");
+  await mk("Tres", "2026-10-17T15:00:00Z", "700");
+  await mk("Cuatro", "2026-10-18T15:00:00Z", "500");
+  await mk("Cinco", "2026-10-21T04:59:00Z", "300"); // 23:59 of Oct 20 in Bogotá: today
+  await mk("SinMonto", "2026-10-10T15:00:00Z", null);
+  // not due: no date, or tomorrow — even with a bigger commission they come after
+  await mk("SinFecha", null, "5000");
+  await mk("Mañana", "2026-10-21T05:00:00Z", "4000");
+  await mk("Cerrada", "2026-09-01T15:00:00Z", "9000", "CERRADO");
+
+  const rows = await readTodayList(db, owner, TODAY);
+  assert.deepEqual(rows.map((r) => r.name), ["Uno", "Dos", "Tres", "Cuatro", "Cinco"]);
+  assert.ok(!rows.some((r) => r.name === "Vieja"), "the oldest overdue loses to higher commissions");
+
+  // with only two due, the rest follow in commission order (no date and future mixed)
+  const few = await freshUser("today-few");
+  for (const [name, next, c] of [
+    ["Hoy", "2026-10-20T15:00:00Z", "10"],
+    ["Ayer", "2026-10-19T15:00:00Z", null],
+    ["SinFecha", null, "5000"],
+    ["Mañana", "2026-10-21T15:00:00Z", "4000"],
+    ["SinNada", null, null],
+  ] as const) {
+    await db.lead.create({ data: { userId: few, name, nameNorm: name.toLowerCase(), nextContactAt: next ? new Date(next) : null, potentialCommission: c } });
+  }
+  assert.deepEqual((await readTodayList(db, few, TODAY)).map((r) => r.name), ["Hoy", "Ayer", "SinFecha", "Mañana", "SinNada"]);
+});
+
+test("B: topBlocker counts «decidiendo > 14 días» only for leads still in SEGUIMIENTO", { skip }, async () => {
+  const owner = await freshUser("deciding");
+  await db.userCounters.create({ data: { userId: owner } });
+  const lead = async (name: string, status: "SEGUIMIENTO" | "PERDIDO", callAt: string, outcome: "SEGUIMIENTO" | "PERDIDO", label: string) => {
+    const l = await db.lead.create({ data: { userId: owner, name, nameNorm: name.toLowerCase(), status }, select: { id: true } });
+    const at = new Date(callAt);
+    const call = await db.call.create({
+      data: { userId: owner, leadId: l.id, source: "UPLOAD", sourceId: `${l.id}-1`, title: "Llamada", recordedAt: at, state: "CONFIRMED", outcome },
+      select: { id: true },
+    });
+    await db.callObjection.create({ data: { userId: owner, callId: call.id, leadId: l.id, label, at } });
+    await db.lead.update({ where: { id: l.id }, data: { lastCallId: call.id, lastCallAt: at }, select: { id: true } });
+  };
+  // 15 Bogotá days before Oct 20 → deciding
+  await lead("A", "SEGUIMIENTO", "2026-10-05T20:00:00Z", "SEGUIMIENTO", "Lo tengo que consultar");
+  await lead("B", "SEGUIMIENTO", "2026-10-06T04:00:00Z", "SEGUIMIENTO", "Lo tengo que consultar"); // Oct 5, 23:00 Bogotá
+  // exactly 14 days → not yet
+  await lead("C", "SEGUIMIENTO", "2026-10-06T15:00:00Z", "SEGUIMIENTO", "Es caro");
+  await lead("D", "SEGUIMIENTO", "2026-10-06T16:00:00Z", "SEGUIMIENTO", "Es caro");
+  await lead("E", "SEGUIMIENTO", "2026-10-06T17:00:00Z", "SEGUIMIENTO", "Es caro");
+  // lost lead with a SEGUIMIENTO call: not deciding
+  await lead("F", "PERDIDO", "2026-09-01T15:00:00Z", "SEGUIMIENTO", "Es caro");
+  await recountCounters(db, owner, TODAY);
+  const c = await db.userCounters.findUnique({ where: { userId: owner }, select: { topObjectionLabel: true, topObjectionHits: true, topObjectionOf: true } });
+  assert.deepEqual(c, { topObjectionLabel: "Lo tengo que consultar", topObjectionHits: 2, topObjectionOf: 2 });
+  // one day later C, D, E cross 14 days and take over
+  await recountCounters(db, owner, "2026-10-21");
+  const later = await db.userCounters.findUnique({ where: { userId: owner }, select: { topObjectionLabel: true, topObjectionHits: true, topObjectionOf: true } });
+  assert.deepEqual(later, { topObjectionLabel: "Es caro", topObjectionHits: 3, topObjectionOf: 5 });
 });

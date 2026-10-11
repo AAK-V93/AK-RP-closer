@@ -8,4 +8,4 @@ export * from "./commission";
 export * from "./followup";
 export * from "./results";
 export * from "./goal";
-export * from "./today";
+export * from "./offer";

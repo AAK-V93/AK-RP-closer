@@ -147,6 +147,8 @@ model User {
   offers            Offer[]
   scripts           Script[]
   successCases      SuccessCase[]
+  caseSources       OfferCaseSource[]
+  driveConnection   GoogleDriveConnection?
   leads             Lead[]
   calls             Call[]
   callTranscripts   CallTranscript[]
@@ -178,6 +180,18 @@ model FathomConnection {
   @@index([webhookToken])
 }
 
+/// Google Drive with scope drive.file only (files the person picks in the
+/// Picker). Its own consent and refresh token; Calendar is not touched.
+model GoogleDriveConnection {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenEnc String
+  scope           String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
 // ---------- Offers ----------
 
 model Offer {
@@ -198,6 +212,7 @@ model Offer {
 
   scripts        Script[]
   successCases   SuccessCase[]
+  caseSources    OfferCaseSource[]
   leads          Lead[]
   calls          Call[]
   callObjections CallObjection[]
@@ -226,22 +241,69 @@ model Script {
   @@index([userId, offerId])
 }
 
-model SuccessCase {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offerId     String
-  offer       Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
-  name        String
-  profile     String?
-  before      String?
-  after       String?
-  quote       String?
-  videoUrl    String?
-  durationSec Int?
-  tags        String[]
-  createdAt   DateTime @default(now())
+/// A link where an offer's success cases live (sheet or YouTube).
+/// contentHash = what the source looked like at the last read; same hash → no model call.
+model OfferCaseSource {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offerId      String
+  offer        Offer            @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  rawUrl       String
+  kind         CaseSourceKind
+  access       CaseSourceAccess @default(PUBLIC_LINK)
+  /// sheet: spreadsheet id (+ gid); YouTube: playlist, channel or video id
+  externalId   String
+  title        String?
+  contentHash  String?
+  status       CaseSourceStatus @default(PENDING)
+  lastSyncedAt DateTime?
+  lastError    String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
+  cases SuccessCase[]
+
+  @@unique([offerId, externalId])
+  @@index([userId, offerId])
+}
+
+/// A success case. *Extracted = what the app read from the source (re-sync may
+/// rewrite it); *User = the person's correction (null = show the extracted one;
+/// re-sync never touches it). Not suggested anywhere until confirmedAt is set.
+model SuccessCase {
+  id                  String           @id @default(cuid())
+  userId              String
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offerId             String
+  offer               Offer            @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  sourceId            String?
+  source              OfferCaseSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  /// yt:<videoId>, a normalized link, or row:<hash of name + link>; manual:<id> when typed by hand
+  externalKey         String
+  nameExtracted       String           @default("")
+  profileExtracted    String?
+  beforeExtracted     String?
+  resultExtracted     String?
+  quoteExtracted      String?
+  mediaUrlExtracted   String?
+  /// the exact text the case was read from; figures in results must appear here
+  sourceSnippet       String?
+  nameUser            String?
+  profileUser         String?
+  beforeUser          String?
+  resultUser          String?
+  quoteUser           String?
+  mediaUrlUser        String?
+  durationSec         Int?
+  tags                String[]
+  confirmedAt         DateTime?
+  dismissed           Boolean          @default(false)
+  missingFromSourceAt DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([offerId, externalKey])
   @@index([userId, offerId])
 }
 
@@ -516,4 +578,23 @@ model PushSubscription {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+}
+
+enum CaseSourceKind {
+  SHEET
+  YOUTUBE_PLAYLIST
+  YOUTUBE_CHANNEL
+  YOUTUBE_VIDEO
+}
+
+enum CaseSourceAccess {
+  PUBLIC_LINK
+  DRIVE_PICKER
+}
+
+enum CaseSourceStatus {
+  PENDING
+  READY
+  NEEDS_ACCESS
+  ERROR
 }
