@@ -49,5 +49,15 @@ export const WRITE_EFFECTS = {
   ingestCall: (): WriteEffect => ({ pending: true, practice: true, stats: true }),
   applyProposedChange: (leadId: string | null): WriteEffect => ({ stats: true, leads: true, pending: true, leadIds: leadId ? [leadId] : [] }),
   setGoal: (): WriteEffect => ({ goal: true }),
-  upsertOffer: (): WriteEffect => ({ offers: true }),
+  // Mis ofertas (PR 3). Commission/price change Lead.potentialCommission: lists, Hoy and Metas.
+  upsertOffer: (): WriteEffect => ({ offers: true, leads: true, goal: true }),
+  archiveOffer: (): WriteEffect => ({ offers: true, leads: true, goal: true }),
+  upsertScript: (): WriteEffect => ({ offers: true }),
+  deleteScript: (): WriteEffect => ({ offers: true }),
+  addCaseSources: (): WriteEffect => ({ offers: true }),
+  addDriveSheet: (): WriteEffect => ({ offers: true }),
+  syncCaseSource: (): WriteEffect => ({ offers: true }),
+  saveCaseReview: (): WriteEffect => ({ offers: true }),
+  addManualCase: (): WriteEffect => ({ offers: true }),
+  saveDriveConnection: (): WriteEffect => ({ offers: true }),
 } as const;

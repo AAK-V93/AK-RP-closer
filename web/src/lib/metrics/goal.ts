@@ -39,7 +39,13 @@ export function closestToGoal<T extends StakeLead>(leads: T[], currency: string,
     .slice(0, n);
 }
 
-export type PathOffer = { id: string; name: string; perCloseCents: number | null };
+export type PathOffer = {
+  id: string;
+  name: string;
+  perCloseCents: number | null;
+  /** why perCloseCents is null (from perCloseCommission); default COMMISSION */
+  missing?: "COMMISSION" | "PRICE" | null;
+};
 export type GoalPath = {
   closes: Array<{ offerId: string; offerName: string; count: number }>;
   commissionCents: number;
@@ -49,16 +55,19 @@ export type GoalPath = {
 
 /**
  * Tu camino: falta = meta − comisión ganada. At most 3 paths: the highest
- * commission offer, a mix, and the other offer. Offers without a known
- * commission go to `missingCommission` («Falta tu comisión en <oferta>»).
+ * commission offer, a mix, and the other offer. Offers that cannot be valued
+ * go to `missing` with the reason: «Falta tu comisión en <oferta>» or
+ * «Falta el precio de contado de <oferta>» (see missingPerCloseLabel).
  */
 export function goalPath(remainingCents: number, offers: PathOffer[], pace: number | null) {
   const known = offers
     .filter((o) => o.perCloseCents !== null && o.perCloseCents > 0)
     .sort((a, b) => b.perCloseCents! - a.perCloseCents! || a.name.localeCompare(b.name));
-  const missingCommission = offers.filter((o) => o.perCloseCents === null).map((o) => o.name);
+  const missing = offers
+    .filter((o) => o.perCloseCents === null)
+    .map((o) => ({ offerId: o.id, offerName: o.name, reason: o.missing ?? ("COMMISSION" as const) }));
   const paths: GoalPath[] = [];
-  if (remainingCents <= 0 || known.length === 0) return { paths, missingCommission };
+  if (remainingCents <= 0 || known.length === 0) return { paths, missing };
 
   const make = (closes: GoalPath["closes"]): GoalPath => {
     const total = closes.reduce((n, c) => n + c.count, 0);
@@ -85,5 +94,5 @@ export function goalPath(remainingCents: number, offers: PathOffer[], pace: numb
     }
     paths.push(only(second));
   }
-  return { paths: paths.slice(0, 3), missingCommission };
+  return { paths: paths.slice(0, 3), missing };
 }

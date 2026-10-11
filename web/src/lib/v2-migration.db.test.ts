@@ -42,7 +42,7 @@ function prismaCli(args: string[], env: Record<string, string> = {}) {
   });
 }
 
-test("0_init applies to an empty database and matches schema.prisma", { skip }, async () => {
+test("migrations apply to an empty database and matches schema.prisma", { skip }, async () => {
   const db = prisma();
   await db.$executeRawUnsafe(`DROP SCHEMA IF EXISTS public CASCADE`);
   await db.$executeRawUnsafe(`CREATE SCHEMA public`);
@@ -137,8 +137,12 @@ test("one OPEN follow-up per lead, one all-offers stats row per month", { skip }
     assert.equal(after?.lastCallId, null);
     await db.lead.update({ where: { id: lead.id }, data: { lastCallId: null } });
 
-    // A success case only needs a name.
-    await db.successCase.create({ data: { userId: user.id, offerId: offer.id, name: "Ana" } });
+    // A success case only needs its key; one case per (offer, key).
+    await db.successCase.create({ data: { userId: user.id, offerId: offer.id, externalKey: "manual:ana", nameUser: "Ana" } });
+    await assert.rejects(
+      db.successCase.create({ data: { userId: user.id, offerId: offer.id, externalKey: "manual:ana" } }),
+      /Unique constraint/,
+    );
 
     // Leads start in SEGUIMIENTO with zero attempts; nothing is invented.
     const fresh = await db.lead.findUnique({

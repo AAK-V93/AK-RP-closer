@@ -8,7 +8,7 @@
 // and these statements do not touch them. When they arrive they sum only
 // amounts in User.currency (other currencies are «por confirmar»).
 import type { PrismaClient } from "@prisma/client";
-import { type DayKey, BOGOTA, bogotaMonth, monthRange } from "@/lib/time/bogota";
+import { type DayKey, BOGOTA, addDaysKey, monthRange, startOfDayInstant } from "@/lib/time/bogota";
 
 type Db = Pick<PrismaClient, "$executeRaw">;
 
@@ -88,11 +88,18 @@ export async function recountMonthOffer(db: Db, userId: string, month: DayKey, o
   `;
 }
 
+/** «decidiendo» = still in follow-up after a call that ended in SEGUIMIENTO more than this many local days ago. */
+export const DECIDING_DAYS = 14;
+
 /**
  * UserCounters for the user: banner, «en seguimiento», último cierre,
- * llamadas desde el último cierre and the top objection of the last 5 lost calls.
+ * llamadas desde el último cierre and the top objection of the last 5
+ * lost-or-deciding calls. A deciding call (Arquitectura, PR 2 review) is the
+ * last call of a lead in SEGUIMIENTO whose outcome was SEGUIMIENTO and whose
+ * Bogotá day is more than 14 days before `today`.
  */
-export async function recountCounters(db: Db, userId: string) {
+export async function recountCounters(db: Db, userId: string, today: DayKey, timeZone = BOGOTA) {
+  const decidingBefore = ts(startOfDayInstant(addDaysKey(today, -DECIDING_DAYS), timeZone));
   return db.$executeRaw`
     WITH last_close AS (
       SELECT l."closedAt", l.name FROM "Lead" l
@@ -100,7 +107,16 @@ export async function recountCounters(db: Db, userId: string) {
       ORDER BY l."closedAt" DESC, l.id DESC LIMIT 1
     ), lost AS (
       SELECT c.id FROM "Call" c
-      WHERE c."userId" = ${userId} AND c.outcome = 'PERDIDO'
+      WHERE c."userId" = ${userId}
+        AND (
+          c.outcome = 'PERDIDO'
+          OR (c.outcome = 'SEGUIMIENTO' AND c.id IN (
+            SELECT l."lastCallId" FROM "Lead" l
+            WHERE l."userId" = ${userId} AND l.status = 'SEGUIMIENTO'
+              AND l."lastCallId" IS NOT NULL
+              AND l."lastCallAt" < ${decidingBefore}::timestamp
+          ))
+        )
       ORDER BY c."recordedAt" DESC, c.id DESC LIMIT 5
     ), top_obj AS (
       SELECT o.label, count(DISTINCT o."callId")::int AS hits
@@ -136,6 +152,8 @@ export async function recountCounters(db: Db, userId: string) {
 }
 
 export type RecountScope = {
+  /** local day of the write (from lib/time/bogota) */
+  today: DayKey;
   /** months touched by the write (YYYY-MM-01); default: the current one */
   months?: DayKey[];
   /** offer of the touched rows, for the per-offer stats row */
@@ -143,7 +161,6 @@ export type RecountScope = {
   /** lead whose attempt counter changed */
   leadId?: string | null;
   timeZone?: string;
-  now?: Date;
 };
 
 /**
@@ -151,11 +168,11 @@ export type RecountScope = {
  * UserCounters and, if given, the lead's attempt counter. Sequential single
  * statements; each is idempotent, so a retry is always safe.
  */
-export async function recount(db: Db, userId: string, scope: RecountScope = {}) {
+export async function recount(db: Db, userId: string, scope: RecountScope) {
   const tz = scope.timeZone ?? BOGOTA;
-  const months = [...new Set(scope.months?.length ? scope.months : [bogotaMonth(scope.now ?? new Date(), tz)])];
+  const months = [...new Set(scope.months?.length ? scope.months : [`${scope.today.slice(0, 7)}-01`])];
   if (scope.leadId) await recountLeadAttempts(db, scope.leadId);
-  await recountCounters(db, userId);
+  await recountCounters(db, userId, scope.today, tz);
   for (const month of months) {
     await recountMonthAll(db, userId, month, tz);
     if (scope.offerId) await recountMonthOffer(db, userId, month, scope.offerId, tz);

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { tags, tagsForWrite, WRITE_EFFECTS } from "@/lib/read/tags";
+import { REVALIDATE, tags, tagsForWrite, WRITE_EFFECTS, type WriteEffect } from "@/lib/read/tags";
 import { invalidate } from "@/lib/write/invalidate";
 
 const SRC = path.resolve(__dirname, "..");
@@ -140,16 +140,95 @@ test("tags are per user and writes invalidate the right ones", () => {
   assert.deepEqual(tagsForWrite("u1", WRITE_EFFECTS.setGoal()), ["u:u1:goal"]);
   const seen: string[] = [];
   invalidate("u2", WRITE_EFFECTS.upsertOffer(), (t) => seen.push(t));
-  assert.deepEqual(seen, ["u:u2:offers"]);
+  assert.deepEqual(seen.sort(), ["u:u2:goal", "u:u2:leads", "u:u2:offers"]); // commission moves potentialCommission
 });
 
 test("every cached reader is tagged per user and uses a lib/read reader", () => {
-  const code = readFileSync(path.join(SRC, "lib/read/cached.ts"), "utf8");
-  const wrappers = [...code.matchAll(/unstable_cache\(([\s\S]*?)\)\(\)/g)].map((m) => m[1]);
-  assert.ok(wrappers.length >= 8);
+  const code = stripComments(readFileSync(path.join(SRC, "lib/read/cached.ts"), "utf8"));
+  const wrappers = [...code.matchAll(/cachedRead\(\s*("[\w-]+"[\s\S]*?)\n\s*\);?\n/g)].map((m) => m[1]);
+  assert.ok(wrappers.length >= 11, `found ${wrappers.length}`);
   for (const w of wrappers) {
     assert.match(w, /tags: \[tags\.\w+\(userId/);
     assert.match(w, /revalidate: REVALIDATE\.(today|safety)/);
-    assert.match(w, /\[\s*"[\w-]+",\s*userId/); // key includes userId
+    assert.match(w, /^"[\w-]+",\s*\[userId/); // key includes userId
+  }
+});
+
+test("D: every read that depends on «hoy» has the Bogotá day in its key and 600 s", () => {
+  const code = stripComments(readFileSync(path.join(SRC, "lib/read/cached.ts"), "utf8"));
+  const wrappers = [...code.matchAll(/export const (\w+) = \(([^)]*)\) =>\s*cachedRead\(([\s\S]*?)\n\s*\);?\n/g)];
+  // readers whose result changes with the date (today list, month header)
+  const todayReaders = ["readTodayList", "readTodayHeader"];
+  let checked = 0;
+  for (const [, name, params, body] of wrappers) {
+    if (!todayReaders.some((r) => body.includes(r))) continue;
+    checked += 1;
+    assert.match(params, /today: DayKey/, `${name} takes today`);
+    assert.match(body, /\[userId, today\b/, `${name} keys by today`);
+    assert.match(body, /REVALIDATE\.today/, `${name} expires in 600 s`);
+  }
+  assert.equal(checked, 2);
+  assert.equal(REVALIDATE.today, 600);
+  // and the today list never asks the server clock
+  const today = stripComments(readFileSync(path.join(SRC, "lib/read/today.ts"), "utf8"));
+  assert.doesNotMatch(today, /new Date\(\)|Date\.now\(\)/);
+});
+
+test("E: cache hits are logged in previews", () => {
+  const code = readFileSync(path.join(SRC, "lib/read/cached.ts"), "utf8");
+  assert.match(code, /VERCEL_ENV === "preview"/);
+  assert.match(code, /\[cache\] \$\{name\} \$\{missed \? "miss" : "hit"\}/);
+});
+
+// ---------- D: every write invalidates what WRITE_EFFECTS says ----------
+
+/** Exported functions in lib/write that are helpers, not write points. */
+const WRITE_HELPERS = new Set([
+  "invalidate", "createUserCounters", "toOneLine", "parseAmount", "validateOffer",
+  "recount", "recountLeadAttempts", "recountMonthAll", "recountMonthOffer", "recountCounters",
+]);
+
+function writeFunctions(code: string) {
+  const clean = stripComments(code);
+  const out: Array<{ name: string; body: string }> = [];
+  const re = /^export (?:async )?function (\w+)/gm;
+  const starts = [...clean.matchAll(re)];
+  starts.forEach((m, i) => {
+    const end = starts[i + 1]?.index ?? clean.length;
+    out.push({ name: m[1], body: clean.slice(m.index, end) });
+  });
+  return out;
+}
+
+function writeViolations(code: string, effects: Record<string, unknown>) {
+  const bad: string[] = [];
+  for (const fn of writeFunctions(code)) {
+    if (WRITE_HELPERS.has(fn.name)) continue;
+    if (!(fn.name in effects)) bad.push(`${fn.name}: no WRITE_EFFECTS.${fn.name}`);
+    else if (!new RegExp(`invalidate\\(userId, WRITE_EFFECTS\\.${fn.name}\\(`).test(fn.body)) {
+      bad.push(`${fn.name}: does not call invalidate(userId, WRITE_EFFECTS.${fn.name}(…))`);
+    }
+  }
+  return bad;
+}
+
+test("guard D catches a write that forgets its tags", () => {
+  const effects = { saveThing: 1 };
+  assert.deepEqual(writeViolations(`export async function saveThing(db, userId) { await db.x.update(); }`, effects), [
+    "saveThing: does not call invalidate(userId, WRITE_EFFECTS.saveThing(…))",
+  ]);
+  assert.deepEqual(writeViolations(`export async function other(db, userId) { invalidate(userId, WRITE_EFFECTS.saveThing()); }`, effects), [
+    "other: no WRITE_EFFECTS.other",
+  ]);
+  assert.deepEqual(writeViolations(`export async function saveThing(db, userId) { invalidate(userId, WRITE_EFFECTS.saveThing(), r); }`, effects), []);
+});
+
+test("D: every write function in lib/write calls the revalidateTag set of WRITE_EFFECTS", () => {
+  const files = walk(path.join(SRC, "lib/write")).filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f));
+  const bad = files.flatMap((f) => writeViolations(readFileSync(f, "utf8"), WRITE_EFFECTS).map((v) => `${rel(f)} ${v}`));
+  assert.deepEqual(bad, []);
+  // and every WRITE_EFFECTS entry yields tags (no empty effect)
+  for (const [name, fn] of Object.entries(WRITE_EFFECTS)) {
+    assert.ok(tagsForWrite("u1", (fn as (a: string) => WriteEffect)("l1")).length > 0, name);
   }
 });

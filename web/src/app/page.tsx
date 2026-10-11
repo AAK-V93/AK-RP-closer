@@ -25,6 +25,9 @@ export default async function HomePage() {
                 Estamos armando la versión nueva. Aquí vas a ver a quién escribirle hoy y
                 cómo vas con tu meta.
               </p>
+              <Button asChild variant="primary">
+                <Link href="/ofertas">Arma tus ofertas</Link>
+              </Button>
             </>
           ) : (
             <>

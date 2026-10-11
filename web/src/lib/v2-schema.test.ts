@@ -34,10 +34,12 @@ const PR1_MODELS = [
   "UserCounters",
   "PracticeSession",
   "PushSubscription",
-].sort();
+];
+// PR 3 (Mis ofertas): success-case sources and the Drive connection.
+const PR3_MODELS = ["OfferCaseSource", "GoogleDriveConnection"];
 
-test("schema has exactly the PR 1 models", () => {
-  assert.deepEqual(models(schema).map((m) => m.name).sort(), PR1_MODELS);
+test("schema has exactly the PR 1 + PR 3 models", () => {
+  assert.deepEqual(models(schema).map((m) => m.name).sort(), [...PR1_MODELS, ...PR3_MODELS].sort());
 });
 
 test("old tables and later-PR tables are not in the schema", () => {
@@ -86,6 +88,9 @@ test("every index starts with userId or leadId", () => {
       if (m.name === "FathomConnection" && first === "webhookToken") continue;
       // Arquitectura: Lead.lastCallId is a normal FK with its own index.
       if (m.name === "Lead" && first === "lastCallId") continue;
+      // Success-case design: one row per (offer, source) and per (offer, case).
+      if (m.name === "OfferCaseSource" && idx[0] === "@@unique([offerId") continue;
+      if (m.name === "SuccessCase" && idx[0] === "@@unique([offerId") continue;
       assert.ok(first === "userId" || first === "leadId", `${m.name}: ${idx[0]}`);
     }
   }
@@ -121,10 +126,17 @@ test("fields decided with Arquitectura", () => {
   assert.match(body("Lead"), /@@index\(\[lastCallId\]\)/);
   assert.match(body("FollowUpTask"), /^\s+dueDate\s+DateTime\s+@db\.Date/m);
   assert.match(body("FollowUpTask"), /^\s+dueAt\s+DateTime\?/m);
-  assert.match(body("SuccessCase"), /^\s+name\s+String\s*$/m);
-  for (const f of ["profile", "before", "after", "quote"]) {
-    assert.match(body("SuccessCase"), new RegExp(`^\\s+${f}\\s+String\\?`, "m"), f);
+  // success-case design: what the app read vs what the person corrected
+  for (const f of ["profile", "before", "result", "quote", "mediaUrl"]) {
+    assert.match(body("SuccessCase"), new RegExp(`^\\s+${f}Extracted\\s+String\\?`, "m"), f);
+    assert.match(body("SuccessCase"), new RegExp(`^\\s+${f}User\\s+String\\?`, "m"), f);
   }
+  for (const f of ["externalKey\\s+String", "sourceSnippet\\s+String\\?", "confirmedAt\\s+DateTime\\?", "dismissed\\s+Boolean\\s+@default\\(false\\)", "missingFromSourceAt\\s+DateTime\\?"]) {
+    assert.match(body("SuccessCase"), new RegExp(`^\\s+${f}`, "m"), f);
+  }
+  assert.match(body("SuccessCase"), /@@unique\(\[offerId, externalKey\]\)/);
+  assert.match(body("OfferCaseSource"), /@@unique\(\[offerId, externalId\]\)/);
+  assert.match(body("OfferCaseSource"), /^\s+contentHash\s+String\?/m);
   assert.match(body("Offer"), /commissionType\s+CommissionType\?/);
   assert.match(body("Call"), /briefVersion\s+Int\s+@default\(0\)/);
   assert.match(body("Call"), /oneLine\s+String\?\s+@db\.VarChar\(140\)/);
@@ -145,11 +157,15 @@ test("statuses are Prisma enums, not free strings", () => {
   assert.equal(field("FathomConnection", "backfillStatus"), "BackfillStatus");
 });
 
-test("0_init is the only migration and carries the two partial unique indexes", () => {
+test("0_init + 1_ofertas, and 0_init carries the two partial unique indexes", () => {
   const dirs = readdirSync(path.join(WEB, "prisma/migrations")).filter((d) =>
     statSync(path.join(WEB, "prisma/migrations", d)).isDirectory(),
   );
-  assert.deepEqual(dirs, ["0_init"]);
+  assert.deepEqual(dirs.sort(), ["0_init", "1_ofertas"]);
+  const pr3 = read("prisma/migrations/1_ofertas/migration.sql");
+  // drops old SuccessCase columns only when the table is empty
+  assert.match(pr3, /IF EXISTS \(SELECT 1 FROM "SuccessCase"\) THEN\s+RAISE EXCEPTION/);
+  assert.equal(/CONCURRENTLY/i.test(pr3), false);
   assert.match(
     migration,
     /CREATE UNIQUE INDEX "FollowUpTask_leadId_open_key" ON "FollowUpTask"\("leadId"\) WHERE "status" = 'OPEN';/,

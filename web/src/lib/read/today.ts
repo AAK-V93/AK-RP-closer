@@ -1,7 +1,7 @@
 // Hoy (plan 2.1): stats of the month, counters and 5 people. Goal reading
 // arrives with MonthlyGoal in PR 4.
-import type { DayKey } from "@/lib/time/bogota";
-import { dateOnly } from "@/lib/time/bogota";
+import type { Prisma } from "@prisma/client";
+import { type DayKey, BOGOTA, dateOnly, dayRange } from "@/lib/time/bogota";
 import { type Db, amount, iso } from "./dto";
 
 export async function readTodayHeader(db: Db, userId: string, month: DayKey) {
@@ -79,13 +79,35 @@ export type PersonRow = ReturnType<typeof personRow>;
 
 export const TODAY_TAKE = 5;
 
-/** The 5 rows of «A quién escribirle hoy»; order them with todayList() from lib/metrics. */
-export async function readTodayList(db: Db, userId: string) {
-  const rows = await db.lead.findMany({
-    where: { userId, status: "SEGUIMIENTO" },
-    orderBy: [{ nextContactAt: { sort: "asc", nulls: "last" } }, { potentialCommission: { sort: "desc", nulls: "last" } }, { id: "asc" }],
-    take: TODAY_TAKE,
-    select: PERSON_ROW_SELECT,
-  });
-  return rows.map(personRow);
+const TODAY_ORDER = [
+  { potentialCommission: { sort: "desc", nulls: "last" } },
+  { attemptsSinceLastCall: "asc" },
+  { id: "asc" },
+] as const satisfies Prisma.LeadOrderByWithRelationInput[];
+
+/**
+ * «A quién escribirle hoy», ordered by the database (Arquitectura, PR 2 review):
+ * 1. due today or earlier (nextContactAt before the end of `today` in Bogotá),
+ * 2. then everyone else (later dates or no date),
+ * and inside each group: potentialCommission DESC NULLS LAST, attempts ASC, id.
+ * `today` comes from lib/time/bogota, never from the server clock here.
+ * Two bounded queries in parallel (take 5 each) instead of raw SQL.
+ */
+export async function readTodayList(db: Db, userId: string, today: DayKey, timeZone = BOGOTA) {
+  const endOfToday = dayRange(today, timeZone).end;
+  const [due, rest] = await Promise.all([
+    db.lead.findMany({
+      where: { userId, status: "SEGUIMIENTO", nextContactAt: { lt: endOfToday } },
+      orderBy: [...TODAY_ORDER],
+      take: TODAY_TAKE,
+      select: PERSON_ROW_SELECT,
+    }),
+    db.lead.findMany({
+      where: { userId, status: "SEGUIMIENTO", OR: [{ nextContactAt: null }, { nextContactAt: { gte: endOfToday } }] },
+      orderBy: [...TODAY_ORDER],
+      take: TODAY_TAKE,
+      select: PERSON_ROW_SELECT,
+    }),
+  ]);
+  return [...due, ...rest].slice(0, TODAY_TAKE).map(personRow);
 }
