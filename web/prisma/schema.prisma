@@ -2,8 +2,8 @@
 // Changes only through prisma/migrations (prisma migrate dev / deploy).
 // No runtime DDL, no ensure*, no repairs at read time.
 // Plan: closer-arquitectura/plan-tecnico-rediseno-v2-2026-10-11.md, section 1.1.
-// Not in this PR (each comes with its own PR): Deal, DealInstallment,
-// MonthlyGoal, WeeklyGoal, CoachInsight, LeadMessageIdeas.
+// Not yet (each comes with its own PR): Deal, DealInstallment,
+// CoachInsight, LeadMessageIdeas.
 
 generator client {
   provider      = "prisma-client-js"
@@ -157,6 +157,8 @@ model User {
   leadEvents        LeadEvent[]
   proposedChanges   ProposedChange[]
   monthStats        UserMonthStats[]
+  monthlyGoals      MonthlyGoal[]
+  weeklyGoals       WeeklyGoal[]
   practiceSessions  PracticeSession[]
   pushSubscriptions PushSubscription[]
 }
@@ -524,6 +526,43 @@ model UserMonthStats {
   updatedAt        DateTime @updatedAt
 
   @@unique([userId, month, offerId])
+}
+
+// ---------- Goals (PR 4, plan 1.1) ----------
+
+/// One row per month and person, never deleted: past months stay as history.
+/// Changing the goal during the month overwrites that month's row.
+model MonthlyGoal {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// first day of the month (Bogota)
+  month            DateTime @db.Date
+  targetCommission Decimal  @db.Decimal(12, 2)
+  /// User.currency when the goal was set
+  currency         String   @db.VarChar(3)
+  /// path picked in «Tu camino»: { offerIds, closes, meetings, chosenAt }
+  chosenPath       Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([userId, month])
+}
+
+/// Weekly targets (Monday to Sunday, Bogota). Suggested from the chosen path,
+/// saved only when the person confirms them; editable.
+model WeeklyGoal {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Monday of the week (Bogota)
+  weekStart       DateTime @db.Date
+  meetingsTarget  Int
+  followupsTarget Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, weekStart])
 }
 
 model UserCounters {

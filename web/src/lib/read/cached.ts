@@ -7,6 +7,7 @@ import { unstable_cache } from "next/cache";
 import { getPrisma } from "@/lib/prisma";
 import type { DayKey } from "@/lib/time/bogota";
 import { readFicha, readFichaDetail } from "./ficha";
+import { readGoals, readStartSteps } from "./goals";
 import { readOfferCases, readOfferMap, readOfferScripts, readOffersPage } from "./offers";
 import { type PeopleQuery, readPeoplePage, searchPeople } from "./people";
 import { readPending } from "./pending";
@@ -113,4 +114,22 @@ export const getOfferScripts = (userId: string, offerId: string, all: boolean) =
 export const getOfferCases = (userId: string, offerId: string, all: boolean) =>
   cachedRead("offer-cases", [userId, offerId, all ? "all" : "first"], { tags: [tags.offers(userId)], revalidate: REVALIDATE.safety }, () =>
     readOfferCases(db(), userId, offerId, all),
+  );
+
+/** Metas (plan 2.3): stats + goal, plus leads for «Lo que más te acerca» and the week's attempts. */
+export const getGoals = (userId: string, today: DayKey, currency: string) =>
+  cachedRead(
+    "goals",
+    [userId, today, currency],
+    { tags: [tags.stats(userId), tags.goal(userId), tags.leads(userId)], revalidate: REVALIDATE.today },
+    () => readGoals(db(), userId, today, currency),
+  );
+
+/** Hoy 01b «Empieza en 3 pasos». */
+export const getStartSteps = (userId: string, today: DayKey) =>
+  cachedRead(
+    "start-steps",
+    [userId, today.slice(0, 7)],
+    { tags: [tags.goal(userId), tags.offers(userId), tags.pending(userId)], revalidate: REVALIDATE.today },
+    () => readStartSteps(db(), userId, `${today.slice(0, 7)}-01`),
   );

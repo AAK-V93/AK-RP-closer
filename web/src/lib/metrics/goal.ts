@@ -39,12 +39,14 @@ export function closestToGoal<T extends StakeLead>(leads: T[], currency: string,
     .slice(0, n);
 }
 
+export type PathMissing = "COMMISSION" | "PRICE" | "CURRENCY";
+
 export type PathOffer = {
   id: string;
   name: string;
   perCloseCents: number | null;
-  /** why perCloseCents is null (from perCloseCommission); default COMMISSION */
-  missing?: "COMMISSION" | "PRICE" | null;
+  /** why perCloseCents is null (from perCloseCommission, or another currency); default COMMISSION */
+  missing?: PathMissing | null;
 };
 export type GoalPath = {
   closes: Array<{ offerId: string; offerName: string; count: number }>;
