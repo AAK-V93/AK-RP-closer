@@ -84,6 +84,8 @@ test("every index starts with userId or leadId", () => {
       const first = idx[1];
       // Plan 1.1 asks for webhookToken @index explicitly (webhook lookup by token).
       if (m.name === "FathomConnection" && first === "webhookToken") continue;
+      // Arquitectura: Lead.lastCallId is a normal FK with its own index.
+      if (m.name === "Lead" && first === "lastCallId") continue;
       assert.ok(first === "userId" || first === "leadId", `${m.name}: ${idx[0]}`);
     }
   }
@@ -103,9 +105,30 @@ test("money is Decimal(12,2) with currency, never Float", () => {
   ]) {
     assert.match(schema, new RegExp(`^\\s+${field}\\s+Decimal\\??\\s.*@db\\.Decimal\\(12, 2\\)`, "m"), field);
   }
-  for (const m of models(schema)) {
-    if (/Decimal/.test(m.body)) assert.match(m.body, /currency\s+String\s+@default\("USD"\)/, m.name);
+  const body = (name: string) => models(schema).find((m) => m.name === name)!.body;
+  const currency = /currency\s+String\s+@default\("USD"\)/;
+  // Aggregates sum only in User.currency; other currencies stay "por confirmar".
+  assert.match(body("User"), currency);
+  assert.doesNotMatch(body("UserMonthStats"), /^\s+currency\s/m);
+  assert.match(body("Offer"), currency);
+  assert.match(body("Lead"), currency); // potentialCommission only
+});
+
+test("fields decided with Arquitectura", () => {
+  const body = (name: string) => models(schema).find((m) => m.name === name)!.body;
+  assert.match(body("Lead"), /^\s+lastCallId\s+String\?\s*$/m); // not unique
+  assert.match(body("Lead"), /onDelete: SetNull/);
+  assert.match(body("Lead"), /@@index\(\[lastCallId\]\)/);
+  assert.match(body("FollowUpTask"), /^\s+dueDate\s+DateTime\s+@db\.Date/m);
+  assert.match(body("FollowUpTask"), /^\s+dueAt\s+DateTime\?/m);
+  assert.match(body("SuccessCase"), /^\s+name\s+String\s*$/m);
+  for (const f of ["profile", "before", "after", "quote"]) {
+    assert.match(body("SuccessCase"), new RegExp(`^\\s+${f}\\s+String\\?`, "m"), f);
   }
+  assert.match(body("Offer"), /commissionType\s+CommissionType\?/);
+  assert.match(body("Call"), /briefVersion\s+Int\s+@default\(0\)/);
+  assert.match(body("Call"), /oneLine\s+String\?\s+@db\.VarChar\(140\)/);
+  assert.match(body("Lead"), /oneLine\s+String\?\s+@db\.VarChar\(140\)/);
 });
 
 test("statuses are Prisma enums, not free strings", () => {
@@ -175,4 +198,20 @@ test("legacy code is out of the build", () => {
   const tsconfig = JSON.parse(read("tsconfig.json")) as { exclude: string[] };
   assert.ok(tsconfig.exclude.includes("legacy"));
   assert.match(read(".eslintignore"), /^legacy\/$/m);
+});
+
+test("health check is manual and behind a secret header", () => {
+  const route = read("src/app/api/health/db/route.ts");
+  assert.match(route, /HEALTH_CHECK_SECRET/);
+  assert.match(route, /x-health-secret/);
+  assert.match(route, /SELECT 1/);
+  assert.doesNotMatch(route, /\.count\(|findMany|findFirst/);
+});
+
+test("offer-from-doc needs a session and has a per-user limit", () => {
+  const route = read("src/app/api/offer-from-doc/route.ts");
+  const post = route.slice(route.indexOf("export async function POST"));
+  assert.ok(post.indexOf("getServerSession") >= 0);
+  assert.ok(post.indexOf("takeOfferSlot(userId)") > post.indexOf("getServerSession"));
+  assert.ok(post.indexOf("takeOfferSlot(userId)") < post.indexOf("request.formData()"));
 });

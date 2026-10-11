@@ -57,6 +57,7 @@ CREATE TABLE "User" (
     "name" TEXT,
     "passwordHash" TEXT,
     "timezone" TEXT NOT NULL DEFAULT 'America/Bogota',
+    "currency" VARCHAR(3) NOT NULL DEFAULT 'USD',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
@@ -123,10 +124,10 @@ CREATE TABLE "SuccessCase" (
     "userId" TEXT NOT NULL,
     "offerId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
-    "profile" TEXT NOT NULL,
-    "before" TEXT NOT NULL,
-    "after" TEXT NOT NULL,
-    "quote" TEXT NOT NULL,
+    "profile" TEXT,
+    "before" TEXT,
+    "after" TEXT,
+    "quote" TEXT,
     "videoUrl" TEXT,
     "durationSec" INTEGER,
     "tags" TEXT[],
@@ -221,7 +222,8 @@ CREATE TABLE "FollowUpTask" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "leadId" TEXT NOT NULL,
-    "dueAt" DATE NOT NULL,
+    "dueDate" DATE NOT NULL,
+    "dueAt" TIMESTAMP(3),
     "kind" "TaskKind" NOT NULL,
     "note" TEXT,
     "origin" "TaskOrigin" NOT NULL,
@@ -281,7 +283,6 @@ CREATE TABLE "UserMonthStats" (
     "salesTotal" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "cashCollected" DECIMAL(12,2) NOT NULL DEFAULT 0,
     "commissionEarned" DECIMAL(12,2) NOT NULL DEFAULT 0,
-    "currency" VARCHAR(3) NOT NULL DEFAULT 'USD',
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "UserMonthStats_pkey" PRIMARY KEY ("id")
@@ -358,9 +359,6 @@ CREATE INDEX "Script_userId_offerId_idx" ON "Script"("userId", "offerId");
 CREATE INDEX "SuccessCase_userId_offerId_idx" ON "SuccessCase"("userId", "offerId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Lead_lastCallId_key" ON "Lead"("lastCallId");
-
--- CreateIndex
 CREATE INDEX "Lead_userId_status_nextContactAt_idx" ON "Lead"("userId", "status", "nextContactAt");
 
 -- CreateIndex
@@ -374,6 +372,9 @@ CREATE INDEX "Lead_userId_status_lostAt_idx" ON "Lead"("userId", "status", "lost
 
 -- CreateIndex
 CREATE INDEX "Lead_userId_nameNorm_idx" ON "Lead"("userId", "nameNorm");
+
+-- CreateIndex
+CREATE INDEX "Lead_lastCallId_idx" ON "Lead"("lastCallId");
 
 -- CreateIndex
 CREATE INDEX "Call_userId_state_recordedAt_idx" ON "Call"("userId", "state", "recordedAt" DESC);
@@ -394,7 +395,7 @@ CREATE INDEX "CallTranscript_userId_idx" ON "CallTranscript"("userId");
 CREATE INDEX "CallObjection_userId_at_idx" ON "CallObjection"("userId", "at");
 
 -- CreateIndex
-CREATE INDEX "FollowUpTask_userId_status_dueAt_idx" ON "FollowUpTask"("userId", "status", "dueAt");
+CREATE INDEX "FollowUpTask_userId_status_dueDate_idx" ON "FollowUpTask"("userId", "status", "dueDate");
 
 -- CreateIndex
 CREATE INDEX "LeadEvent_leadId_type_at_idx" ON "LeadEvent"("leadId", "type", "at");
@@ -518,6 +519,7 @@ ALTER TABLE "PracticeSession" ADD CONSTRAINT "PracticeSession_userId_fkey" FOREI
 
 -- AddForeignKey
 ALTER TABLE "PushSubscription" ADD CONSTRAINT "PushSubscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
 
 
 -- Partial unique indexes (not expressible in schema.prisma).

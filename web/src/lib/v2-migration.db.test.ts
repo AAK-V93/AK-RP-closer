@@ -72,9 +72,10 @@ test("smoke: a new user gets empty counters and the app reads them", { skip }, a
   try {
     const user = await db.user.create({
       data: { email: `smoke-${Date.now()}@example.test`, name: "Carlos Ramírez" },
-      select: { id: true, timezone: true },
+      select: { id: true, timezone: true, currency: true },
     });
     assert.equal(user.timezone, "America/Bogota");
+    assert.equal(user.currency, "USD");
     await createUserCounters(db, user.id);
     await createUserCounters(db, user.id); // idempotent
     const counters = await db.userCounters.findUnique({
@@ -107,7 +108,7 @@ test("one OPEN follow-up per lead, one all-offers stats row per month", { skip }
     const lead = await db.lead.create({
       data: { userId: user.id, name: "Carlos Ramírez", nameNorm: "carlos ramirez" },
     });
-    const task = { userId: user.id, leadId: lead.id, dueAt: new Date("2026-10-12"), kind: "ESCRIBIR", origin: "MANUAL" } as const;
+    const task = { userId: user.id, leadId: lead.id, dueDate: new Date("2026-10-12"), kind: "ESCRIBIR", origin: "MANUAL" } as const;
     const first = await db.followUpTask.create({ data: task });
     await assert.rejects(db.followUpTask.create({ data: task }), /Unique constraint/);
     await db.followUpTask.update({ where: { id: first.id }, data: { status: "DONE", doneAt: new Date() } });
@@ -122,6 +123,22 @@ test("one OPEN follow-up per lead, one all-offers stats row per month", { skip }
       db.userMonthStats.create({ data: { userId: user.id, month, offerId: offer.id } }),
       /Unique constraint/,
     );
+
+    // lastCallId is a plain FK: two leads may point at the same call; deleting it nulls both.
+    const call = await db.call.create({
+      data: { userId: user.id, source: "UPLOAD", sourceId: "smoke-1", title: "Llamada", recordedAt: new Date() },
+    });
+    const other = await db.lead.create({
+      data: { userId: user.id, name: "Luciana", nameNorm: "luciana", lastCallId: call.id },
+    });
+    await db.lead.update({ where: { id: lead.id }, data: { lastCallId: call.id } });
+    await db.call.delete({ where: { id: call.id } });
+    const after = await db.lead.findUnique({ where: { id: other.id }, select: { lastCallId: true } });
+    assert.equal(after?.lastCallId, null);
+    await db.lead.update({ where: { id: lead.id }, data: { lastCallId: null } });
+
+    // A success case only needs a name.
+    await db.successCase.create({ data: { userId: user.id, offerId: offer.id, name: "Ana" } });
 
     // Leads start in SEGUIMIENTO with zero attempts; nothing is invented.
     const fresh = await db.lead.findUnique({

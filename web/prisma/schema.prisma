@@ -138,6 +138,8 @@ model User {
   name         String?
   passwordHash String?
   timezone     String   @default("America/Bogota")
+  /// aggregates sum only in this currency; other currencies are "por confirmar" and left out of sums
+  currency     String   @default("USD") @db.VarChar(3)
   createdAt    DateTime @default(now())
 
   fathomConnection  FathomConnection?
@@ -231,10 +233,10 @@ model SuccessCase {
   offerId     String
   offer       Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
   name        String
-  profile     String
-  before      String
-  after       String
-  quote       String
+  profile     String?
+  before      String?
+  after       String?
+  quote       String?
   videoUrl    String?
   durationSec Int?
   tags        String[]
@@ -265,7 +267,7 @@ model Lead {
   missing   String?
   decider   String?
 
-  lastCallId    String?   @unique
+  lastCallId    String?
   lastCall      Call?     @relation("LeadLastCall", fields: [lastCallId], references: [id], onDelete: SetNull)
   lastCallAt    DateTime?
   lastContactAt DateTime?
@@ -278,6 +280,7 @@ model Lead {
   /// denormalized, recounted on write (plan 2.2), never at read time
   attemptsSinceLastCall Int      @default(0)
   potentialCommission   Decimal? @db.Decimal(12, 2)
+  /// currency of potentialCommission only
   currency              String   @default("USD") @db.VarChar(3)
 
   createdAt DateTime @default(now())
@@ -294,6 +297,7 @@ model Lead {
   @@index([userId, status, closedAt])
   @@index([userId, status, lostAt])
   @@index([userId, nameNorm])
+  @@index([lastCallId])
 }
 
 // ---------- Calls ----------
@@ -327,7 +331,7 @@ model Call {
 
   transcript      CallTranscript?
   objections      CallObjection[]
-  lastCallOf      Lead?            @relation("LeadLastCall")
+  lastCallOf      Lead[]           @relation("LeadLastCall")
   leadEvents      LeadEvent[]
   proposedChanges ProposedChange[]
 
@@ -375,8 +379,10 @@ model FollowUpTask {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   leadId    String
   lead      Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  /// local Bogota date
-  dueAt     DateTime   @db.Date
+  /// local Bogota date: ordering, "hoy", "de días anteriores"
+  dueDate   DateTime   @db.Date
+  /// optional time of day
+  dueAt     DateTime?
   kind      TaskKind
   note      String?
   origin    TaskOrigin
@@ -384,7 +390,7 @@ model FollowUpTask {
   doneAt    DateTime?
   createdAt DateTime   @default(now())
 
-  @@index([userId, status, dueAt])
+  @@index([userId, status, dueDate])
 }
 
 /// Append-only history. An attempt is type=ATTEMPT.
@@ -451,8 +457,8 @@ model UserMonthStats {
   attemptsCount    Int      @default(0)
   salesTotal       Decimal  @default(0) @db.Decimal(12, 2)
   cashCollected    Decimal  @default(0) @db.Decimal(12, 2)
+  /// sums only amounts in User.currency
   commissionEarned Decimal  @default(0) @db.Decimal(12, 2)
-  currency         String   @default("USD") @db.VarChar(3)
   updatedAt        DateTime @updatedAt
 
   @@unique([userId, month, offerId])

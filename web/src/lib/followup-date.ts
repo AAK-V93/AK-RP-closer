@@ -1,4 +1,3 @@
-import { addDays } from "@/lib/crm-prefs";
 import { formatCrmDate, zonedDayKey } from "@/lib/crm-time";
 
 const WEEKDAYS: Record<string, number> = {
@@ -340,4 +339,10 @@ export function pastedCallTitle(text: string, pastedAt = new Date(), leadOverrid
   if (lead) return `${lead} · Pegado ${day}`;
   if (callAt) return `Llamada ${day}`;
   return `Pegado ${day}`;
+}
+
+export function addDays(from: Date, days: number) {
+  const next = new Date(from.getTime());
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
 }
