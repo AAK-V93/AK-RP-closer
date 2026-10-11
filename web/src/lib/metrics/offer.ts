@@ -57,16 +57,31 @@ export function offerCompleteness(o: OfferForCompleteness) {
 
 export type ScriptStatsRow = { id: string; usesCount: number; repliesCount: number; paidCount: number };
 
-/** «El que mejor funciona»: most paid, then most replies; only with real results, one script. */
+/** «El que mejor funciona» only counts scripts used at least this many times. */
+export const BEST_SCRIPT_MIN_USES = 5;
+/** …and only with this lead over the runner-up, in rate points (0.10 = 10 percentage points). */
+export const BEST_SCRIPT_MARGIN = 0.1;
+
+/**
+ * «El que mejor funciona» (Arquitectura, PR 3 review, item 6). Compare rates,
+ * not totals: payment rate = paid / uses; when payment rates are equal, reply
+ * rate = replies / uses. Only scripts with ≥ 5 uses take part, at least two
+ * of them, and the winner must lead the runner-up by ≥ 10 percentage points
+ * on the rate that decides (payments, or replies when payments tie).
+ * Otherwise nobody gets the label.
+ */
 export function bestScriptId(rows: ScriptStatsRow[]): string | null {
-  const withResults = rows.filter((r) => r.usesCount > 0 && (r.paidCount > 0 || r.repliesCount > 0));
-  if (!withResults.length) return null;
-  const sorted = [...withResults].sort(
-    (a, b) => b.paidCount - a.paidCount || b.repliesCount - a.repliesCount || b.usesCount - a.usesCount,
-  );
-  const [first, second] = sorted;
-  if (second && second.paidCount === first.paidCount && second.repliesCount === first.repliesCount) return null;
-  return first.id;
+  const ranked = rows
+    .filter((r) => r.usesCount >= BEST_SCRIPT_MIN_USES)
+    .map((r) => ({ id: r.id, paid: r.paidCount / r.usesCount, replies: r.repliesCount / r.usesCount }))
+    .sort((a, b) => b.paid - a.paid || b.replies - a.replies || (a.id < b.id ? -1 : 1));
+  const [first, second] = ranked;
+  if (!first || !second) return null;
+  if (first.paid === 0 && first.replies === 0) return null;
+  // round to avoid 0.30000000000000004-style misses at exactly 10 points
+  const lead = (x: number, y: number) => Math.round((x - y) * 1e6) / 1e6 >= BEST_SCRIPT_MARGIN;
+  if (first.paid !== second.paid) return lead(first.paid, second.paid) ? first.id : null;
+  return lead(first.replies, second.replies) ? first.id : null;
 }
 
 export function scriptUsage(r: ScriptStatsRow) {

@@ -21,3 +21,17 @@ export const IconPhone = () => (
     <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z" />
   </svg>
 );
+export const IconFlag = () => (
+  <svg className="ic" viewBox="0 0 24 24" {...S} aria-hidden><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></svg>
+);
+export const IconCal = () => (
+  <svg className="ic" viewBox="0 0 24 24" {...S} aria-hidden><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+);
+export const IconPeople = () => (
+  <svg className="ic" viewBox="0 0 24 24" {...S} aria-hidden>
+    <circle cx="9" cy="8" r="4" /><path d="M2 21c0-4 3-6 7-6s7 2 7 6M17 4a4 4 0 0 1 0 8M22 21c0-3-2-5-4-5.6" />
+  </svg>
+);
+export const IconInfo = () => (
+  <svg className="ic" viewBox="0 0 24 24" {...S} aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></svg>
+);

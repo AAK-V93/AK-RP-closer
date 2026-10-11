@@ -67,19 +67,48 @@ test("C: PCT without priceCash is «por confirmar», never from installments", (
   assert.deepEqual(r, { cents: null, missing: "PRICE" });
 });
 
-test("scripts: «El que mejor funciona» needs real results and one clear winner", () => {
-  const rows = [
-    { id: "a", usesCount: 12, repliesCount: 5, paidCount: 0 },
-    { id: "b", usesCount: 9, repliesCount: 4, paidCount: 4 },
-    { id: "c", usesCount: 0, repliesCount: 0, paidCount: 0 },
-  ];
-  assert.equal(bestScriptId(rows), "b");
-  assert.equal(bestScriptId([rows[2]]), null);
-  assert.equal(bestScriptId([{ id: "x", usesCount: 3, repliesCount: 1, paidCount: 0 }, { id: "y", usesCount: 4, repliesCount: 1, paidCount: 0 }]), null);
+test("scripts: «El que mejor funciona» compares rates among scripts with ≥5 uses and needs a 10-point lead", () => {
+  // 30 uses / 3 payments (10 %) loses to 6 uses / 3 payments (50 %)
+  assert.equal(bestScriptId([
+    { id: "many", usesCount: 30, repliesCount: 12, paidCount: 3 },
+    { id: "few", usesCount: 6, repliesCount: 3, paidCount: 3 },
+  ]), "few");
+  // under 5 uses does not take part (even with 100 %)
+  assert.equal(bestScriptId([
+    { id: "a", usesCount: 4, repliesCount: 4, paidCount: 4 },
+    { id: "b", usesCount: 10, repliesCount: 5, paidCount: 2 },
+    { id: "c", usesCount: 10, repliesCount: 1, paidCount: 0 },
+  ]), "b");
+  // lead under 10 points: no label (25 % vs 20 %)
+  assert.equal(bestScriptId([
+    { id: "x", usesCount: 20, repliesCount: 10, paidCount: 5 },
+    { id: "y", usesCount: 10, repliesCount: 2, paidCount: 2 },
+  ]), null);
+  // exactly 10 points is enough (30 % vs 20 %)
+  assert.equal(bestScriptId([
+    { id: "x", usesCount: 10, repliesCount: 0, paidCount: 3 },
+    { id: "y", usesCount: 10, repliesCount: 0, paidCount: 2 },
+  ]), "x");
+  // payments tie → replies decide, same 10-point rule
+  assert.equal(bestScriptId([
+    { id: "r1", usesCount: 10, repliesCount: 6, paidCount: 0 },
+    { id: "r2", usesCount: 10, repliesCount: 4, paidCount: 0 },
+  ]), "r1");
+  assert.equal(bestScriptId([
+    { id: "r1", usesCount: 10, repliesCount: 5, paidCount: 0 },
+    { id: "r2", usesCount: 10, repliesCount: 5, paidCount: 0 },
+  ]), null);
+  // one eligible script, or no results at all: no label
+  assert.equal(bestScriptId([{ id: "solo", usesCount: 12, repliesCount: 5, paidCount: 2 }]), null);
+  assert.equal(bestScriptId([
+    { id: "z1", usesCount: 8, repliesCount: 0, paidCount: 0 },
+    { id: "z2", usesCount: 9, repliesCount: 0, paidCount: 0 },
+  ]), null);
+  const rows = [{ id: "a", usesCount: 12, repliesCount: 5, paidCount: 0 }, { id: "c", usesCount: 0, repliesCount: 0, paidCount: 0 }];
   assert.deepEqual(scriptUsage(rows[0]), { used: "Lo usaste 12 veces", replies: "5 respondieron", paid: null });
-  assert.deepEqual(scriptUsage(rows[1]).paid, "4 pagaron");
+  assert.deepEqual(scriptUsage({ id: "b", usesCount: 9, repliesCount: 4, paidCount: 4 }).paid, "4 pagaron");
   assert.deepEqual(scriptUsage({ id: "z", usesCount: 1, repliesCount: 1, paidCount: 1 }), { used: "Lo usaste 1 vez", replies: "1 respondió", paid: "1 pagó" });
-  assert.equal(scriptUsage(rows[2]).used, "Todavía no lo usas");
+  assert.equal(scriptUsage(rows[1]).used, "Todavía no lo usas");
 });
 
 test("links: sheets, playlists, channels, videos; junk explained", () => {
@@ -274,4 +303,27 @@ test("offer form: amounts as people type them, clear errors", () => {
   assert.equal(formatMoney("10000", "USD"), "USD 10.000");
   assert.equal(formatMoney("1500.5", "USD"), "USD 1.500,50");
   assert.equal(formatMoney(null, "USD"), null);
+});
+
+test("«sugerido»: only empty fields, only what the reader returned, commission as %", async () => {
+  const { applyProposal } = await import("@/lib/offers/proposal");
+  const empty = { name: "", description: "", currency: "USD", priceCash: "", installmentsCount: "", installmentAmount: "", commissionType: "", commissionValue: "" };
+  const r = applyProposal({ ...empty, name: "Mi nombre" }, {
+    productName: "Fertilidad Consciente",
+    productDescription: "Programa de 12 semanas",
+    commercial: {
+      listPrice: 1500,
+      currency: "USD",
+      altPrices: [{ label: "3 cuotas de", amount: 550 }],
+      commission: { pctBase: 0.2, base: "venta_total" },
+    },
+  });
+  assert.equal(r.values.name, "Mi nombre"); // typed by the person: kept, not suggested
+  assert.deepEqual(r.values, { ...empty, name: "Mi nombre", description: "Programa de 12 semanas", priceCash: "1500", installmentsCount: "3", installmentAmount: "550", commissionType: "PCT_SALE", commissionValue: "20" });
+  assert.deepEqual(r.suggested.sort(), ["commissionType", "commissionValue", "description", "installmentAmount", "installmentsCount", "priceCash"]);
+  // nothing returned → nothing suggested; installments without «de» keep the amount empty
+  assert.deepEqual(applyProposal(empty, {}).suggested, []);
+  const noAmount = applyProposal(empty, { commercial: { altPrices: [{ label: "Pago en 4 cuotas", amount: 2000 }] } });
+  assert.deepEqual([noAmount.values.installmentsCount, noAmount.values.installmentAmount], ["4", ""]);
+  assert.deepEqual(applyProposal(empty, { commercial: { commission: { pctBase: 0 } } }).suggested, []);
 });

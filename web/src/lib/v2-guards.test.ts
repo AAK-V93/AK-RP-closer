@@ -140,7 +140,7 @@ test("tags are per user and writes invalidate the right ones", () => {
   assert.deepEqual(tagsForWrite("u1", WRITE_EFFECTS.setGoal()), ["u:u1:goal"]);
   const seen: string[] = [];
   invalidate("u2", WRITE_EFFECTS.upsertOffer(), (t) => seen.push(t));
-  assert.deepEqual(seen.sort(), ["u:u2:goal", "u:u2:leads", "u:u2:offers"]); // commission moves potentialCommission
+  assert.deepEqual(seen.sort(), ["u:u2:goal", "u:u2:leads", "u:u2:offers", "u:u2:stats"]); // commission moves potentialCommission
 });
 
 test("every cached reader is tagged per user and uses a lib/read reader", () => {
@@ -231,4 +231,31 @@ test("D: every write function in lib/write calls the revalidateTag set of WRITE_
   for (const [name, fn] of Object.entries(WRITE_EFFECTS)) {
     assert.ok(tagsForWrite("u1", (fn as (a: string) => WriteEffect)("l1")).length > 0, name);
   }
+});
+
+// ---------- PR 3 review ----------
+
+test("item 3: a commission change touches only SEGUIMIENTO leads in one statement, recounts counters, revalidates leads + stats", () => {
+  const code = stripComments(readFileSync(path.join(SRC, "lib/write/offers.ts"), "utf8"));
+  const updates = code.match(/UPDATE "Lead" SET "potentialCommission"[\s\S]*?`/g) ?? [];
+  assert.equal(updates.length, 1);
+  assert.match(updates[0], /WHERE "offerId" = \$\{offerId\} AND "userId" = \$\{userId\} AND "status" = 'SEGUIMIENTO'/);
+  const upsert = writeFunctions(code).find((f) => f.name === "upsertOffer")!.body;
+  assert.ok(upsert.indexOf("refreshPotentialCommission(") < upsert.indexOf("recountCounters("));
+  assert.ok(upsert.indexOf("recountCounters(") < upsert.indexOf("invalidate("));
+  const tagsOut = tagsForWrite("u1", WRITE_EFFECTS.upsertOffer());
+  for (const t of ["u:u1:leads", "u:u1:stats", "u:u1:offers"]) assert.ok(tagsOut.includes(t), t);
+});
+
+test("item 5: reading case links is only user-triggered (no cron, no scheduled path)", () => {
+  const vercel = JSON.parse(readFileSync(path.join(SRC, "../vercel.json"), "utf8"));
+  assert.equal("crons" in vercel, false);
+  const callers = appFiles
+    .filter((f) => /\bsyncCaseSource\s*\(/.test(stripComments(readFileSync(f, "utf8"))))
+    .map(rel)
+    .sort();
+  // the write itself and the Server Actions behind «Leer enlaces», «Leer ahora / de nuevo» and the Drive Picker
+  assert.deepEqual(callers, ["app/(v2)/ofertas/actions.ts", "lib/write/cases.ts"]);
+  assert.equal(appFiles.some((f) => /\/api\/cron\//.test(f)), false);
+  for (const f of appFiles) assert.doesNotMatch(readFileSync(f, "utf8"), /setInterval\([^)]*sync/i, rel(f));
 });

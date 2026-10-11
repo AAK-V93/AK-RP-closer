@@ -49,8 +49,11 @@ export const WRITE_EFFECTS = {
   ingestCall: (): WriteEffect => ({ pending: true, practice: true, stats: true }),
   applyProposedChange: (leadId: string | null): WriteEffect => ({ stats: true, leads: true, pending: true, leadIds: leadId ? [leadId] : [] }),
   setGoal: (): WriteEffect => ({ goal: true }),
+  // Metas (PR 4)
+  chooseGoalPath: (): WriteEffect => ({ goal: true }),
+  setWeeklyGoal: (): WriteEffect => ({ goal: true }),
   // Mis ofertas (PR 3). Commission/price change Lead.potentialCommission: lists, Hoy and Metas.
-  upsertOffer: (): WriteEffect => ({ offers: true, leads: true, goal: true }),
+  upsertOffer: (): WriteEffect => ({ offers: true, leads: true, stats: true, goal: true }),
   archiveOffer: (): WriteEffect => ({ offers: true, leads: true, goal: true }),
   upsertScript: (): WriteEffect => ({ offers: true }),
   deleteScript: (): WriteEffect => ({ offers: true }),

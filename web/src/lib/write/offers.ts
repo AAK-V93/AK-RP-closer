@@ -3,7 +3,9 @@
 import type { CommissionType, PrismaClient, ScriptOrigin } from "@prisma/client";
 import { perCloseCommission } from "@/lib/metrics";
 import { WRITE_EFFECTS } from "@/lib/read/tags";
+import { bogotaDay } from "@/lib/time/bogota";
 import { invalidate } from "./invalidate";
+import { recountCounters } from "./recount";
 
 type Db = PrismaClient;
 export type WriteOpts = { revalidate?: (tag: string) => void; now?: Date };
@@ -77,7 +79,11 @@ export function validateOffer(input: OfferInput): WriteResult<{ data: Omit<Offer
   };
 }
 
-/** Lead.potentialCommission of this offer's people = commission per close (null = por confirmar). One statement. */
+/**
+ * Lead.potentialCommission of this offer's people still in SEGUIMIENTO =
+ * commission per close (null = por confirmar). ONE statement; closed and lost
+ * leads keep what they had (Arquitectura, PR 3 review, item 3).
+ */
 async function refreshPotentialCommission(db: Db, userId: string, offerId: string, data: Omit<OfferInput, "id">) {
   const perClose = perCloseCommission({
     commissionType: data.commissionType ?? null,
@@ -87,7 +93,7 @@ async function refreshPotentialCommission(db: Db, userId: string, offerId: strin
   const value = perClose.cents === null ? null : (perClose.cents / 100).toFixed(2);
   await db.$executeRaw`
     UPDATE "Lead" SET "potentialCommission" = ${value}::numeric, "currency" = ${data.currency}, "updatedAt" = now()
-    WHERE "userId" = ${userId} AND "offerId" = ${offerId}
+    WHERE "offerId" = ${offerId} AND "userId" = ${userId} AND "status" = 'SEGUIMIENTO'
   `;
 }
 
@@ -105,6 +111,7 @@ export async function upsertOffer(db: Db, userId: string, input: OfferInput, opt
     id = (await db.offer.create({ data: { ...v.data, userId }, select: { id: true } })).id;
   }
   await refreshPotentialCommission(db, userId, id, v.data);
+  await recountCounters(db, userId, bogotaDay(opts.now ?? new Date()));
   invalidate(userId, WRITE_EFFECTS.upsertOffer(), opts.revalidate);
   return { ok: true, id };
 }

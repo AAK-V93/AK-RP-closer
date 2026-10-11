@@ -1,40 +1,39 @@
 "use client";
 // New / edit offer. «Sube tu oferta»: the text or PDF goes to
-// /api/offer-from-doc, which proposes name, description and price; nothing
-// is saved until the person reviews the fields and presses «Guardar».
+// /api/offer-from-doc, which proposes fields. Proposed fields show «sugerido»
+// until the person touches them; nothing is saved until «Guardar», and
+// saving the form is the confirmation.
 import Link from "next/link";
 import { useActionState, useRef, useState } from "react";
 import { type OfferFormState, saveOfferAction } from "@/app/(v2)/ofertas/actions";
+import { type OfferFields, type OfferProposal, applyProposal } from "@/lib/offers/proposal";
 import { Submit } from "./submit";
 
-export type OfferFormValues = {
-  id: string | null;
-  name: string;
-  description: string;
-  currency: string;
-  priceCash: string;
-  installmentsCount: string;
-  installmentAmount: string;
-  commissionType: string;
-  commissionValue: string;
-};
+export type OfferFormValues = OfferFields & { id: string | null };
 
-type Proposal = {
-  productName?: string;
-  productDescription?: string;
-  commercial?: { listPrice?: number | null; currency?: string } | null;
-  error?: string;
-};
+type Proposal = OfferProposal & { error?: string };
 
 export function OfferForm({ initial, tab, cancelHref }: { initial: OfferFormValues; tab: string; cancelHref: string }) {
   const [state, action] = useActionState<OfferFormState, FormData>(saveOfferAction, { error: null });
   const [values, setValues] = useState(initial);
   const [reading, setReading] = useState(false);
   const [readNote, setReadNote] = useState<string | null>(null);
+  const [suggested, setSuggested] = useState<Set<keyof OfferFields>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
   const pasteRef = useRef<HTMLTextAreaElement>(null);
-  const set = (k: keyof OfferFormValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
-    setValues((v) => ({ ...v, [k]: e.target.value }));
+  const set = (k: keyof OfferFields) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const value = e.target.value;
+    setValues((v) => ({ ...v, [k]: value }));
+    // touching a field makes it the person's own
+    setSuggested((s) => {
+      if (!s.has(k)) return s;
+      const next = new Set(s);
+      next.delete(k);
+      return next;
+    });
+  };
+  const tag = (k: keyof OfferFields) => (suggested.has(k) ? <span className="pill amber sug">sugerido</span> : null);
+  const cls = (k: keyof OfferFields) => (suggested.has(k) ? "suggested" : undefined);
 
   async function readDoc() {
     const body = new FormData();
@@ -55,14 +54,14 @@ export function OfferForm({ initial, tab, cancelHref }: { initial: OfferFormValu
         setReadNote(data.error ?? "No pude leerla. Inténtalo de nuevo.");
         return;
       }
-      setValues((v) => ({
-        ...v,
-        name: v.name || data.productName || "",
-        description: v.description || data.productDescription || paste,
-        currency: data.commercial?.currency || v.currency,
-        priceCash: v.priceCash || (data.commercial?.listPrice != null ? String(data.commercial.listPrice) : ""),
-      }));
-      setReadNote("Revisa lo que entendí y completa lo que falte. Tu comisión la pones tú.");
+      const applied = applyProposal(values, data, paste);
+      setValues((v) => ({ ...applied.values, id: v.id }));
+      setSuggested(new Set(applied.suggested));
+      setReadNote(
+        applied.suggested.length
+          ? "Marqué como «sugerido» lo que leí. Revísalo: nada se guarda hasta que pulses Guardar."
+          : "No encontré precios ni comisión en el texto. Complétalos tú.",
+      );
     } catch {
       setReadNote("No pude leerla. Inténtalo de nuevo.");
     } finally {
@@ -100,35 +99,35 @@ export function OfferForm({ initial, tab, cancelHref }: { initial: OfferFormValu
         {values.id && <input type="hidden" name="id" value={values.id} />}
         <input type="hidden" name="tab" value={tab} />
         <label className="field">
-          Nombre de la oferta
-          <input name="name" required maxLength={120} value={values.name} onChange={set("name")} />
+          <span>Nombre de la oferta {tag("name")}</span>
+          <input className={cls("name")} name="name" required maxLength={120} value={values.name} onChange={set("name")} />
         </label>
         <div className="row3">
           <label className="field">
-            Precio de contado
-            <input name="priceCash" inputMode="decimal" placeholder="10.000" value={values.priceCash} onChange={set("priceCash")} />
+            <span>Precio de contado {tag("priceCash")}</span>
+            <input className={cls("priceCash")} name="priceCash" inputMode="decimal" placeholder="10.000" value={values.priceCash} onChange={set("priceCash")} />
           </label>
           <label className="field">
-            Número de cuotas
-            <input name="installmentsCount" type="number" min={1} max={60} value={values.installmentsCount} onChange={set("installmentsCount")} />
+            <span>Número de cuotas {tag("installmentsCount")}</span>
+            <input className={cls("installmentsCount")} name="installmentsCount" type="number" min={1} max={60} value={values.installmentsCount} onChange={set("installmentsCount")} />
           </label>
           <label className="field">
-            Valor de cada cuota
-            <input name="installmentAmount" inputMode="decimal" value={values.installmentAmount} onChange={set("installmentAmount")} />
+            <span>Valor de cada cuota {tag("installmentAmount")}</span>
+            <input className={cls("installmentAmount")} name="installmentAmount" inputMode="decimal" value={values.installmentAmount} onChange={set("installmentAmount")} />
           </label>
         </div>
         <div className="row3">
           <label className="field">
-            Moneda
-            <select name="currency" value={values.currency} onChange={set("currency")}>
+            <span>Moneda {tag("currency")}</span>
+            <select className={cls("currency")} name="currency" value={values.currency} onChange={set("currency")}>
               {["USD", "COP", "MXN", "EUR", "ARS", "CLP", "PEN"].map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </label>
           <label className="field">
-            ¿Cómo te pagan?
-            <select name="commissionType" value={values.commissionType} onChange={set("commissionType")}>
+            <span>¿Cómo te pagan? {tag("commissionType")}</span>
+            <select className={cls("commissionType")} name="commissionType" value={values.commissionType} onChange={set("commissionType")}>
               <option value="">Todavía no lo sé</option>
               <option value="PER_CLOSE">Un monto fijo por cada cierre</option>
               <option value="PCT_SALE">Un porcentaje de la venta</option>
@@ -136,8 +135,9 @@ export function OfferForm({ initial, tab, cancelHref }: { initial: OfferFormValu
             </select>
           </label>
           <label className="field">
-            {pct ? "Porcentaje" : "Monto por cierre"}
+            <span>{pct ? "Porcentaje" : "Monto por cierre"} {tag("commissionValue")}</span>
             <input
+              className={cls("commissionValue")}
               name="commissionValue"
               inputMode="decimal"
               placeholder={pct ? "10" : "900"}
@@ -153,9 +153,14 @@ export function OfferForm({ initial, tab, cancelHref }: { initial: OfferFormValu
           </p>
         )}
         <label className="field">
-          De qué se trata (opcional)
-          <textarea name="description" value={values.description} onChange={set("description")} />
+          <span>De qué se trata (opcional) {tag("description")}</span>
+          <textarea className={cls("description")} name="description" value={values.description} onChange={set("description")} />
         </label>
+        {suggested.size > 0 && (
+          <p className="small" style={{ color: "#7A4C0E" }}>
+            Lo marcado como «sugerido» lo leí de tu oferta. Al pulsar Guardar confirmas que está bien.
+          </p>
+        )}
         {state.error && <div className="banner err">{state.error}</div>}
         <div className="actions">
           <Link href={cancelHref} className="link">Cancelar</Link>

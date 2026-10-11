@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  pathMissingLabel,
   atStake,
   balance,
   cashCollected,
@@ -217,6 +218,7 @@ test("PCT offer without cash price: «por confirmar», never from installments",
   assert.deepEqual(perCloseCommission({ commissionType: null, commissionValue: null }), { cents: null, missing: "COMMISSION" });
   const { paths, missing } = goalPath(100000, [{ id: "f", name: "Fertilidad Consciente", perCloseCents: null, missing: "PRICE" }], 6);
   assert.deepEqual(paths, []);
-  assert.equal(missingPerCloseLabel(missing[0].reason, missing[0].offerName), "Falta el precio de contado de Fertilidad Consciente");
+  assert.equal(pathMissingLabel(missing[0].reason, missing[0].offerName, "USD", "USD"), "Falta el precio de contado de Fertilidad Consciente");
+  assert.equal(missingPerCloseLabel("PRICE", "Fertilidad Consciente"), "Falta el precio de contado de Fertilidad Consciente");
   assert.equal(missingPerCloseLabel("COMMISSION", "Círculo"), "Falta tu comisión en Círculo");
 });
