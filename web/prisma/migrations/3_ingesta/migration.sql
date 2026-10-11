@@ -1,5 +1,6 @@
 -- PR 5 (ingesta): coach insights from the call brief, Fathom action items kept for a brief retry,
--- failed-brief counter, and the burst lease for the Fathom rebuild (no cron, no polling).
+-- failed-brief counter, the webhook URL this deployment created, and the burst lease for the
+-- Fathom rebuild (no cron, no polling).
 -- CreateEnum
 CREATE TYPE "CoachInsightKind" AS ENUM ('BIEN', 'MEJORAR');
 
@@ -9,7 +10,8 @@ ADD COLUMN     "briefAttempts" INTEGER NOT NULL DEFAULT 0;
 
 -- AlterTable
 ALTER TABLE "FathomConnection" ADD COLUMN     "backfillImported" INTEGER NOT NULL DEFAULT 0,
-ADD COLUMN     "backfillLockedUntil" TIMESTAMP(3);
+ADD COLUMN     "backfillLockedUntil" TIMESTAMP(3),
+ADD COLUMN     "webhookUrl" TEXT;
 
 -- CreateTable
 CREATE TABLE "CoachInsight" (

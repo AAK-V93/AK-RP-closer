@@ -4,7 +4,7 @@
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { appUrl } from "@/lib/app-url";
-import { BACKFILL_WINDOW_DAYS, runBackfillBurst } from "@/lib/ingest/backfill";
+import { backfillWindowDays, runBackfillBurst } from "@/lib/ingest/backfill";
 import { connectFathom, disconnectFathomFlow } from "@/lib/ingest/connect";
 import { retryFailedBriefs } from "@/lib/ingest/retry";
 import { uploadCall } from "@/lib/ingest/upload";
@@ -36,12 +36,16 @@ export async function connectFathomAction(form: FormData) {
       console.warn("[fathom] first burst failed:", error instanceof Error ? error.message.slice(0, 160) : "unknown");
     }
   });
-  back({ ok: `Fathom quedó conectado. Estoy trayendo tus llamadas de los últimos ${BACKFILL_WINDOW_DAYS} días.` });
+  back({
+    ok: result.webhook
+      ? `Fathom quedó conectado. Estoy trayendo tus llamadas de los últimos ${backfillWindowDays()} días.`
+      : `Fathom quedó conectado. Estoy trayendo tus llamadas de los últimos ${backfillWindowDays()} días; en esta versión de prueba las nuevas no llegan solas.`,
+  });
 }
 
 export async function disconnectFathomAction() {
   const user = await requireUserId("/ofertas");
-  await disconnectFathomFlow(db(), user.id);
+  await disconnectFathomFlow(db(), user.id, { baseUrl: appUrl() });
   back({ ok: "Fathom quedó desconectado. Tus llamadas ya traídas se quedan." });
 }
 

@@ -177,6 +177,8 @@ model FathomConnection {
   webhookId           String?
   webhookSecretEnc    String?
   webhookToken        String?
+  /// where THIS deployment told Fathom to deliver; only a webhook whose host is ours is ever deleted
+  webhookUrl          String?
   importSince         DateTime?
   lastSyncAt          DateTime?
   backfillCursor      String?

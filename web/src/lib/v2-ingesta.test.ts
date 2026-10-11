@@ -14,6 +14,8 @@ import {
 import { FathomRateLimited, fathomClient, retryAfterSeconds, type FathomMeeting } from "@/lib/ingest/fathom-api";
 import { durationFrom, fromFathomMeeting, fromUpload, subtitlesToText, timestampSeconds } from "@/lib/ingest/meeting";
 import { proposalsFor } from "@/lib/ingest/proposals";
+import { isOurWebhook, webhooksEnabled } from "@/lib/ingest/connect";
+import { backfillWindowDays } from "@/lib/ingest/window";
 import { followupsHint, goalIdeas } from "@/lib/metrics";
 import { TEST_WEBHOOK_SECRET, briefJson, mockModel, signedHeaders } from "@/lib/ingest/__fixtures__/helpers";
 
@@ -355,9 +357,25 @@ test("guard: no cron and no polling for ingestion (Neon Free)", () => {
   assert.deepEqual(callers, ["app/(v2)/ofertas/calls-actions.ts", "app/(v2)/page.tsx", "lib/ingest/backfill.ts"]);
 });
 
-test("guard: the rebuild window is a 60-day constant; the brief model is pinned by name", () => {
-  const write = readFileSync(path.join(SRC, "lib/write/ingest.ts"), "utf8");
-  assert.match(write, /export const BACKFILL_WINDOW_DAYS = 60;/);
+test("rebuild window: 60 days by default, FATHOM_BACKFILL_DAYS overrides (1–365); the brief model is pinned by name", () => {
+  const w = readFileSync(path.join(SRC, "lib/ingest/window.ts"), "utf8");
+  assert.match(w, /export const BACKFILL_WINDOW_DAYS = 60;/);
+  assert.equal(backfillWindowDays({}), 60);
+  assert.equal(backfillWindowDays({ FATHOM_BACKFILL_DAYS: "90" }), 90);
+  for (const bad of ["0", "366", "abc", "7.5", " "]) assert.equal(backfillWindowDays({ FATHOM_BACKFILL_DAYS: bad }), 60);
+  assert.equal(webhooksEnabled({}), true);
+  assert.equal(webhooksEnabled({ VERCEL_ENV: "production" }), true);
+  assert.equal(webhooksEnabled({ VERCEL_ENV: "preview" }), false);
+  assert.equal(webhooksEnabled({ VERCEL_ENV: "preview", FATHOM_WEBHOOK_IN_PREVIEW: "1" }), true);
+  assert.equal(isOurWebhook({ webhookId: "w", webhookUrl: "https://a.app/api/fathom/webhook/x" }, "https://a.app"), true);
+  assert.equal(isOurWebhook({ webhookId: "w", webhookUrl: "https://b.app/api/fathom/webhook/x" }, "https://a.app"), false);
+  assert.equal(isOurWebhook({ webhookId: "w", webhookUrl: null }, "https://a.app"), false);
+  assert.equal(isOurWebhook({ webhookId: null, webhookUrl: "https://a.app/x" }, "https://a.app"), false);
+  // never lists the account's webhooks
+  const api = stripComments(readFileSync(path.join(SRC, "lib/ingest/fathom-api.ts"), "utf8"));
+  assert.doesNotMatch(api, /"\/webhooks"\s*\)/); // a bare GET /webhooks
+  assert.match(api, /"\/webhooks",\s*\{\s*method: "POST"/);
+  assert.doesNotMatch(api, /listWebhooks/);
   const b = stripComments(readFileSync(path.join(SRC, "lib/ingest/brief.ts"), "utf8"));
   assert.match(b, /BRIEF_MODEL = "gemini-[\d.]+-flash"/);
   assert.doesNotMatch(b, /-latest/);

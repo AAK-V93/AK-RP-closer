@@ -20,6 +20,7 @@ import {
 } from "@/lib/ingest/brief";
 import type { IngestInput, Invitee } from "@/lib/ingest/meeting";
 import { proposalsFor } from "@/lib/ingest/proposals";
+import { backfillWindowDays } from "@/lib/ingest/window";
 import { encryptSecret } from "@/lib/secret-crypto";
 import { invalidate } from "./invalidate";
 import type { WriteOpts } from "./offers";
@@ -39,31 +40,85 @@ export type IngestResult = { ok: true; callId: string; created: boolean } | { ok
  * answer Fathom first and brief after the response.
  */
 export async function ingestCall(db: Db, userId: string, input: IngestInput, opts: WriteOpts = {}): Promise<IngestResult> {
-  const inserted = await db.$executeRaw`
-    INSERT INTO "Call" ("id", "userId", "source", "sourceId", "title", "shareUrl", "recordedAt", "durationSec",
-      "summaryEn", "actionItemsEn", "state", "createdAt", "updatedAt")
-    VALUES (gen_random_uuid()::text, ${userId}, ${input.source}::"CallSource", ${input.sourceId}, ${input.title},
-      ${input.shareUrl}, ${ts(input.recordedAt)}::timestamp, ${input.durationSec}::int, ${input.summaryEn},
-      ${input.actionItemsEn}, 'PROCESSING', now(), now())
-    ON CONFLICT ("userId", "source", "sourceId") DO NOTHING
-  `;
-  const call = await db.call.findUnique({
-    where: { userId_source_sourceId: { userId, source: input.source, sourceId: input.sourceId } },
-    select: { id: true },
-  });
-  if (!call) return { ok: false, error: "No pude guardar la llamada." };
-  if (inserted > 0 && input.transcriptText) {
-    await db.$executeRaw`
-      INSERT INTO "CallTranscript" ("callId", "userId", "text", "charCount")
-      VALUES (${call.id}, ${userId}, ${input.transcriptText}, ${input.transcriptText.length}::int)
-      ON CONFLICT ("callId") DO NOTHING
+  // Point 6: a Fathom meeting can arrive first without recording_id (sourceId
+  // "url:…", the docs payload) and later with it. Same user + same shareUrl, or
+  // same title + recordedAt, is the same meeting: keep ONE row.
+  const fathomUrlId = input.source === "FATHOM" && input.sourceId.startsWith("url:");
+  if (input.source === "FATHOM" && !fathomUrlId) {
+    const adopted = await db.$executeRaw`
+      UPDATE "Call" SET "sourceId" = ${input.sourceId},
+        "summaryEn" = COALESCE("summaryEn", ${input.summaryEn}),
+        "actionItemsEn" = COALESCE("actionItemsEn", ${input.actionItemsEn}), "updatedAt" = now()
+      WHERE "id" = (
+        SELECT c."id" FROM "Call" c
+        WHERE c."userId" = ${userId} AND c."source" = 'FATHOM' AND c."sourceId" LIKE 'url:%'
+          AND (c."shareUrl" = ${input.shareUrl} OR (c."title" = ${input.title} AND c."recordedAt" = ${ts(input.recordedAt)}::timestamp))
+          AND NOT EXISTS (SELECT 1 FROM "Call" d WHERE d."userId" = ${userId} AND d."source" = 'FATHOM' AND d."sourceId" = ${input.sourceId})
+        ORDER BY c."createdAt" LIMIT 1
+      ) AND "userId" = ${userId}
     `;
+    if (adopted > 0) {
+      const same = await db.call.findUnique({
+        where: { userId_source_sourceId: { userId, source: "FATHOM", sourceId: input.sourceId } },
+        select: { id: true },
+      });
+      if (!same) return { ok: false, error: "No pude guardar la llamada." };
+      if (input.transcriptText) await storeTranscript(db, userId, same.id, input.transcriptText);
+      return { ok: true, callId: same.id, created: false };
+    }
   }
+  const inserted = fathomUrlId
+    ? await db.$executeRaw`
+        INSERT INTO "Call" ("id", "userId", "source", "sourceId", "title", "shareUrl", "recordedAt", "durationSec",
+          "summaryEn", "actionItemsEn", "state", "createdAt", "updatedAt")
+        SELECT gen_random_uuid()::text, ${userId}, 'FATHOM'::"CallSource", ${input.sourceId}, ${input.title},
+          ${input.shareUrl}, ${ts(input.recordedAt)}::timestamp, ${input.durationSec}::int, ${input.summaryEn},
+          ${input.actionItemsEn}, 'PROCESSING', now(), now()
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "Call" c WHERE c."userId" = ${userId} AND c."source" = 'FATHOM'
+            AND (c."shareUrl" = ${input.shareUrl} OR (c."title" = ${input.title} AND c."recordedAt" = ${ts(input.recordedAt)}::timestamp))
+        )
+        ON CONFLICT ("userId", "source", "sourceId") DO NOTHING
+      `
+    : await db.$executeRaw`
+        INSERT INTO "Call" ("id", "userId", "source", "sourceId", "title", "shareUrl", "recordedAt", "durationSec",
+          "summaryEn", "actionItemsEn", "state", "createdAt", "updatedAt")
+        VALUES (gen_random_uuid()::text, ${userId}, ${input.source}::"CallSource", ${input.sourceId}, ${input.title},
+          ${input.shareUrl}, ${ts(input.recordedAt)}::timestamp, ${input.durationSec}::int, ${input.summaryEn},
+          ${input.actionItemsEn}, 'PROCESSING', now(), now())
+        ON CONFLICT ("userId", "source", "sourceId") DO NOTHING
+      `;
+  const call =
+    (await db.call.findUnique({
+      where: { userId_source_sourceId: { userId, source: input.source, sourceId: input.sourceId } },
+      select: { id: true },
+    })) ??
+    (fathomUrlId
+      ? await db.call.findFirst({
+          where: {
+            userId,
+            source: "FATHOM",
+            OR: [...(input.shareUrl ? [{ shareUrl: input.shareUrl }] : []), { title: input.title, recordedAt: input.recordedAt }],
+          },
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
+        })
+      : null);
+  if (!call) return { ok: false, error: "No pude guardar la llamada." };
+  if (inserted > 0 && input.transcriptText) await storeTranscript(db, userId, call.id, input.transcriptText);
   if (inserted > 0) {
     await recountCounters(db, userId, bogotaDay(opts.now ?? new Date()));
     invalidate(userId, WRITE_EFFECTS.ingestCall(), opts.revalidate);
   }
   return { ok: true, callId: call.id, created: inserted > 0 };
+}
+
+async function storeTranscript(db: Db, userId: string, callId: string, text: string) {
+  await db.$executeRaw`
+    INSERT INTO "CallTranscript" ("callId", "userId", "text", "charCount")
+    VALUES (${callId}, ${userId}, ${text}, ${text.length}::int)
+    ON CONFLICT ("callId") DO NOTHING
+  `;
 }
 
 export type BriefDeps = { model: ModelCall | null };
@@ -208,27 +263,37 @@ async function proposeChanges(
 
 // ---------- Fathom connection ----------
 
-export const BACKFILL_WINDOW_DAYS = 60;
+export type WebhookFields = { id: string; secret: string; token: string; url: string };
 
-/** «Conectar Fathom»: key + webhook saved encrypted; the rebuild of the last 60 days starts. */
+/**
+ * «Conectar Fathom»: key saved encrypted and the rebuild starts. `webhook`:
+ * the one this deployment just created, or "keep" to leave the stored webhook
+ * fields exactly as they are (no webhook created here, e.g. a preview).
+ */
 export async function saveFathomConnection(
   db: Db,
   userId: string,
-  conn: { apiKey: string; webhookId: string | null; webhookSecret: string | null; webhookToken: string },
+  conn: { apiKey: string; webhook: WebhookFields | "keep" },
   opts: WriteOpts = {},
 ) {
   const now = opts.now ?? new Date();
-  const since = new Date(now.getTime() - BACKFILL_WINDOW_DAYS * 86_400_000);
+  const since = new Date(now.getTime() - backfillWindowDays() * 86_400_000);
   const apiKeyEnc = encryptSecret(conn.apiKey);
-  const secretEnc = conn.webhookSecret ? encryptSecret(conn.webhookSecret) : null;
+  const keep = conn.webhook === "keep";
+  const hook = conn.webhook === "keep" ? null : conn.webhook;
+  const secretEnc = hook ? encryptSecret(hook.secret) : null;
   await db.$executeRaw`
-    INSERT INTO "FathomConnection" ("id", "userId", "apiKeyEnc", "webhookId", "webhookSecretEnc", "webhookToken",
+    INSERT INTO "FathomConnection" ("id", "userId", "apiKeyEnc", "webhookId", "webhookSecretEnc", "webhookToken", "webhookUrl",
       "importSince", "backfillCursor", "backfillStatus", "backfillUntil", "backfillLockedUntil", "backfillImported", "createdAt", "updatedAt")
-    VALUES (gen_random_uuid()::text, ${userId}, ${apiKeyEnc}, ${conn.webhookId}, ${secretEnc}, ${conn.webhookToken},
+    VALUES (gen_random_uuid()::text, ${userId}, ${apiKeyEnc}, ${hook?.id ?? null}, ${secretEnc}, ${hook?.token ?? null}, ${hook?.url ?? null},
       ${ts(since)}::timestamp, NULL, 'RUNNING', ${ts(now)}::timestamp, NULL, 0, now(), now())
     ON CONFLICT ("userId") DO UPDATE SET
-      "apiKeyEnc" = EXCLUDED."apiKeyEnc", "webhookId" = EXCLUDED."webhookId", "webhookSecretEnc" = EXCLUDED."webhookSecretEnc",
-      "webhookToken" = EXCLUDED."webhookToken", "importSince" = EXCLUDED."importSince", "backfillCursor" = NULL,
+      "apiKeyEnc" = EXCLUDED."apiKeyEnc",
+      "webhookId" = CASE WHEN ${keep} THEN "FathomConnection"."webhookId" ELSE EXCLUDED."webhookId" END,
+      "webhookSecretEnc" = CASE WHEN ${keep} THEN "FathomConnection"."webhookSecretEnc" ELSE EXCLUDED."webhookSecretEnc" END,
+      "webhookToken" = CASE WHEN ${keep} THEN "FathomConnection"."webhookToken" ELSE EXCLUDED."webhookToken" END,
+      "webhookUrl" = CASE WHEN ${keep} THEN "FathomConnection"."webhookUrl" ELSE EXCLUDED."webhookUrl" END,
+      "importSince" = EXCLUDED."importSince", "backfillCursor" = NULL,
       "backfillStatus" = 'RUNNING', "backfillUntil" = EXCLUDED."backfillUntil", "backfillLockedUntil" = NULL,
       "backfillImported" = 0, "updatedAt" = now()
   `;

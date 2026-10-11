@@ -49,7 +49,7 @@ async function newUser(tag: string) {
 
 /** A connection row as «Conectar» leaves it, with a known test webhook secret. */
 async function connected(userId: string, token: string) {
-  await saveFathomConnection(db, userId, { apiKey: "fake-key", webhookId: "wh_test", webhookSecret: TEST_WEBHOOK_SECRET, webhookToken: token }, { revalidate, now: NOW });
+  await saveFathomConnection(db, userId, { apiKey: "fake-key", webhook: { id: "wh_test", secret: TEST_WEBHOOK_SECRET, token, url: `https://closer.example/api/fathom/webhook/${token}` } }, { revalidate, now: NOW });
 }
 const token = () => `tok_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 32).padEnd(24, "x");
 
@@ -228,7 +228,7 @@ function fakeFathom(pages: Array<{ items: FathomMeeting[]; nextCursor: string | 
   return { client, seen, hooks, deleted, reset: (next: typeof pages) => { pages = next; i = 0; } };
 }
 
-test("rebuild in bursts: ≤3 pages, cursor saved, 429 waits Retry-After, a second visit does not overlap, then DONE", { skip }, async () => {
+test("rebuild in bursts: ≤2 pages, cursor saved, 429 waits Retry-After, a second visit does not overlap, then DONE", { skip }, async () => {
   const userId = await newUser("burst");
   await connected(userId, token());
   const es = fixture("fathom-meeting-es.json");
@@ -236,7 +236,6 @@ test("rebuild in bursts: ≤3 pages, cursor saved, 429 waits Retry-After, a seco
   const en = fixture("fathom-meeting-en.json");
   const fake = fakeFathom([
     { items: [es, nul], nextCursor: "c2" },
-    { items: [en, es], nextCursor: "c3" },
     new FathomRateLimited(120),
   ]);
   const { model, prompts } = mockModel(briefJson());
@@ -248,28 +247,29 @@ test("rebuild in bursts: ≤3 pages, cursor saved, 429 waits Retry-After, a seco
   // the burst runs in after() of «Conectar», which revalidated offers: progress goes to its own tag
   assert.ok(tagsSeen.includes(`u:${userId}:fathom`));
   assert.ok(!tagsSeen.includes(`u:${userId}:offers`));
-  assert.deepEqual(r1, { ran: true, pages: 2, imported: 3, status: "RUNNING", retryAfterSec: 120 });
-  assert.equal(fake.seen.length, 3);
+  assert.deepEqual(r1, { ran: true, pages: 1, imported: 2, status: "RUNNING", retryAfterSec: 120 });
+  assert.equal(fake.seen.length, 2);
   assert.equal(fake.seen[0].createdAfter, new Date(NOW.getTime() - 60 * 86_400_000).toISOString());
-  assert.deepEqual(fake.seen.map((s) => s.cursor ?? null), [null, "c2", "c3"]);
-  assert.equal(prompts.length, 3); // es twice in the pages → stored and briefed once
+  assert.deepEqual(fake.seen.map((s) => s.cursor ?? null), [null, "c2"]);
+  assert.equal(prompts.length, 2);
   let conn = await db.fathomConnection.findUniqueOrThrow({ where: { userId }, select: { backfillCursor: true, backfillStatus: true, backfillLockedUntil: true, backfillImported: true } });
-  assert.equal(conn.backfillCursor, "c3");
+  assert.equal(conn.backfillCursor, "c2");
   assert.equal(conn.backfillStatus, "RUNNING");
-  assert.equal(conn.backfillImported, 3);
+  assert.equal(conn.backfillImported, 2);
   assert.equal(conn.backfillLockedUntil!.getTime(), NOW.getTime() + 120_000);
 
   // another visit during the pause: no request at all
   clock += 60_000;
   assert.deepEqual(await runBackfillBurst(db, userId, { client: fake.client, model, now, revalidate }), { ran: false, reason: "NOT_RUNNING_OR_BUSY" });
-  assert.equal(fake.seen.length, 3);
+  assert.equal(fake.seen.length, 2);
 
   // after Retry-After: the last page, then DONE
   clock += 61_000;
-  fake.reset([{ items: [en], nextCursor: null }]);
+  fake.reset([{ items: [en, es], nextCursor: null }]);
   const r3 = await runBackfillBurst(db, userId, { client: fake.client, model, now, revalidate });
-  assert.deepEqual(r3, { ran: true, pages: 1, imported: 0, status: "DONE" });
-  assert.equal(fake.seen.at(-1)!.cursor, "c3");
+  assert.deepEqual(r3, { ran: true, pages: 1, imported: 1, status: "DONE" });
+  assert.equal(fake.seen.at(-1)!.cursor, "c2");
+  assert.equal(prompts.length, 3); // es twice in the pages → stored and briefed once
   conn = await db.fathomConnection.findUniqueOrThrow({ where: { userId }, select: { backfillCursor: true, backfillStatus: true, backfillLockedUntil: true, backfillImported: true } });
   assert.deepEqual(conn, { backfillCursor: null, backfillStatus: "DONE", backfillLockedUntil: null, backfillImported: 3 });
   assert.deepEqual(await runBackfillBurst(db, userId, { client: fake.client, model, now, revalidate }), { ran: false, reason: "NOT_RUNNING_OR_BUSY" });
@@ -279,32 +279,33 @@ test("rebuild in bursts: ≤3 pages, cursor saved, 429 waits Retry-After, a seco
   assert.equal((await readStartSteps(db, userId, "2026-10-01")).backfill, "DONE");
 });
 
-test("rebuild: three full pages per burst at most; a revoked key stops it (ERROR), no loop", { skip }, async () => {
+test("rebuild: two full pages per burst at most (PAGES_PER_BURST); a revoked key stops it (ERROR), no loop", { skip }, async () => {
   const userId = await newUser("burst2");
   await connected(userId, token());
   const pageOf = (n: number) => ({ items: [{ ...fixture("fathom-meeting-null-summary.json"), recording_id: 7000 + n }], nextCursor: `p${n + 1}` });
   const fake = fakeFathom([pageOf(1), pageOf(2), pageOf(3), pageOf(4)]);
   const r = await runBackfillBurst(db, userId, { client: fake.client, model: null, now: () => NOW, revalidate });
-  assert.deepEqual(r, { ran: true, pages: 3, imported: 3, status: "RUNNING" });
-  assert.equal(fake.seen.length, 3);
+  assert.deepEqual(r, { ran: true, pages: 2, imported: 2, status: "RUNNING" });
+  assert.equal(fake.seen.length, 2);
   fake.reset([new FathomError("Fathom 401", 401)]);
   const r2 = await runBackfillBurst(db, userId, { client: fake.client, model: null, now: () => NOW, revalidate });
   assert.deepEqual(r2, { ran: true, pages: 0, imported: 0, status: "ERROR" });
-  assert.equal(fake.seen.length, 4);
+  assert.equal(fake.seen.length, 3);
   const page = await readOffersPage(db, userId);
   assert.equal(page.fathom.backfill, "ERROR");
 });
 
-test("connect: key checked, old webhook removed, ours created per user, saved encrypted, 60-day window, offers tag revalidated", { skip }, async () => {
+test("connect: key checked, our old webhook removed, ours created per user, saved encrypted, 60-day window, offers tag revalidated", { skip }, async () => {
   const userId = await newUser("connect");
   const fake = fakeFathom([{ items: [], nextCursor: null }]);
   tagsSeen.length = 0;
   const r = await connectFathom(db, userId, "fake-key-0123456789", { clientFor: () => fake.client, baseUrl: "https://closer.example", production: true, revalidate, now: NOW });
-  assert.deepEqual(r, { ok: true });
+  assert.deepEqual(r, { ok: true, webhook: true });
   assert.equal(fake.hooks.length, 1);
   assert.match(fake.hooks[0], /^https:\/\/closer\.example\/api\/fathom\/webhook\/[A-Za-z0-9_-]{32}$/);
   assert.deepEqual(tagsSeen, [`u:${userId}:offers`]);
-  const row = await db.fathomConnection.findUniqueOrThrow({ where: { userId }, select: { apiKeyEnc: true, webhookId: true, webhookSecretEnc: true, webhookToken: true, importSince: true, backfillStatus: true } });
+  const row = await db.fathomConnection.findUniqueOrThrow({ where: { userId }, select: { apiKeyEnc: true, webhookId: true, webhookSecretEnc: true, webhookToken: true, webhookUrl: true, importSince: true, backfillStatus: true } });
+  assert.equal(row.webhookUrl, fake.hooks[0]);
   assert.notEqual(row.apiKeyEnc, "fake-key-0123456789");
   assert.ok(!row.webhookSecretEnc!.includes("whsec_"));
   assert.equal(row.webhookId, "wh_1");
@@ -316,7 +317,7 @@ test("connect: key checked, old webhook removed, ours created per user, saved en
 
   // reconnect: the previous webhook goes first, then a new one with a new token
   const again = await connectFathom(db, userId, "fake-key-9876543210", { clientFor: () => fake.client, baseUrl: "https://closer.example", production: true, now: NOW, revalidate });
-  assert.deepEqual(again, { ok: true });
+  assert.deepEqual(again, { ok: true, webhook: true });
   assert.deepEqual(fake.deleted, ["wh_1"]);
   const row2 = await db.fathomConnection.findUniqueOrThrow({ where: { userId }, select: { webhookId: true, webhookToken: true } });
   assert.equal(row2.webhookId, "wh_2");
@@ -331,11 +332,117 @@ test("connect: key checked, old webhook removed, ours created per user, saved en
   assert.equal((await db.fathomConnection.findUniqueOrThrow({ where: { userId }, select: { webhookId: true } })).webhookId, "wh_2");
 
   // disconnect: webhook removed, row gone, the URL answers 404 from now on
-  await disconnectFathomFlow(db, userId, { clientFor: () => fake.client, revalidate });
+  await disconnectFathomFlow(db, userId, { clientFor: () => fake.client, baseUrl: "https://closer.example", revalidate });
   assert.deepEqual(fake.deleted, ["wh_1", "wh_2"]);
   assert.equal(await db.fathomConnection.findUnique({ where: { userId }, select: { id: true } }), null);
   const body = raw("fathom-meeting-es.json");
   assert.equal((await handleFathomWebhook(db, row2.webhookToken!, signedHeaders(body), body, { model: null, revalidate })).status, 404);
+});
+
+test("BLOCKER: a webhook of another deployment (other domain) or one this database never stored is never deleted", { skip }, async () => {
+  // production created wh_prod on its own domain and that row is in this database (shared DB worst case)
+  const userId = await newUser("foreign");
+  await saveFathomConnection(db, userId, { apiKey: "prod-key-0123456789", webhook: { id: "wh_prod", secret: TEST_WEBHOOK_SECRET, token: "tok_prod_000000000000000000", url: "https://closer.app/api/fathom/webhook/tok_prod_000000000000000000" } }, { revalidate, now: NOW });
+  const fake = fakeFathom([{ items: [], nextCursor: null }]);
+  const preview = "https://ak-rp-closer-git-v2.vercel.app";
+  // reconnect from a preview with webhooks enabled: wh_prod stays, ours is created
+  const r = await connectFathom(db, userId, "prod-key-0123456789", { clientFor: () => fake.client, baseUrl: preview, production: true, webhooks: true, revalidate, now: NOW });
+  assert.deepEqual(r, { ok: true, webhook: true });
+  assert.deepEqual(fake.deleted, []);
+  // reconnect from that preview again: only the preview's own webhook goes
+  await connectFathom(db, userId, "prod-key-0123456789", { clientFor: () => fake.client, baseUrl: preview, production: true, webhooks: true, revalidate, now: NOW });
+  assert.deepEqual(fake.deleted, ["wh_1"]);
+  // disconnect from production's domain: the stored webhook is the preview's → not ours → kept
+  await disconnectFathomFlow(db, userId, { clientFor: () => fake.client, baseUrl: "https://closer.app", revalidate });
+  assert.deepEqual(fake.deleted, ["wh_1"]);
+  assert.equal(await db.fathomConnection.findUnique({ where: { userId }, select: { id: true } }), null);
+
+  // nothing stored → nothing deleted (we never list the account's webhooks)
+  const other = await newUser("foreign2");
+  const fake2 = fakeFathom([{ items: [], nextCursor: null }]);
+  await connectFathom(db, other, "prod-key-0123456789", { clientFor: () => fake2.client, baseUrl: preview, production: true, webhooks: true, revalidate, now: NOW });
+  await disconnectFathomFlow(db, other, { clientFor: () => fake2.client, baseUrl: "https://closer.app", revalidate });
+  assert.deepEqual(fake2.deleted, []);
+  const client = fake2.client as Record<string, unknown>;
+  assert.equal(typeof client.listWebhooks, "undefined");
+});
+
+test("preview (VERCEL_ENV=preview): no webhook unless FATHOM_WEBHOOK_IN_PREVIEW=1; the stored one is kept; the rebuild still runs", { skip }, async () => {
+  const userId = await newUser("preview");
+  await saveFathomConnection(db, userId, { apiKey: "prod-key-0123456789", webhook: { id: "wh_prod", secret: TEST_WEBHOOK_SECRET, token: "tok_prod_111111111111111111", url: "https://closer.app/api/fathom/webhook/tok_prod_111111111111111111" } }, { revalidate, now: NOW });
+  const en = fixture("fathom-meeting-en.json");
+  const fake = fakeFathom([{ items: [en], nextCursor: null }]);
+  const saved = { VERCEL_ENV: process.env.VERCEL_ENV, FLAG: process.env.FATHOM_WEBHOOK_IN_PREVIEW };
+  process.env.VERCEL_ENV = "preview";
+  delete process.env.FATHOM_WEBHOOK_IN_PREVIEW;
+  try {
+    const r = await connectFathom(db, userId, "prod-key-0123456789", { clientFor: () => fake.client, baseUrl: "http://no-public-url", production: true, revalidate, now: NOW });
+    assert.deepEqual(r, { ok: true, webhook: false });
+    assert.deepEqual([fake.hooks, fake.deleted], [[], []]);
+    const row = await db.fathomConnection.findUniqueOrThrow({ where: { userId }, select: { webhookId: true, webhookUrl: true, backfillStatus: true } });
+    assert.deepEqual(row, { webhookId: "wh_prod", webhookUrl: "https://closer.app/api/fathom/webhook/tok_prod_111111111111111111", backfillStatus: "RUNNING" });
+    const burst = await runBackfillBurst(db, userId, { client: fake.client, model: null, now: () => NOW, revalidate });
+    assert.deepEqual(burst, { ran: true, pages: 1, imported: 1, status: "DONE" });
+    const fresh = await newUser("preview2");
+    const r2 = await connectFathom(db, fresh, "prod-key-0123456789", { clientFor: () => fake.client, baseUrl: "http://no-public-url", production: true, revalidate, now: NOW });
+    assert.deepEqual(r2, { ok: true, webhook: false });
+    assert.equal((await readOffersPage(db, fresh)).fathom.webhook, false);
+    process.env.FATHOM_WEBHOOK_IN_PREVIEW = "1";
+    const r3 = await connectFathom(db, fresh, "prod-key-0123456789", { clientFor: () => fake.client, baseUrl: "https://ak-rp-closer-git-v2.vercel.app", production: true, revalidate, now: NOW });
+    assert.deepEqual(r3, { ok: true, webhook: true });
+    assert.equal((await readOffersPage(db, fresh)).fathom.webhook, true);
+  } finally {
+    if (saved.VERCEL_ENV === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = saved.VERCEL_ENV;
+    if (saved.FLAG === undefined) delete process.env.FATHOM_WEBHOOK_IN_PREVIEW; else process.env.FATHOM_WEBHOOK_IN_PREVIEW = saved.FLAG;
+  }
+});
+
+test("point 6: the same meeting without recording_id and later with it stays ONE row (both orders, link or title + time)", { skip }, async () => {
+  const docs = fixture("fathom-webhook-docs.json");
+  const en = fixture("fathom-meeting-en.json");
+  // docs (url:) first, then en (recording_id): the row adopts the id
+  const a = await newUser("p6a");
+  const tokA = token();
+  await connected(a, tokA);
+  for (const m of [docs, en]) {
+    const body = JSON.stringify(m);
+    const res = await handleFathomWebhook(db, tokA, signedHeaders(body), body, { model: null, revalidate });
+    if (res.later) await res.later();
+  }
+  const ca = await counts(a);
+  assert.deepEqual(ca.calls.map((x) => x.sourceId), ["123456789"]);
+  assert.equal(ca.transcripts.length, 1);
+
+  // en first, then docs: the docs copy is not inserted
+  const b = await newUser("p6b");
+  const tokB = token();
+  await connected(b, tokB);
+  for (const m of [en, docs]) {
+    const body = JSON.stringify(m);
+    const res = await handleFathomWebhook(db, tokB, signedHeaders(body), body, { model: null, revalidate });
+    if (res.later) await res.later();
+  }
+  assert.deepEqual((await counts(b)).calls.map((x) => x.sourceId), ["123456789"]);
+
+  // different link, same title + recordedAt → same meeting
+  const c = await newUser("p6c");
+  const tokC = token();
+  await connected(c, tokC);
+  const moved = { ...docs, share_url: "https://fathom.video/share/otro", url: "https://fathom.video/calls/otro" };
+  for (const m of [moved, en]) {
+    const body = JSON.stringify(m);
+    const res = await handleFathomWebhook(db, tokC, signedHeaders(body), body, { model: null, revalidate });
+    if (res.later) await res.later();
+  }
+  assert.deepEqual((await counts(c)).calls.map((x) => x.sourceId), ["123456789"]);
+
+  // another user's row is never touched; a different meeting is a new row
+  await connected(a, tokA);
+  const other = { ...en, recording_id: 42, share_url: "https://fathom.video/share/zzz", url: "https://fathom.video/calls/zzz", meeting_title: "Otra", title: "Otra", recording_start_time: "2026-10-01T15:00:00Z" };
+  const body = JSON.stringify(other);
+  await handleFathomWebhook(db, tokA, signedHeaders(body), body, { model: null, revalidate });
+  assert.deepEqual((await counts(a)).calls.map((x) => x.sourceId).sort(), ["123456789", "42"]);
+  assert.deepEqual((await counts(b)).calls.map((x) => x.sourceId), ["123456789"]);
 });
 
 test("upload: transcript text → brief right away; the same text again is a duplicate", { skip }, async () => {

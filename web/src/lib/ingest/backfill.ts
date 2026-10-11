@@ -11,11 +11,18 @@ import type { WriteOpts } from "@/lib/write/offers";
 import { type ModelCall, briefModelAvailable, defaultBriefModel } from "./brief";
 import { type FathomClient, FathomError, FathomRateLimited, fathomClient } from "./fathom-api";
 import { fromFathomMeeting } from "./meeting";
+import { backfillWindowDays } from "./window";
 
-export { BACKFILL_WINDOW_DAYS } from "@/lib/write/ingest";
-export const PAGES_PER_BURST = 3;
-/** do not start another page after this (the brief of a page runs in parallel) */
-export const BURST_BUDGET_MS = 25_000;
+export { BACKFILL_WINDOW_DAYS, backfillWindowDays } from "./window";
+/**
+ * Pages of 10 meetings (with transcript) per burst. Was 3; measured locally
+ * (PR 5 timing, docs/config-fathom.md): one page ≈ Fathom fetch + 10 ingests +
+ * 10 parallel briefs ≈ 10–20 s with real latencies, so 3 pages can pass the 60 s
+ * function limit. The budget below is only checked BEFORE a page starts.
+ */
+export const PAGES_PER_BURST = 2;
+/** do not start another page after this; a page itself can take fetch + ingest + one brief timeout (45 s) */
+export const BURST_BUDGET_MS = 12_000;
 /** a burst holds the connection at most this long */
 export const LEASE_MS = 90_000;
 /** after an unexpected Fathom error, the next visit may try again after this */
@@ -43,13 +50,16 @@ export async function runBackfillBurst(db: PrismaClient, userId: string, deps: B
   const client = deps.client ?? fathomClient(decryptSecret(conn.apiKeyEnc));
   const model = deps.model !== undefined ? deps.model : briefModelAvailable() ? defaultBriefModel : null;
   const opts = { revalidate: deps.revalidate };
-  const createdAfter = (conn.importSince ?? new Date(started.getTime() - 60 * 86_400_000)).toISOString();
+  const createdAfter = (conn.importSince ?? new Date(started.getTime() - backfillWindowDays() * 86_400_000)).toISOString();
 
+  const t0 = performance.now();
+  const ms = (from: number) => Math.round(performance.now() - from);
   let cursor = conn.backfillCursor;
   let pages = 0;
   let imported = 0;
   while (pages < PAGES_PER_BURST && clock().getTime() - started.getTime() < BURST_BUDGET_MS) {
     let page;
+    const tPage = performance.now();
     try {
       page = await client.listMeetings({ createdAfter, cursor });
     } catch (error) {
@@ -67,6 +77,8 @@ export async function runBackfillBurst(db: PrismaClient, userId: string, deps: B
       return { ran: true, pages, imported, status };
     }
     pages += 1;
+    const fetchMs = ms(tPage);
+    const tIngest = performance.now();
     let created = 0;
     const briefs: Array<Promise<unknown>> = [];
     for (const meeting of page.items) {
@@ -77,7 +89,10 @@ export async function runBackfillBurst(db: PrismaClient, userId: string, deps: B
       created += 1;
       briefs.push(briefIngestedCall(db, userId, saved.callId, input, { model }, { ...opts, now: clock() }));
     }
+    const ingestMs = ms(tIngest);
+    const tBrief = performance.now();
     await Promise.allSettled(briefs);
+    const briefMs = ms(tBrief);
     imported += created;
     cursor = page.nextCursor;
     const done = !cursor;
@@ -85,6 +100,11 @@ export async function runBackfillBurst(db: PrismaClient, userId: string, deps: B
     await saveBackfillProgress(db, userId, {
       cursor, status: done ? "DONE" : "RUNNING", imported: created, lockedUntil: last ? null : new Date(clock().getTime() + LEASE_MS),
     }, opts);
+    // timing per page against the function limit (no content, no ids)
+    console.info(
+      `[fathom] backfill page ${pages}/${PAGES_PER_BURST}: ${page.items.length} items, ${created} new; ` +
+        `fetch ${fetchMs} ms, ingest ${ingestMs} ms, briefs ${briefMs} ms, page ${ms(tPage)} ms, burst ${ms(t0)} ms`,
+    );
     if (done) return { ran: true, pages, imported, status: "DONE" };
   }
   return { ran: true, pages, imported, status: "RUNNING" };

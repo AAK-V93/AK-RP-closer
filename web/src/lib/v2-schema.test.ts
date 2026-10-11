@@ -171,6 +171,7 @@ test("0_init + 1_ofertas + 2_metas + 3_ingesta, and 0_init carries the two parti
     "briefAttempts INTEGER NOT NULL DEFAULT 0",
     "backfillImported INTEGER NOT NULL DEFAULT 0",
     "backfillLockedUntil TIMESTAMP(3)",
+    "webhookUrl TEXT",
   ]);
   assert.match(pr5, /CREATE TABLE "CoachInsight"/);
   // 2_metas only adds tables: nothing is dropped or altered in older ones

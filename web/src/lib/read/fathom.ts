@@ -17,7 +17,7 @@ export async function readFathomConnection(db: Db, userId: string) {
   return db.fathomConnection.findUnique({
     where: { userId },
     select: {
-      apiKeyEnc: true, webhookId: true, importSince: true, backfillCursor: true,
+      apiKeyEnc: true, webhookId: true, webhookUrl: true, importSince: true, backfillCursor: true,
       backfillStatus: true, backfillLockedUntil: true, backfillImported: true,
     },
   });

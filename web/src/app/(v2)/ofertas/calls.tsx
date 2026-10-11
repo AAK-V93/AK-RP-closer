@@ -1,29 +1,31 @@
 // «Tus llamadas» (mockup 06-mis-ofertas): connect Fathom, upload a call, and
 // what is happening with the rebuild. Plain forms, no polling.
 import Link from "next/link";
-import { BACKFILL_WINDOW_DAYS } from "@/lib/write/ingest";
+import { backfillWindowDays } from "@/lib/ingest/window";
 import { plural } from "@/lib/format/goal";
 import { IconPhone, IconUpload } from "@/components/v2/icons";
 import { connectFathomAction, disconnectFathomAction, retryBriefsAction, uploadCallAction } from "./calls-actions";
 
 type Props = {
-  fathom: { connected: boolean; backfill: "NONE" | "RUNNING" | "DONE" | "ERROR"; imported: number };
+  fathom: { connected: boolean; webhook: boolean; backfill: "NONE" | "RUNNING" | "DONE" | "ERROR"; imported: number };
   calls: { processing: number; failed: number };
   open: string;
 };
 
-function statusText(f: Props["fathom"]) {
+function statusText(f: Props["fathom"], days: number) {
   if (!f.connected) return <>Conecta Fathom y tus llamadas nuevas llegan solas.</>;
   const brought = f.imported > 0 ? ` Van ${plural(f.imported, "llamada", "llamadas")}.` : "";
   if (f.backfill === "RUNNING") {
-    return <>Estoy trayendo tus llamadas de los últimos {BACKFILL_WINDOW_DAYS} días; sigo cada vez que entras a Hoy.{brought}</>;
+    return <>Estoy trayendo tus llamadas de los últimos {days} días; sigo cada vez que entras a Hoy.{brought}</>;
   }
   if (f.backfill === "ERROR") return <>Fathom no aceptó tu clave. Conéctalo de nuevo con una clave nueva.</>;
-  return <>Tus llamadas nuevas llegan solas.{f.backfill === "DONE" && f.imported > 0 ? ` Traje ${f.imported} de los últimos ${BACKFILL_WINDOW_DAYS} días.` : ""}</>;
+  if (!f.webhook) return <>En esta versión de prueba las llamadas nuevas no llegan solas: súbelas aquí.</>;
+  return <>Tus llamadas nuevas llegan solas.{f.backfill === "DONE" && f.imported > 0 ? ` Traje ${f.imported} de los últimos ${days} días.` : ""}</>;
 }
 
 export function CallsCard({ fathom, calls, open }: Props) {
   const stuck = calls.failed + calls.processing;
+  const days = backfillWindowDays();
   return (
     <>
       <div className="card calls" id="llamadas">
@@ -36,7 +38,7 @@ export function CallsCard({ fathom, calls, open }: Props) {
                 <span className="dot" />Conectado a Fathom
               </span>
             )}
-            {statusText(fathom)}
+            {statusText(fathom, days)}
           </div>
           <div className="s">Si Fathom no resume una llamada, súbela.</div>
         </div>
@@ -65,7 +67,7 @@ export function CallsCard({ fathom, calls, open }: Props) {
             </label>
             <div className="small muted">
               En Fathom: Settings › API Access › Generate API key. La guardo cifrada. Al conectar traigo tus llamadas de los
-              últimos {BACKFILL_WINDOW_DAYS} días y desde ahí las nuevas llegan solas.
+              últimos {days} días y desde ahí las nuevas llegan solas.
             </div>
             <div><button type="submit" className="btn pri sm">{fathom.connected ? "Conectar con esta clave" : "Conectar Fathom"}</button></div>
           </form>

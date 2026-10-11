@@ -48,7 +48,7 @@ export async function readOffersPage(db: Db, userId: string) {
       orderBy: { offerId: "asc" },
       take: OFFERS_TAKE,
     }),
-    db.fathomConnection.findUnique({ where: { userId }, select: { lastSyncAt: true, backfillStatus: true, backfillImported: true } }),
+    db.fathomConnection.findUnique({ where: { userId }, select: { lastSyncAt: true, backfillStatus: true, backfillImported: true, webhookId: true } }),
     db.googleDriveConnection.findUnique({ where: { userId }, select: { id: true } }),
     // «Tus llamadas»: calls still being summarized or whose summary failed (no transcript, no brief)
     db.call.groupBy({
@@ -78,8 +78,8 @@ export async function readOffersPage(db: Db, userId: string) {
       casesToReview: toReview.get(o.id) ?? 0,
     })),
     fathom: fathom
-      ? { connected: true, lastSyncAt: iso(fathom.lastSyncAt), backfill: fathom.backfillStatus, imported: fathom.backfillImported }
-      : { connected: false, lastSyncAt: null, backfill: "NONE" as const, imported: 0 },
+      ? { connected: true, webhook: Boolean(fathom.webhookId), lastSyncAt: iso(fathom.lastSyncAt), backfill: fathom.backfillStatus, imported: fathom.backfillImported }
+      : { connected: false, webhook: false, lastSyncAt: null, backfill: "NONE" as const, imported: 0 },
     calls: { processing: byState.get("PROCESSING") ?? 0, failed: byState.get("BRIEF_FAILED") ?? 0 },
     driveConnected: Boolean(drive),
   };
