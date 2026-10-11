@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
+import { createUserCounters } from "@/lib/write/user-counters";
 
 export async function POST(request: Request) {
   if (!isDatabaseConfigured()) {
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
       },
       select: { id: true, email: true, name: true },
     });
+    await createUserCounters(prisma, user.id);
 
     return NextResponse.json({ user });
   } catch (error) {

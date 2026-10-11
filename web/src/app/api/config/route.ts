@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import dotenv from "dotenv";
 import path from "path";
 import { googleAuthConfigured } from "@/lib/auth";
-import { googleCalendarConfigured } from "@/lib/calendar";
-import { twilioWhatsAppConfigured } from "@/lib/whatsapp";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
 
+/** Public flags only, no database. */
 export async function GET() {
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY?.trim());
   const hasLiveKit =
@@ -19,8 +18,6 @@ export async function GET() {
     hasGeminiKey,
     hasLiveKit,
     hasGoogleAuth: googleAuthConfigured(),
-    hasGoogleCalendar: googleCalendarConfigured(),
-    hasWhatsApp: twilioWhatsAppConfigured(),
     ready: hasGeminiKey && hasLiveKit,
   });
 }

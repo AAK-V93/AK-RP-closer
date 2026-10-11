@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
-import { getPrisma, isDatabaseConfigured, ensureFathomTables } from "@/lib/prisma";
+import { getPrisma, isDatabaseConfigured } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/secret-crypto";
 
 export async function requireFathomUser() {
@@ -25,21 +25,6 @@ export async function requireFathomUser() {
   if (!prisma) {
     return {
       error: NextResponse.json({ error: "DB no disponible" }, { status: 503 }),
-    };
-  }
-
-  try {
-    await ensureFathomTables(prisma);
-  } catch (error) {
-    console.error("ensureFathomTables", error);
-    return {
-      error: NextResponse.json(
-        {
-          error:
-            "No se pudieron preparar las tablas de Fathom. Ejecuta prisma db push en la base de datos.",
-        },
-        { status: 503 },
-      ),
     };
   }
 
