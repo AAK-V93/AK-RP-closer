@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import path from "path";
 import { getPrisma, isDatabaseConfigured, prismaErrorCode } from "@/lib/prisma";
+import { createUserCounters } from "@/lib/write/user-counters";
 
 dotenv.config({ path: path.join(process.cwd(), "../.env.local") });
 dotenv.config({ path: path.join(process.cwd(), ".env.local") });
@@ -45,13 +46,15 @@ async function upsertGoogleUser(email: string, name?: string | null) {
     }
     return existing;
   }
-  return prisma.user.create({
+  const created = await prisma.user.create({
     data: {
       email: normalized,
       name: name?.trim() || null,
       passwordHash: null,
     },
   });
+  await createUserCounters(prisma, created.id);
+  return created;
 }
 
 export const authOptions: NextAuthOptions = {

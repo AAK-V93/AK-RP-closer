@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { createRateLimiter } from "@/lib/rate-limit";
 import dotenv from "dotenv";
 import path from "path";
 import { commercialRecap } from "@/lib/offer-commercial";
@@ -20,6 +23,9 @@ export const runtime = "nodejs";
  */
 export const maxDuration = 30;
 
+// Each call reads files and calls the model: 10 per user every 10 minutes.
+const takeOfferSlot = createRateLimiter(10, 10 * 60 * 1000);
+
 async function filesFromForm(form: FormData) {
   const rows: File[] = [];
   const many = form.getAll("files");
@@ -32,6 +38,18 @@ async function filesFromForm(form: FormData) {
 }
 
 export async function POST(request: Request) {
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id;
+  if (!userId) {
+    return NextResponse.json({ error: "Inicia sesión" }, { status: 401 });
+  }
+  const slot = takeOfferSlot(userId);
+  if (!slot.ok) {
+    return NextResponse.json(
+      { error: "Ya subiste varias ofertas seguidas. Intenta de nuevo en unos minutos." },
+      { status: 429, headers: { "Retry-After": String(slot.retryAfterSec) } },
+    );
+  }
   try {
     const form = await request.formData();
     const paste = String(form.get("paste") || form.get("text") || "").trim();
