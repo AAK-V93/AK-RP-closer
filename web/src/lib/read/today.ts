@@ -1,19 +1,37 @@
 // Hoy (plan 2.1): stats of the month, counters and 5 people. Goal reading
 // arrives with MonthlyGoal in PR 4.
 import type { Prisma } from "@prisma/client";
-import { type DayKey, BOGOTA, dateOnly, dayRange } from "@/lib/time/bogota";
+import { type DayKey, BOGOTA, dateOnly, dayRange, monthRange } from "@/lib/time/bogota";
 import { type Db, amount, iso } from "./dto";
 
+/**
+ * ACTIVO sales of the month by currency (≤ a few rows). Money totals only sum
+ * the user's currency; the others are shown as «+ N ventas en EUR no incluidas».
+ */
+export async function readDealCurrencies(db: Db, userId: string, month: DayKey, timeZone = BOGOTA) {
+  const { start, end } = monthRange(month, timeZone);
+  const rows = await db.deal.groupBy({
+    by: ["currency"],
+    where: { userId, status: "ACTIVO", closedAt: { gte: start, lt: end } },
+    _count: { _all: true },
+    orderBy: { currency: "asc" },
+    take: 10,
+  });
+  return rows.map((r) => ({ currency: r.currency, count: r._count._all }));
+}
+
 export async function readTodayHeader(db: Db, userId: string, month: DayKey) {
-  const [stats, counters] = await Promise.all([
+  const [stats, counters, dealCurrencies] = await Promise.all([
     db.userMonthStats.findFirst({
       where: { userId, month: dateOnly(month), offerId: null },
       select: { callsHeld: true, closedCount: true, lostCount: true, commissionEarned: true },
     }),
     readCounters(db, userId),
+    readDealCurrencies(db, userId, month),
   ]);
   return {
     month,
+    dealCurrencies,
     stats: stats ? { ...stats, commissionEarned: amount(stats.commissionEarned)! } : null,
     counters,
   };
@@ -31,6 +49,7 @@ export async function readCounters(db: Db, userId: string) {
       topObjectionLabel: true,
       topObjectionHits: true,
       topObjectionOf: true,
+      ignoredCount: true,
     },
   });
   return c ? { ...c, lastCloseAt: iso(c.lastCloseAt) } : null;

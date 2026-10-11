@@ -70,7 +70,7 @@ export function GoalForm({
   );
 }
 
-export function GoalCard({ view, month, userCurrency }: { view: View; month: string; userCurrency: string }) {
+export function GoalCard({ view, month, userCurrency, notes = [] }: { view: View; month: string; userCurrency: string; notes?: string[] }) {
   const g = view.goal!;
   const p = g.progress;
   const money = (c: number) => formatCents(c, g.currency);
@@ -93,6 +93,7 @@ export function GoalCard({ view, month, userCurrency }: { view: View; month: str
           Llevas <b>{money(p.earned)}</b> · te faltan <b>{money(p.remaining)}</b> · {p.daysLeft === 1 ? "queda" : "quedan"} <b>{p.daysLeft === 1 ? "1 día" : `${p.daysLeft} días`}</b>
         </div>
       )}
+      {notes.map((t) => <div className="s other-cur" key={t}>{t}</div>)}
       <div className="n">Puedes cambiarla cuando quieras durante el mes; tu camino se recalcula al momento.</div>
     </div>
   );

@@ -54,7 +54,9 @@ export function tagsForWrite(userId: string, effect: WriteEffect): string[] {
  */
 export const WRITE_EFFECTS = {
   confirmCall: (leadId: string | null): WriteEffect => ({ stats: true, pending: true, leadIds: leadId ? [leadId] : [], leads: true }),
-  logAttempt: (leadId: string): WriteEffect => ({ stats: true, leadIds: [leadId] }),
+  logAttempt: (leadId: string): WriteEffect => ({ stats: true, leads: true, leadIds: [leadId] }),
+  // «Deshacer» of an attempt (compensating UNDO event): same places as the attempt
+  undoAttempt: (leadId: string): WriteEffect => ({ stats: true, leads: true, leadIds: [leadId] }),
   ingestCall: (): WriteEffect => ({ pending: true, practice: true, stats: true }),
   // Ingesta (PR 5). The calls card in Mis ofertas reads with the pending tag too.
   briefIngestedCall: (): WriteEffect => ({ pending: true, practice: true, stats: true }),
@@ -63,6 +65,9 @@ export const WRITE_EFFECTS = {
   disconnectFathom: (): WriteEffect => ({ offers: true, fathom: true }),
   saveBackfillProgress: (): WriteEffect => ({ fathom: true }),
   applyProposedChange: (leadId: string | null): WriteEffect => ({ stats: true, leads: true, pending: true, leadIds: leadId ? [leadId] : [] }),
+  // Confirmar (PR 6): «Deshacer» touches the same things as the tap; «No era interna» brings a call back to the list
+  undoProposedChange: (leadId: string | null): WriteEffect => ({ stats: true, leads: true, pending: true, leadIds: leadId ? [leadId] : [] }),
+  recoverIgnoredCall: (): WriteEffect => ({ pending: true, practice: true, stats: true }),
   setGoal: (): WriteEffect => ({ goal: true }),
   // Metas (PR 4)
   chooseGoalPath: (): WriteEffect => ({ goal: true }),

@@ -23,6 +23,8 @@ export function proposalsFor(
     oneLine: brief.una_linea,
     whereLeft: brief.acuerdo_seguimiento,
     decider: brief.decisor.nombre ? [brief.decisor.nombre, brief.decisor.rol].filter(Boolean).join(" · ") : null,
+    /** for the «Pendiente de pago» label in Confirmar (the list never reads the brief) */
+    leadState: brief.estado_lead,
   };
   const out: Proposal[] = [];
   const single = matches.length === 1 ? matches[0] : null;

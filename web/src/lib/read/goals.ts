@@ -5,7 +5,7 @@ import { type DayKey, addDaysKey, addMonthsKey, dateOnly, dateOnlyKey, weekRange
 import { FOLLOWUP_ATTEMPTS_TARGET } from "@/lib/metrics/metas";
 import { type Db, amount } from "./dto";
 import { OFFERS_TAKE } from "./offers";
-import { readCounters } from "./today";
+import { readCounters, readDealCurrencies } from "./today";
 
 /** Monday of the week of a local day. */
 export function weekStartOf(day: DayKey): DayKey {
@@ -21,7 +21,7 @@ export async function readGoals(db: Db, userId: string, today: DayKey, currency:
   const prevWeek = addDaysKey(week, -7);
   const { start, end } = weekRange(week);
 
-  const [goal, stats, weekGoals, meetings, attempts, near, counters, attemptGroups] = await Promise.all([
+  const [goal, stats, weekGoals, meetings, attempts, near, counters, attemptGroups, dealCurrencies] = await Promise.all([
     db.monthlyGoal.findUnique({
       where: { userId_month: { userId, month: dateOnly(month) } },
       select: { targetCommission: true, currency: true, chosenPath: true },
@@ -45,7 +45,7 @@ export async function readGoals(db: Db, userId: string, today: DayKey, currency:
     }),
     db.leadEvent.groupBy({
       by: ["type"],
-      where: { userId, type: "ATTEMPT", at: { gte: start, lt: end } },
+      where: { userId, type: "ATTEMPT", undoneAt: null, at: { gte: start, lt: end } },
       _count: { _all: true },
       orderBy: { type: "asc" },
       take: 1,
@@ -73,6 +73,7 @@ export async function readGoals(db: Db, userId: string, today: DayKey, currency:
       orderBy: { attemptsSinceLastCall: "asc" },
       take: FOLLOWUP_ATTEMPTS_TARGET,
     }),
+    readDealCurrencies(db, userId, month),
   ]);
 
   const row = (r: (typeof stats)[number]) => ({
@@ -103,6 +104,8 @@ export async function readGoals(db: Db, userId: string, today: DayKey, currency:
     attemptGroups: attemptGroups.map((g) => ({ attempts: g.attemptsSinceLastCall, people: g._count._all })),
     near: near.map((l) => ({ ...l, potentialCommission: amount(l.potentialCommission) })),
     counters,
+    /** sales of the month in another currency than the user's: not in the sums */
+    otherCurrencySales: dealCurrencies.filter((d) => d.currency !== currency),
   };
 }
 export type GoalsData = Awaited<ReturnType<typeof readGoals>>;

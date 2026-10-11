@@ -89,7 +89,7 @@ export const getFichaDetail = (userId: string, leadId: string) =>
   );
 
 export const getPending = (userId: string) =>
-  cachedRead("pending", [userId], { tags: [tags.pending(userId)], revalidate: REVALIDATE.safety }, () =>
+  cachedRead("pending", [userId], { tags: [tags.pending(userId), tags.leads(userId), tags.offers(userId)], revalidate: REVALIDATE.safety }, () =>
     readPending(db(), userId),
   );
 

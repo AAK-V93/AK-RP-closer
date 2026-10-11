@@ -8,6 +8,7 @@ import { bogotaDay } from "@/lib/time/bogota";
 import { V2Nav } from "@/components/v2/nav";
 import { IconCal, IconCheck, IconFlag, IconPeople } from "@/components/v2/icons";
 import { monthName, monthTitle } from "@/lib/format/goal";
+import { otherCurrencyNotes } from "@/lib/format/currency-note";
 import { CaminoCard, GoalCard, GoalForm, NearCard, BlockerCard, NumbersCard, WeekCard } from "./parts";
 
 export const dynamic = "force-dynamic";
@@ -85,7 +86,7 @@ export default async function MetasPage({ searchParams }: { searchParams: Promis
                 />
               </div>
             ) : (
-              <GoalCard view={view} month={month} userCurrency={settings.currency} />
+              <GoalCard view={view} month={month} userCurrency={settings.currency} notes={otherCurrencyNotes(data.otherCurrencySales, settings.currency)} />
             )}
             <div className="two">
               <CaminoCard view={view} offers={offers} />

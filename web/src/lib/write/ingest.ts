@@ -16,6 +16,7 @@ import {
   type ModelCall,
   type Outcome,
   isSalesCall,
+  parseBrief,
   runCallBrief,
 } from "@/lib/ingest/brief";
 import type { IngestInput, Invitee } from "@/lib/ingest/meeting";
@@ -205,6 +206,36 @@ async function briefAndStore(db: Db, userId: string, callId: string, src: BriefS
   if (sales) await proposeChanges(db, userId, callId, version, brief, outcome, src.invitees, offerId);
   await recountCounters(db, userId, today);
   return { ok: true, state };
+}
+
+/**
+ * «No era interna» (Confirmar › Ignoradas): the call comes back to «por
+ * confirmar» with its suggestions built from the brief already stored. No new
+ * model call: the brief is the same, only the closer's reading of it changed.
+ * There is no suggested outcome (the brief thought it was internal), so no
+ * option gets the black border.
+ */
+export async function recoverIgnoredCall(db: Db, userId: string, callId: string, opts: WriteOpts = {}) {
+  const call = await db.call.findFirst({
+    where: { id: callId, userId, state: "IGNORED" },
+    select: { id: true, brief: true, briefVersion: true, recordedAt: true },
+  });
+  if (!call) return { ok: false as const, error: "Esa llamada ya no está entre las ignoradas." };
+  const brief = call.brief ? parseBrief(JSON.stringify(call.brief)) : null;
+  const n = await db.$executeRaw`
+    UPDATE "Call" SET "state" = 'PENDING_CONFIRM', "suggestedOutcome" = NULL, "updatedAt" = now()
+    WHERE "id" = ${call.id} AND "userId" = ${userId} AND "state" = 'IGNORED'
+  `;
+  if (n > 0 && brief) {
+    const offers = await db.offer.findMany({ where: { userId, archivedAt: null }, orderBy: { createdAt: "asc" }, take: 30, select: { id: true, name: true } });
+    const offerId = offers.find((o) => brief.producto && normalizeName(o.name) === normalizeName(brief.producto))?.id ?? null;
+    await storeObjections(db, userId, call.id, offerId, call.recordedAt, brief.objeciones);
+    await storeInsights(db, userId, call.id, brief.aprendizajes);
+    await proposeChanges(db, userId, call.id, call.briefVersion, brief, null, [], offerId);
+  }
+  await recountCounters(db, userId, bogotaDay(opts.now ?? new Date()));
+  invalidate(userId, WRITE_EFFECTS.recoverIgnoredCall(), opts.revalidate);
+  return { ok: true as const };
 }
 
 async function storeObjections(db: Db, userId: string, callId: string, offerId: string | null, at: Date, labels: string[]) {

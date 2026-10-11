@@ -4,9 +4,8 @@
 // previous write was lost, and never runs at read time.
 //
 // Money columns of UserMonthStats (salesTotal, cashCollected, commissionEarned)
-// come from Deal, which arrives in PR 6; until then they stay at their default
-// and these statements do not touch them. When they arrive they sum only
-// amounts in User.currency (other currencies are «por confirmar»).
+// come from ACTIVO Deals closed in the month (PR 6) and sum only amounts in
+// User.currency (other currencies are «por confirmar»). A null amount adds 0.
 import type { PrismaClient } from "@prisma/client";
 import { type DayKey, BOGOTA, addDaysKey, monthRange, startOfDayInstant } from "@/lib/time/bogota";
 
@@ -15,14 +14,26 @@ type Db = Pick<PrismaClient, "$executeRaw">;
 /** timestamp(3) columns hold UTC wall time; compare against a UTC literal, never the session zone. */
 const ts = (d: Date) => d.toISOString().replace("Z", "");
 
-/** Lead.attemptsSinceLastCall = ATTEMPT events after the last call (or since the lead was created). */
+/**
+ * Lead.attemptsSinceLastCall = live ATTEMPT events (not undone) after the last
+ * call (or since the lead was created); lastContactAt = the later of the last
+ * call and the last live attempt (an undone attempt gives it back exactly).
+ */
 export async function recountLeadAttempts(db: Db, leadId: string) {
   return db.$executeRaw`
-    UPDATE "Lead" l SET "attemptsSinceLastCall" = (
-      SELECT count(*)::int FROM "LeadEvent" e
-      WHERE e."leadId" = l.id AND e.type = 'ATTEMPT'
-        AND e."at" > COALESCE(l."lastCallAt", l."createdAt")
-    ), "updatedAt" = now()
+    UPDATE "Lead" l SET
+      "attemptsSinceLastCall" = a.n,
+      "lastContactAt" = CASE WHEN a.last IS NULL THEN l."lastCallAt" ELSE GREATEST(l."lastCallAt", a.last) END,
+      "updatedAt" = now()
+    FROM (
+      SELECT
+        (SELECT count(*)::int FROM "LeadEvent" e
+          WHERE e."leadId" = x.id AND e.type = 'ATTEMPT' AND e."undoneAt" IS NULL
+            AND e."at" > COALESCE(x."lastCallAt", x."createdAt")) AS n,
+        (SELECT max(e."at") FROM "LeadEvent" e
+          WHERE e."leadId" = x.id AND e.type = 'ATTEMPT' AND e."undoneAt" IS NULL) AS last
+      FROM "Lead" x WHERE x.id = ${leadId}
+    ) a
     WHERE l.id = ${leadId}
   `;
 }
@@ -33,7 +44,8 @@ export async function recountMonthAll(db: Db, userId: string, month: DayKey, tim
   const [start, end] = [ts(r.start), ts(r.end)];
   return db.$executeRaw`
     INSERT INTO "UserMonthStats"
-      ("id", "userId", "month", "offerId", "callsHeld", "closedCount", "lostCount", "attemptsCount", "updatedAt")
+      ("id", "userId", "month", "offerId", "callsHeld", "closedCount", "lostCount", "attemptsCount",
+       "salesTotal", "cashCollected", "commissionEarned", "updatedAt")
     SELECT gen_random_uuid()::text, ${userId}, ${r.month}::date, NULL,
       (SELECT count(*)::int FROM "Call" c
         WHERE c."userId" = ${userId} AND c.state = 'CONFIRMED'
@@ -45,14 +57,25 @@ export async function recountMonthAll(db: Db, userId: string, month: DayKey, tim
         WHERE l."userId" = ${userId} AND l.status = 'PERDIDO'
           AND l."lostAt" >= ${start}::timestamp AND l."lostAt" < ${end}::timestamp),
       (SELECT count(*)::int FROM "LeadEvent" e
-        WHERE e."userId" = ${userId} AND e.type = 'ATTEMPT'
+        WHERE e."userId" = ${userId} AND e.type = 'ATTEMPT' AND e."undoneAt" IS NULL
           AND e."at" >= ${start}::timestamp AND e."at" < ${end}::timestamp),
+      m.sales, m.cash, m.commission,
       now()
+    FROM (
+      SELECT COALESCE(sum(d."amountTotal"), 0) AS sales, COALESCE(sum(d."cashCollected"), 0) AS cash,
+        COALESCE(sum(d."commissionAmount"), 0) AS commission
+      FROM "Deal" d JOIN "User" u ON u.id = d."userId" AND u.currency = d.currency
+      WHERE d."userId" = ${userId} AND d.status = 'ACTIVO'
+        AND d."closedAt" >= ${start}::timestamp AND d."closedAt" < ${end}::timestamp
+    ) m
     ON CONFLICT ("userId", "month") WHERE "offerId" IS NULL DO UPDATE SET
       "callsHeld" = EXCLUDED."callsHeld",
       "closedCount" = EXCLUDED."closedCount",
       "lostCount" = EXCLUDED."lostCount",
       "attemptsCount" = EXCLUDED."attemptsCount",
+      "salesTotal" = EXCLUDED."salesTotal",
+      "cashCollected" = EXCLUDED."cashCollected",
+      "commissionEarned" = EXCLUDED."commissionEarned",
       "updatedAt" = now()
   `;
 }
@@ -63,7 +86,8 @@ export async function recountMonthOffer(db: Db, userId: string, month: DayKey, o
   const [start, end] = [ts(r.start), ts(r.end)];
   return db.$executeRaw`
     INSERT INTO "UserMonthStats"
-      ("id", "userId", "month", "offerId", "callsHeld", "closedCount", "lostCount", "attemptsCount", "updatedAt")
+      ("id", "userId", "month", "offerId", "callsHeld", "closedCount", "lostCount", "attemptsCount",
+       "salesTotal", "cashCollected", "commissionEarned", "updatedAt")
     SELECT gen_random_uuid()::text, ${userId}, ${r.month}::date, ${offerId},
       (SELECT count(*)::int FROM "Call" c
         WHERE c."userId" = ${userId} AND c."offerId" = ${offerId} AND c.state = 'CONFIRMED'
@@ -75,15 +99,26 @@ export async function recountMonthOffer(db: Db, userId: string, month: DayKey, o
         WHERE l."userId" = ${userId} AND l."offerId" = ${offerId} AND l.status = 'PERDIDO'
           AND l."lostAt" >= ${start}::timestamp AND l."lostAt" < ${end}::timestamp),
       (SELECT count(*)::int FROM "LeadEvent" e JOIN "Lead" l ON l.id = e."leadId"
-        WHERE e."userId" = ${userId} AND l."offerId" = ${offerId} AND e.type = 'ATTEMPT'
+        WHERE e."userId" = ${userId} AND l."offerId" = ${offerId} AND e.type = 'ATTEMPT' AND e."undoneAt" IS NULL
           AND e."at" >= ${start}::timestamp AND e."at" < ${end}::timestamp),
+      m.sales, m.cash, m.commission,
       now()
+    FROM (
+      SELECT COALESCE(sum(d."amountTotal"), 0) AS sales, COALESCE(sum(d."cashCollected"), 0) AS cash,
+        COALESCE(sum(d."commissionAmount"), 0) AS commission
+      FROM "Deal" d JOIN "User" u ON u.id = d."userId" AND u.currency = d.currency
+      WHERE d."userId" = ${userId} AND d."offerId" = ${offerId} AND d.status = 'ACTIVO'
+        AND d."closedAt" >= ${start}::timestamp AND d."closedAt" < ${end}::timestamp
+    ) m
     WHERE EXISTS (SELECT 1 FROM "Offer" o WHERE o.id = ${offerId} AND o."userId" = ${userId})
     ON CONFLICT ("userId", "month", "offerId") DO UPDATE SET
       "callsHeld" = EXCLUDED."callsHeld",
       "closedCount" = EXCLUDED."closedCount",
       "lostCount" = EXCLUDED."lostCount",
       "attemptsCount" = EXCLUDED."attemptsCount",
+      "salesTotal" = EXCLUDED."salesTotal",
+      "cashCollected" = EXCLUDED."cashCollected",
+      "commissionEarned" = EXCLUDED."commissionEarned",
       "updatedAt" = now()
   `;
 }
@@ -92,8 +127,8 @@ export async function recountMonthOffer(db: Db, userId: string, month: DayKey, o
 export const DECIDING_DAYS = 14;
 
 /**
- * UserCounters for the user: banner, «en seguimiento», último cierre,
- * llamadas desde el último cierre and the top objection of the last 5
+ * UserCounters for the user: banner, «en seguimiento», último cierre and
+ * llamadas desde el último cierre (both from the last ACTIVE Deal, PR 6), «Ignoradas (N)» and the top objection of the last 5
  * lost-or-deciding calls. A deciding call (Arquitectura, PR 2 review) is the
  * last call of a lead in SEGUIMIENTO whose outcome was SEGUIMIENTO and whose
  * Bogotá day is more than 14 days before `today`.
@@ -102,9 +137,10 @@ export async function recountCounters(db: Db, userId: string, today: DayKey, tim
   const decidingBefore = ts(startOfDayInstant(addDaysKey(today, -DECIDING_DAYS), timeZone));
   return db.$executeRaw`
     WITH last_close AS (
-      SELECT l."closedAt", l.name FROM "Lead" l
-      WHERE l."userId" = ${userId} AND l.status = 'CERRADO' AND l."closedAt" IS NOT NULL
-      ORDER BY l."closedAt" DESC, l.id DESC LIMIT 1
+      -- the last ACTIVE sale (PR 6): an undone or annulled deal does not count
+      SELECT d."closedAt", l.name FROM "Deal" d JOIN "Lead" l ON l.id = d."leadId"
+      WHERE d."userId" = ${userId} AND d.status = 'ACTIVO'
+      ORDER BY d."closedAt" DESC, d.id DESC LIMIT 1
     ), lost AS (
       SELECT c.id FROM "Call" c
       WHERE c."userId" = ${userId}
@@ -125,7 +161,7 @@ export async function recountCounters(db: Db, userId: string, today: DayKey, tim
     )
     INSERT INTO "UserCounters" (
       "userId", "pendingConfirmCount", "followingCount", "lastCloseAt", "lastCloseLeadName",
-      "callsSinceLastClose", "topObjectionLabel", "topObjectionHits", "topObjectionOf", "updatedAt")
+      "callsSinceLastClose", "topObjectionLabel", "topObjectionHits", "topObjectionOf", "ignoredCount", "updatedAt")
     SELECT ${userId},
       (SELECT count(*)::int FROM "Call" c WHERE c."userId" = ${userId} AND c.state = 'PENDING_CONFIRM'),
       (SELECT count(*)::int FROM "Lead" l WHERE l."userId" = ${userId} AND l.status = 'SEGUIMIENTO'),
@@ -137,6 +173,7 @@ export async function recountCounters(db: Db, userId: string, today: DayKey, tim
       (SELECT label FROM top_obj),
       (SELECT hits FROM top_obj),
       (SELECT NULLIF(count(*), 0)::int FROM lost),
+      (SELECT count(*)::int FROM "Call" c WHERE c."userId" = ${userId} AND c.state = 'IGNORED'),
       now()
     ON CONFLICT ("userId") DO UPDATE SET
       "pendingConfirmCount" = EXCLUDED."pendingConfirmCount",
@@ -147,6 +184,7 @@ export async function recountCounters(db: Db, userId: string, today: DayKey, tim
       "topObjectionLabel" = EXCLUDED."topObjectionLabel",
       "topObjectionHits" = EXCLUDED."topObjectionHits",
       "topObjectionOf" = EXCLUDED."topObjectionOf",
+      "ignoredCount" = EXCLUDED."ignoredCount",
       "updatedAt" = now()
   `;
 }

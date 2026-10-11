@@ -188,6 +188,8 @@ const WRITE_HELPERS = new Set([
   "recount", "recountLeadAttempts", "recountMonthAll", "recountMonthOffer", "recountCounters",
   // burst lease (PR 5): changes nothing a screen shows
   "claimBackfill",
+  // PR 6: the undo mark runs inside undoProposedChange / undoAttempt (which invalidate); changeTask is pure
+  "compensateEvents", "changeTask",
 ]);
 
 function writeFunctions(code: string) {

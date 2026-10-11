@@ -10,3 +10,4 @@ export * from "./results";
 export * from "./goal";
 export * from "./offer";
 export * from "./metas";
+export * from "./confirm";
