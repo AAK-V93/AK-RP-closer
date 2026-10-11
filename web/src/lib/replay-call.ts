@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { SpeakerRole } from "@/lib/call-intelligence";
 import { EMPTY_TRANSCRIPT_MARK, isUsableTranscript } from "@/lib/fathom-import";
+import { usableTranscriptSql } from "@/lib/call-list-sql";
 import { isNonSalesCall } from "@/lib/call-kind";
 import {
   fathomTranscriptToLines,
@@ -258,32 +259,29 @@ export async function listReplayCalls(
     includeFathom: boolean;
   },
 ) {
-  const [fathom, uploads, tags] = await Promise.all([
-    prisma.fathomRecording.findMany({
-      where: { userId },
-      orderBy: [{ recordedAt: "desc" }, { syncedAt: "desc" }],
-      take: 80,
-      select: {
-        id: true,
-        title: true,
-        recordedAt: true,
-        transcriptText: true,
-      },
-    }),
-    prisma.clientTranscript.findMany({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-      take: 80,
-      select: {
-        id: true,
-        title: true,
-        createdAt: true,
-        transcriptText: true,
-        offerId: true,
-      },
-    }),
-    prisma.callRecord.findMany({ where: { userId } }),
+  // Only «is the transcript usable» (a flag), never the text; and only the CRM columns used.
+  const usable = usableTranscriptSql(EMPTY_TRANSCRIPT_MARK);
+  const [fathomRows, uploadRows] = await Promise.all([
+    prisma.$queryRaw<{ id: string; title: string; recordedAt: Date | string | null; usable: boolean }[]>`
+      SELECT "id", "title", "recordedAt", ${usable} AS "usable"
+      FROM "FathomRecording" WHERE "userId" = ${userId}
+      ORDER BY "recordedAt" DESC NULLS LAST, "syncedAt" DESC LIMIT 80
+    `,
+    prisma.$queryRaw<{ id: string; title: string; createdAt: Date | string; offerId: string | null; usable: boolean }[]>`
+      SELECT "id", "title", "createdAt", "offerId", ${usable} AS "usable"
+      FROM "ClientTranscript" WHERE "userId" = ${userId}
+      ORDER BY "createdAt" DESC LIMIT 80
+    `,
   ]);
+  const fathom = fathomRows.filter((row) => row.usable);
+  const uploads = uploadRows.filter((row) => row.usable);
+  const shownIds = [...fathom.map((row) => row.id), ...uploads.map((row) => row.id)];
+  const tags = shownIds.length
+    ? await prisma.callRecord.findMany({
+        where: { userId, sourceId: { in: shownIds } },
+        select: { source: true, sourceId: true, offerName: true, result: true, callType: true, title: true, leadName: true },
+      })
+    : [];
 
   const tagMap = new Map(
     tags.map((row) => [`${row.source}:${row.sourceId}`, row]),
@@ -303,8 +301,6 @@ export async function listReplayCalls(
   }[] = [];
 
   for (const row of fathom) {
-    if (row.transcriptText === EMPTY_TRANSCRIPT_MARK) continue;
-    if (!isUsableTranscript(row.transcriptText)) continue;
     const tag = tagMap.get(`fathom:${row.id}`);
     if (
       !offerMatches(
@@ -325,7 +321,7 @@ export async function listReplayCalls(
       source: "fathom",
       sourceId: row.id,
       title: tag?.title || row.title,
-      date: row.recordedAt?.toISOString() || null,
+      date: row.recordedAt ? new Date(row.recordedAt).toISOString() : null,
       leadName: tag?.leadName || "",
       offerName: tag?.offerName || offer.productName,
       result: result || "no_cerro",
@@ -336,7 +332,6 @@ export async function listReplayCalls(
   }
 
   for (const row of uploads) {
-    if (!isUsableTranscript(row.transcriptText)) continue;
     const tag = tagMap.get(`upload:${row.id}`);
     if (
       !offerMatches(
@@ -357,7 +352,7 @@ export async function listReplayCalls(
       source: "upload",
       sourceId: row.id,
       title: tag?.title || row.title,
-      date: row.createdAt.toISOString(),
+      date: new Date(row.createdAt).toISOString(),
       leadName: tag?.leadName || "",
       offerName: tag?.offerName || offer.productName,
       result: result || "no_cerro",

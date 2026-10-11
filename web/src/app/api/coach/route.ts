@@ -1,3 +1,4 @@
+import { cachedCrmRead } from "@/lib/crm-read-cache";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -32,21 +33,36 @@ export async function GET() {
   }
 
   try {
-    const rows = await prisma.practiceSession.findMany({
+    // Same short per-user cache as the CRM reads (practice sessions and offers are in its fingerprint).
+    const rows = await cachedCrmRead(prisma, session.user.id, "coach-sessions", () => prisma.practiceSession.findMany({
       where: {
         userId: session.user.id,
         ...evidenceSessionFilter(),
       },
       orderBy: { createdAt: "desc" },
       take: 40,
-    });
+      // Everything but the practice transcript (the biggest column; nothing here shows it).
+      select: {
+        id: true,
+        createdAt: true,
+        productName: true,
+        callSection: true,
+        difficulty: true,
+        overallScore: true,
+        outcomeSummary: true,
+        scored: true,
+        evaluation: true,
+        criterionScores: true,
+      },
+    }));
     const visible = rows.filter((row) => !isCoachThreadSection(row.callSection));
-    const liveGuides = await loadLiveGuides(prisma, session.user.id);
+    const liveGuides = await cachedCrmRead(prisma, session.user.id, "live-guides", () => loadLiveGuides(prisma, session.user.id));
     let coachBoard = buildCoachOffers({ calls: [], offerNames: liveGuides.map((guide) => guide.offerName) });
     try {
       await ensureCrmTables(prisma);
       const [{ allCalls }, leads] = await Promise.all([
-        loadDashboardCalls(prisma, session.user.id),
+        // Same short cache as the CRM rollup (re-read only when a CRM row changed).
+        cachedCrmRead(prisma, session.user.id, "dashboard-calls", () => loadDashboardCalls(prisma, session.user.id)),
         prisma.lead.findMany({
           where: { userId: session.user.id },
           select: { id: true, name: true, status: true, offerName: true, razonNoCierre: true },

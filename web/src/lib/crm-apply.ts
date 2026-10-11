@@ -49,6 +49,8 @@ export async function loadOffersForCrm(prisma: PrismaClient, userId: string) {
   const rows = await prisma.userOffer.findMany({
     where: { userId },
     orderBy: { updatedAt: "desc" },
+    // Not the playbook (the biggest column): the CRM only reads names and prices.
+    select: { id: true, productName: true, productDescription: true, commercial: true },
   });
   return parseCrmReadyOffersImpl(rows);
 }

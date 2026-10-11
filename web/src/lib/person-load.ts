@@ -1,4 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
+import { filingObject, filingSubsetSql } from "@/lib/call-list-sql";
+import { cachedCrmRead } from "@/lib/crm-read-cache";
 import { isNonSalesCall } from "@/lib/call-kind";
 import { offerRules } from "@/lib/inicio-view";
 import { foldOffer } from "@/lib/offer-name";
@@ -11,52 +13,106 @@ export type PersonRef = { id: string; name: string; leadId: string };
 
 type Loaded = { leads: FactLead[]; calls: FactCall[] };
 
-export async function loadPeople(prisma: PrismaClient, userId: string): Promise<Loaded> {
-  const [leads, calls] = await Promise.all([
+/** Calls read for one person's ficha / the chat (newest first, safety cap). */
+export const PEOPLE_CALL_CAP = 2000;
+
+/**
+ * Only the filing keys person-facts reads (its `Filing` type), built in Postgres, instead of the
+ * whole filingJson (evidence quotes, confidence, undo copies…): ~4× fewer bytes per call.
+ */
+const FICHA_FILING_SQL = filingSubsetSql([
+  "lead_id",
+  "cliente_real",
+  "producto",
+  "estado_agenda",
+  "acuerdo_seguimiento",
+  "notas_crm",
+  "tipo_seguimiento",
+  "proximo_seguimiento",
+  "razon_no_cierre",
+  "modo_pago",
+  "venta_total",
+  "cash_collected",
+  "saldo_pendiente",
+  "telefono",
+  "seguimiento_resultado",
+  "seguimiento_intentos",
+  "seguimiento_contactos",
+]);
+
+/** The CRM sheets only need who the call belongs to and how it ended (no notes, no summary). */
+const STAGE_FILING_SQL = filingSubsetSql([
+  "lead_id",
+  "cliente_real",
+  "estado_agenda",
+  "proximo_seguimiento",
+  "razon_no_cierre",
+  "seguimiento_resultado",
+  "seguimiento_intentos",
+  "seguimiento_contactos",
+]);
+
+type PeopleCallRow = FactCall & { source?: string; sourceId?: string };
+
+/**
+ * Leads + their calls for the ficha, the chat and the CRM stages. Reused (short per-instance
+ * cache) while no CRM row changed, so opening several fichas in a row reads the calls once.
+ */
+export async function loadPeople(
+  prisma: PrismaClient,
+  userId: string,
+  options: { forStages?: boolean } = {},
+): Promise<Loaded> {
+  const stages = Boolean(options.forStages);
+  return cachedCrmRead(prisma, userId, stages ? "people:stages" : "people:ficha", () => readPeople(prisma, userId, stages));
+}
+
+async function readPeople(prisma: PrismaClient, userId: string, stages: boolean): Promise<Loaded> {
+  const [leads, rawCalls] = await Promise.all([
     prisma.lead.findMany({
       where: { userId },
-      select: {
-        id: true,
-        name: true,
-        offerName: true,
-        status: true,
-        telefono: true,
-        nextStep: true,
-        nextStepAt: true,
-        objections: true,
-        amountTalked: true,
-        amountPaid: true,
-        decider: true,
-        razonNoCierre: true,
-        lastSummary: true,
-      },
-    }),
-    prisma.callRecord.findMany({
-      where: { userId, filingStatus: { not: "skipped" } },
-      orderBy: [{ recordedAt: "desc" }, { createdAt: "desc" }],
-      take: 2000,
-      select: {
-        id: true,
-        source: true,
-        sourceId: true,
-        leadName: true,
-        offerName: true,
-        estadoAgenda: true,
-        recordedAt: true,
-        createdAt: true,
-        summary: true,
-        filingJson: true,
-        ventaTotal: true,
-        cashCollected: true,
-        saldoPendiente: true,
-        modoPago: true,
-      },
-    }),
+      select: stages
+        ? { id: true, name: true, offerName: true, status: true, razonNoCierre: true }
+        : {
+            id: true,
+            name: true,
+            offerName: true,
+            status: true,
+            telefono: true,
+            nextStep: true,
+            nextStepAt: true,
+            objections: true,
+            amountTalked: true,
+            amountPaid: true,
+            decider: true,
+            razonNoCierre: true,
+            lastSummary: true,
+          },
+    }) as Promise<FactLead[]>,
+    stages
+      ? prisma.$queryRaw<PeopleCallRow[]>`
+          SELECT "id", "leadName", "offerName", "estadoAgenda", "recordedAt", "createdAt",
+            ${STAGE_FILING_SQL} AS "filingJson"
+          FROM "CallRecord"
+          WHERE "userId" = ${userId} AND "filingStatus" <> 'skipped'
+          ORDER BY "recordedAt" DESC, "createdAt" DESC
+          LIMIT ${PEOPLE_CALL_CAP}
+        `
+      : prisma.$queryRaw<PeopleCallRow[]>`
+          SELECT "id", "source", "sourceId", "leadName", "offerName", "estadoAgenda", "recordedAt", "createdAt",
+            "summary", "ventaTotal", "cashCollected", "saldoPendiente", "modoPago",
+            ${FICHA_FILING_SQL} AS "filingJson"
+          FROM "CallRecord"
+          WHERE "userId" = ${userId} AND "filingStatus" <> 'skipped'
+          ORDER BY "recordedAt" DESC, "createdAt" DESC
+          LIMIT ${PEOPLE_CALL_CAP}
+        `,
   ]);
+  const calls = rawCalls.map((call) => ({ ...call, filingJson: filingObject(call.filingJson) }));
   return {
     leads,
     calls: calls.filter((call) => {
-      const filing = (call.filingJson || {}) as { estado_agenda?: string };
+      const filing = call.filingJson as { estado_agenda?: string };
       return !isNonSalesCall(filing.estado_agenda || call.estadoAgenda);
     }),
   };
@@ -166,7 +222,7 @@ export async function loadPersonFacts(
 /** «Seguimiento N de 10» per lead for the CRM sheets. Read-only. */
 export async function loadStages(prisma: PrismaClient, userId: string) {
   const [loaded, alerts] = await Promise.all([
-    loadPeople(prisma, userId),
+    loadPeople(prisma, userId, { forStages: true }),
     prisma.leadAlert.findMany({
       where: { userId },
       select: { leadId: true, resolvedAt: true, resultado: true, dueAt: true },

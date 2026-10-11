@@ -62,11 +62,29 @@ export function parseLiveGuide(raw: unknown, offerName = ""): LiveGuide {
   };
 }
 
+/**
+ * Offer name + only the live guide part of the playbook (older offers without that key still
+ * send their whole playbook, which parseLiveGuide reads as the guide).
+ */
+export function liveGuideRows(prisma: PrismaClient, userId: string) {
+  return prisma.$queryRaw<{ productName: string; playbook: unknown }[]>`
+    SELECT "productName",
+      CASE WHEN jsonb_typeof("playbook"->'liveGuide') = 'object'
+        THEN jsonb_build_object('liveGuide', "playbook"->'liveGuide')
+        ELSE "playbook" END AS "playbook"
+    FROM "UserOffer"
+    WHERE "userId" = ${userId}
+    ORDER BY "updatedAt" DESC
+  `.then((rows) =>
+    rows.map((row) => ({
+      productName: row.productName,
+      playbook: typeof row.playbook === "string" ? (JSON.parse(row.playbook) as unknown) : row.playbook,
+    })),
+  );
+}
+
 export async function loadLiveGuides(prisma: PrismaClient, userId: string) {
-  const offers = await prisma.userOffer.findMany({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
+  const offers = await liveGuideRows(prisma, userId);
   return offers.map((row) => parseLiveGuide(row.playbook, row.productName));
 }
 

@@ -122,6 +122,8 @@ export function recordingFicha(args: {
   state: RecordingReadState;
   filed: boolean;
   now: Date;
+  /** Known without the text (cached): whether the recording has a usable transcript. */
+  usable?: boolean;
 }): { facts: PersonFacts; recording: RecordingInfo } {
   const today = zonedDayKey(args.now);
   const day = recordingDay(args.row);
@@ -140,7 +142,7 @@ export function recordingFicha(args: {
       day,
       read: Boolean(args.parsed),
       note: recordingNote(args.state, day, today),
-      canAdd: !args.filed && isUsableTranscript(args.row.transcript),
+      canAdd: !args.filed && (args.usable ?? isUsableTranscript(args.row.transcript)),
     },
   };
 }
@@ -149,6 +151,33 @@ export function recordingFicha(args: {
 const CACHE_MS = 30 * 60_000;
 const CACHE_MAX = 100;
 const cache = new Map<string, { at: number; value: Promise<ExtractorJson | null> }>();
+
+/** The cached read for this recording, if there is a fresh one (no model call, no DB). */
+export function peekRecordingRead(key: string, now = Date.now()) {
+  const hit = cache.get(key);
+  return hit && now - hit.at < CACHE_MS ? hit.value : null;
+}
+
+/*
+ * What the ficha needs to know about a recording's text (usable? any sales talk?), kept for the
+ * same 30 minutes so reopening the ficha does not download the ~50 KB transcript again.
+ */
+const textFacts = new Map<string, { at: number; usable: boolean; signal: boolean }>();
+
+export function recordingTextFacts(key: string, now = Date.now()) {
+  const hit = textFacts.get(key);
+  return hit && now - hit.at < CACHE_MS ? { usable: hit.usable, signal: hit.signal } : null;
+}
+
+export function rememberRecordingTextFacts(key: string, facts: { usable: boolean; signal: boolean }, now = Date.now()) {
+  textFacts.delete(key);
+  textFacts.set(key, { at: now, ...facts });
+  while (textFacts.size > CACHE_MAX) {
+    const oldest = textFacts.keys().next().value;
+    if (oldest === undefined) break;
+    textFacts.delete(oldest);
+  }
+}
 
 export function readRecordingOnce(key: string, read: () => Promise<ExtractorJson | null>, now = Date.now()) {
   const hit = cache.get(key);

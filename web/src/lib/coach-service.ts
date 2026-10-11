@@ -68,6 +68,19 @@ export async function runCoachTurn(
       where: { userId, ...evidenceSessionFilter() },
       orderBy: { createdAt: "desc" },
       take: limit,
+        // Everything but the practice transcript (the biggest column; nothing here shows it).
+        select: {
+          id: true,
+          createdAt: true,
+          productName: true,
+          callSection: true,
+          difficulty: true,
+          overallScore: true,
+          outcomeSummary: true,
+          scored: true,
+          evaluation: true,
+          criterionScores: true,
+        },
     }),
     loadOffers(prisma, userId),
   ]);

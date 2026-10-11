@@ -100,8 +100,9 @@ test("Llamadas: auto-filing is not re-asked on every visit", () => {
 test("Llamadas API: no full transcripts in the list or the auto-filing scan", () => {
   const route = src("../app/api/llamadas/route.ts");
   assert.ok(!/transcriptText:\s*true,\s*\n\s*practiceSessionId/.test(route));
-  assert.ok(route.includes('left("transcriptText", 800)'));
-  assert.ok(route.includes('right("transcriptText", 5000)'));
+  // Duration is worked out in Postgres; the list never carries transcript text.
+  assert.ok(route.includes("DURATION_MINUTES_SQL"));
+  assert.ok(!/SELECT[^`]*"transcriptText" AS/.test(route));
   const get = route.slice(route.indexOf("export async function GET"), route.indexOf("export async function POST"));
   assert.ok(!get.includes("clientTranscript.findMany"));
   const post = route.slice(route.indexOf("export async function POST"));

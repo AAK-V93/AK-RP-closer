@@ -1,3 +1,4 @@
+import { cachedCrmRead } from "@/lib/crm-read-cache";
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import {
@@ -501,14 +502,24 @@ export async function archiveSilentNonSalesPendings(
   prisma: PrismaClient,
   userId: string,
 ) {
-  const rows = await prisma.callRecord.findMany({
-    where: { userId, filingStatus: "pending" },
-    take: 40,
-  });
+  // Only what the check reads (title, estado), not whole rows with their filing.
+  const rows = await prisma.$queryRaw<
+    { id: string; title: string; estadoAgenda: string; isExtractor: boolean; estado: string | null; estadoConf: string | null }[]
+  >`
+    SELECT "id", "title", "estadoAgenda",
+      (jsonb_typeof("filingJson") = 'object'
+        AND (jsonb_exists("filingJson", 'estado_agenda') OR jsonb_exists("filingJson", 'cliente_real'))) AS "isExtractor",
+      "filingJson"->>'estado_agenda' AS "estado",
+      "filingJson"->'confianza'->>'estado_agenda' AS "estadoConf"
+    FROM "CallRecord"
+    WHERE "userId" = ${userId} AND "filingStatus" = 'pending'
+    LIMIT 40
+  `;
   let archived = 0;
   for (const row of rows) {
-    const parsed = isExtractorJson(row.filingJson)
-      ? parseExtractorJson(row.filingJson)
+    // Same reading as parseExtractorJson on the whole filing (estado + its confidence decide it).
+    const parsed = row.isExtractor
+      ? parseExtractorJson({ estado_agenda: row.estado, confianza: { estado_agenda: row.estadoConf == null ? undefined : Number(row.estadoConf) } })
       : null;
     const nonSales =
       isNonSalesCall(row.estadoAgenda) ||
@@ -546,7 +557,15 @@ function archiveAfterResponse(prisma: PrismaClient, userId: string) {
     .catch(() => undefined);
 }
 
+/**
+ * Calls waiting for the closer's answer. Reused (short per-instance cache) while no CRM row
+ * changed: Inicio, Llamadas and the chat all ask for it.
+ */
 export async function listPendingFilings(prisma: PrismaClient, userId: string) {
+  return cachedCrmRead(prisma, userId, "pending-filings", () => readPendingFilings(prisma, userId));
+}
+
+async function readPendingFilings(prisma: PrismaClient, userId: string) {
   archiveAfterResponse(prisma, userId);
   const [offers, leads, threads, alerts, rows] = await Promise.all([
     loadOffersForCrm(prisma, userId),

@@ -18,6 +18,7 @@ import { summarizePipeline } from "@/lib/crm-pipeline";
 import { countedSale, shownBalance, shownMoney } from "@/lib/stated-deal";
 import { applyCallRepair, planCallRepair, repairImportedCallFields } from "@/lib/call-normalize";
 import { loadDashboardCalls } from "@/lib/crm-call-read";
+import { cachedCrmRead } from "@/lib/crm-read-cache";
 import { catalogDisplayName, foldOffer, isInventedOfferLabel, isPriceLabel } from "@/lib/offer-name";
 
 function inRange(date: Date | null, from: Date, to: Date) {
@@ -31,7 +32,22 @@ function markTiming(timings: DashboardTiming[] | undefined, name: string, starte
   timings?.push({ name, dur: Math.round(performance.now() - started) });
 }
 
+/**
+ * The CRM rollup. Reused for up to 10 minutes while none of the user's CRM rows changed
+ * (see crm-read-cache.ts), so moving between Inicio and CRM doesn't re-read everything.
+ */
 export async function crmDashboard(
+  prisma: PrismaClient,
+  userId: string,
+  opts?: { scripts?: boolean; timings?: DashboardTiming[] },
+) {
+  const scripts = opts?.scripts !== false;
+  return cachedCrmRead(prisma, userId, `dashboard:${scripts ? "scripts" : "plain"}`, () =>
+    computeCrmDashboard(prisma, userId, opts),
+  );
+}
+
+async function computeCrmDashboard(
   prisma: PrismaClient,
   userId: string,
   opts?: { scripts?: boolean; timings?: DashboardTiming[] },

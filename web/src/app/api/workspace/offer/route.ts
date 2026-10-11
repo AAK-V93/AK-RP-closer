@@ -172,7 +172,7 @@ export async function DELETE(request: Request) {
     await auth.prisma.userOffer.deleteMany({
       where: { id: body.id, userId: auth.userId },
     });
-    const next = await getWorkspace(auth.prisma, auth.userId);
+    const next = await getWorkspace(auth.prisma, auth.userId, null, { corpus: false });
     return NextResponse.json({
       ok: true,
       offer: next.offer,

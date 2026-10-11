@@ -6,8 +6,11 @@ import { userHasReadyCrm } from "@/lib/offer-commercial";
 import { isUsableTranscript } from "@/lib/fathom-import";
 import {
   hasSalesSignal,
+  peekRecordingRead,
   pickRecording,
   readRecordingOnce,
+  recordingTextFacts,
+  rememberRecordingTextFacts,
   recordingDay,
   recordingFicha,
   RECORDING_TRANSCRIPT_LIMIT,
@@ -22,6 +25,56 @@ export async function loadRecordingFicha(
   target: { callId?: string | null; name?: string | null; day?: string | null },
   now: Date,
 ) {
+  const picked = await findRecording(prisma, userId, target);
+  if (!picked) return null;
+  const name = String(target.name || "").trim() || picked.title;
+  const key = `${userId}:${picked.kind}:${picked.id}`;
+  const filed = Boolean(
+    await prisma.callRecord.findFirst({ where: { userId, source: picked.kind, sourceId: picked.id }, select: { id: true } }),
+  );
+
+  // The transcript (~50 KB) is downloaded only the first time this ficha is opened (then cached
+  // for 30 minutes with the model's reading), never for lists.
+  let facts = recordingTextFacts(key);
+  let row: RecordingRow = picked;
+  const cachedRead = peekRecordingRead(key);
+  if (!facts || (facts.usable && facts.signal && !cachedRead)) {
+    const text =
+      picked.kind === "fathom"
+        ? (await prisma.fathomRecording.findFirst({ where: { id: picked.id, userId }, select: { transcriptText: true } }))?.transcriptText
+        : (await prisma.clientTranscript.findFirst({ where: { id: picked.id, userId }, select: { transcriptText: true } }))?.transcriptText;
+    row = { ...picked, transcript: String(text || "") };
+    facts = { usable: isUsableTranscript(row.transcript), signal: hasSalesSignal(row.transcript) };
+    rememberRecordingTextFacts(key, facts);
+  }
+
+  let state: RecordingReadState;
+  let parsed: ExtractorJson | null = null;
+  if (!facts.usable) state = "no-transcript";
+  else if (!facts.signal) state = "no-signal";
+  else {
+    const reading = row.transcript ? row : picked;
+    parsed = await (cachedRead ?? readRecordingOnce(key, () => readRecording(prisma, userId, reading)));
+    state = parsed ? "read" : "failed";
+  }
+  return recordingFicha({ name, row, parsed, state, filed, now, usable: facts.usable });
+}
+
+/** The recording the ficha was opened from: straight by id when it is one, else by name/day. */
+async function findRecording(
+  prisma: PrismaClient,
+  userId: string,
+  target: { callId?: string | null; name?: string | null; day?: string | null },
+): Promise<RecordingRow | null> {
+  const id = String(target.callId || "").trim();
+  if (id) {
+    const [fathom, upload] = await Promise.all([
+      prisma.fathomRecording.findFirst({ where: { id, userId }, select: { id: true, title: true, recordedAt: true } }),
+      prisma.clientTranscript.findFirst({ where: { id, userId }, select: { id: true, title: true, createdAt: true } }),
+    ]);
+    if (fathom) return { id: fathom.id, kind: "fathom", title: fathom.title, recordedAt: fathom.recordedAt, transcript: "" };
+    if (upload) return { id: upload.id, kind: "upload", title: upload.title, recordedAt: upload.createdAt, transcript: "" };
+  }
   const [fathom, uploads] = await Promise.all([
     prisma.fathomRecording.findMany({
       where: { userId },
@@ -40,28 +93,7 @@ export async function loadRecordingFicha(
     ...fathom.map((row) => ({ id: row.id, kind: "fathom" as const, title: row.title, recordedAt: row.recordedAt, transcript: "" })),
     ...uploads.map((row) => ({ id: row.id, kind: "upload" as const, title: row.title, recordedAt: row.createdAt, transcript: "" })),
   ];
-  const picked = pickRecording(rows, target);
-  if (!picked) return null;
-  // Only the picked recording's transcript is loaded (they are long).
-  const text =
-    picked.kind === "fathom"
-      ? (await prisma.fathomRecording.findFirst({ where: { id: picked.id, userId }, select: { transcriptText: true } }))?.transcriptText
-      : (await prisma.clientTranscript.findFirst({ where: { id: picked.id, userId }, select: { transcriptText: true } }))?.transcriptText;
-  const row: RecordingRow = { ...picked, transcript: String(text || "") };
-  const name = String(target.name || "").trim() || row.title;
-  const filed = Boolean(
-    await prisma.callRecord.findFirst({ where: { userId, source: row.kind, sourceId: row.id }, select: { id: true } }),
-  );
-
-  let state: RecordingReadState;
-  let parsed: ExtractorJson | null = null;
-  if (!isUsableTranscript(row.transcript)) state = "no-transcript";
-  else if (!hasSalesSignal(row.transcript)) state = "no-signal";
-  else {
-    parsed = await readRecordingOnce(`${userId}:${row.kind}:${row.id}`, () => readRecording(prisma, userId, row));
-    state = parsed ? "read" : "failed";
-  }
-  return recordingFicha({ name, row, parsed, state, filed, now });
+  return pickRecording(rows, target);
 }
 
 async function readRecording(prisma: PrismaClient, userId: string, row: RecordingRow): Promise<ExtractorJson | null> {
