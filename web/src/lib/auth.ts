@@ -35,13 +35,17 @@ async function upsertGoogleUser(email: string, name?: string | null) {
   const prisma = getPrisma();
   if (!prisma) return null;
   const normalized = email.toLowerCase().trim();
-  const existing = await prisma.user.findUnique({ where: { email: normalized } });
+  const existing = await prisma.user.findUnique({
+    where: { email: normalized },
+    select: { id: true, email: true, name: true },
+  });
   if (existing) {
     const nextName = name?.trim();
     if (nextName && nextName !== existing.name) {
       return prisma.user.update({
         where: { id: existing.id },
         data: { name: nextName },
+        select: { id: true, email: true, name: true },
       });
     }
     return existing;
@@ -52,6 +56,7 @@ async function upsertGoogleUser(email: string, name?: string | null) {
       name: name?.trim() || null,
       passwordHash: null,
     },
+    select: { id: true, email: true, name: true },
   });
   await createUserCounters(prisma, created.id);
   return created;
@@ -88,6 +93,7 @@ export const authOptions: NextAuthOptions = {
         }
         const user = await prisma.user.findUnique({
           where: { email: credentials.email.toLowerCase().trim() },
+          select: { id: true, email: true, name: true, passwordHash: true },
         });
         if (!user?.passwordHash) return null;
         const ok = await bcrypt.compare(credentials.password, user.passwordHash);
@@ -138,6 +144,7 @@ export const authOptions: NextAuthOptions = {
           const prisma = getPrisma();
           const dbUser = await prisma?.user.findUnique({
             where: { email: user.email.toLowerCase().trim() },
+            select: { id: true },
           });
           token.sub = dbUser?.id ?? token.sub;
         } else {

@@ -31,7 +31,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const exists = await prisma.user.findUnique({ where: { email } });
+    const exists = await prisma.user.findUnique({
+      where: { email },
+      select: { passwordHash: true },
+    });
     if (exists) {
       return NextResponse.json(
         {

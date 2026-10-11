@@ -1,0 +1,163 @@
+// Bounded, idempotent recounts (plan 2.2). Each function is ONE SQL statement
+// that recounts only the affected row from the source tables, so it is atomic
+// on the Neon HTTP driver (no interactive transactions), corrects itself if a
+// previous write was lost, and never runs at read time.
+//
+// Money columns of UserMonthStats (salesTotal, cashCollected, commissionEarned)
+// come from Deal, which arrives in PR 6; until then they stay at their default
+// and these statements do not touch them. When they arrive they sum only
+// amounts in User.currency (other currencies are «por confirmar»).
+import type { PrismaClient } from "@prisma/client";
+import { type DayKey, BOGOTA, bogotaMonth, monthRange } from "@/lib/time/bogota";
+
+type Db = Pick<PrismaClient, "$executeRaw">;
+
+/** timestamp(3) columns hold UTC wall time; compare against a UTC literal, never the session zone. */
+const ts = (d: Date) => d.toISOString().replace("Z", "");
+
+/** Lead.attemptsSinceLastCall = ATTEMPT events after the last call (or since the lead was created). */
+export async function recountLeadAttempts(db: Db, leadId: string) {
+  return db.$executeRaw`
+    UPDATE "Lead" l SET "attemptsSinceLastCall" = (
+      SELECT count(*)::int FROM "LeadEvent" e
+      WHERE e."leadId" = l.id AND e.type = 'ATTEMPT'
+        AND e."at" > COALESCE(l."lastCallAt", l."createdAt")
+    ), "updatedAt" = now()
+    WHERE l.id = ${leadId}
+  `;
+}
+
+/** UserMonthStats for (user, month), all offers (offerId NULL). */
+export async function recountMonthAll(db: Db, userId: string, month: DayKey, timeZone = BOGOTA) {
+  const r = monthRange(month, timeZone);
+  const [start, end] = [ts(r.start), ts(r.end)];
+  return db.$executeRaw`
+    INSERT INTO "UserMonthStats"
+      ("id", "userId", "month", "offerId", "callsHeld", "closedCount", "lostCount", "attemptsCount", "updatedAt")
+    SELECT gen_random_uuid()::text, ${userId}, ${r.month}::date, NULL,
+      (SELECT count(*)::int FROM "Call" c
+        WHERE c."userId" = ${userId} AND c.state = 'CONFIRMED'
+          AND c."recordedAt" >= ${start}::timestamp AND c."recordedAt" < ${end}::timestamp),
+      (SELECT count(*)::int FROM "Lead" l
+        WHERE l."userId" = ${userId} AND l.status = 'CERRADO'
+          AND l."closedAt" >= ${start}::timestamp AND l."closedAt" < ${end}::timestamp),
+      (SELECT count(*)::int FROM "Lead" l
+        WHERE l."userId" = ${userId} AND l.status = 'PERDIDO'
+          AND l."lostAt" >= ${start}::timestamp AND l."lostAt" < ${end}::timestamp),
+      (SELECT count(*)::int FROM "LeadEvent" e
+        WHERE e."userId" = ${userId} AND e.type = 'ATTEMPT'
+          AND e."at" >= ${start}::timestamp AND e."at" < ${end}::timestamp),
+      now()
+    ON CONFLICT ("userId", "month") WHERE "offerId" IS NULL DO UPDATE SET
+      "callsHeld" = EXCLUDED."callsHeld",
+      "closedCount" = EXCLUDED."closedCount",
+      "lostCount" = EXCLUDED."lostCount",
+      "attemptsCount" = EXCLUDED."attemptsCount",
+      "updatedAt" = now()
+  `;
+}
+
+/** UserMonthStats for (user, month, offer). Attempts belong to the offer of their lead. */
+export async function recountMonthOffer(db: Db, userId: string, month: DayKey, offerId: string, timeZone = BOGOTA) {
+  const r = monthRange(month, timeZone);
+  const [start, end] = [ts(r.start), ts(r.end)];
+  return db.$executeRaw`
+    INSERT INTO "UserMonthStats"
+      ("id", "userId", "month", "offerId", "callsHeld", "closedCount", "lostCount", "attemptsCount", "updatedAt")
+    SELECT gen_random_uuid()::text, ${userId}, ${r.month}::date, ${offerId},
+      (SELECT count(*)::int FROM "Call" c
+        WHERE c."userId" = ${userId} AND c."offerId" = ${offerId} AND c.state = 'CONFIRMED'
+          AND c."recordedAt" >= ${start}::timestamp AND c."recordedAt" < ${end}::timestamp),
+      (SELECT count(*)::int FROM "Lead" l
+        WHERE l."userId" = ${userId} AND l."offerId" = ${offerId} AND l.status = 'CERRADO'
+          AND l."closedAt" >= ${start}::timestamp AND l."closedAt" < ${end}::timestamp),
+      (SELECT count(*)::int FROM "Lead" l
+        WHERE l."userId" = ${userId} AND l."offerId" = ${offerId} AND l.status = 'PERDIDO'
+          AND l."lostAt" >= ${start}::timestamp AND l."lostAt" < ${end}::timestamp),
+      (SELECT count(*)::int FROM "LeadEvent" e JOIN "Lead" l ON l.id = e."leadId"
+        WHERE e."userId" = ${userId} AND l."offerId" = ${offerId} AND e.type = 'ATTEMPT'
+          AND e."at" >= ${start}::timestamp AND e."at" < ${end}::timestamp),
+      now()
+    WHERE EXISTS (SELECT 1 FROM "Offer" o WHERE o.id = ${offerId} AND o."userId" = ${userId})
+    ON CONFLICT ("userId", "month", "offerId") DO UPDATE SET
+      "callsHeld" = EXCLUDED."callsHeld",
+      "closedCount" = EXCLUDED."closedCount",
+      "lostCount" = EXCLUDED."lostCount",
+      "attemptsCount" = EXCLUDED."attemptsCount",
+      "updatedAt" = now()
+  `;
+}
+
+/**
+ * UserCounters for the user: banner, «en seguimiento», último cierre,
+ * llamadas desde el último cierre and the top objection of the last 5 lost calls.
+ */
+export async function recountCounters(db: Db, userId: string) {
+  return db.$executeRaw`
+    WITH last_close AS (
+      SELECT l."closedAt", l.name FROM "Lead" l
+      WHERE l."userId" = ${userId} AND l.status = 'CERRADO' AND l."closedAt" IS NOT NULL
+      ORDER BY l."closedAt" DESC, l.id DESC LIMIT 1
+    ), lost AS (
+      SELECT c.id FROM "Call" c
+      WHERE c."userId" = ${userId} AND c.outcome = 'PERDIDO'
+      ORDER BY c."recordedAt" DESC, c.id DESC LIMIT 5
+    ), top_obj AS (
+      SELECT o.label, count(DISTINCT o."callId")::int AS hits
+      FROM "CallObjection" o JOIN lost ON lost.id = o."callId"
+      GROUP BY o.label ORDER BY hits DESC, o.label ASC LIMIT 1
+    )
+    INSERT INTO "UserCounters" (
+      "userId", "pendingConfirmCount", "followingCount", "lastCloseAt", "lastCloseLeadName",
+      "callsSinceLastClose", "topObjectionLabel", "topObjectionHits", "topObjectionOf", "updatedAt")
+    SELECT ${userId},
+      (SELECT count(*)::int FROM "Call" c WHERE c."userId" = ${userId} AND c.state = 'PENDING_CONFIRM'),
+      (SELECT count(*)::int FROM "Lead" l WHERE l."userId" = ${userId} AND l.status = 'SEGUIMIENTO'),
+      (SELECT "closedAt" FROM last_close),
+      (SELECT name FROM last_close),
+      (SELECT count(*)::int FROM "Call" c
+        WHERE c."userId" = ${userId} AND c.state = 'CONFIRMED'
+          AND c."recordedAt" > COALESCE((SELECT "closedAt" FROM last_close), '-infinity'::timestamp)),
+      (SELECT label FROM top_obj),
+      (SELECT hits FROM top_obj),
+      (SELECT NULLIF(count(*), 0)::int FROM lost),
+      now()
+    ON CONFLICT ("userId") DO UPDATE SET
+      "pendingConfirmCount" = EXCLUDED."pendingConfirmCount",
+      "followingCount" = EXCLUDED."followingCount",
+      "lastCloseAt" = EXCLUDED."lastCloseAt",
+      "lastCloseLeadName" = EXCLUDED."lastCloseLeadName",
+      "callsSinceLastClose" = EXCLUDED."callsSinceLastClose",
+      "topObjectionLabel" = EXCLUDED."topObjectionLabel",
+      "topObjectionHits" = EXCLUDED."topObjectionHits",
+      "topObjectionOf" = EXCLUDED."topObjectionOf",
+      "updatedAt" = now()
+  `;
+}
+
+export type RecountScope = {
+  /** months touched by the write (YYYY-MM-01); default: the current one */
+  months?: DayKey[];
+  /** offer of the touched rows, for the per-offer stats row */
+  offerId?: string | null;
+  /** lead whose attempt counter changed */
+  leadId?: string | null;
+  timeZone?: string;
+  now?: Date;
+};
+
+/**
+ * Recount after a write: only the touched (user, month), (user, month, offer),
+ * UserCounters and, if given, the lead's attempt counter. Sequential single
+ * statements; each is idempotent, so a retry is always safe.
+ */
+export async function recount(db: Db, userId: string, scope: RecountScope = {}) {
+  const tz = scope.timeZone ?? BOGOTA;
+  const months = [...new Set(scope.months?.length ? scope.months : [bogotaMonth(scope.now ?? new Date(), tz)])];
+  if (scope.leadId) await recountLeadAttempts(db, scope.leadId);
+  await recountCounters(db, userId);
+  for (const month of months) {
+    await recountMonthAll(db, userId, month, tz);
+    if (scope.offerId) await recountMonthOffer(db, userId, month, scope.offerId, tz);
+  }
+}
