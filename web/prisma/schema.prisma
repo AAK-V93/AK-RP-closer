@@ -118,6 +118,8 @@ enum ChangeOrigin {
 }
 
 enum ChangeKind {
+  /// «Confirmar llamadas» (PR 6): outcome + lead + optional Deal/task in one change, undone as one
+  CONFIRM_CALL
   CREATE_LEAD
   UPDATE_LEAD
   SET_STATUS
@@ -125,6 +127,16 @@ enum ChangeKind {
   CREATE_TASK
   CREATE_DEAL
   SET_GOAL
+}
+
+enum DealStatus {
+  ACTIVO
+  ANULADO
+}
+
+enum PaymentMode {
+  CONTADO
+  CUOTAS
 }
 
 enum ChangeStatus {
@@ -156,6 +168,7 @@ model User {
   driveConnection   GoogleDriveConnection?
   leads             Lead[]
   calls             Call[]
+  deals             Deal[]
   callTranscripts   CallTranscript[]
   callObjections    CallObjection[]
   followUpTasks     FollowUpTask[]
@@ -229,6 +242,7 @@ model Offer {
   caseSources    OfferCaseSource[]
   leads          Lead[]
   calls          Call[]
+  deals          Deal[]
   callObjections CallObjection[]
   monthStats     UserMonthStats[]
 
@@ -363,6 +377,7 @@ model Lead {
   updatedAt DateTime @updatedAt
 
   calls           Call[]           @relation("LeadCalls")
+  deals           Deal[]
   callObjections  CallObjection[]
   followUpTasks   FollowUpTask[]
   events          LeadEvent[]
@@ -413,6 +428,7 @@ model Call {
   objections      CallObjection[]
   insights        CoachInsight[]
   lastCallOf      Lead[]           @relation("LeadLastCall")
+  deals           Deal[]
   leadEvents      LeadEvent[]
   proposedChanges ProposedChange[]
 
@@ -471,23 +487,26 @@ model CallObjection {
 
 /// One OPEN task per lead: partial unique index in migration 0_init.
 model FollowUpTask {
-  id        String     @id @default(cuid())
-  userId    String
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  leadId    String
-  lead      Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  id               String     @id @default(cuid())
+  userId           String
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId           String
+  lead             Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
   /// local Bogota date: ordering, "hoy", "de días anteriores"
-  dueDate   DateTime   @db.Date
+  dueDate          DateTime   @db.Date
   /// optional time of day
-  dueAt     DateTime?
-  kind      TaskKind
-  note      String?
-  origin    TaskOrigin
-  status    TaskStatus @default(OPEN)
-  doneAt    DateTime?
-  createdAt DateTime   @default(now())
+  dueAt            DateTime?
+  kind             TaskKind
+  note             String?
+  origin           TaskOrigin
+  status           TaskStatus @default(OPEN)
+  doneAt           DateTime?
+  createdAt        DateTime   @default(now())
+  /// the change that created it («Deshacer» removes it)
+  proposedChangeId String?
 
   @@index([userId, status, dueDate])
+  @@index([leadId, proposedChangeId])
 }
 
 /// Append-only history. An attempt is type=ATTEMPT.
@@ -533,8 +552,43 @@ model ProposedChange {
   decidedAt      DateTime?
 
   leadEvents LeadEvent[]
+  deals      Deal[]
 
   @@index([userId, status, createdAt])
+}
+
+// ---------- Sales (PR 6, plan 1.1 phase 2) ----------
+
+/// A sale. Created only by confirming «Cerró»; commission frozen at creation.
+/// «Deshacer» marks it ANULADO (sums count ACTIVO only).
+model Deal {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId           String
+  lead             Lead            @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  offerId          String?
+  offer            Offer?          @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  callId           String?
+  call             Call?           @relation(fields: [callId], references: [id], onDelete: SetNull)
+  proposedChangeId String?
+  proposedChange   ProposedChange? @relation(fields: [proposedChangeId], references: [id], onDelete: SetNull)
+  closedAt         DateTime
+  /// null = «por confirmar»
+  amountTotal      Decimal?        @db.Decimal(12, 2)
+  paymentMode      PaymentMode?
+  cashCollected    Decimal?        @db.Decimal(12, 2)
+  /// frozen when the deal is created (lib/metrics/commission.ts); null = «por confirmar»
+  commissionAmount Decimal?        @db.Decimal(12, 2)
+  /// currency of the amounts (the offer's, else the person's)
+  currency         String          @db.VarChar(3)
+  status           DealStatus      @default(ACTIVO)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([userId, proposedChangeId])
+  @@index([userId, closedAt])
+  @@index([leadId])
 }
 
 // ---------- Aggregates (written on write, read ready-made) ----------
@@ -606,6 +660,8 @@ model UserCounters {
   lastCloseAt         DateTime?
   lastCloseLeadName   String?
   callsSinceLastClose Int       @default(0)
+  /// calls set aside as internal (IGNORED): «Ignoradas (N)» in Confirmar
+  ignoredCount        Int       @default(0)
   topObjectionLabel   String?
   topObjectionHits    Int?
   topObjectionOf      Int?

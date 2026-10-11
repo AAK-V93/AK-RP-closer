@@ -123,17 +123,31 @@ async function seed(owner: string, s: number) {
       });
     }
     if (r() < 0.3) await db.leadEvent.create({ data: { userId: owner, leadId: lead.id, type: "NOTE", at: pick(EDGE_TIMES) } });
+    // PR 6: sales. Active or annulled, in the person's currency or another, amounts sometimes unknown
+    if (status === "CERRADO" || r() < 0.15) {
+      const amt = () => (r() < 0.25 ? null : String(Math.round(r() * 300000) / 100));
+      await db.deal.create({
+        data: {
+          userId: owner, leadId: lead.id, offerId: lead.offerId, closedAt: pick(EDGE_TIMES),
+          status: r() < 0.8 ? "ACTIVO" : "ANULADO", currency: r() < 0.85 ? "USD" : "EUR",
+          amountTotal: amt(), cashCollected: amt(), commissionAmount: amt(),
+        },
+        select: { id: true },
+      });
+    }
   }
 }
 
 /** From-scratch calculation in TypeScript over every row, independent of the SQL. */
 async function fromScratch(owner: string) {
-  const [leads, calls, events, objections] = await Promise.all([
+  const [leads, calls, events, objections, deals] = await Promise.all([
     db.lead.findMany({ where: { userId: owner }, take: 1000, select: { id: true, name: true, status: true, offerId: true, closedAt: true, lostAt: true, lastCallAt: true, lastCallId: true, createdAt: true } }),
     db.call.findMany({ where: { userId: owner }, take: 1000, select: { id: true, offerId: true, state: true, outcome: true, recordedAt: true } }),
     db.leadEvent.findMany({ where: { userId: owner }, take: 1000, select: { id: true, leadId: true, type: true, at: true } }),
     db.callObjection.findMany({ where: { userId: owner }, take: 1000, select: { callId: true, label: true } }),
+    db.deal.findMany({ where: { userId: owner }, take: 1000, select: { id: true, leadId: true, offerId: true, closedAt: true, status: true, currency: true, amountTotal: true, cashCollected: true, commissionAmount: true } }),
   ]);
+  const cents = (v: { toString(): string } | null) => (v === null ? 0 : Math.round(Number(v.toString()) * 100));
   const leadOffer = new Map(leads.map((l) => [l.id, l.offerId]));
   const inR = (d: Date | null, r: { start: Date; end: Date }) => !!d && d >= r.start && d < r.end;
   const month = (m: string, offerId: string | null) => {
@@ -144,10 +158,18 @@ async function fromScratch(owner: string) {
       closedCount: byOffer(leads).filter((l) => l.status === "CERRADO" && inR(l.closedAt, r)).length,
       lostCount: byOffer(leads).filter((l) => l.status === "PERDIDO" && inR(l.lostAt, r)).length,
       attemptsCount: events.filter((e) => e.type === "ATTEMPT" && inR(e.at, r) && (!offerId || leadOffer.get(e.leadId) === offerId)).length,
+      ...(() => {
+        // ACTIVO deals of the month in the person's currency (USD); others are «por confirmar»
+        const ds = byOffer(deals).filter((d) => d.status === "ACTIVO" && d.currency === "USD" && inR(d.closedAt, r));
+        const sum = (k: "amountTotal" | "cashCollected" | "commissionAmount") => ds.reduce((a, d) => a + cents(d[k]), 0) / 100;
+        return { salesTotal: sum("amountTotal"), cashCollected: sum("cashCollected"), commissionEarned: sum("commissionAmount") };
+      })(),
     };
   };
-  const closed = leads.filter((l) => l.status === "CERRADO" && l.closedAt).sort((a, b) => b.closedAt!.getTime() - a.closedAt!.getTime() || (b.id > a.id ? 1 : -1));
-  const lastClose = closed[0] ?? null;
+  // PR 6: the last close is the last ACTIVE deal (an annulled or undone sale does not count)
+  const leadName = new Map(leads.map((l) => [l.id, l.name]));
+  const active = deals.filter((d) => d.status === "ACTIVO").sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime() || (b.id > a.id ? 1 : -1));
+  const lastClose = active[0] ? { closedAt: active[0].closedAt, name: leadName.get(active[0].leadId)! } : null;
   // lost, or «decidiendo > 14 días»: lead in SEGUIMIENTO whose last call ended in SEGUIMIENTO
   // more than 14 Bogotá days before TODAY
   const deciding = new Set(
@@ -168,6 +190,7 @@ async function fromScratch(owner: string) {
     topObjectionLabel: top?.label ?? null,
     topObjectionHits: top?.hits ?? null,
     topObjectionOf: lost5.length || null,
+    ignoredCount: calls.filter((c) => c.state === "IGNORED").length,
   };
   const attempts = new Map(leads.map((l) => [l.id, events.filter((e) => e.leadId === l.id && e.type === "ATTEMPT" && e.at > (l.lastCallAt ?? l.createdAt)).length]));
   return { month, counters, attempts, leadIds: leads.map((l) => l.id) };
@@ -176,8 +199,8 @@ async function fromScratch(owner: string) {
 async function storedMonth(owner: string, m: string, offerId: string | null) {
   return db.userMonthStats.findFirst({
     where: { userId: owner, month: new Date(`${m}T00:00:00Z`), offerId },
-    select: { callsHeld: true, closedCount: true, lostCount: true, attemptsCount: true },
-  });
+    select: { callsHeld: true, closedCount: true, lostCount: true, attemptsCount: true, salesTotal: true, cashCollected: true, commissionEarned: true },
+  }).then((m) => m && { ...m, salesTotal: Number(m.salesTotal), cashCollected: Number(m.cashCollected), commissionEarned: Number(m.commissionEarned) });
 }
 
 async function recountAll(owner: string) {
@@ -198,7 +221,7 @@ async function assertMatches(owner: string) {
   }
   const counters = await db.userCounters.findUnique({
     where: { userId: owner },
-    select: { pendingConfirmCount: true, followingCount: true, lastCloseAt: true, lastCloseLeadName: true, callsSinceLastClose: true, topObjectionLabel: true, topObjectionHits: true, topObjectionOf: true },
+    select: { pendingConfirmCount: true, followingCount: true, lastCloseAt: true, lastCloseLeadName: true, callsSinceLastClose: true, topObjectionLabel: true, topObjectionHits: true, topObjectionOf: true, ignoredCount: true },
   });
   assert.deepEqual(counters, s.counters);
   const stored = await db.lead.findMany({ where: { userId: owner }, take: 1000, select: { id: true, attemptsSinceLastCall: true } });
@@ -213,6 +236,7 @@ test("(a) recount equals the from-scratch calculation, edges of the month includ
   // sanity: the fixtures really hit both sides of a month edge
   const s = await fromScratch(userId);
   assert.ok(MONTHS.some((m) => s.month(m, null).closedCount > 0));
+  assert.ok(MONTHS.some((m) => s.month(m, null).commissionEarned > 0));
 });
 
 test("(a) recount is idempotent and fixes itself after writes", { skip }, async () => {

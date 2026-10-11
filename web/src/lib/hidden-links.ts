@@ -3,12 +3,12 @@
 // rendered at all; when its screen lands, remove its entry. The cutover PR
 // asserts this list is empty (see v2-ingesta.test.ts, «hidden links»).
 export const HIDDEN_LINKS = {
-  /** Hoy: «Tienes N llamadas por confirmar» → confirm screen (PR 6) */
-  "hoy.confirmar": { href: "/confirmar", until: "PR 6" },
-  /** Metas › Esta semana: «Ver a quién escribirle» → follow-up list (PR 6) */
-  "metas.semana.a-quien-escribir": { href: "/personas?tab=seguimiento", until: "PR 6" },
-  /** Metas › Lo que más te acerca: each person › ficha (PR 6) */
-  "metas.cerca.ficha": { href: "/personas/[id]", until: "PR 6" },
+  /** Metas › Esta semana: «Ver a quién escribirle» → follow-up list (Personas, PR 7) */
+  "metas.semana.a-quien-escribir": { href: "/personas?tab=seguimiento", until: "PR 7" },
+  /** Metas › Lo que más te acerca: each person › ficha (PR 7) */
+  "metas.cerca.ficha": { href: "/personas/[id]", until: "PR 7" },
+  /** Confirmar: › on each call → the person's ficha (PR 7) */
+  "confirmar.ficha": { href: "/personas/[id]", until: "PR 7" },
   /** Metas › Lo que más te frena: «Practicarlo» (practice v2) */
   "metas.frena.practicar": { href: "/practicar", until: "Practicar v2" },
 } as const;

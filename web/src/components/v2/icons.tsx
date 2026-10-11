@@ -35,3 +35,7 @@ export const IconPeople = () => (
 export const IconInfo = () => (
   <svg className="ic" viewBox="0 0 24 24" {...S} aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></svg>
 );
+
+export const IconX = () => (
+  <svg className="ic" viewBox="0 0 24 24" {...S} aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg>
+);

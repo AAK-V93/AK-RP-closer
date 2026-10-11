@@ -31,6 +31,7 @@ export async function readCounters(db: Db, userId: string) {
       topObjectionLabel: true,
       topObjectionHits: true,
       topObjectionOf: true,
+      ignoredCount: true,
     },
   });
   return c ? { ...c, lastCloseAt: iso(c.lastCloseAt) } : null;

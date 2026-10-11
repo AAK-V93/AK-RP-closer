@@ -63,6 +63,9 @@ export const WRITE_EFFECTS = {
   disconnectFathom: (): WriteEffect => ({ offers: true, fathom: true }),
   saveBackfillProgress: (): WriteEffect => ({ fathom: true }),
   applyProposedChange: (leadId: string | null): WriteEffect => ({ stats: true, leads: true, pending: true, leadIds: leadId ? [leadId] : [] }),
+  // Confirmar (PR 6): «Deshacer» touches the same things as the tap; «No era interna» brings a call back to the list
+  undoProposedChange: (leadId: string | null): WriteEffect => ({ stats: true, leads: true, pending: true, leadIds: leadId ? [leadId] : [] }),
+  recoverIgnoredCall: (): WriteEffect => ({ pending: true, practice: true, stats: true }),
   setGoal: (): WriteEffect => ({ goal: true }),
   // Metas (PR 4)
   chooseGoalPath: (): WriteEffect => ({ goal: true }),

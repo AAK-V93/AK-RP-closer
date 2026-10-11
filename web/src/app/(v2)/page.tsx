@@ -6,7 +6,6 @@ import { authOptions } from "@/lib/auth";
 import { goalProgress, toCents } from "@/lib/metrics";
 import { getStartSteps, getTodayHeader, getUserSettings } from "@/lib/read/cached";
 import { after } from "next/server";
-import { showLink } from "@/lib/hidden-links";
 import { runBackfillBurst } from "@/lib/ingest/backfill";
 import { getPrisma } from "@/lib/prisma";
 import { bogotaDay } from "@/lib/time/bogota";
@@ -73,12 +72,14 @@ export default async function HomePage() {
           <div className="pagesub">En unos minutos la app sabrá a quién escribirle y cómo vas con tu meta. Tú solo dale lo básico.</div>
         )}
 
-        {showLink("hoy.confirmar") && (header.counters?.pendingConfirmCount ?? 0) > 0 && (
-          <div className="card pad hgoal">
-            <div className="hs">
-              {header.counters!.pendingConfirmCount === 1 ? "Tienes 1 llamada por confirmar." : `Tienes ${header.counters!.pendingConfirmCount} llamadas por confirmar.`}
-            </div>
-            <Link className="link" href="/confirmar">Confirmar <IconChev /></Link>
+        {(header.counters?.pendingConfirmCount ?? 0) > 0 && (
+          <div className="hbanner">
+            <IconPhone />
+            <span>
+              {header.counters!.pendingConfirmCount === 1 ? "Tienes 1 llamada por confirmar" : `Tienes ${header.counters!.pendingConfirmCount} llamadas por confirmar`}
+              {" · te toma un toque cada una"}
+            </span>
+            <Link className="btn sec sm" href="/confirmar">Confirmar</Link>
           </div>
         )}
 
