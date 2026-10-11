@@ -32,7 +32,10 @@ export async function requireFathomUser() {
 }
 
 export async function getFathomConnection(prisma: NonNullable<ReturnType<typeof getPrisma>>, userId: string) {
-  return prisma.fathomConnection.findUnique({ where: { userId } });
+  return prisma.fathomConnection.findUnique({
+    where: { userId },
+    select: { apiKeyEnc: true, lastSyncAt: true, backfillStatus: true },
+  });
 }
 
 export async function getFathomApiKey(
